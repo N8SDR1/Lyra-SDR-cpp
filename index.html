@@ -90,6 +90,18 @@
   .card p { font-size: 14px; color: var(--text); }
   .card .ico { font-size: 18px; }
 
+  /* Roadmap */
+  .road-card {
+    background: linear-gradient(180deg, rgba(232,196,119,0.06), var(--panel-2));
+    border: 1px dashed rgba(232,196,119,0.30);
+  }
+  .pill-planned {
+    display: inline-block; margin-bottom: 12px;
+    font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--gold); background: rgba(232,196,119,0.10);
+    border: 1px solid rgba(232,196,119,0.30); border-radius: 999px; padding: 3px 10px;
+  }
+
   /* Credits */
   .credits { background: var(--panel-2); border: 1px solid var(--line); border-radius: 16px; padding: 26px; }
   .credits p { font-size: 14.5px; margin: 6px 0; }
@@ -185,6 +197,16 @@
         <div class="card"><h3><span class="ico">⛈️</span> Weather aware</h3><p>Lightning and severe-storm alerts from the NWS, plus live wind and conditions from your own Ambient or Ecowitt station &mdash; so you know when to pull the antenna before the storm rolls in.</p></div>
         <div class="card"><h3><span class="ico">🔗</span> SDRLogger+ Combo link</h3><p>A two-way link with <strong style="color:var(--head)">SDRLogger+</strong> over TCI — frequency, mode and DX spots stay in sync, and CW contacts log straight from Lyra's console with call and RST.</p></div>
         <div class="card"><h3><span class="ico">🎛️</span> Station control</h3><p>A TCI server, Kenwood CAT over COM or TCP, per-band tuner memory, external filter / open-collector band control, digital-mode audio (VAC), and companion-app launch.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>On the roadmap</h2>
+      <p class="marquee-sub">Where Lyra is headed &mdash; planned for future releases.</p>
+      <div class="grid">
+        <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">📡</span> More radios</h3><p>Support for the <strong style="color:var(--head)">ANAN</strong> family (HPSDR Protocol 2) and the <strong style="color:var(--head)">Brick SDR</strong>, so Lyra drives more than just the Hermes&nbsp;Lite.</p></div>
+        <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">✨</span> Adaptive predistortion</h3><p>A PureSignal-style adaptive predistortion loop for a cleaner, more linear transmit signal and lower splatter.</p></div>
+        <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">💻</span> macOS &amp; Linux</h3><p>Native cross-platform builds so Lyra runs beyond Windows.</p></div>
       </div>
     </section>
 
