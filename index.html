@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lyra — Modern SDR transceiver for the Hermes Lite 2 / 2+</title>
+<meta name="description" content="Lyra — a modern, GPU-accelerated SDR transceiver console for the Hermes Lite 2 / 2+. Full RX/TX SSB, CW, AM/SAM and FM, a Vulkan panadapter, a studio TX chain, CW decoder, DX spots and an SDRLogger+ link.">
+<link rel="icon" type="image/png" href="logo.png">
+<style>
+  :root {
+    --bg: #0a0e14;
+    --panel: #111620;
+    --panel-2: #0f1420;
+    --line: rgba(255,255,255,0.07);
+    --accent: #00e5ff;
+    --gold: #e8c477;
+    --text: #cdd9e5;
+    --head: #e6edf3;
+    --muted: #6b7a8d;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background:
+      radial-gradient(circle at 50% -10%, rgba(0,229,255,0.10), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+  /* Hero */
+  header { text-align: center; padding: 72px 0 40px; }
+  .logo {
+    width: 132px; height: 132px; border-radius: 28px;
+    box-shadow: 0 12px 48px rgba(0,229,255,0.22), 0 0 0 1px rgba(232,196,119,0.18);
+  }
+  .wordmark {
+    margin-top: 22px;
+    font-size: clamp(40px, 8.5vw, 64px);
+    font-weight: 800; letter-spacing: 3px; color: var(--head); line-height: 1;
+  }
+  .wordmark .accent { color: var(--accent); text-shadow: 0 0 22px rgba(0,229,255,0.55); }
+  .tagline { margin-top: 16px; font-size: clamp(15px, 2.4vw, 19px); color: var(--text); }
+  .badge {
+    display: inline-block; margin-top: 16px; padding: 4px 12px; border-radius: 999px;
+    font-size: 12px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--gold); background: rgba(232,196,119,0.10); border: 1px solid rgba(232,196,119,0.30);
+  }
+
+  /* CTAs */
+  .cta { margin-top: 30px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 22px; border-radius: 12px; font-size: 15px; font-weight: 600;
+    border: 1px solid var(--line); transition: transform .12s ease, background .2s ease, border-color .2s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary { background: var(--accent); color: #04121a; border-color: transparent; box-shadow: 0 8px 30px rgba(0,229,255,0.25); }
+  .btn-primary:hover { background: #4af0ff; }
+  .btn-ghost { background: rgba(255,255,255,0.03); color: var(--head); }
+  .btn-ghost:hover { border-color: rgba(0,229,255,0.5); color: var(--accent); }
+  .platforms { margin-top: 18px; font-size: 13px; color: var(--muted); letter-spacing: 0.4px; }
+
+  /* Showcase screenshot in a browser-window frame */
+  .showcase { padding: 8px 0 24px; }
+  .frame {
+    border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+    background: var(--panel-2);
+    box-shadow: 0 30px 90px rgba(0,0,0,0.6), 0 0 60px rgba(0,229,255,0.06);
+  }
+  .frame-bar { display: flex; align-items: center; gap: 7px; padding: 9px 14px; background: #0c1119; border-bottom: 1px solid var(--line); }
+  .frame-bar .dot { width: 10px; height: 10px; border-radius: 50%; background: #2a3342; }
+  .frame-title { margin-left: 10px; font-size: 12px; color: var(--muted); letter-spacing: 0.3px; }
+  .frame img { display: block; width: 100%; height: auto; }
+
+  /* Sections */
+  section { padding: 40px 0; }
+  h2 { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); margin-bottom: 22px; text-align: center; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line); border-radius: 16px; padding: 20px 22px;
+  }
+  .card h3 { color: var(--head); font-size: 16px; margin-bottom: 8px; display: flex; align-items: center; gap: 9px; }
+  .card p { font-size: 14px; color: var(--text); }
+  .card .ico { font-size: 18px; }
+
+  /* Credits */
+  .credits { background: var(--panel-2); border: 1px solid var(--line); border-radius: 16px; padding: 26px; }
+  .credits p { font-size: 14.5px; margin: 6px 0; }
+  .credits .name { color: var(--head); font-weight: 600; }
+
+  footer { text-align: center; padding: 34px 0 56px; color: var(--muted); font-size: 13px; }
+  footer a { color: var(--muted); }
+  footer a:hover { color: var(--accent); }
+  .divider { height: 1px; background: var(--line); margin: 8px 0 0; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <img class="logo" src="logo.png" alt="Lyra logo">
+      <div class="wordmark">LYRA<span class="accent"> SDR</span></div>
+      <p class="tagline">A modern, GPU-accelerated SDR transceiver for the Hermes&nbsp;Lite&nbsp;2 / 2+.</p>
+      <div><span class="badge">Free &amp; open source · GPL v3</span></div>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases">⬇ Download</a>
+        <a class="btn btn-ghost" href="https://discord.gg/BwjsQvjcSc">💬 Join the Discord</a>
+        <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp">★ GitHub</a>
+      </div>
+      <p class="platforms">Windows 10 / 11 · Hermes Lite 2 / 2+</p>
+    </header>
+
+    <section class="showcase">
+      <div class="frame">
+        <div class="frame-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="frame-title">Lyra</span>
+        </div>
+        <img src="app-hero.jpg" alt="Lyra — panadapter, waterfall, tuning cluster, CW console and meters running live" loading="lazy" onerror="this.closest('.showcase').style.display='none'">
+      </div>
+    </section>
+
+    <section>
+      <h2>What it does</h2>
+      <div class="grid">
+        <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on the Hermes&nbsp;Lite&nbsp;2 / 2+ — a complete, native HPSDR console with a real TX chain, not just a receiver.</p></div>
+        <div class="card"><h3><span class="ico">📊</span> GPU panadapter</h3><p>A Vulkan-accelerated spectrum and waterfall with click-to-tune, centre-tune (CTUN), RIT / XIT, peak hold and eight colour palettes.</p></div>
+        <div class="card"><h3><span class="ico">🎚️</span> Studio TX chain</h3><p>8-band parametric EQ, a multiband combinator, tube-plate reverb, speech processing, a voice keyer and VOX — shape your audio like a broadcast desk, saved as recallable profiles.</p></div>
+        <div class="card"><h3><span class="ico">🔇</span> Noise reduction</h3><p>WDSP noise reduction, noise blanker, auto-notch and LMS, plus a captured-noise profile that samples your own band noise and subtracts it.</p></div>
+        <div class="card"><h3><span class="ico">📡</span> CW</h3><p>An on-screen CW decoder (fldigi engine), click-to-send macros, an internal / Winkeyer keyer, and a callsign ID rendered right into your waterfall.</p></div>
+        <div class="card"><h3><span class="ico">🗺️</span> Band awareness</h3><p>DX cluster / RBN spots overlaid on the panadapter for click-to-tune, an EiBi shortwave-broadcaster overlay, and solar, propagation and station-weather panels.</p></div>
+        <div class="card"><h3><span class="ico">🔗</span> SDRLogger+ Combo link</h3><p>A two-way link with <strong style="color:var(--head)">SDRLogger+</strong> over TCI — frequency, mode and DX spots stay in sync, and CW contacts log straight from Lyra's console with call and RST.</p></div>
+        <div class="card"><h3><span class="ico">🎛️</span> Station control</h3><p>A TCI server, Kenwood CAT over COM or TCP, per-band tuner memory, external filter / open-collector band control, digital-mode audio (VAC), and companion-app launch.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Credits &amp; lineage</h2>
+      <div class="credits">
+        <p><span class="name">Rick Langford (N8SDR)</span> — lead developer, creator of Lyra.</p>
+        <p><span class="name">Brent Crier (N9BC)</span> — co-contributor.</p>
+        <div class="divider"></div>
+        <p style="margin-top:14px; color: var(--muted);">Ports the <strong style="color:var(--text)">WDSP</strong> DSP engine by Warren Pratt (NR0V) and the <a href="https://sourceforge.net/projects/fldigi/">fldigi</a> CW decoder by Dave Freese (W1HKJ) and VE7IT — both GPL. Lyra is GPL&nbsp;v3 licensed.</p>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <p>© 2026 Rick Langford (N8SDR) and contributors · GPL v3 License</p>
+    <p style="margin-top:6px;"><a href="https://github.com/N8SDR1/Lyra-SDR-cpp">GitHub</a> · <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases">Releases</a> · <a href="https://discord.gg/BwjsQvjcSc">Discord</a></p>
+  </footer>
+</body>
+</html>
