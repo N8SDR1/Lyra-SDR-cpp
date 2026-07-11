@@ -99,6 +99,38 @@
   footer a { color: var(--muted); }
   footer a:hover { color: var(--accent); }
   .divider { height: 1px; background: var(--line); margin: 8px 0 0; }
+
+  /* Rolling feature marquee — the studio TX chain, up close */
+  .marquee-sec { padding: 24px 0 44px; }
+  .marquee-sub { text-align: center; color: var(--muted); font-size: 14px; margin: -8px 0 24px; }
+  .marquee {
+    position: relative; overflow: hidden;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+            mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+  }
+  .marquee-track {
+    display: flex; gap: 20px; width: max-content;
+    animation: marquee-scroll 34s linear infinite;
+  }
+  .marquee:hover .marquee-track { animation-play-state: paused; }
+  @keyframes marquee-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .shot {
+    flex: 0 0 auto; width: 340px;
+    border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+    background: var(--panel-2);
+    box-shadow: 0 16px 44px rgba(0,0,0,0.5), 0 0 34px rgba(0,229,255,0.05);
+  }
+  .shot img { display: block; width: 100%; height: auto; }
+  .shot .cap {
+    padding: 10px 14px; font-size: 12.5px; color: var(--text);
+    border-top: 1px solid var(--line); letter-spacing: 0.2px;
+  }
+  .shot .cap b { color: var(--head); font-weight: 600; }
+  @media (prefers-reduced-motion: reduce) {
+    .marquee-track { animation: none; }
+    .marquee { overflow-x: auto; }
+    .marquee { -webkit-mask-image: none; mask-image: none; }
+  }
 </style>
 </head>
 <body>
@@ -123,6 +155,21 @@
           <span class="frame-title">Lyra</span>
         </div>
         <img src="app-hero.jpg" alt="Lyra — panadapter, waterfall, tuning cluster, CW console and meters running live" loading="lazy" onerror="this.closest('.showcase').style.display='none'">
+      </div>
+    </section>
+
+    <section class="marquee-sec">
+      <h2>The studio TX chain, up close</h2>
+      <p class="marquee-sub">Shape your audio like a broadcast desk &mdash; every stage native, saved as recallable profiles.</p>
+      <div class="marquee">
+        <div class="marquee-track">
+          <div class="shot"><img src="feat-eq.jpg" alt="Lyra TX 8-band parametric EQ with a draggable response curve over a live audio analyzer" loading="lazy"><div class="cap"><b>8-band parametric EQ</b> &mdash; drag the curve over a live analyzer</div></div>
+          <div class="shot"><img src="feat-combinator.jpg" alt="Lyra TX Combinator five-band multiband compressor" loading="lazy"><div class="cap"><b>5-band Combinator</b> &mdash; multiband compression per band</div></div>
+          <div class="shot"><img src="feat-speech.jpg" alt="Lyra TX Speech rack with noise gate, auto-AGC and de-esser" loading="lazy"><div class="cap"><b>Speech rack</b> &mdash; noise gate, auto-AGC, de-esser</div></div>
+          <div class="shot" aria-hidden="true"><img src="feat-eq.jpg" alt="" loading="lazy"><div class="cap"><b>8-band parametric EQ</b> &mdash; drag the curve over a live analyzer</div></div>
+          <div class="shot" aria-hidden="true"><img src="feat-combinator.jpg" alt="" loading="lazy"><div class="cap"><b>5-band Combinator</b> &mdash; multiband compression per band</div></div>
+          <div class="shot" aria-hidden="true"><img src="feat-speech.jpg" alt="" loading="lazy"><div class="cap"><b>Speech rack</b> &mdash; noise gate, auto-AGC, de-esser</div></div>
+        </div>
       </div>
     </section>
 
