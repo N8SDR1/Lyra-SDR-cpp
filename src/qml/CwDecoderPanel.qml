@@ -32,12 +32,21 @@ Rectangle {
     property int    rxWpm: 0
     property bool   matchTxSpeed: false
 
+    // DeepFist — active engine (0=Classic fldigi, 1=Neural) + the neural
+    // engine's rolling full-window decode (shown in replace mode).  The classic
+    // engine appends incrementally; the neural engine replaces the whole pane
+    // each ~1.5 s window.
+    readonly property int cwEngine: WdspEngine.cwDecodeEngine
+    property string neuralText: ""
+    readonly property string displayText:
+        root.cwEngine === 1 ? root.neuralText : root.decodedText
+
     function appendDecoded(s) {
         var t = root.decodedText + s
         if (t.length > 6000) t = t.slice(-4500)
         root.decodedText = t
     }
-    function clearDecoded() { root.decodedText = "" }
+    function clearDecoded() { root.decodedText = ""; root.neuralText = "" }
 
     // fldigi CW-receiver knob mirrors (persisted via Prefs; fldigi defaults:
     // BW 150 Hz, speed 18 wpm, tracking on, matched filter off, squelch off).
@@ -71,6 +80,10 @@ Rectangle {
         WdspEngine.setCwDecodeTracking(root.trackingOn)
         WdspEngine.setCwDecodeMatchedFilter(root.matchedFilter)
         pushSquelch()
+        // Restore the persisted engine; if the neural model can't load,
+        // WdspEngine stays on Classic (cwDecodeEngine reflects the truth).
+        if (Prefs.cwDecodeEngine === 1)
+            WdspEngine.cwDecodeEngine = 1
     }
 
     function applyWpmToKeyer(w) {
@@ -86,6 +99,10 @@ Rectangle {
             root.rxWpm = w
             if (root.matchTxSpeed) root.applyWpmToKeyer(w)
         }
+        // Neural engine: replace the pane with the full current-window decode.
+        function onCwNeuralText(windowText) { root.neuralText = windowText }
+        // Clear stale text when switching engines (append vs replace semantics).
+        function onCwDecodeEngineChanged() { root.clearDecoded() }
     }
 
     // Poll the live squelch metric (~10 Hz) only while the decoder is running
@@ -182,6 +199,37 @@ Rectangle {
             }
         }
 
+        // ── Engine selector: Classic (fldigi) vs DeepFist (neural) ──
+        RowLayout {
+            visible: !root.collapsed
+            Layout.fillWidth: true
+            spacing: 8
+            Label { text: qsTr("Engine"); color: root.cText; font.pixelSize: 12 }
+            ChipButton {
+                label: qsTr("Classic")
+                lit: root.cwEngine === 0
+                onClicked: { WdspEngine.cwDecodeEngine = 0
+                             Prefs.cwDecodeEngine = 0 }
+            }
+            ChipButton {
+                label: qsTr("DeepFist")
+                lit: root.cwEngine === 1
+                onClicked: { WdspEngine.cwDecodeEngine = 1
+                             // Persist only if it actually engaged (model loaded).
+                             if (WdspEngine.cwDecodeEngine === 1)
+                                 Prefs.cwDecodeEngine = 1 }
+            }
+            Label {
+                visible: root.cwEngine === 1
+                text: WdspEngine.cwNeuralAvailable
+                      ? qsTr("• neural (rolling 6 s window)")
+                      : qsTr("• model not found — see models/")
+                color: WdspEngine.cwNeuralAvailable ? "#3fb6a0" : "#e0a030"
+                font.pixelSize: 11
+            }
+            Item { Layout.fillWidth: true }
+        }
+
         // ── Decoded-text pane (operator font + colour) ──
         Rectangle {
             visible: !root.collapsed
@@ -207,7 +255,7 @@ Rectangle {
                     selectByMouse: true
                     wrapMode: TextArea.WrapAnywhere
                     textFormat: TextArea.PlainText
-                    text: root.decodedText
+                    text: root.displayText
                     color: Prefs.cwDecodeColor
                     font.family: "Consolas"
                     font.pixelSize: Prefs.cwDecodeFontSize
@@ -264,12 +312,16 @@ Rectangle {
             Item { Layout.fillWidth: true }
         }
 
-        // ── Decoder (fldigi) controls ──
-        Divider { label: qsTr("Decoder") }
+        // ── Decoder (fldigi) controls — classic engine only; the neural engine
+        //    is self-tuning (no BW/speed/squelch knobs). ──
+        Divider {
+            label: qsTr("Decoder")
+            visible: !root.collapsed && root.cwEngine === 0
+        }
 
         // Speed (WPM seed) + adaptive Tracking + Matched-filter.
         RowLayout {
-            visible: !root.collapsed
+            visible: !root.collapsed && root.cwEngine === 0
             Layout.fillWidth: true
             spacing: 8
             opacity: root.cwActive ? 1.0 : 0.6
@@ -318,7 +370,7 @@ Rectangle {
 
         // Bandwidth (disabled when matched-filter is on — fldigi auto-sets it).
         RowLayout {
-            visible: !root.collapsed
+            visible: !root.collapsed && root.cwEngine === 0
             Layout.fillWidth: true
             spacing: 10
             opacity: root.cwActive ? 1.0 : 0.6
@@ -343,7 +395,7 @@ Rectangle {
 
         // Squelch on/off + metric level.
         RowLayout {
-            visible: !root.collapsed
+            visible: !root.collapsed && root.cwEngine === 0
             Layout.fillWidth: true
             spacing: 10
             opacity: root.cwActive ? 1.0 : 0.6
@@ -378,7 +430,7 @@ Rectangle {
         // is the current signal; the amber tick is your Squelch threshold when
         // Squelch is on — set the slider just under the signal peaks.
         RowLayout {
-            visible: !root.collapsed
+            visible: !root.collapsed && root.cwEngine === 0
             Layout.fillWidth: true
             spacing: 10
             opacity: root.cwActive ? 1.0 : 0.4

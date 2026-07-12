@@ -133,6 +133,9 @@ class Prefs : public QObject {
                NOTIFY cwDecodeBandwidthChanged)
     Q_PROPERTY(int cwDecodeSpeed READ cwDecodeSpeed WRITE setCwDecodeSpeed
                NOTIFY cwDecodeSpeedChanged)
+    // DeepFist — persisted CW decode engine (0=Classic fldigi, 1=Neural).
+    Q_PROPERTY(int cwDecodeEngine READ cwDecodeEngine WRITE setCwDecodeEngine
+               NOTIFY cwDecodeEngineChanged)
     Q_PROPERTY(bool cwDecodeTracking READ cwDecodeTracking WRITE setCwDecodeTracking
                NOTIFY cwDecodeTrackingChanged)
     Q_PROPERTY(bool cwDecodeMatchedFilter READ cwDecodeMatchedFilter WRITE setCwDecodeMatchedFilter
@@ -430,6 +433,8 @@ public:
     void    setCwDecodeBandwidth(int hz);
     int     cwDecodeSpeed() const { return cwDecodeSpeed_; }
     void    setCwDecodeSpeed(int wpm);
+    int     cwDecodeEngine() const { return cwDecodeEngine_; }
+    void    setCwDecodeEngine(int engine);
     bool    cwDecodeTracking() const { return cwDecodeTracking_; }
     void    setCwDecodeTracking(bool on);
     bool    cwDecodeMatchedFilter() const { return cwDecodeMatchedFilter_; }
@@ -610,6 +615,7 @@ signals:
     void cwDecodeFontSizeChanged();
     void cwDecodeBandwidthChanged();
     void cwDecodeSpeedChanged();
+    void cwDecodeEngineChanged();
     void cwDecodeTrackingChanged();
     void cwDecodeMatchedFilterChanged();
     void cwDecodeSquelchOnChanged();
@@ -703,6 +709,7 @@ private:
     int     cwDecodeFontSize_;
     int     cwDecodeBandwidth_;
     int     cwDecodeSpeed_;
+    int     cwDecodeEngine_;
     bool    cwDecodeTracking_;
     bool    cwDecodeMatchedFilter_;
     bool    cwDecodeSquelchOn_;

@@ -90,6 +90,17 @@ FSM → Morse lookup).  fldigi is GPL v3+.
   CW speed-tracking algorithm, which Lyra-cpp ports verbatim.
   http://www.w1hkj.com/ — https://sourceforge.net/projects/fldigi/
 
+### DeepFist — neural CW (Morse) decoder
+
+Lyra-cpp's optional neural CW decode engine embeds **DeepFist**,
+a clean-room, self-trained neural (spectrogram → CNN + CTC)
+Morse decoder that runs via **ONNX Runtime** (Microsoft, MIT).
+Both are MIT-licensed — see [NOTICE.md](NOTICE.md).
+
+- **Brent Crier** — author of DeepFist: the synthetic-data
+  generator, the CNN+CTC model, its training, and the ONNX
+  export the decoder embeds.
+
 ---
 
 ## Reference projects (cross-checked, not source-incorporated)

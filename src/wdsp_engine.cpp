@@ -24,6 +24,9 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QInputDialog>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QStandardPaths>
@@ -318,6 +321,16 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
                                              static_cast<int>(s.size())), 1.0);
     };
     cwDecoder_.onWpm = [this](int w) { emit cwRxWpmChanged(w); };
+
+    // DeepFist neural CW decoder (second engine).  Same 48 kHz input rate; the
+    // model is loaded lazily on first switch to Neural (setCwDecodeEngine).  Its
+    // callback delivers the FULL current-window decode; the panel shows it in
+    // replace mode.  Fires on the audio thread -> queued to the GUI.
+    neuralCw_.setSampleRate(cfg_.outRate);
+    neuralCw_.onText = [this](const std::string& s) {
+        emit cwNeuralText(QString::fromUtf8(s.c_str(),
+                                            static_cast<int>(s.size())));
+    };
 
     // 5 Hz UI poll: emit levelsChanged so the QML audioDbFs binding
     // re-reads the atomic (mirrors HL2Stream's statsTimer cadence).
@@ -1892,6 +1905,43 @@ void WdspEngine::setCwDecodeEnabled(bool on)
     }
     cwDecodeOn_.store(on, std::memory_order_relaxed);
     emit cwDecodeEnabledChanged();
+}
+
+// DeepFist — select the active CW decode engine (0=Classic fldigi, 1=Neural).
+// The neural model is loaded lazily on the first switch to Neural.  Ordering is
+// deliberate for audio-thread safety: when switching TO Neural we finish
+// loading + reset the decoder BEFORE storing cwEngine_=1 (the audio tap only
+// calls neuralCw_.process() once cwEngine_==1), so it never touches a
+// half-constructed ONNX session.  If the model can't load we stay on Classic.
+void WdspEngine::setCwDecodeEngine(int engine)
+{
+    const int cur = cwEngine_.load(std::memory_order_relaxed);
+    if (engine == cur) return;
+
+    if (engine == 1) {
+        if (!neuralCw_.ready()) {
+            // Resolve the model dir: env override, then <exeDir>/models.
+            QString dir = qEnvironmentVariable("DEEPFIST_MODEL_DIR");
+            if (dir.isEmpty() ||
+                !QFileInfo::exists(dir + "/deepfist.onnx")) {
+                dir = QCoreApplication::applicationDirPath() + "/models";
+            }
+            const bool ok = neuralCw_.loadModel(dir.toStdString());
+            emit cwNeuralAvailableChanged();
+            if (!ok) {
+                qWarning("DeepFist: neural CW model not loaded (%s) — staying on "
+                         "the classic decoder.  %s",
+                         qUtf8Printable(dir), neuralCw_.lastError().c_str());
+                return;   // keep engine 0
+            }
+        }
+        neuralCw_.reset();                          // safe: engine still 0 here
+        cwEngine_.store(1, std::memory_order_relaxed);
+    } else {
+        cwEngine_.store(0, std::memory_order_relaxed);
+        cwDecoder_.reset();
+    }
+    emit cwDecodeEngineChanged();
 }
 
 // Task #53 — shared RX+TX filter low edge.  RX-side application:
@@ -3557,7 +3607,13 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
             cwMonoBuf_.assign(static_cast<size_t>(nframes), 0.0f);
         for (int f = 0; f < nframes; ++f)
             cwMonoBuf_[static_cast<size_t>(f)] = static_cast<float>(audio[2 * f]);
-        cwDecoder_.process(cwMonoBuf_.data(), nframes);
+        // Route to the selected engine (only one runs).  Engine is switched to
+        // Neural only after its model is fully loaded (see setCwDecodeEngine),
+        // so neuralCw_ is safe to call here.
+        if (cwEngine_.load(std::memory_order_relaxed) == 1)
+            neuralCw_.process(cwMonoBuf_.data(), nframes);
+        else
+            cwDecoder_.process(cwMonoBuf_.data(), nframes);
 
         // #187 — optional capture of the EXACT decoder input to a WAV for
         // offline filter tuning.  Armed by LYRA_CW_WAV=<path>; passive, the

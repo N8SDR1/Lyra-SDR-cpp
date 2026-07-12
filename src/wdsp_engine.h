@@ -41,6 +41,7 @@
 
 #include "dsp/MonitorRing.h"   // #90 — TX-monitor SPSC ring (value member)
 #include "dsp/CwDecoder.h"     // #173 CW-5a — RX CW decoder (value member)
+#include "dsp/deepfist/NeuralCwDecoder.h" // DeepFist neural CW decoder (2nd engine)
 #include "dsp/FreqCalMeasure.h" // freq calibration — carrier tone estimator
 
 class QAudioSink;
@@ -168,6 +169,13 @@ class WdspEngine : public QObject {
     // separate CW decoder panel (CW-5b).
     Q_PROPERTY(bool cwDecodeEnabled READ cwDecodeEnabled WRITE setCwDecodeEnabled
                NOTIFY cwDecodeEnabledChanged)
+    // DeepFist — which CW decode engine is active (0=Classic fldigi, 1=Neural)
+    // and whether the neural model actually loaded (drives the panel's toggle
+    // + "model not found" status).
+    Q_PROPERTY(int cwDecodeEngine READ cwDecodeEngine WRITE setCwDecodeEngine
+               NOTIFY cwDecodeEngineChanged)
+    Q_PROPERTY(bool cwNeuralAvailable READ cwNeuralAvailable
+               NOTIFY cwNeuralAvailableChanged)
     // ── RX DSP operator controls (ported from old Lyra's DSP+AUDIO
     // panel).  Noise reduction = WDSP EMNR.  nrMode 1..4 picks the
     // gain function (Wiener+SPP / Wiener / MMSE-LSA / trained); AEPF is
@@ -592,6 +600,14 @@ public:
     // Live squelch signal metric (SNR 0..100) for the panel bar; polled by QML.
     Q_INVOKABLE double cwDecodeMetric() const { return cwDecoder_.squelchMetric(); }
     int  cwRxWpm() const { return cwDecoder_.rxWpm(); }
+
+    // DeepFist neural CW decoder — second, selectable engine.  Both engines
+    // share the CW-mode-gated audio tap; only the selected one runs.  Unlike
+    // the classic engine (incremental cwDecodedChar), the neural engine emits
+    // the FULL decoded text of the current 6 s window via cwNeuralText.
+    int  cwDecodeEngine() const { return cwEngine_.load(std::memory_order_relaxed); }
+    Q_INVOKABLE void setCwDecodeEngine(int engine);
+    bool cwNeuralAvailable() const { return neuralCw_.ready(); }
     // Task #53 — shared RX+TX filter low edge.  Affects only the
     // ASYMMETRIC SSB / DIG modes (USB/LSB/DIGU/DIGL).  CW filter
     // is centred on the pitch (low edge isn't a meaningful axis);
@@ -751,6 +767,11 @@ signals:
     void cwDecodeEnabledChanged();
     void cwDecodedChar(QString ch, double confidence);  // decoded unit (conf always 1)
     void cwRxWpmChanged(int wpm);            // fldigi RX speed
+    // DeepFist — engine selection changed; neural model availability resolved;
+    // and the full current-window neural decode (replace-mode display).
+    void cwDecodeEngineChanged();
+    void cwNeuralAvailableChanged();
+    void cwNeuralText(QString windowText);
     // Freq calibration — one emit per analysis window while measuring.
     void freqCalUpdated(double measuredHz, double snrDb, int windows);
     void nrChanged();        // NR enable / mode / AEPF / NPE
@@ -1180,6 +1201,11 @@ private:
     // cwModeActive_ (set in setMode) gates to CWU/CWL; cwDecodeOn_ is the
     // operator enable.  cwMonoBuf_ holds the de-interleaved mono block.
     lyra::dsp::CwDecoder                 cwDecoder_;
+
+    // DeepFist neural CW decoder — second engine sharing the same tap.
+    // cwEngine_: 0 = Classic (fldigi), 1 = Neural (DeepFist).
+    lyra::dsp::NeuralCwDecoder           neuralCw_;
+    std::atomic<int>                     cwEngine_{0};
 
     // Freq calibration (Stage 3b) — carrier-tone estimator + arm flag +
     // de-interleave scratch + last-emitted window counter (throttle).
