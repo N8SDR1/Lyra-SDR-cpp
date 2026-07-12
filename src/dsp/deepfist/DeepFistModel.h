@@ -36,6 +36,13 @@ public:
     // text (may be empty).  Safe to call only when ready().
     std::string decode3200(const float* audio, int n);
 
+    // Run the model on a 3200 Hz window and expose the raw CTC log-probs
+    // (row-major [T][C], one batch).  Lets the streaming decoder do its own
+    // frame-timed commit.  Returns false on failure.  Safe only when ready().
+    bool infer(const float* audio, int n,
+               std::vector<float>& logits, int& T, int& C);
+
+    const std::vector<std::string>& tokens() const { return tokens_; }
     const std::string& lastError() const { return lastError_; }
 
 private:

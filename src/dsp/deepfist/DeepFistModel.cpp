@@ -114,18 +114,21 @@ bool DeepFistModel::load(const std::string& modelDir) {
     return true;
 }
 
-std::string DeepFistModel::decode3200(const float* audio, int n) {
-    if (!ready_ || !audio || n <= 0) return {};
+bool DeepFistModel::infer(const float* audio, int n,
+                          std::vector<float>& logits, int& T, int& C) {
+    T = 0; C = 0;
+    logits.clear();
+    if (!ready_ || !audio || n <= 0) return false;
 
-    int T = 0;
-    fe_.compute(audio, n, specScratch_, T);          // [65 * T] row-major
-    if (T == 0 || specScratch_.empty()) return {};
+    int specT = 0;
+    fe_.compute(audio, n, specScratch_, specT);      // [65 * specT] row-major
+    if (specT == 0 || specScratch_.empty()) return false;
 
     try {
         Ort::MemoryInfo mem = Ort::MemoryInfo::CreateCpu(
             OrtArenaAllocator, OrtMemTypeDefault);
         const std::array<int64_t, 4> inShape{
-            1, 1, DeepFistSpectrogram::kFreqBins, T};
+            1, 1, DeepFistSpectrogram::kFreqBins, specT};
         Ort::Value input = Ort::Value::CreateTensor<float>(
             mem, specScratch_.data(), specScratch_.size(),
             inShape.data(), inShape.size());
@@ -137,17 +140,24 @@ std::string DeepFistModel::decode3200(const float* audio, int n) {
 
         auto info = outputs[0].GetTensorTypeAndShapeInfo();
         auto oshape = info.GetShape();                // [t_out, batch=1, class]
-        if (oshape.size() != 3) return {};
-        const int tOut    = static_cast<int>(oshape[0]);
-        const int classes = static_cast<int>(oshape[2]);
+        if (oshape.size() != 3) return false;
+        T = static_cast<int>(oshape[0]);
+        C = static_cast<int>(oshape[2]);
         const float* logp = outputs[0].GetTensorData<float>();
-
-        // output is [t_out, 1, class] row-major == [t_out][class] for batch 1
-        return greedyCtcDecode(logp, tOut, classes, tokens_);
+        // [t_out, 1, class] row-major == [t_out][class] for batch 1
+        logits.assign(logp, logp + static_cast<size_t>(T) * C);
+        return true;
     } catch (const Ort::Exception& e) {
         lastError_ = std::string("inference failed: ") + e.what();
-        return {};
+        return false;
     }
+}
+
+std::string DeepFistModel::decode3200(const float* audio, int n) {
+    std::vector<float> logits;
+    int T = 0, C = 0;
+    if (!infer(audio, n, logits, T, C)) return {};
+    return greedyCtcDecode(logits.data(), T, C, tokens_);
 }
 
 }  // namespace lyra::dsp
