@@ -32,21 +32,18 @@ Rectangle {
     property int    rxWpm: 0
     property bool   matchTxSpeed: false
 
-    // DeepFist — active engine (0=Classic fldigi, 1=Neural) + the neural
-    // engine's rolling full-window decode (shown in replace mode).  The classic
-    // engine appends incrementally; the neural engine replaces the whole pane
-    // each ~1.5 s window.
+    // DeepFist — active engine (0=Classic fldigi, 1=Neural).  Both engines now
+    // stream characters incrementally into the transcript: the classic engine
+    // per decoded element, the neural engine via frame-timed commit (~1.3 s
+    // latency).  So both just append to decodedText.
     readonly property int cwEngine: WdspEngine.cwDecodeEngine
-    property string neuralText: ""
-    readonly property string displayText:
-        root.cwEngine === 1 ? root.neuralText : root.decodedText
 
     function appendDecoded(s) {
         var t = root.decodedText + s
         if (t.length > 6000) t = t.slice(-4500)
         root.decodedText = t
     }
-    function clearDecoded() { root.decodedText = ""; root.neuralText = "" }
+    function clearDecoded() { root.decodedText = "" }
 
     // fldigi CW-receiver knob mirrors (persisted via Prefs; fldigi defaults:
     // BW 150 Hz, speed 18 wpm, tracking on, matched filter off, squelch off).
@@ -99,9 +96,9 @@ Rectangle {
             root.rxWpm = w
             if (root.matchTxSpeed) root.applyWpmToKeyer(w)
         }
-        // Neural engine: replace the pane with the full current-window decode.
-        function onCwNeuralText(windowText) { root.neuralText = windowText }
-        // Clear stale text when switching engines (append vs replace semantics).
+        // Neural engine: append the newly-committed characters (frame-timed).
+        function onCwNeuralText(newText) { root.appendDecoded(newText) }
+        // Clear the transcript when switching engines.
         function onCwDecodeEngineChanged() { root.clearDecoded() }
     }
 
@@ -255,7 +252,7 @@ Rectangle {
                     selectByMouse: true
                     wrapMode: TextArea.WrapAnywhere
                     textFormat: TextArea.PlainText
-                    text: root.displayText
+                    text: root.decodedText
                     color: Prefs.cwDecodeColor
                     font.family: "Consolas"
                     font.pixelSize: Prefs.cwDecodeFontSize

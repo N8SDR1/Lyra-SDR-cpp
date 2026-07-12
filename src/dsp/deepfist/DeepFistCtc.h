@@ -21,4 +21,17 @@ namespace lyra::dsp {
 std::string greedyCtcDecode(const float* logProbs, int T, int C,
                             const std::vector<std::string>& tokens);
 
+// Frame-aware greedy CTC decode (mirrors DeepFist's tci_decode.greedy_frames).
+// For each emitted (non-blank, repeat-collapsed) token, records the frame index
+// where it was emitted — used by the streaming decoder to commit characters
+// once their audio has settled.  `blankPenalty` is subtracted from the blank
+// logit before argmax to counter CTC blank over-prediction (0 = off).
+struct CtcFrames {
+    std::vector<int> ids;      // emitted token ids
+    std::vector<int> frames;   // frame index of each emitted id
+    int              T = 0;    // total frame count
+};
+CtcFrames greedyCtcFrames(const float* logProbs, int T, int C,
+                          float blankPenalty = 0.0f);
+
 }  // namespace lyra::dsp

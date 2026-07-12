@@ -936,3 +936,29 @@ if(WIN32)
             "${ORT_DIR}/lib/onnxruntime.dll" "$<TARGET_FILE_DIR:test_neural_cw>"
         VERBATIM)
 endif()
+
+# DeepFist — real-time STREAMING harness: plays a 48 kHz CW WAV through the
+# actual NeuralCwDecoder (worker thread + frame-timed commit) and prints
+# committed characters as they stream.  Deterministic test of the live decode
+# path without a radio/GUI.  Build + run:
+#   cmake --build build --target test_neural_cw_stream
+#   build/test_neural_cw_stream <modelDir> <clip48k.wav>
+add_executable(test_neural_cw_stream EXCLUDE_FROM_ALL
+    scratch/test_neural_cw_stream.cpp
+    src/dsp/deepfist/DeepFistResampler.cpp
+    src/dsp/deepfist/DeepFistSpectrogram.cpp
+    src/dsp/deepfist/DeepFistCtc.cpp
+    src/dsp/deepfist/DeepFistModel.cpp
+    src/dsp/deepfist/NeuralCwDecoder.cpp
+)
+target_include_directories(test_neural_cw_stream PRIVATE src)
+target_link_libraries(test_neural_cw_stream PRIVATE onnxruntime)
+if(MSVC)
+    target_compile_options(test_neural_cw_stream PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+if(WIN32)
+    add_custom_command(TARGET test_neural_cw_stream POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ORT_DIR}/lib/onnxruntime.dll" "$<TARGET_FILE_DIR:test_neural_cw_stream>"
+        VERBATIM)
+endif()

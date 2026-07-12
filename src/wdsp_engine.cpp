@@ -324,8 +324,9 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
 
     // DeepFist neural CW decoder (second engine).  Same 48 kHz input rate; the
     // model is loaded lazily on first switch to Neural (setCwDecodeEngine).  Its
-    // callback delivers the FULL current-window decode; the panel shows it in
-    // replace mode.  Fires on the audio thread -> queued to the GUI.
+    // callback delivers newly-committed characters (frame-timed streaming) to
+    // append to the transcript.  Fires on the decoder's worker thread; the
+    // queued signal marshals it to the GUI.
     neuralCw_.setSampleRate(cfg_.outRate);
     neuralCw_.onText = [this](const std::string& s) {
         emit cwNeuralText(QString::fromUtf8(s.c_str(),
