@@ -1934,6 +1934,7 @@ void WdspEngine::setCwDecodeEngine(int engine)
                          qUtf8Printable(dir), neuralCw_.lastError().c_str());
                 return;   // keep engine 0
             }
+            qInfo("DeepFist: neural CW model loaded from %s", qUtf8Printable(dir));
         }
         neuralCw_.reset();                          // safe: engine still 0 here
         cwEngine_.store(1, std::memory_order_relaxed);
