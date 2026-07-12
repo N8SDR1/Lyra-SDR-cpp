@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "dsp/deepfist/DeepFistConditioner.h"
 #include "dsp/deepfist/DeepFistSpectrogram.h"
 
 namespace lyra::dsp {
@@ -49,8 +50,10 @@ private:
     struct Impl;                        // hides the ONNX Runtime types
     std::unique_ptr<Impl> impl_;
 
+    DeepFistConditioner      cond_;     // fldigi-style front-end (exp14+ models)
     DeepFistSpectrogram      fe_;
     std::vector<std::string> tokens_;   // 48-entry table from the sidecar
+    std::vector<float>       condScratch_;
     std::vector<float>       specScratch_;
     bool                     ready_ = false;
     std::string              lastError_;

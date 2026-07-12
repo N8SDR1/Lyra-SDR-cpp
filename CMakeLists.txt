@@ -237,6 +237,8 @@ qt_add_executable(lyra
     src/dsp/deepfist/DeepFistResampler.cpp
     src/dsp/deepfist/DeepFistSpectrogram.h
     src/dsp/deepfist/DeepFistSpectrogram.cpp
+    src/dsp/deepfist/DeepFistConditioner.h
+    src/dsp/deepfist/DeepFistConditioner.cpp
     src/dsp/deepfist/DeepFistCtc.h
     src/dsp/deepfist/DeepFistCtc.cpp
     src/dsp/deepfist/DeepFistModel.h
@@ -918,6 +920,8 @@ add_executable(test_neural_cw EXCLUDE_FROM_ALL
     src/dsp/deepfist/DeepFistResampler.cpp
     src/dsp/deepfist/DeepFistSpectrogram.h
     src/dsp/deepfist/DeepFistSpectrogram.cpp
+    src/dsp/deepfist/DeepFistConditioner.h
+    src/dsp/deepfist/DeepFistConditioner.cpp
     src/dsp/deepfist/DeepFistCtc.h
     src/dsp/deepfist/DeepFistCtc.cpp
     src/dsp/deepfist/DeepFistModel.h
