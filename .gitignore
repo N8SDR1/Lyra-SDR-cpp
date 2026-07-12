@@ -58,6 +58,17 @@ __pycache__/
 # never committed (see CMakeLists OutputDir / installer/lyra.iss).
 dist/
 
+# DeepFist neural CW decoder — the trained model artifacts are large binaries
+# distributed via the installer / release, never committed (see models/README).
+models/*.onnx
+models/*.onnx.json
+
+# ONNX Runtime — prebuilt binaries are vendored locally but kept out of git
+# (11 MB DLL). Only the API headers + license are committed; see
+# third_party/onnxruntime/README.md to repopulate lib/.
+third_party/onnxruntime/lib/
+third_party/onnxruntime/**/*.pdb
+
 # Local operator-machine launch helper + stray run-log capture
 _run_lyra_vac1.bat
 Line
