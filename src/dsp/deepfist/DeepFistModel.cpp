@@ -120,8 +120,13 @@ bool DeepFistModel::infer(const float* audio, int n,
     logits.clear();
     if (!ready_ || !audio || n <= 0) return false;
 
+    // fldigi-style conditioner FIRST (exp14+ models are trained on conditioned,
+    // single-signal, 600 Hz-centred, level-normalised audio — train==inference).
+    condScratch_ = cond_.condition(audio, n);
+    const float* condAudio = condScratch_.empty() ? audio : condScratch_.data();
+
     int specT = 0;
-    fe_.compute(audio, n, specScratch_, specT);      // [65 * specT] row-major
+    fe_.compute(condAudio, n, specScratch_, specT);  // [65 * specT] row-major
     if (specT == 0 || specScratch_.empty()) return false;
 
     try {
