@@ -62,6 +62,7 @@ dist/
 # distributed via the installer / release, never committed (see models/README).
 models/*.onnx
 models/*.onnx.json
+models/MASTER.SCP
 
 # ONNX Runtime — prebuilt binaries are vendored locally but kept out of git
 # (11 MB DLL). Only the API headers + license are committed; see

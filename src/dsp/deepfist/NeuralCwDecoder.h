@@ -29,6 +29,8 @@
 
 #include "dsp/deepfist/DeepFistModel.h"
 #include "dsp/deepfist/DeepFistResampler.h"
+#include "dsp/deepfist/DeepFistRescore.h"
+#include "dsp/deepfist/DeepFistScp.h"
 
 namespace lyra::dsp {
 
@@ -44,6 +46,7 @@ public:
     // success.  Returns ready().
     bool loadModel(const std::string& modelDir);
     bool ready() const { return model_.ready(); }
+    int  scpCount() const { return scp_.count(); }   // 0 = rescorer disabled
     const std::string& lastError() const { return model_.lastError(); }
 
     void setSampleRate(double hz);      // input rate (default 48 kHz)
@@ -51,6 +54,10 @@ public:
     // Fires from the worker thread with the newly-committed characters to append
     // to the transcript (incremental, may be empty).
     std::function<void(const std::string& newText)> onText;
+
+    // Fires from the worker thread with CTC-lattice callsign verdicts for the
+    // current window (only confident ones), when a MASTER.SCP db is loaded.
+    std::function<void(const std::vector<CallRescore>& calls)> onCalls;
 
     // hot path (audio thread) — decimate + buffer only; no inference here.
     void process(const float* mono, int nframes);
@@ -62,6 +69,7 @@ private:
     void workerLoop();
 
     DeepFistModel     model_;
+    DeepFistScp       scp_;             // callsign DB for the lattice rescorer
     DeepFistResampler decim_{48000.0, 3200.0};
 
     // Shared rolling window (audio thread writes, worker reads), under mx_.

@@ -27,7 +27,11 @@ NeuralCwDecoder::~NeuralCwDecoder() {
 
 bool NeuralCwDecoder::loadModel(const std::string& modelDir) {
     const bool ok = model_.load(modelDir);
-    if (ok) startWorker();
+    if (ok) {
+        // Optional callsign DB for the lattice rescorer; a no-op if absent.
+        scp_.loadFile(modelDir + "/MASTER.SCP");
+        startWorker();
+    }
     return ok;
 }
 
@@ -101,6 +105,11 @@ void NeuralCwDecoder::workerLoop() {
         if (!model_.infer(window.data(), kWindow, logits, T, C)) continue;
         const CtcFrames fr = greedyCtcFrames(logits.data(), T, C, kBlankPen);
 
+        // CTC-lattice callsign rescoring for this window (worker thread, no lock).
+        std::vector<CallRescore> calls;
+        if (scp_.ready() && onCalls)
+            calls = rescoreCalls(logits.data(), T, C, fr.ids, model_.tokens(), scp_);
+
         const double winStart = audioEnd - kWindowS;
         const double settleTo = audioEnd - kGuardS;
         const int    denom    = std::max(1, fr.T);
@@ -122,6 +131,13 @@ void NeuralCwDecoder::workerLoop() {
             committedT_ = std::max(committedT_, settleTo);
         }
         if (!emit.empty() && onText) onText(emit);
+
+        if (onCalls && !calls.empty()) {
+            std::vector<CallRescore> confident;
+            for (const CallRescore& c : calls)
+                if (c.confident) confident.push_back(c);
+            if (!confident.empty()) onCalls(confident);
+        }
     }
 }
 
