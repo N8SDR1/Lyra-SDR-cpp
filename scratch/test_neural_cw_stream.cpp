@@ -29,19 +29,26 @@ bool readWav(const std::string& path, std::vector<float>& mono, int& rate) {
     const uint8_t* d = b.data();
     auto u16 = [&](size_t o){ return (uint16_t)(d[o] | (d[o+1] << 8)); };
     auto u32 = [&](size_t o){ return (uint32_t)(d[o] | (d[o+1]<<8) | (d[o+2]<<16) | (d[o+3]<<24)); };
-    int channels = 1, bits = 16; size_t dataOff = 0, dataLen = 0, i = 12;
+    int channels = 1, bits = 16, fmt = 1; size_t dataOff = 0, dataLen = 0, i = 12;
     while (i + 8 <= b.size()) {
         const size_t sz = u32(i + 4);
         if (!std::memcmp(d + i, "fmt ", 4)) {
-            channels = u16(i + 8 + 2); rate = (int)u32(i + 8 + 4); bits = u16(i + 8 + 14);
-        } else if (!std::memcmp(d + i, "data", 4)) { dataOff = i + 8; dataLen = sz; break; }
+            fmt = u16(i + 8 + 0); channels = u16(i + 8 + 2);
+            rate = (int)u32(i + 8 + 4); bits = u16(i + 8 + 14);
+        } else if (!std::memcmp(d + i, "data", 4)) {
+            dataOff = i + 8; dataLen = std::min(sz, b.size() - (i + 8)); break;
+        }
         i += 8 + sz + (sz & 1);
     }
-    if (!dataOff || bits != 16) return false;
-    const int16_t* s = reinterpret_cast<const int16_t*>(d + dataOff);
-    const size_t nSamp = dataLen / 2;
+    if (!dataOff) return false;
     mono.clear();
-    for (size_t k = 0; k + channels <= nSamp; k += channels) mono.push_back(s[k] / 32768.0f);
+    if (fmt == 3 && bits == 32) {                        // IEEE float, UNCLAMPED
+        const float* s = reinterpret_cast<const float*>(d + dataOff);
+        for (size_t k = 0; k + channels <= dataLen / 4; k += channels) mono.push_back(s[k]);
+    } else if (bits == 16) {                             // 16-bit PCM
+        const int16_t* s = reinterpret_cast<const int16_t*>(d + dataOff);
+        for (size_t k = 0; k + channels <= dataLen / 2; k += channels) mono.push_back(s[k] / 32768.0f);
+    } else return false;
     return true;
 }
 }  // namespace

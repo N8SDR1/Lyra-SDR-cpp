@@ -32,8 +32,7 @@ bool readWav(const std::string& path, std::vector<float>& mono, int& rate) {
         std::memcmp(b.data() + 8, "WAVE", 4)) {
         std::fprintf(stderr, "%s: not a WAVE file\n", path.c_str()); return false;
     }
-    int    channels = 1, bits = 16;
-    size_t rateOff = 0;
+    int    channels = 1, bits = 16, fmt = 1;
     size_t i = 12;
     const uint8_t* d = b.data();
     auto u16 = [&](size_t o){ return (uint16_t)(d[o] | (d[o+1] << 8)); };
@@ -42,25 +41,27 @@ bool readWav(const std::string& path, std::vector<float>& mono, int& rate) {
     while (i + 8 <= b.size()) {
         const size_t sz = u32(i + 4);
         if (!std::memcmp(d + i, "fmt ", 4)) {
+            fmt      = u16(i + 8 + 0);
             channels = u16(i + 8 + 2);
             rate     = (int)u32(i + 8 + 4);
             bits     = u16(i + 8 + 14);
-            (void)rateOff;
         } else if (!std::memcmp(d + i, "data", 4)) {
-            dataOff = i + 8; dataLen = sz; break;
+            dataOff = i + 8; dataLen = (sz < b.size() - (i + 8)) ? sz : b.size() - (i + 8); break;
         }
         i += 8 + sz + (sz & 1);
     }
-    if (!dataOff || bits != 16) {
-        std::fprintf(stderr, "%s: need 16-bit PCM data chunk\n", path.c_str());
+    if (!dataOff) { std::fprintf(stderr, "%s: no data chunk\n", path.c_str()); return false; }
+    mono.clear();
+    if (fmt == 3 && bits == 32) {                     // IEEE float, UNCLAMPED
+        const float* s = reinterpret_cast<const float*>(d + dataOff);
+        for (size_t k = 0; k + channels <= dataLen / 4; k += channels) mono.push_back(s[k]);
+    } else if (bits == 16) {                          // 16-bit PCM
+        const int16_t* s = reinterpret_cast<const int16_t*>(d + dataOff);
+        for (size_t k = 0; k + channels <= dataLen / 2; k += channels) mono.push_back(s[k] / 32768.0f);
+    } else {
+        std::fprintf(stderr, "%s: unsupported fmt=%d bits=%d\n", path.c_str(), fmt, bits);
         return false;
     }
-    const size_t nSamp = dataLen / 2;
-    const int16_t* s = reinterpret_cast<const int16_t*>(d + dataOff);
-    mono.clear();
-    mono.reserve(nSamp / (channels ? channels : 1));
-    for (size_t k = 0; k + channels <= nSamp; k += channels)
-        mono.push_back(s[k] / 32768.0f);          // channel 0
     return true;
 }
 
