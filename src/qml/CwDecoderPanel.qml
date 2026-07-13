@@ -38,12 +38,31 @@ Rectangle {
     // latency).  So both just append to decodedText.
     readonly property int cwEngine: WdspEngine.cwDecodeEngine
 
+    // DeepFist CTC-lattice callsign verdicts — deduplicated + ranked by how many
+    // windows confirmed each call (the real call dominates; window-edge noise is
+    // a lone hit).  callChips is the top-N for display.
+    property var callCounts: ({})
+    property var callChips: []
+
+    function addCall(best, orig, margin) {
+        var m = root.callCounts
+        if (!m[best]) m[best] = { count: 0, corrected: false }
+        m[best].count += 1
+        if (best !== orig) m[best].corrected = true
+        root.callCounts = m
+        var arr = []
+        for (var k in m) arr.push({ call: k, count: m[k].count, corrected: m[k].corrected })
+        arr.sort(function(a, b) { return b.count - a.count })
+        root.callChips = arr.slice(0, 8)
+    }
+    function clearCalls() { root.callCounts = ({}); root.callChips = [] }
+
     function appendDecoded(s) {
         var t = root.decodedText + s
         if (t.length > 6000) t = t.slice(-4500)
         root.decodedText = t
     }
-    function clearDecoded() { root.decodedText = "" }
+    function clearDecoded() { root.decodedText = ""; root.clearCalls() }
 
     // fldigi CW-receiver knob mirrors (persisted via Prefs; fldigi defaults:
     // BW 150 Hz, speed 18 wpm, tracking on, matched filter off, squelch off).
@@ -98,6 +117,8 @@ Rectangle {
         }
         // Neural engine: append the newly-committed characters (frame-timed).
         function onCwNeuralText(newText) { root.appendDecoded(newText) }
+        // Neural engine: CTC-lattice callsign verdict (confident only).
+        function onCwNeuralCall(best, orig, margin) { root.addCall(best, orig, margin) }
         // Clear the transcript when switching engines.
         function onCwDecodeEngineChanged() { root.clearDecoded() }
     }
@@ -225,6 +246,41 @@ Rectangle {
                 font.pixelSize: 11
             }
             Item { Layout.fillWidth: true }
+        }
+
+        // ── DeepFist callsign verdicts (CTC-lattice rescorer) — click → His Call ──
+        Flow {
+            visible: !root.collapsed && root.cwEngine === 1 && root.callChips.length > 0
+            Layout.fillWidth: true
+            spacing: 6
+            Label {
+                text: qsTr("Calls")
+                color: root.cMuted; font.pixelSize: 11
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Repeater {
+                model: root.callChips
+                delegate: Rectangle {
+                    radius: 4
+                    implicitHeight: 24
+                    implicitWidth: callTxt.implicitWidth + 16
+                    color: "#12281e"
+                    border.color: modelData.corrected ? "#e0a030" : "#2e9d6a"
+                    Text {
+                        id: callTxt
+                        anchors.centerIn: parent
+                        text: modelData.call +
+                              (modelData.count > 1 ? "·" + modelData.count : "")
+                        color: modelData.corrected ? "#e6c060" : "#5fe0a0"
+                        font.family: "Consolas"; font.pixelSize: 12; font.bold: true
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: CwMacros.hisCall = modelData.call
+                    }
+                }
+            }
         }
 
         // ── Decoded-text pane (operator font + colour) ──

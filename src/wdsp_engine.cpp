@@ -332,6 +332,12 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
         emit cwNeuralText(QString::fromUtf8(s.c_str(),
                                             static_cast<int>(s.size())));
     };
+    // DeepFist CTC-lattice callsign rescoring — emit each confident verdict.
+    neuralCw_.onCalls = [this](const std::vector<lyra::dsp::CallRescore>& calls) {
+        for (const auto& c : calls)
+            emit cwNeuralCall(QString::fromStdString(c.best),
+                              QString::fromStdString(c.orig), c.marginNats);
+    };
 
     // 5 Hz UI poll: emit levelsChanged so the QML audioDbFs binding
     // re-reads the atomic (mirrors HL2Stream's statsTimer cadence).
@@ -1935,7 +1941,8 @@ void WdspEngine::setCwDecodeEngine(int engine)
                          qUtf8Printable(dir), neuralCw_.lastError().c_str());
                 return;   // keep engine 0
             }
-            qInfo("DeepFist: neural CW model loaded from %s", qUtf8Printable(dir));
+            qInfo("DeepFist: neural CW model loaded from %s (SCP rescorer: %d calls)",
+                  qUtf8Printable(dir), neuralCw_.scpCount());
         }
         neuralCw_.reset();                          // safe: engine still 0 here
         cwEngine_.store(1, std::memory_order_relaxed);

@@ -66,6 +66,18 @@ int main(int argc, char** argv) {
         transcript += s;
     };
 
+    dec.onCalls = [&](const std::vector<lyra::dsp::CallRescore>& calls) {
+        std::lock_guard<std::mutex> lk(mx);
+        double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        for (const auto& c : calls) {
+            if (c.orig == c.best)
+                std::printf("[%6.2fs] CALL confirmed %s (%.1f nats)\n", t, c.best.c_str(), c.marginNats);
+            else
+                std::printf("[%6.2fs] CALL %s -> %s (%.1f nats)\n", t, c.orig.c_str(), c.best.c_str(), c.marginNats);
+        }
+        std::fflush(stdout);
+    };
+
     std::printf("streaming %s (%.1fs @ %d Hz) in real time...\n\n",
                 argv[2], mono.size() / (double)rate, rate);
     const int block = rate / 50;                     // 20 ms blocks

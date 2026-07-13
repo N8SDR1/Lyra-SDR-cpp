@@ -241,6 +241,10 @@ qt_add_executable(lyra
     src/dsp/deepfist/DeepFistConditioner.cpp
     src/dsp/deepfist/DeepFistCtc.h
     src/dsp/deepfist/DeepFistCtc.cpp
+    src/dsp/deepfist/DeepFistScp.h
+    src/dsp/deepfist/DeepFistScp.cpp
+    src/dsp/deepfist/DeepFistRescore.h
+    src/dsp/deepfist/DeepFistRescore.cpp
     src/dsp/deepfist/DeepFistModel.h
     src/dsp/deepfist/DeepFistModel.cpp
     src/dsp/deepfist/NeuralCwDecoder.h
@@ -620,6 +624,17 @@ else()
     message(WARNING "DeepFist model not found at models/deepfist.onnx — the "
                     "neural CW decoder will be disabled at runtime. See models/README.md.")
 endif()
+# MASTER.SCP callsign DB for the CTC-lattice rescorer (optional; rescorer is a
+# no-op without it, so no warning when absent).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/MASTER.SCP")
+    add_custom_command(TARGET lyra POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:lyra>/models"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/models/MASTER.SCP"
+            "$<TARGET_FILE_DIR:lyra>/models/"
+        COMMENT "Bundling MASTER.SCP into models/"
+        VERBATIM)
+endif()
 
 # Auto-deploy the Qt runtime DLLs next to lyra.exe after every build.
 # Without this, adding/changing Qt modules (e.g. Widgets +
@@ -924,6 +939,10 @@ add_executable(test_neural_cw EXCLUDE_FROM_ALL
     src/dsp/deepfist/DeepFistConditioner.cpp
     src/dsp/deepfist/DeepFistCtc.h
     src/dsp/deepfist/DeepFistCtc.cpp
+    src/dsp/deepfist/DeepFistScp.h
+    src/dsp/deepfist/DeepFistScp.cpp
+    src/dsp/deepfist/DeepFistRescore.h
+    src/dsp/deepfist/DeepFistRescore.cpp
     src/dsp/deepfist/DeepFistModel.h
     src/dsp/deepfist/DeepFistModel.cpp
     src/dsp/deepfist/NeuralCwDecoder.h
@@ -965,4 +984,19 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${ORT_DIR}/lib/onnxruntime.dll" "$<TARGET_FILE_DIR:test_neural_cw_stream>"
         VERBATIM)
+endif()
+
+# DeepFist — CTC-lattice rescorer unit test (ctcNll vs PyTorch + candidate flip).
+# Qt-free, no ONNX Runtime.  Build + run:
+#   cmake --build build --target test_rescore
+add_executable(test_rescore EXCLUDE_FROM_ALL
+    scratch/test_rescore.cpp
+    src/dsp/deepfist/DeepFistRescore.h
+    src/dsp/deepfist/DeepFistRescore.cpp
+    src/dsp/deepfist/DeepFistScp.h
+    src/dsp/deepfist/DeepFistScp.cpp
+)
+target_include_directories(test_rescore PRIVATE src)
+if(MSVC)
+    target_compile_options(test_rescore PRIVATE /utf-8 /Zc:preprocessor)
 endif()

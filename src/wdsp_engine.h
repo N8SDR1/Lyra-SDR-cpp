@@ -772,6 +772,9 @@ signals:
     void cwDecodeEngineChanged();
     void cwNeuralAvailableChanged();
     void cwNeuralText(QString windowText);
+    // DeepFist CTC-lattice callsign verdict (confident only): best = the
+    // lattice-preferred call, orig = the greedy decode (== best when confirmed).
+    void cwNeuralCall(QString best, QString orig, double marginNats);
     // Freq calibration — one emit per analysis window while measuring.
     void freqCalUpdated(double measuredHz, double snrDb, int windows);
     void nrChanged();        // NR enable / mode / AEPF / NPE
