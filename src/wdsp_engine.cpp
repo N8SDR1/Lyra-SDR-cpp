@@ -3573,15 +3573,11 @@ public:
     }
     void write(const float *s, int n) {
         if (!ok_) return;
-        for (int i = 0; i < n; ++i) {
-            float v = s[i];
-            v = v < -1.0f ? -1.0f : (v > 1.0f ? 1.0f : v);
-            const qint16 iv = static_cast<qint16>(qRound(v * 32767.0f));
-            const char b[2] = { static_cast<char>(iv & 0xFF),
-                                static_cast<char>((iv >> 8) & 0xFF) };
-            file_.write(b, 2);
-            dataBytes_ += 2;
-        }
+        // Raw 32-bit float, UNCLAMPED — so the true decoder-input level +
+        // envelope are visible (a clamped 16-bit capture hides over-drive).
+        file_.write(reinterpret_cast<const char *>(s),
+                    static_cast<qint64>(n) * 4);
+        dataBytes_ += static_cast<quint32>(n) * 4;
     }
 private:
     void writeU32(quint32 v) {
@@ -3597,12 +3593,12 @@ private:
         file_.write("RIFF", 4); writeU32(0);   // patched on close
         file_.write("WAVE", 4);
         file_.write("fmt ", 4); writeU32(16);
-        writeU16(1);            // PCM
+        writeU16(3);            // IEEE float
         writeU16(1);            // mono
         writeU32(sr);
-        writeU32(sr * 2);       // byte rate (mono × 2 bytes)
-        writeU16(2);            // block align
-        writeU16(16);           // bits/sample
+        writeU32(sr * 4);       // byte rate (mono × 4 bytes)
+        writeU16(4);            // block align
+        writeU16(32);           // bits/sample
         file_.write("data", 4); writeU32(0);   // patched on close
     }
     QFile   file_;
