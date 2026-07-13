@@ -20,11 +20,13 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QDialog>
+#include <QDesktopServices>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
+#include <QUrl>
 #include <QLabel>
 #include <QPaintEvent>
 #include <QPainter>
@@ -693,8 +695,18 @@ int WdspNative::runWisdomCall(const QString &callDir,
         pulse->start();
 
         // Persistent help links (always clickable, unlike the cycling
-        // cards).
+        // cards).  This one-time splash is seen ONLY on first launch -- exactly
+        // the new-operator audience -- so lead with a "New to Lyra?" link to
+        // the Getting-Started guide.  It opens the bundled PDF if present
+        // (offline, version-matched); otherwise it falls back to the copy on
+        // GitHub.  Discord/GitHub open in the browser.
+        const QString kQuickStart = QStringLiteral("lyra:quickstart");
+        const QString kQuickStartWeb = QStringLiteral(
+            "https://github.com/N8SDR1/Lyra-SDR-cpp/blob/main/docs/help/"
+            "GETTING_STARTED.md");
         QStringList links;
+        links << QStringLiteral("<a href='%1'><b>New to Lyra?</b></a>")
+                     .arg(kQuickStart);
         links << QStringLiteral("<a href='%1'>Discord</a>").arg(kDiscordUrl);
         links << QStringLiteral("<a href='%1'>GitHub</a>").arg(kGithubUrl);
         auto *help = new QLabel(
@@ -702,8 +714,24 @@ int WdspNative::runWisdomCall(const QString &callDir,
                 + links.join(QStringLiteral("  &nbsp;·&nbsp;  ")), dlg);
         help->setAlignment(Qt::AlignHCenter);
         help->setTextInteractionFlags(Qt::TextBrowserInteraction);
-        help->setOpenExternalLinks(true);
+        help->setOpenExternalLinks(false);   // handled below so we can route
+                                              // the quickstart to a local PDF
         help->setStyleSheet(QStringLiteral("font-size:11px;"));
+        QObject::connect(help, &QLabel::linkActivated, help,
+                         [kQuickStart, kQuickStartWeb](const QString &href) {
+            if (href == kQuickStart) {
+                const QString pdf =
+                    QDir(QCoreApplication::applicationDirPath())
+                        .filePath(QStringLiteral("docs/Lyra-Getting-Started.pdf"));
+                if (QFileInfo::exists(pdf)) {
+                    QDesktopServices::openUrl(QUrl::fromLocalFile(pdf));
+                    return;
+                }
+                QDesktopServices::openUrl(QUrl(kQuickStartWeb));
+                return;
+            }
+            QDesktopServices::openUrl(QUrl(href));
+        });
         v->addWidget(help);
 
         // Billboard content cycled by the timer below.

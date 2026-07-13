@@ -192,6 +192,10 @@ class Prefs : public QObject {
     // panadapter (on by default; operator-toggleable).
     Q_PROPERTY(bool cursorReadout READ cursorReadout WRITE setCursorReadout
                NOTIFY cursorReadoutChanged)
+    // Zero-beat tuning aid: a small ± needle under the freq readout (CW / AM /
+    // SAM / FM).  Off by default; RX-only display.
+    Q_PROPERTY(bool zeroBeatMarkers READ zeroBeatMarkers WRITE setZeroBeatMarkers
+               NOTIFY zeroBeatMarkersChanged)
     // Panadapter zoom: 1.0 = full IQ span, higher magnifies the centre.
     // Drives WdspEngine.zoom (display-side crop, old-Lyra method).
     Q_PROPERTY(double zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
@@ -492,6 +496,8 @@ public:
     void     setPanadapterSplit(const QVariant &v);
     bool cursorReadout() const { return cursorReadout_; }
     void setCursorReadout(bool v);
+    bool zeroBeatMarkers() const { return zeroBeatMarkers_; }
+    void setZeroBeatMarkers(bool v);
     double zoom() const { return zoom_; }
     void   setZoom(double v);
     QString mode() const { return mode_; }
@@ -637,6 +643,7 @@ signals:
     void waterfallDbAutoChanged();
     void panadapterSplitChanged();
     void cursorReadoutChanged();
+    void zeroBeatMarkersChanged();
     void zoomChanged();
     void modeChanged();
     void rxBandwidthChanged();
@@ -737,6 +744,7 @@ private:
     bool    waterfallDbAuto_;
     QVariant panadapterSplit_;
     bool    cursorReadout_;
+    bool    zeroBeatMarkers_ = false;
     double  zoom_;
     QString mode_;
     // Bandwidth memory keyed by mode FAMILY (bwFamilyKey): USB/LSB share

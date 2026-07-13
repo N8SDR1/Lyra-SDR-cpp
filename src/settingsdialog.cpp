@@ -7679,6 +7679,19 @@ QWidget *SettingsDialog::buildVisualsTab() {
     });
     form->addRow(tr("Cursor readout"), curRdt);
 
+    // --- Zero-beat markers (± needle under the freq readout, CW/AM/SAM/FM) ---
+    auto *zbeat = new QCheckBox(tr("Show Zero-beat markers"), page);
+    zbeat->setChecked(prefs_->zeroBeatMarkers());
+    zbeat->setToolTip(tr("A small ± tuning needle under the frequency readout "
+                         "showing how far a CW / AM / SAM / FM carrier sits from "
+                         "your dialled frequency — centre it to zero-beat."));
+    connect(zbeat, &QCheckBox::toggled, prefs_, &Prefs::setZeroBeatMarkers);
+    connect(prefs_, &Prefs::zeroBeatMarkersChanged, page, [this, zbeat]() {
+        if (zbeat->isChecked() != prefs_->zeroBeatMarkers())
+            zbeat->setChecked(prefs_->zeroBeatMarkers());
+    });
+    form->addRow(tr("Zero-beat"), zbeat);
+
     // --- Tooltips on/off (global) ---
     auto *tips = new QCheckBox(tr("Show tooltips"), page);
     tips->setChecked(prefs_->tooltipsEnabled());

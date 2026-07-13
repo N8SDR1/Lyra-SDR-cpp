@@ -1293,8 +1293,11 @@ void MainWindow::buildMenus() {
     connect(layoutsMenu, &QMenu::aboutToShow,
             this, &MainWindow::refreshLayoutMenus);
 
-    // Help — User Guide + About.
+    // Help — Quick Basics + User Guide + About.
     QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
+    // New-operator on-ramp: jumps the guide straight to the "Start here" section.
+    helpMenu->addAction(tr("&Quick Basics (Start here)…"), this,
+                        [this]() { showHelp(QStringLiteral("start-here--quick-basics")); });
     helpMenu->addAction(tr("&User Guide…"), QKeySequence(QKeySequence::HelpContents),
                         this, [this]() { showHelp(QString()); });
     helpMenu->addAction(tr("Check for &Updates…"), this,

@@ -168,12 +168,16 @@ Rectangle {
             // VFO-A cluster — one bordered box wrapping the freq AND its
             // Step+Mode (mockup/old-Lyra idiom).  Fixed snug width so the
             // border outlines the cluster, not a giant block.
-            Rectangle {
-                id: vfoA
+            ColumnLayout {
                 Layout.preferredWidth: 360
                 Layout.maximumWidth: 360
-                Layout.preferredHeight: 108
                 Layout.alignment: Qt.AlignVCenter
+                spacing: 4
+
+              Rectangle {
+                id: vfoA
+                Layout.fillWidth: true
+                Layout.preferredHeight: 108
                 color: "#0a0e12"
                 radius: 6
                 border.width: 2
@@ -282,6 +286,107 @@ Rectangle {
                         Item { Layout.fillWidth: true }
                     }
                 }
+
+                // Zero-beat needle — overlays into the row's slack just BELOW
+                // the freq box (anchored to it, NOT a Layout child) so turning
+                // it on never grows the Tuning panel nor nudges the freq
+                // readout upward.  A gap sits above the meter; the "Zero Beat"
+                // label rides underneath, dropping the pair down toward the
+                // SPLIT button.  Hidden unless enabled in Visuals AND in a
+                // lockable carrier mode (CW / AM / SAM / FM).
+                Item {
+                    id: zbStrip
+                    anchors.top: parent.bottom
+                    anchors.topMargin: 7
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 2
+                    anchors.rightMargin: 2
+                    height: 30
+                    visible: Prefs.zeroBeatMarkers && WdspEngine.zeroBeatActive
+                    readonly property real rangeHz: 500
+                    readonly property bool locked: WdspEngine.zeroBeatValid
+                    readonly property real offHz:
+                        Math.max(-rangeHz, Math.min(rangeHz, WdspEngine.zeroBeatOffsetHz))
+                    readonly property color zbCol:
+                        !locked                 ? "#55708a"
+                        : Math.abs(offHz) <= 8  ? "#39e08a"
+                        : Math.abs(offHz) <= 45 ? "#00d8ff" : "#e8c477"
+
+                    Component.onCompleted:
+                        WdspEngine.setZeroBeatEnabled(Prefs.zeroBeatMarkers)
+                    Connections {
+                        target: Prefs
+                        function onZeroBeatMarkersChanged() {
+                            WdspEngine.setZeroBeatEnabled(Prefs.zeroBeatMarkers)
+                        }
+                    }
+
+                    Rectangle {
+                        id: zbTrack
+                        anchors.left: parent.left
+                        anchors.right: zbRead.left
+                        anchors.rightMargin: 8
+                        anchors.top: parent.top
+                        height: 18
+                        radius: 4
+                        color: "#080d15"
+                        border.width: 1
+                        border.color: "#1e2a38"
+
+                        Rectangle {   // centre detent
+                            width: 1.5; height: parent.height - 8
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: "#3a86a0"
+                        }
+                        Repeater {    // ± quarter ticks
+                            model: [0.25, 0.75]
+                            Rectangle {
+                                width: 1; height: zbTrack.height - 14
+                                x: zbTrack.width * modelData
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: "#22303e"
+                            }
+                        }
+                        Rectangle {   // the needle
+                            width: 3; radius: 1.5
+                            height: parent.height - 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: zbStrip.zbCol
+                            x: Math.round((zbTrack.width - width) / 2
+                               + (zbStrip.offHz / zbStrip.rangeHz)
+                                 * (zbTrack.width - width) / 2)
+                            Behavior on x { NumberAnimation { duration: 90 } }
+                        }
+                    }
+                    Label {
+                        id: zbRead
+                        anchors.right: parent.right
+                        anchors.verticalCenter: zbTrack.verticalCenter
+                        width: 62
+                        horizontalAlignment: Text.AlignRight
+                        font.family: "Consolas"
+                        font.pixelSize: 12
+                        font.bold: true
+                        color: zbStrip.zbCol
+                        text: !zbStrip.locked ? "—"
+                              : Math.abs(zbStrip.offHz) <= 8 ? "● 0 Hz"
+                              : (zbStrip.offHz > 0 ? "+" : "")
+                                + Math.round(zbStrip.offHz) + " Hz"
+                    }
+                    Label {          // caption under the meter
+                        anchors.horizontalCenter: zbTrack.horizontalCenter
+                        anchors.top: zbTrack.bottom
+                        anchors.topMargin: 1
+                        text: qsTr("Zero Beat")
+                        font.pixelSize: 11
+                        font.bold: true
+                        font.letterSpacing: 0.5
+                        color: "#8de04a"
+                    }
+                }
+              }
             }
 
             Item { Layout.fillWidth: true }   // balance: centres the logo

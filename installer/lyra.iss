@@ -12,7 +12,7 @@
 ; Keep AppVersion in sync with CMake project(VERSION) / LYRA_VERSION.
 
 #define AppName     "Lyra"
-#define AppVersion  "0.17.0"
+#define AppVersion  "0.18.0"
 #define AppPublisher "Rick Langford (N8SDR)"
 #define AppURL      "https://github.com/N8SDR1/Lyra-SDR-cpp"
 #define AppExe      "lyra.exe"
@@ -70,6 +70,10 @@ Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\Sys
 ; The whole deployed build tree, minus CMake/Ninja build artifacts.
 Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; \
     Excludes: "test_*.exe,*.lib,*.pdb,*.exp,*.ilk,*.cmake,*.ninja,CMakeCache.txt,.ninja_deps,.ninja_log,CMakeFiles\*,.qt\*,.qsb\*,.rcc\*,lyra_autogen\*,meta_types\*"
+; Getting-Started PDF — the first-run "New to Lyra?" splash link opens
+; {app}\docs\Lyra-Getting-Started.pdf (offline).  Regenerate after editing
+; docs\help\GETTING_STARTED.md with tools\build_getting_started_pdf.py.
+Source: "..\docs\Lyra-Getting-Started.pdf"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Lyra"; Filename: "{app}\{#AppExe}"

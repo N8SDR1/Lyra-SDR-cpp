@@ -68,6 +68,7 @@ constexpr auto kTxWfDbMax = "panadapter/txWaterfallDbMax";
 constexpr auto kWfDbAuto = "panadapter/waterfallDbAuto";
 constexpr auto kPanSplit = "ui/panadapterSplit";
 constexpr auto kCursorRdt = "panadapter/cursorReadout";
+constexpr auto kZeroBeat = "visuals/zeroBeatMarkers";
 constexpr auto kZoom   = "panadapter/zoom";
 constexpr auto kRxMode = "modefilter/mode";
 constexpr auto kBwPrefix = "modefilter/bw/";   // + <MODE>
@@ -219,6 +220,7 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     waterfallDbAuto_  = s.value(kWfDbAuto, false).toBool();
     panadapterSplit_  = s.value(kPanSplit);   // invalid (= QML undefined) if unset
     cursorReadout_    = s.value(kCursorRdt, true).toBool();
+    zeroBeatMarkers_  = s.value(kZeroBeat, false).toBool();
     zoom_             = std::clamp(s.value(kZoom, 1.0).toDouble(), 1.0, 32.0);
     mode_             = s.value(kRxMode, QStringLiteral("USB")).toString();
     // Per-FAMILY RX bandwidth (bwFamilyKey): USB/LSB share "SSB", etc.
@@ -885,6 +887,14 @@ void Prefs::setCursorReadout(bool v) {
         cursorReadout_ = v;
         QSettings().setValue(kCursorRdt, v);
         emit cursorReadoutChanged();
+    }
+}
+
+void Prefs::setZeroBeatMarkers(bool v) {
+    if (v != zeroBeatMarkers_) {
+        zeroBeatMarkers_ = v;
+        QSettings().setValue(kZeroBeat, v);
+        emit zeroBeatMarkersChanged();
     }
 }
 

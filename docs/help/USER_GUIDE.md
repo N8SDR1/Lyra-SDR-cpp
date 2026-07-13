@@ -22,6 +22,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [Start here — Quick Basics](#start-here--quick-basics)
 - [Why "Lyra"?](#why-lyra)
 - [System requirements](#system-requirements)
 - [Getting started](#getting-started)
@@ -35,6 +36,7 @@ not programmers — if you can click a menu, you can use this.
 - [Audio panel](#audio-panel)
 - [Setting up audio output](#setting-up-audio-output)
 - [Setting up your mic input](#setting-up-your-mic-input)
+- [First voice setup (SSB / AM / FM)](#first-voice-setup-ssb--am--fm)
 - [Display panel](#display-panel)
 - [Meter panel](#meter-panel)
 - [TX panel](#tx-panel)
@@ -98,6 +100,36 @@ not programmers — if you can click a menu, you can use this.
   - [Graphics backend](#graphics-backend)
 - [Settings → Weather](#settings--weather)
 - [Credits and References](#credits-and-references)
+
+---
+
+## Start here — Quick Basics
+
+Brand new to Lyra? This is the five-minute on-ramp — do these in order and
+you'll be listening, and talking, fast. Every step is covered in more depth
+in the sections that follow.
+
+**Currently supported:** Lyra is a native **Windows** app — Windows 10
+(64-bit, v1809+) or Windows 11, a DirectX 11 / OpenGL 3.3 GPU (built-in
+graphics are fine), and a **wired Ethernet** link to a Hermes Lite 2 / 2+.
+(See [System requirements](#system-requirements) for the full picture.)
+
+1. **Wire it up 🔌** — connect the radio to your PC with an **Ethernet cable**
+   (wired, not Wi-Fi) and power it on.
+2. **Launch & connect 📡** — open Lyra; it lists any radio it finds.
+   **Double-click your radio** to open it (or use **Add by IP** for a fixed
+   address). *First launch spends a few minutes tuning DSP to your CPU — a
+   one-time step; let it finish.*
+3. **Start the radio ▶️** — click **▶ Start** in the top header.
+4. **Hear a signal 🔊** — **Settings → Audio → Out**: pick **"HL2 audio jack
+   (AK4951)"** (headphones in the radio) or your **PC speakers/headset**, turn
+   the **Volume** up, then **click the panadapter/waterfall** to tune and set
+   the mode (USB above 10 MHz, LSB below, or AM/FM).
+5. **Talk 🎙️** — see [First voice setup (SSB / AM / FM)](#first-voice-setup-ssb--am--fm).
+
+**If something's off:** no radio found → check the **wired** cable + power;
+no audio → check the **Out** device and **Volume**; can't transmit → see
+[First voice setup](#first-voice-setup-ssb--am--fm).
 
 ---
 
@@ -526,6 +558,33 @@ steps 10 Hz (Shift = 100 Hz), and the **0** button clears the offset (or
 just toggle off). Tip: RIT/XIT are session-style fine offsets — for a fixed
 transmit split (a repeater, or working a DX pile-up up/down), use
 **SPLIT** (or the FM **RPT** button) instead.
+
+### Zero-beat markers — dead-tune a carrier
+
+A tiny Kenwood-style **± needle** that appears under the frequency readout
+and shows how far the strongest carrier in the passband sits from where
+you're dialed — so you can **dead-tune ("zero-beat")** onto a CW, AM, SAM,
+or FM signal **by eye** instead of by ear.
+
+- **Turn it on** in **Settings → Visuals → Show zero-beat markers** (off by
+  default). It then shows **only** in the carrier modes where it makes
+  sense — **CWU, CWL, AM, SAM, FM** — and stays hidden in SSB / digital.
+- **Read it** — the needle rides left/right of a centre detent over a
+  **±500 Hz** span, with the offset printed beside it. Tune until the needle
+  centres and the readout snaps to a green **● 0 Hz** — you're zero-beat.
+  The colour cues how close you are: **amber** (far) → **cyan** (within
+  ~45 Hz) → **green lock** (within 8 Hz). A grey **—** means no carrier is
+  strong enough to trust yet (it briefly holds the last lock through CW
+  keying gaps, then greys out).
+- It sits in the gap just above the SPLIT button, so switching into a CW
+  mode with it enabled never grows the Tuning panel nor nudges the
+  frequency readout — the layout stays put.
+
+**Also handy for the CW decoder.** In CW the needle reads the carrier's
+offset from your **CW Pitch**, so centring it lands the beat note exactly
+on the pitch the [RX CW decoder](#reading-cw--the-rx-decoder) listens at.
+The decoder has **no AFC**, so a needle-centred signal is the quickest way
+to put a station right on frequency for clean copy.
 
 ### CTUN — centre-tune lock
 
@@ -1061,6 +1120,69 @@ ALC, low power) = raise it. For voice, start on a **dummy load** and use
   stereo source is one-sided.
 - **Digital app keys but nothing goes out:** source must be **TCI**, the
   app set to TCI on the right port, and the app's output level up.
+
+---
+
+## First voice setup (SSB / AM / FM)
+
+New to the radio and just want to **talk**? This is the short, no-jargon
+path to your first voice contact. It covers the phone modes — **SSB**
+(USB/LSB), **AM**, and **FM**. The audio wiring is the **same for all
+three** — you just pick the mode you're operating. (Digital modes like FT8
+use a different path — see *Digital modes over TCI / VAC*.)
+
+**Start with one question — where are your microphone and headphones/speaker
+plugged in?**
+
+- Into the **radio** (it has a MIC jack and a PHONES jack on the box) →
+  **Path A**.
+- Into your **computer** (USB headset, a PC mic, PC speakers) → **Path B**.
+
+Follow only your path.
+
+### Path A — mic & headphones plugged into the radio  ✅ simplest
+
+This needs an **HL2+ / AK4951** — the version with audio jacks on the box.
+Nothing touches Windows sound settings.
+
+1. Plug your headphones or speaker into the radio's **PHONES** jack.
+2. Plug your microphone into the radio's **MIC** jack.
+3. **Settings → Audio → Out = "HL2 audio jack (AK4951)"**.
+4. **Settings → TX → Mic source = "Mic In"**. If people say you're quiet,
+   tick **Mic Boost (+20 dB)**.
+5. Pick your mode and frequency — SSB (**USB** above 10 MHz, **LSB** below),
+   or **AM** / **FM** as the band or net calls for.
+6. Hold your mic **PTT** (or a foot switch, or click **MOX**) and talk —
+   watch the **MIC** meter move as you speak. That means it's hearing you.
+
+### Path B — mic & headphones plugged into the computer
+
+Works on any HL2 or HL2+.
+
+**Hearing the radio (RX):**
+
+1. **Settings → Audio → Out =** your PC speakers/headset (pick your Windows
+   playback device from the list).
+
+**Talking (TX) — through a computer microphone:**
+
+2. Know which kind of mic you have — both appear in Windows as an **input
+   device**:
+   - a **USB** microphone or USB headset shows up as its own device;
+   - an **analog** mic in the PC's pink MIC jack, or into a sound-card / USB
+     interface input, shows up as that card's *Microphone* / line-in.
+3. **Set the mic up in Windows first** — Lyra can't fix a mic Windows can't
+   hear. In **Windows → Settings → Sound → Input**, choose that microphone
+   and set its **mic level** to a usable value (not muted, not maxed). Many
+   mics ship muted or at 0; some USB mics/headsets also have their own
+   manufacturer app or a hardware volume/mute — check it. Speak and confirm
+   the Windows input bar moves.
+4. Point Lyra at it — **Settings → TX → Mic source = "PC Soundcard (VAC1)"**,
+   then **Settings → Audio → VAC1** and set the **Input device** to that same
+   Windows microphone.
+5. Pick your mode and frequency (as in Path A step 5), hold **MOX** (or your
+   PTT), and talk — watch Lyra's **MIC** meter move. No movement → go back to
+   step 3 (Windows).
 
 ---
 
@@ -1765,6 +1887,24 @@ dim and a "switch to CW to decode" note shows.
 
 The decoder is a faithful port of **fldigi's** CW receiver (the W1HKJ
 open-source Morse engine), so if you know fldigi's CW behaviour, this is it.
+
+> **Quick copy — the 60-second recipe.** The one thing that matters is
+> putting the signal *on your pitch*; the rest is defaults.
+>
+> 1. **CW Dec** chip → set mode **CWU/CWL**.
+> 2. **Land the note on your CW pitch** — by ear, or turn on the
+>    [zero-beat needle](#zero-beat-markers--dead-tune-a-carrier) and centre
+>    it. There's **no AFC**, so this is the whole game — a signal on pitch
+>    copies, off-pitch doesn't.
+> 3. **Set Speed** near the fist (≈18 rag-chew, 30+ contest) and leave
+>    **Tracking on** — it learns and follows the real speed from there.
+> 4. **Only if copy is rough:** narrow **Bandwidth** to ~80–100 Hz to shake
+>    a close neighbour; flip **Matched filter** on for a steady signal in
+>    QRM; turn **Squelch** on and set it (watch the **Signal bar**) just
+>    under the signal peaks to kill `*` noise between stations.
+> 5. **Answer in one move** — double-click their call in the text → **His
+>    call**, and a `{CALL}` "Reply" macro is ready. Turn on **Match TX speed
+>    to RX WPM** to send back at their pace.
 
 **Tune the signal onto your CW pitch.** The decoder listens at the same
 single **CW Pitch** the rest of the radio uses, so just put the signal's
@@ -3858,6 +3998,15 @@ Drive the **mode** (Off / Live / timed / Hold) and **Decay** from the
 
 Peaks are drawn only inside your RX filter passband, so they track the
 signal you're actually listening to.
+
+### Zero-beat markers
+
+**Show zero-beat markers** (off by default) enables the small **± needle**
+under the frequency readout that helps you dead-tune a carrier. It appears
+only in the carrier modes — **CWU, CWL, AM, SAM, FM** — and is described in
+full under [Tuning panel → Zero-beat markers](#zero-beat-markers--dead-tune-a-carrier)
+(it's also the fastest way to land a signal on frequency for the CW decoder,
+which has no AFC).
 
 ### Noise-floor line
 

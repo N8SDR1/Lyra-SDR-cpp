@@ -344,6 +344,10 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     levelsTimer_.setInterval(200);
     connect(&levelsTimer_, &QTimer::timeout, this, [this]() {
         emit levelsChanged();
+        // Refresh the zero-beat needle at the meter cadence while it's active
+        // (the estimator updates the atomics ~12 Hz on the RX worker).
+        if (zeroBeatEnabled_.load(std::memory_order_relaxed))
+            emit zeroBeatChanged();
         // Captured-profile capture progress: the RX worker updates the
         // atomics inside feedIq; surface them to the UI on this poll.
         // Emit while a capture is running and once on its falling edge.
@@ -1882,6 +1886,35 @@ int WdspEngine::cwMarkerOffsetForMode(const QString &mode) const
     return 0;
 }
 
+bool WdspEngine::zeroBeatActive() const
+{
+    return running_ && zeroBeatEnabled_.load(std::memory_order_relaxed) &&
+           zeroBeatModeOk_.load(std::memory_order_relaxed);
+}
+
+bool WdspEngine::zeroBeatValid() const
+{
+    return zeroBeatActive() && zbValid_.load(std::memory_order_relaxed);
+}
+
+double WdspEngine::zeroBeatOffsetHz() const
+{
+    if (!zeroBeatValid()) return 0.0;
+    // Display (panadapter/RF) offset from the operator's dialled carrier.
+    // HL2 baseband is spectrally reversed, so the signal's on-screen position
+    // is −zbRawHz_; the marker sits at markerOffsetHz.  Centre = zero-beat.
+    return -zbRawHz_.load(std::memory_order_relaxed) -
+           static_cast<double>(markerOffsetHz());
+}
+
+void WdspEngine::setZeroBeatEnabled(bool on)
+{
+    if (on == zeroBeatEnabled_.load(std::memory_order_relaxed)) return;
+    zeroBeatEnabled_.store(on, std::memory_order_relaxed);
+    if (!on) zbValid_.store(false, std::memory_order_relaxed);
+    emit zeroBeatChanged();
+}
+
 void WdspEngine::setCwPitchHz(int hz)
 {
     hz = std::clamp(hz, 200, 1500);
@@ -1890,6 +1923,7 @@ void WdspEngine::setCwPitchHz(int hz)
     }
     cwPitchHz_ = static_cast<double>(hz);
     cwDecoder_.setToneHz(cwPitchHz_);   // #173 — bind decoder AFC centre to the pitch
+    zbMarkerHz_.store(cwMarkerOffsetForMode(mode_), std::memory_order_relaxed);
     QSettings().setValue(QStringLiteral("dsp/cwPitchHz"), hz);
     recomputePassband();   // CW filter recentres on the new pitch
     applyModeFilter();
@@ -1990,6 +2024,14 @@ void WdspEngine::setMode(const QString &m)
         cwModeActive_.store(cwNow, std::memory_order_relaxed);
         if (cwNow && !cwWas) cwDecoder_.reset();
     }
+    // Zero-beat aid runs only in lockable-carrier modes.  Set the atomic on
+    // the UI thread alongside mode_; the RX worker resets the estimator on the
+    // rising edge.  Modes without a single carrier (SSB/DIGU/DIGL/DSB/SPEC) off.
+    zeroBeatModeOk_.store(m == QLatin1String("CWU") || m == QLatin1String("CWL") ||
+                          m == QLatin1String("AM")  || m == QLatin1String("SAM") ||
+                          m == QLatin1String("FM"),
+                          std::memory_order_relaxed);
+    zbMarkerHz_.store(cwMarkerOffsetForMode(m), std::memory_order_relaxed);
     recomputePassband();   // overlay edges (even when closed)
     applyModeFilter();     // SetRXAMode + new passband (no-op if closed)
     applyDspFilterTypes(); // #159 — push the new family's RX/TX filter type
@@ -2002,6 +2044,7 @@ void WdspEngine::setMode(const QString &m)
     }
     emit modeChanged();
     emit markerOffsetChanged();   // CW carrier offset flips with mode
+    emit zeroBeatChanged();       // active + target flip with mode
 }
 
 void WdspEngine::setBandwidth(int hz)
@@ -3971,6 +4014,34 @@ void WdspEngine::feedIq(const double *iq, int nframes)
         if (analyzerOpen_ && api.Spectrum0
                 && !txOwnsAnalyzer_.load(std::memory_order_acquire)) {
             api.Spectrum0(1, kAnDisp, 0, 0, dspPtr);
+        }
+
+        // Zero-beat carrier tracker (RX-only tuning aid): the SAME block WDSP
+        // + the panadapter see.  Runs only when enabled AND in a lockable
+        // carrier mode (CW/AM/SAM/FM).  All estimator mutation stays on this
+        // RX-worker thread; only the result atomics cross to the UI.
+        {
+            const bool zbRun = zeroBeatEnabled_.load(std::memory_order_relaxed) &&
+                               zeroBeatModeOk_.load(std::memory_order_relaxed);
+            if (zbRun) {
+                if (zbRate_ != cfg_.inRate) {
+                    zeroBeat_.setSampleRate(cfg_.inRate);   // resizes + resets
+                    zbRate_ = cfg_.inRate;
+                } else if (!zbRunPrev_) {
+                    zeroBeat_.reset();                       // clean start on re-arm
+                }
+                // Scan around the MARKER so we lock the operator's signal, not
+                // the loudest neighbour.  HL2 baseband is spectrally reversed,
+                // so the on-freq carrier sits at −markerOffset.
+                const double mk = zbMarkerHz_.load(std::memory_order_relaxed);
+                zeroBeat_.setSearchCenter(-mk);
+                zeroBeat_.process(dspPtr, cfg_.inSize);
+                zbRawHz_.store(zeroBeat_.offsetHz(), std::memory_order_relaxed);
+                zbValid_.store(zeroBeat_.valid(),    std::memory_order_relaxed);
+            } else if (zbRunPrev_) {
+                zbValid_.store(false, std::memory_order_relaxed);
+            }
+            zbRunPrev_ = zbRun;
         }
 
         // TCI IQ stream tap: copy this block's interleaved I,Q as float32

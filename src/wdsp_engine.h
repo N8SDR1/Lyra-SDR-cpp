@@ -43,6 +43,7 @@
 #include "dsp/CwDecoder.h"     // #173 CW-5a — RX CW decoder (value member)
 #include "dsp/deepfist/NeuralCwDecoder.h" // DeepFist neural CW decoder (2nd engine)
 #include "dsp/FreqCalMeasure.h" // freq calibration — carrier tone estimator
+#include "dsp/ZeroBeat.h"       // zero-beat carrier-offset tuning aid (value member)
 
 class QAudioSink;
 
@@ -159,6 +160,13 @@ class WdspEngine : public QObject {
     // centred filter (standard HF SDR convention).
     Q_PROPERTY(int cwPitchHz READ cwPitchHz WRITE setCwPitchHz
                NOTIFY cwPitchChanged)
+    // Zero-beat tuning aid (Visuals → Show Zero-beat markers).  Signed offset
+    // (Hz) of the strongest carrier from the operator's dialled frequency;
+    // valid only with a lockable carrier present; active only when enabled +
+    // in CW / AM / SAM / FM + running.  RX-only, no effect on audio / TX.
+    Q_PROPERTY(double zeroBeatOffsetHz READ zeroBeatOffsetHz NOTIFY zeroBeatChanged)
+    Q_PROPERTY(bool   zeroBeatValid    READ zeroBeatValid    NOTIFY zeroBeatChanged)
+    Q_PROPERTY(bool   zeroBeatActive   READ zeroBeatActive   NOTIFY zeroBeatChanged)
     // VFO − DDS, Hz: +pitch in CWU, −pitch in CWL, 0 otherwise.  The
     // tuning layer uses it (VFO = DDS + markerOffset) and the panadapter
     // draws the carrier marker offset by it.
@@ -585,6 +593,13 @@ public:
     int  cwPitchHz() const { return static_cast<int>(cwPitchHz_ + 0.5); }
     Q_INVOKABLE void setCwPitchHz(int hz);
 
+    // Zero-beat tuning aid (Q_PROPERTY-backed, RX-only).  The estimator runs
+    // on the RX worker (feedIq); these read published atomics on the UI thread.
+    double zeroBeatOffsetHz() const;   // signed Hz from dialled carrier (0 if invalid)
+    bool   zeroBeatValid()    const;   // a lockable carrier is present
+    bool   zeroBeatActive()   const;   // enabled + CW/AM/SAM/FM + running
+    Q_INVOKABLE void setZeroBeatEnabled(bool on);  // driven by Prefs.zeroBeatMarkers
+
     // #173 CW-5a — RX CW decoder controls.  Enable gates the dispatchAudioFrame
     // tap (CW-mode-gated); the knob forwards are plain stores on the decoder
     // (audio-thread-safe, benign one-block staleness).  Decode outputs arrive
@@ -762,6 +777,7 @@ signals:
     void passbandChanged();
     void cwPitchChanged();
     void markerOffsetChanged();
+    void zeroBeatChanged();   // zero-beat offset / valid / active updated
     // #173 CW-5a — RX CW decoder outputs (emitted from the audio thread; the
     // CW-5b panel connects with the default queued connection).
     void cwDecodeEnabledChanged();
@@ -1209,6 +1225,19 @@ private:
     // cwEngine_: 0 = Classic (fldigi), 1 = Neural (DeepFist).
     lyra::dsp::NeuralCwDecoder           neuralCw_;
     std::atomic<int>                     cwEngine_{0};
+
+    // Zero-beat tuning aid.  zeroBeat_ is touched ONLY on the RX worker
+    // (feedIq); zbRunPrev_/zbRate_ are worker-only edge trackers.  The result
+    // atomics (zbRawHz_ = carrier offset from DDS, zbValid_) cross to the UI,
+    // read by the zeroBeat* getters.  enabled_/modeOk_ are set on the UI thread.
+    lyra::dsp::ZeroBeat  zeroBeat_;
+    bool                 zbRunPrev_ = false;   // worker-only run edge
+    int                  zbRate_    = 0;        // worker-only last IQ rate
+    std::atomic<bool>    zeroBeatEnabled_{false};
+    std::atomic<bool>    zeroBeatModeOk_{false};
+    std::atomic<double>  zbRawHz_{0.0};       // measured carrier baseband offset
+    std::atomic<double>  zbMarkerHz_{0.0};    // marker offset (VFO−DDS), UI→worker
+    std::atomic<bool>    zbValid_{false};
 
     // Freq calibration (Stage 3b) — carrier-tone estimator + arm flag +
     // de-interleave scratch + last-emitted window counter (throttle).

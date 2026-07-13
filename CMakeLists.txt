@@ -18,7 +18,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.17.0
+    VERSION 0.18.0
     DESCRIPTION "Lyra — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
@@ -249,6 +249,8 @@ qt_add_executable(lyra
     src/dsp/deepfist/DeepFistModel.cpp
     src/dsp/deepfist/NeuralCwDecoder.h
     src/dsp/deepfist/NeuralCwDecoder.cpp
+    src/dsp/ZeroBeat.h
+    src/dsp/ZeroBeat.cpp
     # (Stage 7.1 TxIqRing RETIRED 2026-06-09 — wrong-architecture
     # post-TXA placement per audit Agent F; replaced by the Thetis-
     # faithful pre-TXA CMB ring + cm_main pump thread at src/wire/
