@@ -153,6 +153,17 @@ input. **Findings (all evidenced):**
    (`AG4CXR`, `CXW GRE`, `T GREGG I`, …). ⇒ Lyra's port is faithful; **this is a
    DeepFist model limitation, not a Lyra bug.** Fix belongs in DeepFist.
 
+**UPDATE (keying squelch, commit `5e0b516`):** ported DeepFist's live-copy fix
+(§18.23) — a per-window **keying gate**. Lyra's CW AGC makes a steady ~700 Hz
+artifact tone that a level gate can't distinguish from signal; KEYING does.
+`DeepFistConditioner::keyingRatio` = p90/p10 of the locked tone's baseband
+envelope; `< 12` → skip decode, emit nothing. Used DeepFist's `keying_ratio`
+(tools/squelch.py, validated on Lyra ×21 captures: dead air ~4, CW 12-600+), NOT
+diddle's `keying_depth` (flat ~0.68 on Lyra audio — doesn't separate). Verified:
+dead-air windows now emit NOTHING; signal windows decode. **This kills the
+dead-air garbage** (a big part of "horrible"). Real-signal copy quality on
+hand-sent CW is UNCHANGED — still the DeepFist training frontier.
+
 Saved as a real eval clip: **`c:\dev\cw\wav\lyra_kg4cb_gregg_2026-07-12.wav`**
 (60 s, 48k, peak-normalized) + `.txt` with a TENTATIVE label
 (`KG4CB DE <?> TU TW GREGG WA <?> RIC <?>`) — **operator ground-truth still
@@ -175,6 +186,10 @@ real eval clips; this is one where exp15 fails.
 
 ## 9. Next steps (highest-leverage first)
 
+0. **Export exp16 to ONNX for Lyra** (`scripts/export.py` on `runs/exp16/model.pt`
+   → a new `deepfist.onnx`; copy into Lyra `models/`). exp16 is the current
+   DeepFist champion but is only a `.pt`; Lyra still runs exp15. Marginal on real
+   hand-sent CW (§18.23), so not a magic fix, but keeps Lyra current.
 1. **Improve the model (in DeepFist, not Lyra).** Alignment-robust decode is the
    real fix: e.g. train/augment with random window offsets, or a decode-time
    strategy (multi-offset decode + consensus, or align windows to keying gaps).
