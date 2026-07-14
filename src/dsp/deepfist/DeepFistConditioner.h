@@ -41,6 +41,14 @@ public:
     std::vector<float> condition(const float* audio, int n) const;
     std::vector<float> conditionAt(const float* audio, int n, float toneHz) const;
 
+    // Keying-activity metric = p90/p10 of the isolated tone's envelope (the
+    // Lyra-validated DeepFist squelch, tools/squelch.py keying_ratio, computed
+    // here from the single locked tone rather than a full STFT).  Real keyed CW
+    // swings key-down↔gaps → ratio tens-hundreds; a steady carrier / birdie /
+    // CW-AGC artifact tone has a flat envelope → ratio ~4-5.  Scale-free (no
+    // AGC).  Gates the decoder off dead air.  Returns 0 for n < 4096.
+    float keyingRatio(const float* audio, int n, float toneHz) const;
+
 private:
     void fft(std::vector<std::complex<double>>& a) const;   // radix-2, size kToneNfft
 

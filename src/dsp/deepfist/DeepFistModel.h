@@ -43,6 +43,13 @@ public:
     bool infer(const float* audio, int n,
                std::vector<float>& logits, int& T, int& C);
 
+    // Keying-activity ratio (p90/p10) of the window at the auto-locked tone.
+    // The streamer gates on this so the model doesn't hallucinate on dead air /
+    // steady carriers (see DeepFistConditioner::keyingRatio).
+    float keyingRatio(const float* audio, int n) const {
+        return cond_.keyingRatio(audio, n, cond_.detectTone(audio, n));
+    }
+
     const std::vector<std::string>& tokens() const { return tokens_; }
     const std::string& lastError() const { return lastError_; }
 
