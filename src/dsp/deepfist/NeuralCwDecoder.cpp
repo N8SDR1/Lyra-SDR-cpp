@@ -15,6 +15,11 @@ constexpr int    kTickMs    = 400;          // re-decode ~2.5x/s (tci_decode tic
 constexpr double kGuardS    = 1.3;          // commit delay / latency
 constexpr int    kMinSamp   = kSr;          // need >=1 s buffered before decoding
 constexpr float  kBlankPen  = 0.0f;         // exp9 is robust; off (matches Rust)
+constexpr float  kKeyingMin = 12.0f;        // min keying ratio (p90/p10) to decode
+                                            // (DeepFist squelch.py, validated on Lyra
+                                            // captures: dead air ~4, keyed CW 12-600+)
+                                            // — gates dead air / steady carriers so we
+                                            // don't hallucinate characters on no signal
 }  // namespace
 
 NeuralCwDecoder::NeuralCwDecoder() {
@@ -101,6 +106,21 @@ void NeuralCwDecoder::workerLoop() {
             gen      = gen_;
         }
 
+        const double winStart = audioEnd - kWindowS;
+        const double settleTo = audioEnd - kGuardS;
+
+        // Keying gate: only decode when the window actually contains keyed CW.
+        // A steady carrier / birdie / the CW-AGC artifact tone clears any level
+        // test but has a flat envelope, so the model would hallucinate on it.
+        // No keying -> emit nothing, just advance the commit boundary so silence
+        // doesn't back up.  (Mirrors diddle's presence gate; DeepFist HANDOFF
+        // §18.23 "no signal energy -> no characters".)
+        if (model_.keyingRatio(window.data(), kWindow) < kKeyingMin) {
+            std::lock_guard<std::mutex> lk(mx_);
+            if (gen == gen_) committedT_ = std::max(committedT_, settleTo);
+            continue;
+        }
+
         int T = 0, C = 0;
         if (!model_.infer(window.data(), kWindow, logits, T, C)) continue;
         const CtcFrames fr = greedyCtcFrames(logits.data(), T, C, kBlankPen);
@@ -109,9 +129,6 @@ void NeuralCwDecoder::workerLoop() {
         std::vector<CallRescore> calls;
         if (scp_.ready() && onCalls)
             calls = rescoreCalls(logits.data(), T, C, fr.ids, model_.tokens(), scp_);
-
-        const double winStart = audioEnd - kWindowS;
-        const double settleTo = audioEnd - kGuardS;
         const int    denom    = std::max(1, fr.T);
         const auto&  toks     = model_.tokens();
 

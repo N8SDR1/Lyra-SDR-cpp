@@ -1,5 +1,6 @@
 #include "dsp/deepfist/DeepFistConditioner.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace lyra::dsp {
@@ -115,6 +116,39 @@ std::vector<float> DeepFistConditioner::conditionAt(const float* audio, int n,
     const float peak = maxAbs + 1e-9f;
     for (float& v : out) v /= peak;
     return out;
+}
+
+float DeepFistConditioner::keyingRatio(const float* audio, int n, float tone) const {
+    if (!audio || n < kToneNfft) return 0.0f;
+    const float sr = static_cast<float>(kSr);
+    const float pi = static_cast<float>(kPi);
+    // Downconvert `tone` to baseband + two cascaded 1-pole LPFs (same DSP as
+    // conditionAt, but keep the baseband magnitude — the keying envelope — and
+    // no AGC, since the ratio below is scale-free).
+    const float alpha = 1.0f - std::exp(-2.0f * pi * (kCondBwHz * 0.5f) / sr);
+    const float ds = std::sin(-2.0f * pi * tone / sr);
+    const float dc = std::cos(-2.0f * pi * tone / sr);
+    float pr = 1.0f, pj = 0.0f;
+    float bI = 0.0f, bQ = 0.0f, cI = 0.0f, cQ = 0.0f;
+
+    std::vector<float> env(static_cast<size_t>(n));
+    for (int k = 0; k < n; ++k) {
+        const float s = audio[k];
+        const float di = s * pr, dq = s * pj;
+        bI += alpha * (di - bI);
+        bQ += alpha * (dq - bQ);
+        cI += alpha * (bI - cI);
+        cQ += alpha * (bQ - cQ);
+        env[static_cast<size_t>(k)] = std::sqrt(cI * cI + cQ * cQ);
+        const float npr = pr * dc - pj * ds, npj = pr * ds + pj * dc;
+        pr = npr; pj = npj;
+    }
+    // Robust on/off levels: 90th / 10th percentiles so clicks/dropouts don't
+    // skew.  ratio = p90/p10 (matches tools/squelch.py keying_ratio).
+    std::sort(env.begin(), env.end());
+    const float off = env[static_cast<size_t>(n / 10)];          // ~key-up gaps
+    const float on  = env[static_cast<size_t>(n - 1 - n / 10)];  // ~key-down
+    return on / (off + 1e-3f);
 }
 
 }  // namespace lyra::dsp
