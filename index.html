@@ -76,6 +76,12 @@
   .frame-bar .dot { width: 10px; height: 10px; border-radius: 50%; background: #2a3342; }
   .frame-title { margin-left: 10px; font-size: 12px; color: var(--muted); letter-spacing: 0.3px; }
   .frame img { display: block; width: 100%; height: auto; }
+  .shot-note {
+    margin-top: 12px; text-align: center; font-size: 12.5px; line-height: 1.6;
+    color: var(--muted);
+  }
+  .shot-note a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(0,229,255,0.35); }
+  .shot-note a:hover { border-bottom-color: var(--accent); }
 
   /* Sections */
   section { padding: 40px 0; }
@@ -157,7 +163,7 @@
         <a class="btn btn-ghost" href="https://discord.gg/BwjsQvjcSc">💬 Join the Discord</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp">★ GitHub</a>
       </div>
-      <p class="platforms">Windows 10 / 11 · Hermes Lite 2 / 2+</p>
+      <p class="platforms">Windows 10 / 11 · Hermes Lite 2 / 2+ · 1600 × 900 display or larger</p>
     </header>
 
     <section class="showcase">
@@ -168,6 +174,14 @@
         </div>
         <img src="app-hero.jpg" alt="Lyra — panadapter, waterfall, tuning cluster, CW console and meters running live" loading="lazy" onerror="this.closest('.showcase').style.display='none'">
       </div>
+      <p class="shot-note">
+        Shot on a <b>2560&nbsp;×&nbsp;1440</b> display with every panel open — you'll want a big
+        screen for a layout like this one.<br>
+        Lyra needs <b>1600&nbsp;×&nbsp;900</b> to run, which fits the panels you operate with
+        (panadapter&nbsp;+&nbsp;waterfall, tuning, band, filters, audio, meter, TX);
+        <b>1920&nbsp;×&nbsp;1080</b> holds everything at once.
+        <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/PC-Requirements">Full PC requirements →</a>
+      </p>
     </section>
 
     <section class="marquee-sec">
