@@ -43,6 +43,7 @@ constexpr auto kCwDecFont  = "cw/decodeFontSize";
 constexpr auto kCwDecBw     = "cw/decodeBandwidth";
 constexpr auto kCwDecSpeed  = "cw/decodeSpeed";
 constexpr auto kCwDecEngine = "cw/decodeEngine";
+constexpr auto kCwBlankPen  = "cw/blankPenalty";
 constexpr auto kCwDecTrack  = "cw/decodeTracking";
 constexpr auto kCwDecMfilt  = "cw/decodeMatchedFilter";
 constexpr auto kCwDecSqlOn  = "cw/decodeSquelchOn";
@@ -195,6 +196,7 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     cwDecodeBandwidth_     = std::clamp(s.value(kCwDecBw, 150).toInt(), 50, 3000);
     cwDecodeSpeed_         = std::clamp(s.value(kCwDecSpeed, 18).toInt(), 5, 50);
     cwDecodeEngine_        = std::clamp(s.value(kCwDecEngine, 0).toInt(), 0, 1);
+    cwBlankPenalty_        = std::clamp(s.value(kCwBlankPen, 0.0).toDouble(), 0.0, 5.0);
     cwDecodeTracking_      = s.value(kCwDecTrack, true).toBool();
     cwDecodeMatchedFilter_ = s.value(kCwDecMfilt, false).toBool();
     cwDecodeSquelchOn_     = s.value(kCwDecSqlOn, false).toBool();
@@ -587,6 +589,15 @@ void Prefs::setCwDecodeEngine(int engine) {
         cwDecodeEngine_ = engine;
         QSettings().setValue(kCwDecEngine, engine);
         emit cwDecodeEngineChanged();
+    }
+}
+
+void Prefs::setCwBlankPenalty(double p) {
+    p = std::clamp(p, 0.0, 5.0);
+    if (std::abs(p - cwBlankPenalty_) > 1e-9) {
+        cwBlankPenalty_ = p;
+        QSettings().setValue(kCwBlankPen, p);
+        emit cwBlankPenaltyChanged();
     }
 }
 

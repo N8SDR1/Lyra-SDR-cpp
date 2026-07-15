@@ -184,6 +184,10 @@ class WdspEngine : public QObject {
                NOTIFY cwDecodeEngineChanged)
     Q_PROPERTY(bool cwNeuralAvailable READ cwNeuralAvailable
                NOTIFY cwNeuralAvailableChanged)
+    // DeepFist — live CTC blank-logit penalty (0..5).  Higher recovers dropped
+    // chars on weak audio, adds spurious chars on strong signals.
+    Q_PROPERTY(double cwBlankPenalty READ cwBlankPenalty WRITE setCwBlankPenalty
+               NOTIFY cwBlankPenaltyChanged)
     // ── RX DSP operator controls (ported from old Lyra's DSP+AUDIO
     // panel).  Noise reduction = WDSP EMNR.  nrMode 1..4 picks the
     // gain function (Wiener+SPP / Wiener / MMSE-LSA / trained); AEPF is
@@ -623,6 +627,9 @@ public:
     int  cwDecodeEngine() const { return cwEngine_.load(std::memory_order_relaxed); }
     Q_INVOKABLE void setCwDecodeEngine(int engine);
     bool cwNeuralAvailable() const { return neuralCw_.ready(); }
+
+    double cwBlankPenalty() const { return neuralCw_.blankPenalty(); }
+    Q_INVOKABLE void setCwBlankPenalty(double p);
     // Task #53 — shared RX+TX filter low edge.  Affects only the
     // ASYMMETRIC SSB / DIG modes (USB/LSB/DIGU/DIGL).  CW filter
     // is centred on the pitch (low edge isn't a meaningful axis);
@@ -787,6 +794,7 @@ signals:
     // and the full current-window neural decode (replace-mode display).
     void cwDecodeEngineChanged();
     void cwNeuralAvailableChanged();
+    void cwBlankPenaltyChanged();
     void cwNeuralText(QString windowText);
     // DeepFist CTC-lattice callsign verdict (confident only): best = the
     // lattice-preferred call, orig = the greedy decode (== best when confirmed).

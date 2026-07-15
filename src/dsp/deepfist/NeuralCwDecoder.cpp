@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 
 #include "dsp/deepfist/DeepFistCtc.h"
 
@@ -14,7 +15,6 @@ constexpr double kWindowS   = 6.0;
 constexpr int    kTickMs    = 400;          // re-decode ~2.5x/s (tci_decode tick)
 constexpr double kGuardS    = 1.3;          // commit delay / latency
 constexpr int    kMinSamp   = kSr;          // need >=1 s buffered before decoding
-constexpr float  kBlankPen  = 0.0f;         // exp9 is robust; off (matches Rust)
 constexpr float  kKeyingMin = 12.0f;        // min keying ratio (p90/p10) to decode
                                             // (DeepFist squelch.py, validated on Lyra
                                             // captures: dead air ~4, keyed CW 12-600+)
@@ -24,6 +24,10 @@ constexpr float  kKeyingMin = 12.0f;        // min keying ratio (p90/p10) to dec
 
 NeuralCwDecoder::NeuralCwDecoder() {
     ring_.assign(kWindow, 0.0f);
+    // Initial blank penalty from LYRA_CW_BLANKPEN (default 0); the panel can
+    // override it live via setBlankPenalty().
+    if (const char* e = std::getenv("LYRA_CW_BLANKPEN"))
+        blankPen_.store(std::strtof(e, nullptr), std::memory_order_relaxed);
 }
 
 NeuralCwDecoder::~NeuralCwDecoder() {
@@ -123,7 +127,8 @@ void NeuralCwDecoder::workerLoop() {
 
         int T = 0, C = 0;
         if (!model_.infer(window.data(), kWindow, logits, T, C)) continue;
-        const CtcFrames fr = greedyCtcFrames(logits.data(), T, C, kBlankPen);
+        const CtcFrames fr = greedyCtcFrames(logits.data(), T, C,
+                                             blankPen_.load(std::memory_order_relaxed));
 
         // CTC-lattice callsign rescoring for this window (worker thread, no lock).
         std::vector<CallRescore> calls;

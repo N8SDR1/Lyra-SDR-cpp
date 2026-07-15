@@ -96,6 +96,7 @@ Rectangle {
         WdspEngine.setCwDecodeTracking(root.trackingOn)
         WdspEngine.setCwDecodeMatchedFilter(root.matchedFilter)
         pushSquelch()
+        WdspEngine.setCwBlankPenalty(Prefs.cwBlankPenalty)   // DeepFist blank penalty
         // Restore the persisted engine; if the neural model can't load,
         // WdspEngine stays on Classic (cwDecodeEngine reflects the truth).
         if (Prefs.cwDecodeEngine === 1)
@@ -246,6 +247,28 @@ Rectangle {
                 font.pixelSize: 11
             }
             Item { Layout.fillWidth: true }
+        }
+
+        // ── DeepFist: live CTC blank-penalty slider (weak-signal recovery) ──
+        RowLayout {
+            visible: !root.collapsed && root.cwEngine === 1
+            Layout.fillWidth: true
+            spacing: 10
+            Label { text: qsTr("Blank penalty"); color: root.cText; font.pixelSize: 12 }
+            LyraSlider {
+                id: penSlider
+                Layout.fillWidth: true
+                from: 0; to: 5; stepSize: 0.5; value: Prefs.cwBlankPenalty
+                onMoved: {
+                    Prefs.cwBlankPenalty = value
+                    WdspEngine.setCwBlankPenalty(value)
+                }
+            }
+            Label {
+                text: Number(WdspEngine.cwBlankPenalty).toFixed(1)
+                color: root.cText; font.family: "Consolas"; font.pixelSize: 12
+                Layout.preferredWidth: 30; horizontalAlignment: Text.AlignRight
+            }
         }
 
         // ── DeepFist callsign verdicts (CTC-lattice rescorer) — click → His Call ──

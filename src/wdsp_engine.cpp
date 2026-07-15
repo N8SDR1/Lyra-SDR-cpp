@@ -1975,8 +1975,9 @@ void WdspEngine::setCwDecodeEngine(int engine)
                          qUtf8Printable(dir), neuralCw_.lastError().c_str());
                 return;   // keep engine 0
             }
-            qInfo("DeepFist: neural CW model loaded from %s (SCP rescorer: %d calls)",
-                  qUtf8Printable(dir), neuralCw_.scpCount());
+            qInfo("DeepFist: neural CW model loaded from %s (SCP rescorer: %d calls, "
+                  "blank_pen %.1f)",
+                  qUtf8Printable(dir), neuralCw_.scpCount(), neuralCw_.blankPenalty());
         }
         neuralCw_.reset();                          // safe: engine still 0 here
         cwEngine_.store(1, std::memory_order_relaxed);
@@ -1985,6 +1986,14 @@ void WdspEngine::setCwDecodeEngine(int engine)
         cwDecoder_.reset();
     }
     emit cwDecodeEngineChanged();
+}
+
+void WdspEngine::setCwBlankPenalty(double p)
+{
+    p = std::clamp(p, 0.0, 5.0);
+    if (std::abs(p - neuralCw_.blankPenalty()) < 1e-6) return;
+    neuralCw_.setBlankPenalty(static_cast<float>(p));   // live, audio-thread-safe
+    emit cwBlankPenaltyChanged();
 }
 
 // Task #53 — shared RX+TX filter low edge.  RX-side application:
