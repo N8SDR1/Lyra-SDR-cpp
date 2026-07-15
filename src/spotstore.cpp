@@ -294,6 +294,11 @@ void SpotStore::activate(const QString &call) {
     emit spotActivated(sp.call, sp.mode, sp.freqHz, sp.argb);
 }
 
+bool SpotStore::isSpotted(const QString &call) const {
+    const QString c = call.trimmed();
+    return c.size() >= 3 && indexOf(c) >= 0;
+}
+
 QVariantList SpotStore::spotsInSpan(double centerHz, double spanHz) const {
     QVariantList out;
     if (!show_ || spanHz <= 0) return out;

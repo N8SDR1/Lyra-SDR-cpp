@@ -151,4 +151,48 @@ float DeepFistConditioner::keyingRatio(const float* audio, int n, float tone) co
     return on / (off + 1e-3f);
 }
 
+float DeepFistConditioner::estimateWpm(const float* audio, int n, float tone) const {
+    if (!audio || n < kToneNfft) return 0.0f;
+    const float sr = static_cast<float>(kSr);
+    const float pi = static_cast<float>(kPi);
+    const float alpha = 1.0f - std::exp(-2.0f * pi * (kCondBwHz * 0.5f) / sr);
+    const float ds = std::sin(-2.0f * pi * tone / sr);
+    const float dc = std::cos(-2.0f * pi * tone / sr);
+    float pr = 1.0f, pj = 0.0f, bI = 0.0f, bQ = 0.0f, cI = 0.0f, cQ = 0.0f;
+
+    std::vector<float> env(static_cast<size_t>(n));
+    float peak = 1e-9f;
+    for (int k = 0; k < n; ++k) {
+        const float s = audio[k];
+        const float di = s * pr, dq = s * pj;
+        bI += alpha * (di - bI); bQ += alpha * (dq - bQ);
+        cI += alpha * (bI - cI); cQ += alpha * (bQ - cQ);
+        const float e = std::sqrt(cI * cI + cQ * cQ);
+        env[static_cast<size_t>(k)] = e;
+        peak = std::max(peak, e);
+        const float npr = pr * dc - pj * ds, npj = pr * ds + pj * dc;
+        pr = npr; pj = npj;
+    }
+
+    // Threshold at half peak → on/off; collect "on" run lengths (samples).
+    const float thr = 0.5f * peak;
+    std::vector<int> onRuns;
+    int run = 0;
+    for (int k = 0; k < n; ++k) {
+        if (env[static_cast<size_t>(k)] > thr) ++run;
+        else { if (run > 0) onRuns.push_back(run); run = 0; }
+    }
+    if (run > 0) onRuns.push_back(run);
+    if (onRuns.size() < 3) return 0.0f;
+
+    // Dot length ≈ short elements: 20th percentile of the on-run lengths (robust
+    // against dashes being 3× longer and against stray clicks).
+    std::sort(onRuns.begin(), onRuns.end());
+    const int dotSamp = onRuns[onRuns.size() / 5];
+    if (dotSamp <= 0) return 0.0f;
+    const float dotMs = dotSamp * 1000.0f / sr;
+    const float wpm = 1200.0f / dotMs;                // PARIS: dot(ms) = 1200/wpm
+    return std::clamp(wpm, 5.0f, 60.0f);
+}
+
 }  // namespace lyra::dsp

@@ -132,6 +132,13 @@ void NeuralCwDecoder::workerLoop() {
         }
         idleGap_ = false;   // keyed signal present again
 
+        // Estimated RX speed (WPM) from the keying envelope; emit on change.
+        if (onWpm) {
+            const int wpm = model_.keyingWpm(window.data(), kWindow);
+            const int d = wpm > lastWpm_ ? wpm - lastWpm_ : lastWpm_ - wpm;
+            if (wpm > 0 && d >= 2) { lastWpm_ = wpm; onWpm(wpm); }
+        }
+
         int T = 0, C = 0;
         if (!model_.infer(window.data(), kWindow, logits, T, C)) continue;
         const CtcFrames fr = greedyCtcFrames(logits.data(), T, C,
