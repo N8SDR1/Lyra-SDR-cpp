@@ -85,6 +85,7 @@ private:
     long long           total3200_ = 0; // cumulative 3200 Hz samples seen
     double              committedT_ = 0.0; // audio time already emitted (s)
     unsigned            gen_ = 0;       // bumped on reset() to discard in-flight
+    bool                idleGap_ = false; // worker-only: in a keyed-CW pause
     std::vector<float>  tmp_;           // decimator scratch (audio thread)
 
     // Worker.

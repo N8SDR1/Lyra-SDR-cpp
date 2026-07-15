@@ -120,10 +120,17 @@ void NeuralCwDecoder::workerLoop() {
         // doesn't back up.  (Mirrors diddle's presence gate; DeepFist HANDOFF
         // §18.23 "no signal energy -> no characters".)
         if (model_.keyingRatio(window.data(), kWindow) < kKeyingMin) {
-            std::lock_guard<std::mutex> lk(mx_);
-            if (gen == gen_) committedT_ = std::max(committedT_, settleTo);
+            {
+                std::lock_guard<std::mutex> lk(mx_);
+                if (gen != gen_) continue;
+                committedT_ = std::max(committedT_, settleTo);
+            }
+            // Emit ONE space at the start of a pause so text across the gap
+            // doesn't run together (mirrors tci_decode's idle-gap space).
+            if (!idleGap_) { idleGap_ = true; if (onText) onText(" "); }
             continue;
         }
+        idleGap_ = false;   // keyed signal present again
 
         int T = 0, C = 0;
         if (!model_.infer(window.data(), kWindow, logits, T, C)) continue;
