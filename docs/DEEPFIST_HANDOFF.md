@@ -186,10 +186,15 @@ real eval clips; this is one where exp15 fails.
 
 ## 9. Next steps (highest-leverage first)
 
-0. **Export exp16 to ONNX for Lyra** (`scripts/export.py` on `runs/exp16/model.pt`
-   → a new `deepfist.onnx`; copy into Lyra `models/`). exp16 is the current
-   DeepFist champion but is only a `.pt`; Lyra still runs exp15. Marginal on real
-   hand-sent CW (§18.23), so not a magic fix, but keeps Lyra current.
+0. ~~Export exp16~~ **DONE (2026-07-14):** exported `runs/exp16/model.pt` →
+   `runs/deepfist_exp16.onnx` (width read from exp16/config.json; ONNX==.pt
+   verified) and dropped into Lyra `models/deepfist.onnx` (exp15 backed up as
+   `models/deepfist_exp15.onnx.bak`, git-ignored). **Lyra now runs exp16.** Note:
+   on the hand-sent KG4CB window exp16 (`IKTG4CB`) is marginally worse than exp15
+   (`KG4CB`) — exp16 wins on machine-sent, real fists still the frontier. A/B by
+   swapping the .bak back. **BUILD GOTCHA:** the POST_BUILD model copy only runs
+   when `lyra.exe` relinks, so after swapping `models/deepfist.onnx` you must
+   force a relink OR manually `cp models/* build/models/` (done this time).
 1. **Improve the model (in DeepFist, not Lyra).** Alignment-robust decode is the
    real fix: e.g. train/augment with random window offsets, or a decode-time
    strategy (multi-offset decode + consensus, or align windows to keying gaps).
