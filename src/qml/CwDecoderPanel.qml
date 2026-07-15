@@ -77,16 +77,30 @@ Rectangle {
         return t.substring(a, b).trim()
     }
 
-    // Render the transcript as HTML, colouring any call-shaped word that is
-    // currently spotted on RBN/cluster (Spots.isSpotted) — so a real, active
-    // station stands out the moment it's copied.
+    // True when a token has amateur-callsign shape (prefix, area digit, 1-3
+    // letter suffix, optional /P-style tail).  FALLBACK ONLY — used when the
+    // MASTER.SCP database isn't loaded yet (cwCallKnown is the real test);
+    // shape alone ambers run-together garbles like AA0TTDE ("AA0TT DE …").
+    function isCallShaped(w) {
+        return /^(?:[A-Z][A-Z0-9]?|[0-9][A-Z])[0-9][A-Z]{1,3}(?:\/[A-Z0-9]{1,4})?$/.test(w)
+    }
+
+    // Render the transcript as HTML: any callsign-shaped word is coloured amber
+    // so calls always pop out of the copy; one that is currently spotted on
+    // RBN/cluster (Spots.isSpotted) upgrades to bright green + bold — a real,
+    // active, verified station.
     function displayHtml(t) {
         var rev = root.spotRev   // create a binding dependency on spot updates
         var esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
         var html = esc.replace(/[A-Z0-9\/]{3,}/g, function(w) {
-            // only bother the spot store with call-shaped tokens (contain a digit)
-            if (/[0-9]/.test(w) && Spots.isSpotted(w))
-                return '<span style="color:#5fffa8; font-weight:bold">' + w + '</span>'
+            // only bother the lookups with call-shaped tokens (contain a digit)
+            if (/[0-9]/.test(w)) {
+                if (Spots.isSpotted(w))       // RBN/cluster-verified: live now
+                    return '<span style="color:#5fffa8; font-weight:bold">' + w + '</span>'
+                if (WdspEngine.cwCallKnown(w) // known-real (MASTER.SCP) —
+                        || (!WdspEngine.cwNeuralAvailable && root.isCallShaped(w)))
+                    return '<span style="color:#ffbe5a">' + w + '</span>'
+            }
             return w
         })
         // Auto-engine fallback markers -> subtle dim (lower-confidence cue).
@@ -155,8 +169,15 @@ Rectangle {
         function onCwNeuralText(newText) { root.appendDecoded(newText) }
         // Auto engine: arbiter output; fallback runs are source-marked (dimmed).
         function onCwAutoText(text, fallback) { root.appendAuto(text, fallback) }
-        // Clear the transcript when switching engines.
-        function onCwDecodeEngineChanged() { root.clearDecoded() }
+        // Engine switch: KEEP the transcript (the operator A/Bs engines on the
+        // same signal and tunes each; the Clear chip empties it manually) —
+        // just drop a seam glyph so the eye can see where the engine changed.
+        function onCwDecodeEngineChanged() {
+            if (root.decodedText.length > 0) root.appendDecoded(" • ")
+        }
+        // MASTER.SCP arrives with the neural model (first switch to
+        // DeepFist/Auto) — re-render so already-copied calls gain their amber.
+        function onCwNeuralAvailableChanged() { root.spotRev++ }
     }
 
     // Re-highlight the transcript when the spot bank changes.

@@ -10,6 +10,7 @@
 // those candidates the audio actually supports (see DeepFistRescore).
 #pragma once
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -29,6 +30,12 @@ public:
     // `maxCands`.  Empty for tokens shorter than 3 chars.
     std::vector<std::string> candidates(const std::string& token,
                                         int maxEdit, int maxCands) const;
+
+    // Exact membership: is `call` (upper-case) in the database?  O(log n) —
+    // calls_ is sorted.  Used by the CW panel to colour known-real callsigns.
+    bool contains(const std::string& call) const {
+        return std::binary_search(calls_.begin(), calls_.end(), call);
+    }
 
 private:
     std::vector<std::string> calls_;    // sorted, upper-case, deduped
