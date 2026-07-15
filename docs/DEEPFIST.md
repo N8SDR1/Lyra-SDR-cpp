@@ -113,3 +113,24 @@ CTC forward pass against PyTorch's `F.ctc_loss` and is a CMake target.
   expected callsign correction.
 - One-shot decode matches the Python/ONNX reference on clean clips, and the C++
   conditioner matches the model's reference conditioner.
+
+## Cross-platform
+
+The DeepFist engine is written to be portable — it is **not** what ties Lyra to
+Windows:
+
+- The DSP (resampler, conditioner, spectrogram, CTC, rescorer) is plain
+  C++/STL. The only platform guard is in `DeepFistModel.cpp`: an `#ifdef _WIN32`
+  for `<windows.h>` + wide-char ONNX path conversion, with a non-Windows `#else`
+  branch that passes the plain UTF-8 filename. It compiles as-is on Linux/macOS.
+- **ONNX Runtime ships for Linux and macOS** (x64 + arm64) with the same API
+  headers. The only Windows-specific runtime file is `onnxruntime.dll`; swap in
+  `libonnxruntime.so` (Linux) or `libonnxruntime.dylib` (macOS) — same version,
+  same headers. So introducing ONNX Runtime adds no new permanent Windows
+  lock-in.
+
+The current blocker to a Linux/macOS build is the **rest of Lyra**, not
+DeepFist: the WDSP DSP core is presently a Windows DLL, plus WinSock2
+networking. A POSIX shim (`src/os_compat.h`) is a start on that port but is not
+yet wired in. When the broader cross-platform port lands, DeepFist comes along
+with a recompile plus the platform's ONNX Runtime binary.
