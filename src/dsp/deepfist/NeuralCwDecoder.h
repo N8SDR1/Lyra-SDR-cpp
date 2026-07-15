@@ -47,6 +47,12 @@ public:
     bool loadModel(const std::string& modelDir);
     bool ready() const { return model_.ready(); }
     int  scpCount() const { return scp_.count(); }   // 0 = rescorer disabled
+
+    // CTC blank-logit penalty, live-adjustable (audio-thread-safe atomic).
+    // Higher = recover more dropped chars on weak audio, more spurious chars on
+    // strong signals.  Initial value from LYRA_CW_BLANKPEN (default 0).
+    float blankPenalty() const { return blankPen_.load(std::memory_order_relaxed); }
+    void  setBlankPenalty(float p) { blankPen_.store(p, std::memory_order_relaxed); }
     const std::string& lastError() const { return model_.lastError(); }
 
     void setSampleRate(double hz);      // input rate (default 48 kHz)
@@ -71,6 +77,7 @@ private:
     DeepFistModel     model_;
     DeepFistScp       scp_;             // callsign DB for the lattice rescorer
     DeepFistResampler decim_{48000.0, 3200.0};
+    std::atomic<float> blankPen_{0.0f}; // CTC blank penalty (live, UI↔worker)
 
     // Shared rolling window (audio thread writes, worker reads), under mx_.
     std::mutex          mx_;
