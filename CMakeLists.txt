@@ -1001,3 +1001,16 @@ target_include_directories(test_rescore PRIVATE src)
 if(MSVC)
     target_compile_options(test_rescore PRIVATE /utf-8 /Zc:preprocessor)
 endif()
+
+# CW Auto arbiter — engine-agnostic ownership state machine unit test.
+# Qt-free, no ONNX Runtime.  Build + run:
+#   cmake --build build --target test_cw_arbiter && build/test_cw_arbiter
+add_executable(test_cw_arbiter EXCLUDE_FROM_ALL
+    scratch/test_cw_arbiter.cpp
+    src/dsp/CwArbiter.h
+    src/dsp/CwArbiter.cpp
+)
+target_include_directories(test_cw_arbiter PRIVATE src)
+if(MSVC)
+    target_compile_options(test_cw_arbiter PRIVATE /utf-8 /Zc:preprocessor)
+endif()
