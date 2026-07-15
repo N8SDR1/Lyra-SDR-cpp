@@ -14,6 +14,11 @@
 //
 // Threading: fed from two threads (Classic on the audio thread, DeepFist on its
 // worker thread) — every method takes mx_; onOutput fires OUTSIDE the lock.
+// Known benign race: because onOutput fires OUTSIDE the lock, the relative
+// order of the two feeder threads' callbacks at an ownership-switch boundary
+// is decided by OS scheduling — worst case one transposed character in the
+// transcript at a fade switch.  Accepted (2026-07-15): display-only cosmetic;
+// do not add hand-over-hand callback locking unless it is ever visible on-air.
 #pragma once
 
 #include <functional>
