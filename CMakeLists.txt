@@ -1017,3 +1017,15 @@ target_include_directories(test_cw_arbiter PRIVATE src)
 if(MSVC)
     target_compile_options(test_cw_arbiter PRIVATE /utf-8 /Zc:preprocessor)
 endif()
+
+# Phase 3 — RBN-confirmed local callsign list unit test.  Qt-free.
+#   cmake --build build --target test_scp_local && build/test_scp_local
+add_executable(test_scp_local EXCLUDE_FROM_ALL
+    scratch/test_scp_local.cpp
+    src/dsp/deepfist/ScpLocal.h
+    src/dsp/deepfist/ScpLocal.cpp
+)
+target_include_directories(test_scp_local PRIVATE src)
+if(MSVC)
+    target_compile_options(test_scp_local PRIVATE /utf-8 /Zc:preprocessor)
+endif()
