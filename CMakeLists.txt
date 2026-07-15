@@ -249,6 +249,10 @@ qt_add_executable(lyra
     src/dsp/deepfist/DeepFistModel.cpp
     src/dsp/deepfist/NeuralCwDecoder.h
     src/dsp/deepfist/NeuralCwDecoder.cpp
+    # Phase 3 — RBN-confirmed local callsign list (WdspEngine::ensureCwScpLocal /
+    # cwNoteConfirmedCall).
+    src/dsp/deepfist/ScpLocal.h
+    src/dsp/deepfist/ScpLocal.cpp
     # CW Auto arbiter — engine-agnostic ownership state machine (Phase 1).
     src/dsp/CwArbiter.h
     src/dsp/CwArbiter.cpp

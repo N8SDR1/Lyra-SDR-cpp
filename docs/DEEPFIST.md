@@ -83,6 +83,13 @@ The **Sensitivity** slider (CW panel) is the CTC blank penalty (−1…+1, defau
 0): negative suppresses stray/doubled characters on strong signals, positive
 pulls fainter code out of the noise.
 
+**Learn calls** (opt-in, CW panel): while enabled, decoded callsigns that are
+simultaneously confirmed by an RBN/cluster spot are remembered in a local
+`scp_local.txt` (AppData; capped, aged out after a year). Those calls join the
+known-real (amber) highlight immediately and merge into the callsign
+rescorer's SCP candidate space at the next model load. The shipped
+`MASTER.SCP` stays untouched — refreshing it is still a plain file swap.
+
 ## Build & run (Windows, MSVC)
 
 **Use the VS 2022 vcvars64 environment.** The full app builds with the normal
