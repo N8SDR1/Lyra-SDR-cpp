@@ -45,6 +45,16 @@ Rectangle {
     }
     function clearDecoded() { root.decodedText = "" }
 
+    // Auto engine: fallback (Classic-during-fade) runs are wrapped in private
+    // control-char markers (U+0002 / U+0003) so displayHtml() can dim them.
+    // (Non-empty fallback text only — a bare gap space needs no marking.)
+    function appendAuto(s, fallback) {
+        if (fallback && s.trim().length > 0)
+            appendDecoded("\u0002" + s + "\u0003")
+        else
+            appendDecoded(s)
+    }
+
     // Bumped whenever the spot bank changes, to re-highlight the transcript.
     property int spotRev: 0
 
@@ -73,12 +83,16 @@ Rectangle {
     function displayHtml(t) {
         var rev = root.spotRev   // create a binding dependency on spot updates
         var esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-        return esc.replace(/[A-Z0-9\/]{3,}/g, function(w) {
+        var html = esc.replace(/[A-Z0-9\/]{3,}/g, function(w) {
             // only bother the spot store with call-shaped tokens (contain a digit)
             if (/[0-9]/.test(w) && Spots.isSpotted(w))
                 return '<span style="color:#5fffa8; font-weight:bold">' + w + '</span>'
             return w
         })
+        // Auto-engine fallback markers -> subtle dim (lower-confidence cue).
+        html = html.replace(/\u0002/g, '<span style="opacity:0.68">')
+                   .replace(/\u0003/g, '</span>')
+        return html
     }
 
     // fldigi CW-receiver knob mirrors (persisted via Prefs; fldigi defaults:
@@ -135,6 +149,8 @@ Rectangle {
         }
         // Neural engine: append the newly-committed characters (frame-timed).
         function onCwNeuralText(newText) { root.appendDecoded(newText) }
+        // Auto engine: arbiter output; fallback runs are source-marked (dimmed).
+        function onCwAutoText(text, fallback) { root.appendAuto(text, fallback) }
         // Clear the transcript when switching engines.
         function onCwDecodeEngineChanged() { root.clearDecoded() }
     }
@@ -259,8 +275,16 @@ Rectangle {
                              if (WdspEngine.cwDecodeEngine === 1)
                                  Prefs.cwDecodeEngine = 1 }
             }
+            ChipButton {
+                label: qsTr("Auto")
+                lit: root.cwEngine === 2
+                onClicked: { WdspEngine.cwDecodeEngine = 2
+                             // Persist only if it actually engaged (model loaded).
+                             if (WdspEngine.cwDecodeEngine === 2)
+                                 Prefs.cwDecodeEngine = 2 }
+            }
             Label {
-                visible: root.cwEngine === 1 && !WdspEngine.cwNeuralAvailable
+                visible: (root.cwEngine === 1 || root.cwEngine === 2) && !WdspEngine.cwNeuralAvailable
                 text: qsTr("• model not found — see models/")
                 color: "#e0a030"
                 font.pixelSize: 11
