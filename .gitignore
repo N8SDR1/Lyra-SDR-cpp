@@ -46,6 +46,7 @@ _backups/
 # Local operator-machine build helpers + logs (not part of the repo)
 _b.bat
 _b*.bat
+build3.ps1
 # All build/test output-capture logs (operator-machine, transient).
 *.log
 *.log.err
@@ -63,6 +64,8 @@ dist/
 models/*.onnx
 models/*.onnx.json
 models/MASTER.SCP
+# ...including local rollback backups of swapped-in models (e.g. exp16 .bak).
+models/*.bak
 
 # ONNX Runtime — prebuilt binaries are vendored locally but kept out of git
 # (11 MB DLL). Only the API headers + license are committed; see
@@ -76,3 +79,4 @@ Line
 
 # Claude Code local settings (personal, per-machine)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
