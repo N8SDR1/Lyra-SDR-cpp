@@ -1989,7 +1989,7 @@ void WdspEngine::setCwDecodeEngine(int engine)
 
 void WdspEngine::setCwBlankPenalty(double p)
 {
-    p = std::clamp(p, -2.0, 5.0);
+    p = std::clamp(p, -1.0, 1.0);
     if (std::abs(p - neuralCw_.blankPenalty()) < 1e-6) return;
     neuralCw_.setBlankPenalty(static_cast<float>(p));   // live, audio-thread-safe
     emit cwBlankPenaltyChanged();
