@@ -42,6 +42,7 @@
 #include "dsp/MonitorRing.h"   // #90 — TX-monitor SPSC ring (value member)
 #include "dsp/CwDecoder.h"     // #173 CW-5a — RX CW decoder (value member)
 #include "dsp/deepfist/NeuralCwDecoder.h" // DeepFist neural CW decoder (2nd engine)
+#include "dsp/CwArbiter.h"          // Auto-engine ownership arbiter (Phase 1)
 #include "dsp/FreqCalMeasure.h" // freq calibration — carrier tone estimator
 #include "dsp/ZeroBeat.h"       // zero-beat carrier-offset tuning aid (value member)
 
@@ -867,6 +868,9 @@ signals:
     void cwNeuralAvailableChanged();
     void cwBlankPenaltyChanged();
     void cwNeuralText(QString windowText);
+    // Auto engine — unified arbiter output; fallback == true when the Classic
+    // safety net produced it (panel dims that run).
+    void cwAutoText(QString text, bool fallback);
     // DeepFist CTC-lattice callsign verdict (confident only): best = the
     // lattice-preferred call, orig = the greedy decode (== best when confirmed).
     void cwNeuralCall(QString best, QString orig, double marginNats);
@@ -1334,6 +1338,12 @@ private:
     // operator enable.  cwMonoBuf_ holds the de-interleaved mono block.
     lyra::dsp::CwDecoder                 cwDecoder_;
 
+    // DeepFist neural CW decoder — second engine sharing the same tap.
+    // cwEngine_: 0 = Classic (fldigi), 1 = Neural (DeepFist), 2 = Auto (arbiter).
+    lyra::dsp::NeuralCwDecoder           neuralCw_;
+    lyra::dsp::CwArbiter                 cwArbiter_;   // Auto: owns display handoff
+    std::atomic<int>                     cwEngine_{0};
+
     // Zero-beat tuning aid.  zeroBeat_ is touched ONLY on the RX worker
     // (feedIq); zbRunPrev_/zbRate_ are worker-only edge trackers.  The result
     // atomics (zbRawHz_ = carrier offset from DDS, zbValid_) cross to the UI,
@@ -1346,11 +1356,6 @@ private:
     std::atomic<double>  zbRawHz_{0.0};       // measured carrier baseband offset
     std::atomic<double>  zbMarkerHz_{0.0};    // marker offset (VFO−DDS), UI→worker
     std::atomic<bool>    zbValid_{false};
-
-    // DeepFist neural CW decoder — second engine sharing the same tap.
-    // cwEngine_: 0 = Classic (fldigi), 1 = Neural (DeepFist).
-    lyra::dsp::NeuralCwDecoder           neuralCw_;
-    std::atomic<int>                     cwEngine_{0};
 
     // Freq calibration (Stage 3b) — carrier-tone estimator + arm flag +
     // de-interleave scratch + last-emitted window counter (throttle).
