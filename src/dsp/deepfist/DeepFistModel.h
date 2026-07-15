@@ -50,6 +50,12 @@ public:
         return cond_.keyingRatio(audio, n, cond_.detectTone(audio, n));
     }
 
+    // Estimated CW speed (WPM) of the window, 0 if indeterminate.
+    int keyingWpm(const float* audio, int n) const {
+        const float w = cond_.estimateWpm(audio, n, cond_.detectTone(audio, n));
+        return static_cast<int>(w + 0.5f);
+    }
+
     const std::vector<std::string>& tokens() const { return tokens_; }
     const std::string& lastError() const { return lastError_; }
 

@@ -49,6 +49,12 @@ public:
     // AGC).  Gates the decoder off dead air.  Returns 0 for n < 4096.
     float keyingRatio(const float* audio, int n, float toneHz) const;
 
+    // Estimate CW speed (WPM) from the keying envelope of the tone: threshold
+    // the baseband envelope, measure the "on" element durations, take the dot
+    // length (short elements) and WPM = 1200 / dot_ms (PARIS).  Returns 0 when
+    // there isn't enough keying to judge.  Approximate — for the panel readout.
+    float estimateWpm(const float* audio, int n, float toneHz) const;
+
 private:
     void fft(std::vector<std::complex<double>>& a) const;   // radix-2, size kToneNfft
 

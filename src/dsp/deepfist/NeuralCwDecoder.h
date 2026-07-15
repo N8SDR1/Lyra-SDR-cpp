@@ -65,6 +65,10 @@ public:
     // current window (only confident ones), when a MASTER.SCP db is loaded.
     std::function<void(const std::vector<CallRescore>& calls)> onCalls;
 
+    // Fires from the worker thread with the estimated RX speed (WPM) when it
+    // changes; 0 = indeterminate.
+    std::function<void(int wpm)> onWpm;
+
     // hot path (audio thread) — decimate + buffer only; no inference here.
     void process(const float* mono, int nframes);
     void reset();
@@ -86,6 +90,7 @@ private:
     double              committedT_ = 0.0; // audio time already emitted (s)
     unsigned            gen_ = 0;       // bumped on reset() to discard in-flight
     bool                idleGap_ = false; // worker-only: in a keyed-CW pause
+    int                 lastWpm_ = 0;     // worker-only: last emitted WPM
     std::vector<float>  tmp_;           // decimator scratch (audio thread)
 
     // Worker.

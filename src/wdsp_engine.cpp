@@ -335,6 +335,8 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     // DeepFist CTC-lattice callsign rescorer is available but not wired to a UI
     // (the per-window "Calls" chips were removed) — leaving onCalls null skips
     // the rescore work entirely.  Re-wire here if a callsign UI returns.
+    // Estimated RX WPM → the same cwRxWpmChanged surface the classic decoder uses.
+    neuralCw_.onWpm = [this](int wpm) { emit cwRxWpmChanged(wpm); };
 
     // 5 Hz UI poll: emit levelsChanged so the QML audioDbFs binding
     // re-reads the atomic (mirrors HL2Stream's statsTimer cadence).

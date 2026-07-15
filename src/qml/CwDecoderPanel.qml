@@ -45,6 +45,23 @@ Rectangle {
     }
     function clearDecoded() { root.decodedText = "" }
 
+    // Bumped whenever the spot bank changes, to re-highlight the transcript.
+    property int spotRev: 0
+
+    // Render the transcript as HTML, colouring any call-shaped word that is
+    // currently spotted on RBN/cluster (Spots.isSpotted) — so a real, active
+    // station stands out the moment it's copied.
+    function displayHtml(t) {
+        var rev = root.spotRev   // create a binding dependency on spot updates
+        var esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        return esc.replace(/[A-Z0-9\/]{3,}/g, function(w) {
+            // only bother the spot store with call-shaped tokens (contain a digit)
+            if (/[0-9]/.test(w) && Spots.isSpotted(w))
+                return '<span style="color:#5fe0a0; font-weight:bold">' + w + '</span>'
+            return w
+        })
+    }
+
     // fldigi CW-receiver knob mirrors (persisted via Prefs; fldigi defaults:
     // BW 150 Hz, speed 18 wpm, tracking on, matched filter off, squelch off).
     property int  bandwidthHz:   Prefs.cwDecodeBandwidth
@@ -101,6 +118,12 @@ Rectangle {
         function onCwNeuralText(newText) { root.appendDecoded(newText) }
         // Clear the transcript when switching engines.
         function onCwDecodeEngineChanged() { root.clearDecoded() }
+    }
+
+    // Re-highlight the transcript when the spot bank changes.
+    Connections {
+        target: Spots
+        function onChanged() { root.spotRev++ }
     }
 
     // Poll the live squelch metric (~10 Hz) only while the decoder is running
@@ -228,12 +251,12 @@ Rectangle {
             Item { Layout.fillWidth: true }
         }
 
-        // ── DeepFist: live CTC blank-penalty slider (weak-signal recovery) ──
+        // ── DeepFist: live "Sensitivity" (CTC blank-penalty) slider ──
         RowLayout {
             visible: !root.collapsed && root.cwEngine === 1
             Layout.fillWidth: true
             spacing: 10
-            Label { text: qsTr("Blank penalty"); color: root.cText; font.pixelSize: 12 }
+            Label { text: qsTr("Sensitivity"); color: root.cText; font.pixelSize: 12 }
             LyraSlider {
                 id: penSlider
                 Layout.fillWidth: true
@@ -245,10 +268,19 @@ Rectangle {
                 }
             }
             Label {
-                text: Number(WdspEngine.cwBlankPenalty).toFixed(1)
-                color: root.cText; font.family: "Consolas"; font.pixelSize: 12
-                Layout.preferredWidth: 30; horizontalAlignment: Text.AlignRight
+                text: WdspEngine.cwBlankPenalty <= 0.4 ? qsTr("Low")
+                    : WdspEngine.cwBlankPenalty >= 3.6 ? qsTr("High")
+                    : qsTr("Med")
+                color: root.cText; font.pixelSize: 11
+                Layout.preferredWidth: 32; horizontalAlignment: Text.AlignRight
             }
+        }
+        Label {
+            visible: !root.collapsed && root.cwEngine === 1
+            Layout.fillWidth: true
+            text: qsTr("Lower = clean copy on strong signals.  Higher = pull weak/"
+                       + "fainter code out of the noise (but more stray characters).")
+            color: root.cMuted; font.pixelSize: 10; wrapMode: Text.WordWrap
         }
 
         // ── Decoded-text pane (operator font + colour) ──
@@ -275,8 +307,8 @@ Rectangle {
                     readOnly: true
                     selectByMouse: true
                     wrapMode: TextArea.WrapAnywhere
-                    textFormat: TextArea.PlainText
-                    text: root.decodedText
+                    textFormat: TextArea.RichText   // spotted calls highlighted
+                    text: root.displayHtml(root.decodedText)
                     color: Prefs.cwDecodeColor
                     font.family: "Consolas"
                     font.pixelSize: Prefs.cwDecodeFontSize

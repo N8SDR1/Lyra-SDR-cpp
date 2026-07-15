@@ -48,6 +48,9 @@ public:
     // Spots within [center±span/2]: { call, freqHz, color (#AARRGGBB),
     // mode, text }.  Empty when display is disabled.
     Q_INVOKABLE QVariantList spotsInSpan(double centerHz, double spanHz) const;
+    // True if <call> currently has a live spot (RBN / cluster / TCI), used to
+    // highlight a decoded callsign the moment it's a real, spotted station.
+    Q_INVOKABLE bool isSpotted(const QString &call) const;
     // Click-to-tune: tune to <call>'s spot (mode + freq) and emit
     // spotActivated so the TCI layer can echo it to clients.
     Q_INVOKABLE void activate(const QString &call);
