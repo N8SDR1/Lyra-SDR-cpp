@@ -72,6 +72,12 @@ public:
     // changes; 0 = indeterminate.
     std::function<void(int wpm)> onWpm;
 
+    // Fires from the worker thread once per decode tick with the current keying
+    // ratio (p90/p10 of the locked tone's baseband envelope) — the same scalar
+    // the gate uses.  Consumed by the Auto-engine arbiter as its fade detector;
+    // leaving it null costs nothing.
+    std::function<void(float ratio)> onKeying;
+
     // hot path (audio thread) — decimate + buffer only; no inference here.
     void process(const float* mono, int nframes);
     void reset();
