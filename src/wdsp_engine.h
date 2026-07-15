@@ -629,6 +629,14 @@ public:
     Q_INVOKABLE void setCwDecodeEngine(int engine);
     bool cwNeuralAvailable() const { return neuralCw_.ready(); }
 
+    // CW panel — is this decoded token a KNOWN-REAL callsign?  Today = exact
+    // MASTER.SCP membership (loaded with the neural model; false until then).
+    // Future validation sources OR in here without touching the QML: the
+    // Phase-3 RBN-confirmed local list, an SDRLogger+ worked-before sync.
+    Q_INVOKABLE bool cwCallKnown(const QString& call) const {
+        return neuralCw_.scpKnows(call.trimmed().toUpper().toStdString());
+    }
+
     double cwBlankPenalty() const { return neuralCw_.blankPenalty(); }
     Q_INVOKABLE void setCwBlankPenalty(double p);
     // Task #53 — shared RX+TX filter low edge.  Affects only the

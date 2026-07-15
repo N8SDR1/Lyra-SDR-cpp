@@ -51,6 +51,10 @@ public:
     bool ready() const { return model_.ready(); }
     int  scpCount() const { return scp_.count(); }   // 0 = rescorer disabled
 
+    // Exact MASTER.SCP membership (upper-case call) — read-only after
+    // loadModel, safe from the GUI thread while the worker runs.
+    bool scpKnows(const std::string& call) const { return scp_.contains(call); }
+
     // CTC blank-logit penalty, live-adjustable (audio-thread-safe atomic).
     // Higher = recover more dropped chars on weak audio, more spurious chars on
     // strong signals.  Initial value from LYRA_CW_BLANKPEN (default 0).
