@@ -42,6 +42,7 @@
 #include "dsp/MonitorRing.h"   // #90 — TX-monitor SPSC ring (value member)
 #include "dsp/CwDecoder.h"     // #173 CW-5a — RX CW decoder (value member)
 #include "dsp/deepfist/NeuralCwDecoder.h" // DeepFist neural CW decoder (2nd engine)
+#include "dsp/CwArbiter.h"          // Auto-engine ownership arbiter (Phase 1)
 #include "dsp/FreqCalMeasure.h" // freq calibration — carrier tone estimator
 #include "dsp/ZeroBeat.h"       // zero-beat carrier-offset tuning aid (value member)
 
@@ -796,6 +797,9 @@ signals:
     void cwNeuralAvailableChanged();
     void cwBlankPenaltyChanged();
     void cwNeuralText(QString windowText);
+    // Auto engine — unified arbiter output; fallback == true when the Classic
+    // safety net produced it (panel dims that run).
+    void cwAutoText(QString text, bool fallback);
     // DeepFist CTC-lattice callsign verdict (confident only): best = the
     // lattice-preferred call, orig = the greedy decode (== best when confirmed).
     void cwNeuralCall(QString best, QString orig, double marginNats);
@@ -1230,8 +1234,9 @@ private:
     lyra::dsp::CwDecoder                 cwDecoder_;
 
     // DeepFist neural CW decoder — second engine sharing the same tap.
-    // cwEngine_: 0 = Classic (fldigi), 1 = Neural (DeepFist).
+    // cwEngine_: 0 = Classic (fldigi), 1 = Neural (DeepFist), 2 = Auto (arbiter).
     lyra::dsp::NeuralCwDecoder           neuralCw_;
+    lyra::dsp::CwArbiter                 cwArbiter_;   // Auto: owns display handoff
     std::atomic<int>                     cwEngine_{0};
 
     // Zero-beat tuning aid.  zeroBeat_ is touched ONLY on the RX worker

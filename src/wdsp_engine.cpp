@@ -317,6 +317,10 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     cwDecoder_.setSampleRate(cfg_.outRate);
     cwDecoder_.setToneHz(cwPitchHz_);
     cwDecoder_.onText = [this](const std::string& s) {
+        if (cwEngine_.load(std::memory_order_relaxed) == 2) {
+            cwArbiter_.pushClassic(s);
+            return;
+        }
         emit cwDecodedChar(QString::fromUtf8(s.c_str(),
                                              static_cast<int>(s.size())), 1.0);
     };
@@ -329,6 +333,10 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     // queued signal marshals it to the GUI.
     neuralCw_.setSampleRate(cfg_.outRate);
     neuralCw_.onText = [this](const std::string& s) {
+        if (cwEngine_.load(std::memory_order_relaxed) == 2) {
+            cwArbiter_.pushDeepFist(s);
+            return;
+        }
         emit cwNeuralText(QString::fromUtf8(s.c_str(),
                                             static_cast<int>(s.size())));
     };
@@ -337,6 +345,17 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     // the rescore work entirely.  Re-wire here if a callsign UI returns.
     // Estimated RX WPM → the same cwRxWpmChanged surface the classic decoder uses.
     neuralCw_.onWpm = [this](int wpm) { emit cwRxWpmChanged(wpm); };
+    // Auto engine: DeepFist's keying ratio drives the arbiter's fade detector,
+    // and the arbiter's unified output becomes the Auto transcript (queued to
+    // the GUI thread; fallback flag dims Classic-during-fade runs in the panel).
+    neuralCw_.onKeying = [this](float r) {
+        if (cwEngine_.load(std::memory_order_relaxed) == 2)
+            cwArbiter_.updateKeying(r);
+    };
+    cwArbiter_.onOutput = [this](const std::string& s, bool fallback) {
+        emit cwAutoText(QString::fromUtf8(s.c_str(),
+                                          static_cast<int>(s.size())), fallback);
+    };
 
     // 5 Hz UI poll: emit levelsChanged so the QML audioDbFs binding
     // re-reads the atomic (mirrors HL2Stream's statsTimer cadence).
@@ -1958,7 +1977,7 @@ void WdspEngine::setCwDecodeEngine(int engine)
     const int cur = cwEngine_.load(std::memory_order_relaxed);
     if (engine == cur) return;
 
-    if (engine == 1) {
+    if (engine == 1 || engine == 2) {           // both need the neural model
         if (!neuralCw_.ready()) {
             // Resolve the model dir: env override, then <exeDir>/models.
             QString dir = qEnvironmentVariable("DEEPFIST_MODEL_DIR");
@@ -1972,14 +1991,20 @@ void WdspEngine::setCwDecodeEngine(int engine)
                 qWarning("DeepFist: neural CW model not loaded (%s) — staying on "
                          "the classic decoder.  %s",
                          qUtf8Printable(dir), neuralCw_.lastError().c_str());
-                return;   // keep engine 0
+                return;   // keep current engine
             }
             qInfo("DeepFist: neural CW model loaded from %s (SCP rescorer: %d calls, "
                   "blank_pen %.1f)",
                   qUtf8Printable(dir), neuralCw_.scpCount(), neuralCw_.blankPenalty());
         }
-        neuralCw_.reset();                          // safe: engine still 0 here
-        cwEngine_.store(1, std::memory_order_relaxed);
+        // Reset every consumer BEFORE storing the new engine, so the audio tap
+        // (which only feeds them once cwEngine_ flips) never sees stale state.
+        neuralCw_.reset();
+        if (engine == 2) {
+            cwDecoder_.reset();
+            cwArbiter_.reset();
+        }
+        cwEngine_.store(engine, std::memory_order_relaxed);
     } else {
         cwEngine_.store(0, std::memory_order_relaxed);
         cwDecoder_.reset();
@@ -3680,13 +3705,18 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
             cwMonoBuf_.assign(static_cast<size_t>(nframes), 0.0f);
         for (int f = 0; f < nframes; ++f)
             cwMonoBuf_[static_cast<size_t>(f)] = static_cast<float>(audio[2 * f]);
-        // Route to the selected engine (only one runs).  Engine is switched to
-        // Neural only after its model is fully loaded (see setCwDecodeEngine),
-        // so neuralCw_ is safe to call here.
-        if (cwEngine_.load(std::memory_order_relaxed) == 1)
-            neuralCw_.process(cwMonoBuf_.data(), nframes);
-        else
+        // Route to the selected engine.  Neural is only reachable after its model
+        // is fully loaded (see setCwDecodeEngine), so it is safe to call here.
+        // Auto (2) fans out to BOTH; the arbiter picks who drives the display.
+        const int eng = cwEngine_.load(std::memory_order_relaxed);
+        if (eng == 2) {
             cwDecoder_.process(cwMonoBuf_.data(), nframes);
+            neuralCw_.process(cwMonoBuf_.data(), nframes);
+        } else if (eng == 1) {
+            neuralCw_.process(cwMonoBuf_.data(), nframes);
+        } else {
+            cwDecoder_.process(cwMonoBuf_.data(), nframes);
+        }
 
         // #187 — optional capture of the EXACT decoder input to a WAV for
         // offline filter tuning.  Armed by LYRA_CW_WAV=<path>; passive, the
