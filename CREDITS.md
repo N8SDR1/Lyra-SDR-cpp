@@ -97,7 +97,7 @@ a clean-room, self-trained neural (spectrogram → CNN + CTC)
 Morse decoder that runs via **ONNX Runtime** (Microsoft, MIT).
 Both are MIT-licensed — see [NOTICE.md](NOTICE.md).
 
-- **Brent Crier** — author of DeepFist: the synthetic-data
+- **Brent Crier (N9BC)** — author of DeepFist: the synthetic-data
   generator, the CNN+CTC model, its training, and the ONNX
   export the decoder embeds.
 
