@@ -277,7 +277,11 @@ Rectangle {
             LyraSlider {
                 id: penSlider
                 Layout.fillWidth: true
-                from: 0; to: 5; stepSize: 0.5; snapMode: Slider.SnapAlways
+                // Bipolar: negative = "cleaner" (suppress stray/doubled chars on
+                // strong signals), 0 = neutral, positive = recover weak code.
+                from: -2; to: 5; stepSize: 0.5; snapMode: Slider.SnapAlways
+                showTicks: true
+                showTickNumbers: true
                 value: Prefs.cwBlankPenalty
                 onMoved: {
                     Prefs.cwBlankPenalty = value
@@ -285,15 +289,18 @@ Rectangle {
                 }
             }
             Label {
-                text: WdspEngine.cwBlankPenalty <= 0.4 ? qsTr("Low") : qsTr("High")
+                // Signed value, e.g. "-0.5", "0", "+2".
+                text: (WdspEngine.cwBlankPenalty > 0 ? "+" : "")
+                      + WdspEngine.cwBlankPenalty.toFixed(1)
                 color: root.cText; font.pixelSize: 11
-                Layout.preferredWidth: 32; horizontalAlignment: Text.AlignRight
+                Layout.preferredWidth: 34; horizontalAlignment: Text.AlignRight
             }
         }
         Label {
             visible: !root.collapsed && root.cwEngine === 1
             Layout.fillWidth: true
-            text: qsTr("Lower = clean copy on strong signals.  Higher = pull weak/"
+            text: qsTr("0 = neutral.  Negative = cleaner copy on strong signals "
+                       + "(fewer stray/doubled characters).  Positive = pull weak/"
                        + "fainter code out of the noise (but more stray characters).")
             color: root.cMuted; font.pixelSize: 10; wrapMode: Text.WordWrap
         }
