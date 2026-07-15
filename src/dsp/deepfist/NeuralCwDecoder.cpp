@@ -122,7 +122,9 @@ void NeuralCwDecoder::workerLoop() {
         // No keying -> emit nothing, just advance the commit boundary so silence
         // doesn't back up.  (Mirrors diddle's presence gate; DeepFist HANDOFF
         // §18.23 "no signal energy -> no characters".)
-        if (model_.keyingRatio(window.data(), kWindow) < kKeyingMin) {
+        const float keyRatio = model_.keyingRatio(window.data(), kWindow);
+        if (onKeying) onKeying(keyRatio);
+        if (keyRatio < kKeyingMin) {
             {
                 std::lock_guard<std::mutex> lk(mx_);
                 if (gen != gen_) continue;
