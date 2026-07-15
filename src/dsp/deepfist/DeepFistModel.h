@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (C) 2026 Brent Crier - part of Lyra (GPLv3+) per NOTICE.md
+// Copyright (C) 2026 Brent Crier (N9BC) - part of Lyra (GPLv3+) per NOTICE.md
 //
 // Lyra — DeepFist neural CW decoder: ONNX model engine.
 //
@@ -9,7 +9,7 @@
 //
 // This is the ONLY DeepFist file that depends on ONNX Runtime; the rest of the
 // pipeline (resampler, spectrogram, CTC) is plain C++.  ONNX Runtime is MIT
-// (Microsoft); the model is DeepFist (MIT, © Brent Crier).  No AGPL code.
+// (Microsoft); the model is DeepFist (MIT, © Brent Crier, N9BC).  No AGPL code.
 #pragma once
 
 #include <memory>

@@ -233,7 +233,7 @@ notice is retained as the MIT license requires.
 Lyra-cpp's optional neural CW (Morse) decode engine
 (`src/dsp/deepfist/`) embeds **DeepFist**, a clean-room,
 self-trained neural (spectrogram → CNN + CTC) Morse decoder.
-DeepFist is © 2026 Brent Crier and is distributed under the MIT
+DeepFist is © 2026 Brent Crier (N9BC) and is distributed under the MIT
 license; its terms are compatible with Lyra-cpp's GPL v3+.  The
 trained model artifact (`deepfist.onnx` + JSON sidecar) is
 DeepFist's own, trained on its own synthetically generated data —

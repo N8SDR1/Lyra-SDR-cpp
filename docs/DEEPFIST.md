@@ -5,7 +5,7 @@ Decoder panel beside the classic fldigi-port decoder. It runs a self-trained
 neural model (spectrogram → CNN + CTC) through **ONNX Runtime** (C++, CPU).
 
 - **DeepFist** (the model, synthetic-data generator, and training) is MIT,
-  © Brent Crier. The C++ front-end here is an original re-implementation of
+  © Brent Crier (N9BC). The C++ front-end here is an original re-implementation of
   DeepFist's own reference. See [`NOTICE.md`](../NOTICE.md) /
   [`CREDITS.md`](../CREDITS.md); as integrated into Lyra it is part of the
   GPLv3+ aggregate (per-file `SPDX-License-Identifier` headers record the MIT
@@ -79,7 +79,7 @@ ratio of the locked tone's baseband envelope) suppresses decoding of dead air �
 below the threshold the streamer emits nothing, which prevents idle-noise
 hallucination without affecting real-signal copy.
 
-The **Sensitivity** slider (CW panel) is the CTC blank penalty (−2…+5, default
+The **Sensitivity** slider (CW panel) is the CTC blank penalty (−1…+1, default
 0): negative suppresses stray/doubled characters on strong signals, positive
 pulls fainter code out of the noise.
 

@@ -15,14 +15,14 @@ params, 13 MB) plus a JSON sidecar. Lyra runs it via **ONNX Runtime (C++, CPU)**
 The model decodes single-signal CW tuned onto the operator's pitch (400–1200 Hz
 band), 10–40 WPM, full character set incl. prosigns `<SK>` `<KN>`.
 
-Source project: `c:\dev\deepfist` (MIT, © Brent Crier). Model artifact:
+Source project: `c:\dev\deepfist` (MIT, © Brent Crier, N9BC). Model artifact:
 `c:\dev\deepfist\runs\deepfist.onnx` + `deepfist.onnx.json`.
 
 ## 2. Licensing (cleared)
 
 | Component | License | Status in Lyra (GPLv3-or-later) |
 |---|---|---|
-| DeepFist code + trained model | MIT (© Brent Crier) | ✅ MIT ⊂ GPLv3 — fold in freely |
+| DeepFist code + trained model | MIT (© Brent Crier, N9BC) | ✅ MIT ⊂ GPLv3 — fold in freely |
 | ONNX Runtime (prebuilt CPU DLL) | MIT (Microsoft) | ✅ ship DLL, preserve notice |
 | WebMorseRunner (data gen only) | Unlicense / public domain | not shipped |
 | DeepCW / HamNoise | **AGPL-3.0** | ⚠️ **never enters the tree** |
