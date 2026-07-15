@@ -73,3 +73,6 @@ third_party/onnxruntime/**/*.pdb
 # Local operator-machine launch helper + stray run-log capture
 _run_lyra_vac1.bat
 Line
+
+# Claude Code local settings (personal, per-machine)
+.claude/settings.local.json
