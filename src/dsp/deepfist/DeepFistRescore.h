@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (C) 2026 Brent Crier - part of Lyra (GPLv3+) per NOTICE.md
+//
 // Lyra — DeepFist CW decoder: CTC hypothesis rescorer (callsign correction).
 //
 // Faithful C++ port of diddle's dsp/rescore.rs (itself a port of DeepFist

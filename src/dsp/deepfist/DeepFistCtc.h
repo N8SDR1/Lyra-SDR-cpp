@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (C) 2026 Brent Crier - part of Lyra (GPLv3+) per NOTICE.md
+//
 // Lyra — DeepFist neural CW decoder: greedy CTC decode.
 //
 // Faithful port of DeepFist's own MIT-licensed decoder
