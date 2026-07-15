@@ -66,7 +66,7 @@ Rectangle {
         if (t.length > 6000) t = t.slice(-4500)
         root.decodedText = t
     }
-    function clearDecoded() { root.decodedText = "" }
+    function clearDecoded() { root.decodedText = ""; root.pendingWord = "" }
 
     // Auto engine: fallback (Classic-during-fade) runs are wrapped in private
     // control-char markers (U+0002 / U+0003) so displayHtml() can dim them.
