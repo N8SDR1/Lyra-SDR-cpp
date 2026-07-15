@@ -48,6 +48,25 @@ Rectangle {
     // Bumped whenever the spot bank changes, to re-highlight the transcript.
     property int spotRev: 0
 
+    // Word (call) under the last right-click, for the grab menu.
+    property string grabWord: ""
+
+    // The call-shaped word at plain-text position `pos` in the transcript.
+    // Extracted straight from decodedText (not selectWord/selectedText) so it
+    // works with the RichText pane and while text is streaming in.
+    function wordAt(pos) {
+        var t = root.decodedText
+        if (pos < 0 || pos > t.length) return ""
+        function isCh(c) {
+            return (c >= "A" && c <= "Z") || (c >= "a" && c <= "z")
+                || (c >= "0" && c <= "9") || c === "/"
+        }
+        var a = pos, b = pos
+        while (a > 0 && isCh(t.charAt(a - 1))) a--
+        while (b < t.length && isCh(t.charAt(b))) b++
+        return t.substring(a, b).trim()
+    }
+
     // Render the transcript as HTML, colouring any call-shaped word that is
     // currently spotted on RBN/cluster (Spots.isSpotted) — so a real, active
     // station stands out the moment it's copied.
@@ -316,14 +335,12 @@ Rectangle {
                     onTextChanged: cursorPosition = length
                     onContentHeightChanged: Qt.callLater(decodeScroll.scrollToBottom)
 
-                    // Double-click a word → His Call.
+                    // Double-click a word → His Call (robust word extraction).
                     TapHandler {
                         acceptedButtons: Qt.LeftButton
                         onDoubleTapped: (pt) => {
-                            decodeOut.cursorPosition =
-                                decodeOut.positionAt(pt.position.x, pt.position.y)
-                            decodeOut.selectWord()
-                            var w = decodeOut.selectedText.trim()
+                            var w = root.wordAt(
+                                decodeOut.positionAt(pt.position.x, pt.position.y))
                             if (w.length > 0) CwMacros.hisCall = w.toUpperCase()
                         }
                     }
@@ -331,11 +348,8 @@ Rectangle {
                     TapHandler {
                         acceptedButtons: Qt.RightButton
                         onTapped: (pt) => {
-                            if (decodeOut.selectedText.trim().length === 0) {
-                                decodeOut.cursorPosition =
-                                    decodeOut.positionAt(pt.position.x, pt.position.y)
-                                decodeOut.selectWord()
-                            }
+                            root.grabWord = root.wordAt(
+                                decodeOut.positionAt(pt.position.x, pt.position.y))
                             grabMenu.popup()
                         }
                     }
@@ -598,14 +612,14 @@ Rectangle {
     Menu {
         id: grabMenu
         MenuItem {
-            text: qsTr("→ His Call:  ") + decodeOut.selectedText.trim().toUpperCase()
-            enabled: decodeOut.selectedText.trim().length > 0
-            onTriggered: CwMacros.hisCall = decodeOut.selectedText.trim().toUpperCase()
+            text: qsTr("→ His Call:  ") + root.grabWord.toUpperCase()
+            enabled: root.grabWord.length > 0
+            onTriggered: CwMacros.hisCall = root.grabWord.toUpperCase()
         }
         MenuItem {
-            text: qsTr("→ Name:  ") + decodeOut.selectedText.trim()
-            enabled: decodeOut.selectedText.trim().length > 0
-            onTriggered: CwMacros.opName = decodeOut.selectedText.trim()
+            text: qsTr("→ Name:  ") + root.grabWord
+            enabled: root.grabWord.length > 0
+            onTriggered: CwMacros.opName = root.grabWord
         }
     }
 }
