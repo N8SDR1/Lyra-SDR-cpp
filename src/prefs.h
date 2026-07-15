@@ -147,6 +147,10 @@ class Prefs : public QObject {
                NOTIFY cwDecodeSquelchOnChanged)
     Q_PROPERTY(double cwDecodeSquelchValue READ cwDecodeSquelchValue WRITE setCwDecodeSquelchValue
                NOTIFY cwDecodeSquelchValueChanged)
+    // Phase 3 — opt-in: remember RBN-confirmed calls copied off the air in a
+    // local SCP list (privacy: a record of received activity, default off).
+    Q_PROPERTY(bool cwLearnCalls READ cwLearnCalls WRITE setCwLearnCalls
+               NOTIFY cwLearnCallsChanged)
     // Noise-floor reference line on the panadapter (old-Lyra parity):
     // a dashed line at the rolling ~20th-percentile floor + an
     // "NF -NN dBFS" label.  On/off + colour are operator-tunable.
@@ -446,6 +450,8 @@ public:
     void    setCwBlankPenalty(double p);
     bool    cwDecodeTracking() const { return cwDecodeTracking_; }
     void    setCwDecodeTracking(bool on);
+    bool    cwLearnCalls() const { return cwLearnCalls_; }
+    void    setCwLearnCalls(bool on);
     bool    cwDecodeMatchedFilter() const { return cwDecodeMatchedFilter_; }
     void    setCwDecodeMatchedFilter(bool on);
     bool    cwDecodeSquelchOn() const { return cwDecodeSquelchOn_; }
@@ -629,6 +635,7 @@ signals:
     void cwDecodeEngineChanged();
     void cwBlankPenaltyChanged();
     void cwDecodeTrackingChanged();
+    void cwLearnCallsChanged();
     void cwDecodeMatchedFilterChanged();
     void cwDecodeSquelchOnChanged();
     void cwDecodeSquelchValueChanged();
@@ -725,6 +732,7 @@ private:
     int     cwDecodeEngine_;
     double  cwBlankPenalty_;
     bool    cwDecodeTracking_;
+    bool    cwLearnCalls_;
     bool    cwDecodeMatchedFilter_;
     bool    cwDecodeSquelchOn_;
     double  cwDecodeSquelchValue_;

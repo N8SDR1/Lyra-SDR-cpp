@@ -43,6 +43,7 @@
 #include "dsp/CwDecoder.h"     // #173 CW-5a — RX CW decoder (value member)
 #include "dsp/deepfist/NeuralCwDecoder.h" // DeepFist neural CW decoder (2nd engine)
 #include "dsp/CwArbiter.h"          // Auto-engine ownership arbiter (Phase 1)
+#include "dsp/deepfist/ScpLocal.h"  // Phase 3: RBN-confirmed local call list
 #include "dsp/FreqCalMeasure.h" // freq calibration — carrier tone estimator
 #include "dsp/ZeroBeat.h"       // zero-beat carrier-offset tuning aid (value member)
 
@@ -629,13 +630,22 @@ public:
     Q_INVOKABLE void setCwDecodeEngine(int engine);
     bool cwNeuralAvailable() const { return neuralCw_.ready(); }
 
-    // CW panel — is this decoded token a KNOWN-REAL callsign?  Today = exact
-    // MASTER.SCP membership (loaded with the neural model; false until then).
-    // Future validation sources OR in here without touching the QML: the
-    // Phase-3 RBN-confirmed local list, an SDRLogger+ worked-before sync.
-    Q_INVOKABLE bool cwCallKnown(const QString& call) const {
-        return neuralCw_.scpKnows(call.trimmed().toUpper().toStdString());
+    // CW panel — is this decoded token a KNOWN-REAL callsign?  Exact
+    // MASTER.SCP membership (loaded with the neural model), OR'd with the
+    // Phase-3 local list of RBN-confirmed calls heard at this station (live —
+    // a call noted this session ambers immediately; the rescorer picks it up
+    // at the next model load).
+    Q_INVOKABLE bool cwCallKnown(const QString& call) {
+        const std::string u = call.trimmed().toUpper().toStdString();
+        if (neuralCw_.scpKnows(u)) return true;
+        ensureCwScpLocal();
+        return cwScpLocal_.contains(u);
     }
+
+    // CW panel — remember an RBN/cluster-confirmed call copied off the air
+    // (Prefs.cwLearnCalls gate lives in QML; this always records).  GUI
+    // thread only.
+    Q_INVOKABLE void cwNoteConfirmedCall(const QString& call);
 
     double cwBlankPenalty() const { return neuralCw_.blankPenalty(); }
     Q_INVOKABLE void setCwBlankPenalty(double p);
@@ -885,6 +895,7 @@ private:
     void pushNrState();
     // Push the current AGC mode (SetRXAAGCMode).  No-op when closed.
     void pushAgcMode();
+    void ensureCwScpLocal();    // lazy load of scp_local.txt (GUI thread)
     // Push ANF (auto-notch) + LMS (line enhancer) run/vals.  No-op when
     // closed; channel-parameterized for RX2 reuse.
     void pushAnfState();
@@ -1246,6 +1257,8 @@ private:
     lyra::dsp::NeuralCwDecoder           neuralCw_;
     lyra::dsp::CwArbiter                 cwArbiter_;   // Auto: owns display handoff
     std::atomic<int>                     cwEngine_{0};
+    lyra::dsp::ScpLocal                  cwScpLocal_;       // Phase 3 local calls
+    bool                                 cwScpLocalLoaded_ = false;
 
     // Zero-beat tuning aid.  zeroBeat_ is touched ONLY on the RX worker
     // (feedIq); zbRunPrev_/zbRate_ are worker-only edge trackers.  The result

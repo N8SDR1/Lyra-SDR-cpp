@@ -1984,6 +1984,25 @@ void WdspEngine::setCwDecodeEnabled(bool on)
 // touches a half-constructed ONNX session or stale decoder/arbiter state —
 // Auto additionally resets cwDecoder_ and cwArbiter_ since it runs both
 // engines.  If the model can't load we stay on the current engine.
+// Phase 3 — lazy-load the local RBN-confirmed call list from AppData (created
+// on first note).  GUI thread only; cheap after the first call.
+void WdspEngine::ensureCwScpLocal()
+{
+    if (cwScpLocalLoaded_) return;
+    cwScpLocalLoaded_ = true;
+    const QString dir =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dir);
+    cwScpLocal_.load((dir + QStringLiteral("/scp_local.txt")).toStdString());
+}
+
+void WdspEngine::cwNoteConfirmedCall(const QString& call)
+{
+    ensureCwScpLocal();
+    cwScpLocal_.note(call.trimmed().toUpper().toStdString(),
+                     QDateTime::currentSecsSinceEpoch());
+}
+
 void WdspEngine::setCwDecodeEngine(int engine)
 {
     const int cur = cwEngine_.load(std::memory_order_relaxed);
@@ -1997,7 +2016,9 @@ void WdspEngine::setCwDecodeEngine(int engine)
                 !QFileInfo::exists(dir + "/deepfist.onnx")) {
                 dir = QCoreApplication::applicationDirPath() + "/models";
             }
-            const bool ok = neuralCw_.loadModel(dir.toStdString());
+            ensureCwScpLocal();
+            const bool ok = neuralCw_.loadModel(dir.toStdString(),
+                                                cwScpLocal_.calls());
             emit cwNeuralAvailableChanged();
             if (!ok) {
                 qWarning("DeepFist: neural CW model not loaded (%s) — staying on "

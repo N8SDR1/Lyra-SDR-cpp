@@ -48,6 +48,7 @@ constexpr auto kCwDecTrack  = "cw/decodeTracking";
 constexpr auto kCwDecMfilt  = "cw/decodeMatchedFilter";
 constexpr auto kCwDecSqlOn  = "cw/decodeSquelchOn";
 constexpr auto kCwDecSqlVal = "cw/decodeSquelchValue";
+constexpr auto kCwLearnCalls = "cw/learn_calls";
 constexpr auto kPkShow  = "panadapter/peakShowDb";
 constexpr auto kNfEn    = "panadapter/noiseFloorEnabled";
 constexpr auto kNfColor = "panadapter/noiseFloorColor";
@@ -195,12 +196,13 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     // tracking on, matched filter off, squelch off (+ metric threshold).
     cwDecodeBandwidth_     = std::clamp(s.value(kCwDecBw, 150).toInt(), 50, 3000);
     cwDecodeSpeed_         = std::clamp(s.value(kCwDecSpeed, 18).toInt(), 5, 50);
-    cwDecodeEngine_        = std::clamp(s.value(kCwDecEngine, 0).toInt(), 0, 1);
+    cwDecodeEngine_        = std::clamp(s.value(kCwDecEngine, 0).toInt(), 0, 2);
     cwBlankPenalty_        = std::clamp(s.value(kCwBlankPen, 0.0).toDouble(), -1.0, 1.0);
     cwDecodeTracking_      = s.value(kCwDecTrack, true).toBool();
     cwDecodeMatchedFilter_ = s.value(kCwDecMfilt, false).toBool();
     cwDecodeSquelchOn_     = s.value(kCwDecSqlOn, false).toBool();
     cwDecodeSquelchValue_  = std::clamp(s.value(kCwDecSqlVal, 5.0).toDouble(), 0.0, 100.0);
+    cwLearnCalls_          = s.value(kCwLearnCalls, false).toBool();
     peakShowDb_    = s.value(kPkShow, false).toBool();
     noiseFloorEnabled_ = s.value(kNfEn, true).toBool();
     noiseFloorColor_   = s.value(kNfColor, QStringLiteral("#78c88c")).toString();
@@ -584,7 +586,7 @@ void Prefs::setCwDecodeSpeed(int wpm) {
 }
 
 void Prefs::setCwDecodeEngine(int engine) {
-    engine = std::clamp(engine, 0, 1);
+    engine = std::clamp(engine, 0, 2);
     if (engine != cwDecodeEngine_) {
         cwDecodeEngine_ = engine;
         QSettings().setValue(kCwDecEngine, engine);
@@ -598,6 +600,14 @@ void Prefs::setCwBlankPenalty(double p) {
         cwBlankPenalty_ = p;
         QSettings().setValue(kCwBlankPen, p);
         emit cwBlankPenaltyChanged();
+    }
+}
+
+void Prefs::setCwLearnCalls(bool on) {
+    if (on != cwLearnCalls_) {
+        cwLearnCalls_ = on;
+        QSettings().setValue(kCwLearnCalls, on);
+        emit cwLearnCallsChanged();
     }
 }
 
