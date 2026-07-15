@@ -90,7 +90,11 @@ Rectangle {
             return w
         })
         // Auto-engine fallback markers -> subtle dim (lower-confidence cue).
-        html = html.replace(/\u0002/g, '<span style="opacity:0.68">')
+        // Qt RichText's CSS subset has NO `opacity` (it parses, silently drops
+        // it) — dim by colour instead: a darker shade of the operator's decode
+        // colour, so the cue follows the colour preset.
+        var dim = Qt.darker(Prefs.cwDecodeColor, 1.5).toString()
+        html = html.replace(/\u0002/g, '<span style="color:' + dim + '">')
                    .replace(/\u0003/g, '</span>')
         return html
     }
