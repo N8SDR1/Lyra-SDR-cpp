@@ -1976,16 +1976,11 @@ void WdspEngine::setCwDecodeEnabled(bool on)
     emit cwDecodeEnabledChanged();
 }
 
-// DeepFist — select the active CW decode engine (0=Classic fldigi, 1=Neural,
-// 2=Auto).  The neural model is loaded lazily on the first switch to Neural OR
-// Auto (both need it).  Ordering is deliberate for audio-thread safety: we
-// finish loading + reset every consumer of the new engine BEFORE storing
-// cwEngine_ (the audio tap only feeds them once cwEngine_ flips), so it never
-// touches a half-constructed ONNX session or stale decoder/arbiter state —
-// Auto additionally resets cwDecoder_ and cwArbiter_ since it runs both
-// engines.  If the model can't load we stay on the current engine.
 // Phase 3 — lazy-load the local RBN-confirmed call list from AppData (created
-// on first note).  GUI thread only; cheap after the first call.
+// on first note).  GUI thread only; cheap after the first call.  Runs (and
+// mkpaths the app dir) regardless of the Learn toggle, but load() never
+// creates the file and note() is QML-gated by Prefs.cwLearnCalls — the FILE,
+// not the directory, is the §6.6 privacy boundary.
 void WdspEngine::ensureCwScpLocal()
 {
     if (cwScpLocalLoaded_) return;
@@ -2003,6 +1998,14 @@ void WdspEngine::cwNoteConfirmedCall(const QString& call)
                      QDateTime::currentSecsSinceEpoch());
 }
 
+// DeepFist — select the active CW decode engine (0=Classic fldigi, 1=Neural,
+// 2=Auto).  The neural model is loaded lazily on the first switch to Neural OR
+// Auto (both need it).  Ordering is deliberate for audio-thread safety: we
+// finish loading + reset every consumer of the new engine BEFORE storing
+// cwEngine_ (the audio tap only feeds them once cwEngine_ flips), so it never
+// touches a half-constructed ONNX session or stale decoder/arbiter state —
+// Auto additionally resets cwDecoder_ and cwArbiter_ since it runs both
+// engines.  If the model can't load we stay on the current engine.
 void WdspEngine::setCwDecodeEngine(int engine)
 {
     const int cur = cwEngine_.load(std::memory_order_relaxed);
