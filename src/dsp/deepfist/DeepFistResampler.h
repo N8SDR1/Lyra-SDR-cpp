@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (C) 2026 Brent Crier - part of Lyra (GPLv3+) per NOTICE.md
+//
 // Lyra — DeepFist neural CW decoder: input decimator.
 //
 // Streaming integer decimator from the RX audio rate (default 48 kHz) down to

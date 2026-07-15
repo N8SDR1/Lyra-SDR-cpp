@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (C) 2026 Brent Crier - part of Lyra (GPLv3+) per NOTICE.md
+//
 // Lyra — DeepFist CW decoder: Super Check Partial callsign database.
 //
 // Minimal C++ port of diddle's ScpDb (src/scp.rs), just the surface the CTC

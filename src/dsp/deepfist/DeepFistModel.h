@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (C) 2026 Brent Crier - part of Lyra (GPLv3+) per NOTICE.md
+//
 // Lyra — DeepFist neural CW decoder: ONNX model engine.
 //
 // C++ mirror of the verified Rust reference `CwEngine` (diddle

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (C) 2026 Brent Crier - part of Lyra (GPLv3+) per NOTICE.md
+//
 // Lyra — DeepFist neural CW decoder: streaming adapter (second CW engine).
 //
 // Same shape as the classic fldigi-port decoder (src/dsp/CwDecoder.h) so it

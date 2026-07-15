@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (C) 2026 Brent Crier - part of Lyra (GPLv3+) per NOTICE.md
+//
 // Lyra — DeepFist neural CW decoder: audio -> log-magnitude spectrogram.
 //
 // Faithful port of DeepFist's MIT front-end (deepfist/features/spectrogram.py):
