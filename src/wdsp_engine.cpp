@@ -332,12 +332,9 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
         emit cwNeuralText(QString::fromUtf8(s.c_str(),
                                             static_cast<int>(s.size())));
     };
-    // DeepFist CTC-lattice callsign rescoring — emit each confident verdict.
-    neuralCw_.onCalls = [this](const std::vector<lyra::dsp::CallRescore>& calls) {
-        for (const auto& c : calls)
-            emit cwNeuralCall(QString::fromStdString(c.best),
-                              QString::fromStdString(c.orig), c.marginNats);
-    };
+    // DeepFist CTC-lattice callsign rescorer is available but not wired to a UI
+    // (the per-window "Calls" chips were removed) — leaving onCalls null skips
+    // the rescore work entirely.  Re-wire here if a callsign UI returns.
 
     // 5 Hz UI poll: emit levelsChanged so the QML audioDbFs binding
     // re-reads the atomic (mirrors HL2Stream's statsTimer cadence).
