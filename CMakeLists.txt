@@ -249,6 +249,9 @@ qt_add_executable(lyra
     src/dsp/deepfist/DeepFistModel.cpp
     src/dsp/deepfist/NeuralCwDecoder.h
     src/dsp/deepfist/NeuralCwDecoder.cpp
+    # CW Auto arbiter — engine-agnostic ownership state machine (Phase 1).
+    src/dsp/CwArbiter.h
+    src/dsp/CwArbiter.cpp
     src/dsp/ZeroBeat.h
     src/dsp/ZeroBeat.cpp
     # (Stage 7.1 TxIqRing RETIRED 2026-06-09 — wrong-architecture
