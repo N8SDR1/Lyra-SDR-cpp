@@ -92,12 +92,27 @@ int main() {
     // 6) Switch only at a gap: a pending switch waits for a space.
     {
         CwArbiter a; Sink k; k.attach(a);
+        a.updateKeying(50.0f);                           // seed tick: solid -> DeepFist owns
         a.updateKeying(4.0f);                            // desired=Classic immediately
         a.pushDeepFist("N"); a.pushDeepFist("R");        // no gap yet -> DeepFist still owns
         CHECK(a.owner() == CwArbiter::Source::DeepFist);
         CHECK(k.text == "NR");
         a.pushDeepFist(" ");                             // gap -> now switch
         CHECK(a.owner() == CwArbiter::Source::Classic);
+    }
+
+    // 7) Cold start (spec §5.3): the FIRST ratio sample seeds ownership
+    //    directly — mid-fade entry goes straight to Classic (never silent),
+    //    solid entry to DeepFist; reset() re-arms the seed.
+    {
+        CwArbiter a; Sink k; k.attach(a);
+        a.updateKeying(4.0f);                            // first sample: fading
+        CHECK(a.owner() == CwArbiter::Source::Classic);  // seeded, no gap needed
+        a.pushClassic("V");
+        CHECK(k.text == "V");                            // fallback flows at once
+        a.reset();                                       // re-arm the seed
+        a.updateKeying(50.0f);                           // first sample: solid
+        CHECK(a.owner() == CwArbiter::Source::DeepFist);
     }
 
     if (g_fail == 0) std::printf("test_cw_arbiter: ALL PASS\n");

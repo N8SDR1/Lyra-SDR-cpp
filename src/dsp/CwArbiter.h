@@ -11,6 +11,8 @@
 // space), so no character is ever cut mid-symbol and there is no de-duplication
 // problem by construction.  Asymmetric hysteresis biases toward "never silent":
 // fall back fast (nFall), return to DeepFist only when solidly recovered (nRise).
+// The FIRST ratio sample after construction or reset() seeds ownership directly
+// (solid -> DeepFist, fading -> Classic) so Auto never enters silent mid-fade.
 //
 // Threading: fed from two threads (Classic on the audio thread, DeepFist on its
 // worker thread) — every method takes mx_; onOutput fires OUTSIDE the lock.
@@ -58,6 +60,7 @@ private:
     Source             desired_    = Source::DeepFist;
     int                fadeCount_  = 0;
     int                solidCount_ = 0;
+    bool               seeded_     = false;
 };
 
 }  // namespace lyra::dsp

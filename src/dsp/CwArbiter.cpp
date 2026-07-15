@@ -10,6 +10,15 @@ bool CwArbiter::isGap(const std::string& text) {
 
 void CwArbiter::updateKeying(float ratio) {
     std::lock_guard<std::mutex> lk(mx_);
+    if (!seeded_) {
+        // Cold start (spec §5.3): the first ratio sample after reset() seeds
+        // ownership directly — fading goes straight to the Classic safety net,
+        // anything else to DeepFist — so Auto never enters silent mid-fade
+        // waiting for a keying gap that the gated engine may never emit.
+        seeded_ = true;
+        owner_ = desired_ =
+            (ratio < cfg_.tLow) ? Source::Classic : Source::DeepFist;
+    }
     if (ratio < cfg_.tLow) {
         solidCount_ = 0;
         if (++fadeCount_ >= cfg_.nFall) desired_ = Source::Classic;
@@ -50,6 +59,7 @@ void CwArbiter::reset() {
     desired_ = Source::DeepFist;
     fadeCount_ = 0;
     solidCount_ = 0;
+    seeded_ = false;
 }
 
 CwArbiter::Source CwArbiter::owner() const {
