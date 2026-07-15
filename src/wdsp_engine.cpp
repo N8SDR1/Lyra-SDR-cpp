@@ -324,7 +324,12 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
         emit cwDecodedChar(QString::fromUtf8(s.c_str(),
                                              static_cast<int>(s.size())), 1.0);
     };
-    cwDecoder_.onWpm = [this](int w) { emit cwRxWpmChanged(w); };
+    cwDecoder_.onWpm = [this](int w) {
+        // Auto: only the engine that owns the display drives the WPM readout.
+        if (cwEngine_.load(std::memory_order_relaxed) == 2 &&
+            cwArbiter_.owner() != lyra::dsp::CwArbiter::Source::Classic) return;
+        emit cwRxWpmChanged(w);
+    };
 
     // DeepFist neural CW decoder (second engine).  Same 48 kHz input rate; the
     // model is loaded lazily on first switch to Neural (setCwDecodeEngine).  Its
@@ -344,7 +349,12 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     // (the per-window "Calls" chips were removed) — leaving onCalls null skips
     // the rescore work entirely.  Re-wire here if a callsign UI returns.
     // Estimated RX WPM → the same cwRxWpmChanged surface the classic decoder uses.
-    neuralCw_.onWpm = [this](int wpm) { emit cwRxWpmChanged(wpm); };
+    neuralCw_.onWpm = [this](int wpm) {
+        // Auto: only the engine that owns the display drives the WPM readout.
+        if (cwEngine_.load(std::memory_order_relaxed) == 2 &&
+            cwArbiter_.owner() != lyra::dsp::CwArbiter::Source::DeepFist) return;
+        emit cwRxWpmChanged(wpm);
+    };
     // Auto engine: DeepFist's keying ratio drives the arbiter's fade detector,
     // and the arbiter's unified output becomes the Auto transcript (queued to
     // the GUI thread; fallback flag dims Classic-during-fade runs in the panel).
@@ -1966,12 +1976,14 @@ void WdspEngine::setCwDecodeEnabled(bool on)
     emit cwDecodeEnabledChanged();
 }
 
-// DeepFist — select the active CW decode engine (0=Classic fldigi, 1=Neural).
-// The neural model is loaded lazily on the first switch to Neural.  Ordering is
-// deliberate for audio-thread safety: when switching TO Neural we finish
-// loading + reset the decoder BEFORE storing cwEngine_=1 (the audio tap only
-// calls neuralCw_.process() once cwEngine_==1), so it never touches a
-// half-constructed ONNX session.  If the model can't load we stay on Classic.
+// DeepFist — select the active CW decode engine (0=Classic fldigi, 1=Neural,
+// 2=Auto).  The neural model is loaded lazily on the first switch to Neural OR
+// Auto (both need it).  Ordering is deliberate for audio-thread safety: we
+// finish loading + reset every consumer of the new engine BEFORE storing
+// cwEngine_ (the audio tap only feeds them once cwEngine_ flips), so it never
+// touches a half-constructed ONNX session or stale decoder/arbiter state —
+// Auto additionally resets cwDecoder_ and cwArbiter_ since it runs both
+// engines.  If the model can't load we stay on the current engine.
 void WdspEngine::setCwDecodeEngine(int engine)
 {
     const int cur = cwEngine_.load(std::memory_order_relaxed);
