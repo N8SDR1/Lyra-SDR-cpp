@@ -2,6 +2,7 @@
 // Qt-free.  Build + run:
 //   cmake --build build --target test_scp_local && build/test_scp_local
 #include "dsp/deepfist/ScpLocal.h"
+#include "dsp/deepfist/DeepFistScp.h"
 
 #include <cstdio>
 #include <string>
@@ -89,6 +90,20 @@ int main() {
         std::fclose(f);
         ScpLocal db;
         CHECK(db.load(kPath) == 2);
+    }
+
+    // 7) DeepFistScp::addCalls merges local calls into the candidate space:
+    //    contains() sees them, candidates() can return them, dedup holds.
+    {
+        lyra::dsp::DeepFistScp scp;               // empty (no MASTER.SCP here)
+        CHECK(!scp.contains("NA2DX"));
+        scp.addCalls({"NA2DX", "K7CO", "NA2DX"}); // dup collapses
+        CHECK(scp.count() == 2);
+        CHECK(scp.contains("NA2DX"));
+        auto cands = scp.candidates("NA2DX", 1, 5);
+        bool found = false;
+        for (const auto& c : cands) if (c == "NA2DX") found = true;
+        CHECK(found);
     }
 
     std::remove(kPath);

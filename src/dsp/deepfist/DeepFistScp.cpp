@@ -101,4 +101,11 @@ std::vector<std::string> DeepFistScp::candidates(const std::string& token,
     return out;
 }
 
+void DeepFistScp::addCalls(const std::vector<std::string>& extra) {
+    if (extra.empty()) return;
+    calls_.insert(calls_.end(), extra.begin(), extra.end());
+    std::sort(calls_.begin(), calls_.end());
+    calls_.erase(std::unique(calls_.begin(), calls_.end()), calls_.end());
+}
+
 }  // namespace lyra::dsp

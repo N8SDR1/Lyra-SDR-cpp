@@ -46,8 +46,10 @@ public:
     NeuralCwDecoder& operator=(const NeuralCwDecoder&) = delete;
 
     // Load the model dir (deepfist.onnx + sidecar); starts the worker on
-    // success.  Returns ready().
-    bool loadModel(const std::string& modelDir);
+    // success.  extraScpCalls (Phase 3 scp_local) merge into the callsign DB
+    // before the worker starts.  Returns ready().
+    bool loadModel(const std::string& modelDir,
+                   const std::vector<std::string>& extraScpCalls = {});
     bool ready() const { return model_.ready(); }
     int  scpCount() const { return scp_.count(); }   // 0 = rescorer disabled
 

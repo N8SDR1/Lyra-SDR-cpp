@@ -1024,6 +1024,8 @@ add_executable(test_scp_local EXCLUDE_FROM_ALL
     scratch/test_scp_local.cpp
     src/dsp/deepfist/ScpLocal.h
     src/dsp/deepfist/ScpLocal.cpp
+    src/dsp/deepfist/DeepFistScp.h
+    src/dsp/deepfist/DeepFistScp.cpp
 )
 target_include_directories(test_scp_local PRIVATE src)
 if(MSVC)
