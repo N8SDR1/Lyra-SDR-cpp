@@ -92,6 +92,16 @@ bool DeepFistModel::load(const std::string& modelDir) {
     tokens_ = parseSidecarTokens(sidecar);
     if (tokens_.size() < 2) tokens_ = fallbackTokens();
 
+    // Display prosigns in fldigi-style angle notation.  The model emits the
+    // aliased punctuation tokens "=" / "+" for BT / AR (that's how they're
+    // written in CW); relabel them to <BT>/<AR> so the copy matches the classic
+    // decoder and operator expectation (consistent with <SK>/<KN>).  Display
+    // only — a MISREAD prosign still shows whatever the model actually decoded.
+    for (std::string& t : tokens_) {
+        if (t == "=") t = "<BT>";
+        else if (t == "+") t = "<AR>";
+    }
+
     try {
         impl_->opts.SetIntraOpNumThreads(1);
         impl_->opts.SetGraphOptimizationLevel(ORT_ENABLE_ALL);

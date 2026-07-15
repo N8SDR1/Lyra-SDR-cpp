@@ -196,7 +196,7 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     cwDecodeBandwidth_     = std::clamp(s.value(kCwDecBw, 150).toInt(), 50, 3000);
     cwDecodeSpeed_         = std::clamp(s.value(kCwDecSpeed, 18).toInt(), 5, 50);
     cwDecodeEngine_        = std::clamp(s.value(kCwDecEngine, 0).toInt(), 0, 1);
-    cwBlankPenalty_        = std::clamp(s.value(kCwBlankPen, 0.0).toDouble(), 0.0, 5.0);
+    cwBlankPenalty_        = std::clamp(s.value(kCwBlankPen, 0.0).toDouble(), -2.0, 5.0);
     cwDecodeTracking_      = s.value(kCwDecTrack, true).toBool();
     cwDecodeMatchedFilter_ = s.value(kCwDecMfilt, false).toBool();
     cwDecodeSquelchOn_     = s.value(kCwDecSqlOn, false).toBool();
@@ -593,7 +593,7 @@ void Prefs::setCwDecodeEngine(int engine) {
 }
 
 void Prefs::setCwBlankPenalty(double p) {
-    p = std::clamp(p, 0.0, 5.0);
+    p = std::clamp(p, -2.0, 5.0);
     if (std::abs(p - cwBlankPenalty_) > 1e-9) {
         cwBlankPenalty_ = p;
         QSettings().setValue(kCwBlankPen, p);

@@ -1989,7 +1989,7 @@ void WdspEngine::setCwDecodeEngine(int engine)
 
 void WdspEngine::setCwBlankPenalty(double p)
 {
-    p = std::clamp(p, 0.0, 5.0);
+    p = std::clamp(p, -2.0, 5.0);
     if (std::abs(p - neuralCw_.blankPenalty()) < 1e-6) return;
     neuralCw_.setBlankPenalty(static_cast<float>(p));   // live, audio-thread-safe
     emit cwBlankPenaltyChanged();
@@ -3562,8 +3562,10 @@ void WdspEngine::setRxRecordTap(std::function<void(const double *, int)> tap)
 namespace {
 // #187 — passive WAV capture of the EXACT mono audio fed to the CW decoder, for
 // offline filter tuning against a real off-air signal.  Armed only when the env
-// var LYRA_CW_WAV=<path> is set; writes 48 kHz mono 16-bit PCM.  Audio-thread
-// only (single producer); the header is patched on destruction at app exit.
+// var LYRA_CW_WAV=<path> is set; writes 48 kHz mono 32-bit IEEE-float (unclamped).
+// Audio-thread only (single producer); the size fields are re-patched on every
+// write so the file stays a valid WAV even if the process is killed before the
+// destructor runs (static-local dtors aren't guaranteed on a Qt app close).
 // Zero cost when the env var is unset (the static QByteArray is empty).
 class CwWavCapture {
 public:
@@ -3575,8 +3577,7 @@ public:
     }
     ~CwWavCapture() {
         if (!ok_) return;
-        file_.seek(4);  writeU32(36 + dataBytes_);   // RIFF chunk size
-        file_.seek(40); writeU32(dataBytes_);         // data sub-chunk size
+        patchSizes();
         file_.close();
     }
     void write(const float *s, int n) {
@@ -3586,8 +3587,23 @@ public:
         file_.write(reinterpret_cast<const char *>(s),
                     static_cast<qint64>(n) * 4);
         dataBytes_ += static_cast<quint32>(n) * 4;
+        // Keep the RIFF/data size fields current so a hard-closed capture is
+        // still a valid, playable WAV.  Throttled to ~1 s of audio so this adds
+        // a couple of tiny seeks/writes per second, not per block.
+        if (dataBytes_ - lastPatched_ >= 192000) {   // 1 s mono @48k × 4 bytes
+            patchSizes();
+            lastPatched_ = dataBytes_;
+        }
     }
 private:
+    // Patch the RIFF + data size fields, then return to the append position so
+    // writing continues seamlessly.
+    void patchSizes() {
+        const qint64 end = 44 + static_cast<qint64>(dataBytes_);
+        file_.seek(4);  writeU32(36 + dataBytes_);   // RIFF chunk size
+        file_.seek(40); writeU32(dataBytes_);         // data sub-chunk size
+        file_.seek(end);
+    }
     void writeU32(quint32 v) {
         const char b[4] = { char(v & 0xFF), char((v >> 8) & 0xFF),
                             char((v >> 16) & 0xFF), char((v >> 24) & 0xFF) };
@@ -3610,7 +3626,8 @@ private:
         file_.write("data", 4); writeU32(0);   // patched on close
     }
     QFile   file_;
-    quint32 dataBytes_ = 0;
+    quint32 dataBytes_   = 0;
+    quint32 lastPatched_ = 0;
     bool    ok_ = false;
 };
 } // namespace
