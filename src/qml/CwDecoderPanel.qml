@@ -76,7 +76,7 @@ Rectangle {
         return esc.replace(/[A-Z0-9\/]{3,}/g, function(w) {
             // only bother the spot store with call-shaped tokens (contain a digit)
             if (/[0-9]/.test(w) && Spots.isSpotted(w))
-                return '<span style="color:#5fe0a0; font-weight:bold">' + w + '</span>'
+                return '<span style="color:#5fffa8; font-weight:bold">' + w + '</span>'
             return w
         })
     }
@@ -279,7 +279,7 @@ Rectangle {
                 Layout.fillWidth: true
                 // Bipolar: negative = "cleaner" (suppress stray/doubled chars on
                 // strong signals), 0 = neutral, positive = recover weak code.
-                from: -2; to: 5; stepSize: 0.5; snapMode: Slider.SnapAlways
+                from: -1; to: 1; stepSize: 0.5; snapMode: Slider.SnapAlways
                 showTicks: true
                 showTickNumbers: true
                 value: Prefs.cwBlankPenalty
