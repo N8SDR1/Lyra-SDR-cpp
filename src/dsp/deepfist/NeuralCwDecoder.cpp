@@ -37,11 +37,13 @@ NeuralCwDecoder::~NeuralCwDecoder() {
     stopWorker();
 }
 
-bool NeuralCwDecoder::loadModel(const std::string& modelDir) {
+bool NeuralCwDecoder::loadModel(const std::string& modelDir,
+                                const std::vector<std::string>& extraScpCalls) {
     const bool ok = model_.load(modelDir);
     if (ok) {
         // Optional callsign DB for the lattice rescorer; a no-op if absent.
         scp_.loadFile(modelDir + "/MASTER.SCP");
+        scp_.addCalls(extraScpCalls);      // Phase 3: locally-confirmed calls
         startWorker();
     }
     return ok;

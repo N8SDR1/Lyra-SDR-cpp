@@ -37,6 +37,11 @@ public:
         return std::binary_search(calls_.begin(), calls_.end(), call);
     }
 
+    // Merge extra calls (upper-case) into the database — Phase 3 scp_local
+    // feed.  Sorts + dedups so contains()/candidates() stay correct.  NOT
+    // thread-safe: call before the decode worker starts (loadModel path).
+    void addCalls(const std::vector<std::string>& extra);
+
 private:
     std::vector<std::string> calls_;    // sorted, upper-case, deduped
 };
