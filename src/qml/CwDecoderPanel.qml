@@ -260,11 +260,9 @@ Rectangle {
                                  Prefs.cwDecodeEngine = 1 }
             }
             Label {
-                visible: root.cwEngine === 1
-                text: WdspEngine.cwNeuralAvailable
-                      ? qsTr("• neural (rolling 6 s window)")
-                      : qsTr("• model not found — see models/")
-                color: WdspEngine.cwNeuralAvailable ? "#3fb6a0" : "#e0a030"
+                visible: root.cwEngine === 1 && !WdspEngine.cwNeuralAvailable
+                text: qsTr("• model not found — see models/")
+                color: "#e0a030"
                 font.pixelSize: 11
             }
             Item { Layout.fillWidth: true }
@@ -287,9 +285,7 @@ Rectangle {
                 }
             }
             Label {
-                text: WdspEngine.cwBlankPenalty <= 0.4 ? qsTr("Low")
-                    : WdspEngine.cwBlankPenalty >= 3.6 ? qsTr("High")
-                    : qsTr("Med")
+                text: WdspEngine.cwBlankPenalty <= 0.4 ? qsTr("Low") : qsTr("High")
                 color: root.cText; font.pixelSize: 11
                 Layout.preferredWidth: 32; horizontalAlignment: Text.AlignRight
             }
