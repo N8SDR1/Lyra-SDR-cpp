@@ -38,7 +38,30 @@ Rectangle {
     // latency).  So both just append to decodedText.
     readonly property int cwEngine: WdspEngine.cwDecodeEngine
 
+    // Phase 3 "Learn calls": watch the decode stream for completed words and
+    // remember the RBN/cluster-confirmed ones in the local SCP list — the
+    // amber highlight knows them immediately, the DeepFist rescorer from the
+    // next model load.  Opt-in (Prefs.cwLearnCalls, default off).
+    property string pendingWord: ""
+    function tapWord(s) {
+        for (var i = 0; i < s.length; ++i) {
+            var cc = s.charCodeAt(i)
+            if (cc === 2 || cc === 3) continue      // Auto dim markers: invisible
+            var c = s.charAt(i)
+            if ((c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || c === "/") {
+                pendingWord += c
+            } else if (pendingWord.length > 0) {
+                var w = pendingWord
+                pendingWord = ""
+                if (Prefs.cwLearnCalls && w.length >= 3 && /[0-9]/.test(w)
+                        && Spots.isSpotted(w))
+                    WdspEngine.cwNoteConfirmedCall(w)
+            }
+        }
+    }
+
     function appendDecoded(s) {
+        tapWord(s)
         var t = root.decodedText + s
         if (t.length > 6000) t = t.slice(-4500)
         root.decodedText = t
@@ -146,10 +169,11 @@ Rectangle {
         WdspEngine.setCwDecodeMatchedFilter(root.matchedFilter)
         pushSquelch()
         WdspEngine.setCwBlankPenalty(Prefs.cwBlankPenalty)   // DeepFist blank penalty
-        // Restore the persisted engine; if the neural model can't load,
-        // WdspEngine stays on Classic (cwDecodeEngine reflects the truth).
-        if (Prefs.cwDecodeEngine === 1)
-            WdspEngine.cwDecodeEngine = 1
+        // Restore the persisted engine (DeepFist or Auto); if the neural model
+        // can't load, WdspEngine stays on Classic (cwDecodeEngine reflects the
+        // truth, and the chips light accordingly).
+        if (Prefs.cwDecodeEngine === 1 || Prefs.cwDecodeEngine === 2)
+            WdspEngine.cwDecodeEngine = Prefs.cwDecodeEngine
     }
 
     function applyWpmToKeyer(w) {
@@ -277,6 +301,11 @@ Rectangle {
             ChipButton {
                 label: qsTr("Clear")
                 onClicked: root.clearDecoded()
+            }
+            ChipButton {
+                label: qsTr("Learn")
+                lit: Prefs.cwLearnCalls
+                onClicked: Prefs.cwLearnCalls = !Prefs.cwLearnCalls
             }
         }
 
