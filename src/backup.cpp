@@ -91,10 +91,15 @@ const QVector<Section> &catalogue() {
          {QStringLiteral("panadapter/"), QStringLiteral("ui/tooltips_enabled"),
           QStringLiteral("ui/ctunEnabled")}, false},
 
+        // "session/" holds the per-display-setup auto-saved layouts (one slot
+        // per monitor configuration — see layoutSlotKey() in mainwindow.cpp).
+        // A backup carries every setup's layout, so restoring on a machine with
+        // a different monitor still finds its own arrangement waiting.
         {QStringLiteral("layout"), QStringLiteral("Panel layout & window"),
          QStringLiteral("Dock arrangement, window size / position, saved "
                         "layout slots, panel lock"),
-         {QStringLiteral("layouts/"), QStringLiteral("ui/geometry"),
+         {QStringLiteral("layouts/"), QStringLiteral("session/"),
+          QStringLiteral("ui/geometry"),
           QStringLiteral("ui/windowState"), QStringLiteral("ui/userGeometry"),
           QStringLiteral("ui/userWindowState"), QStringLiteral("ui/panadapterSplit"),
           QStringLiteral("ui/userPanadapterSplit"), QStringLiteral("ui/panelsLocked")},

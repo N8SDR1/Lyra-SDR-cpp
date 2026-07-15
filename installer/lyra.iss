@@ -12,7 +12,7 @@
 ; Keep AppVersion in sync with CMake project(VERSION) / LYRA_VERSION.
 
 #define AppName     "Lyra"
-#define AppVersion  "0.18.0"
+#define AppVersion  "0.18.1"
 #define AppPublisher "Rick Langford (N8SDR)"
 #define AppURL      "https://github.com/N8SDR1/Lyra-SDR-cpp"
 #define AppExe      "lyra.exe"

@@ -44,15 +44,26 @@ Item {
     readonly property real startDeg: 270 - sweepDeg / 2
 
     // Responsive geometry: radius bounded by BOTH the half-width and the
-    // height (the arc's lower legs + the tick ring must fit either way).
-    // The height divisor budgets BOTH the top clearance (band + the apex
-    // tick label) and the lower legs/centre readout, so the "+20" label
-    // at the top isn't crushed against the panel edge and the SNR line at
-    // the bottom still fits.
+    // height, because everything here scales with the radius — including the
+    // numerics stacked under the arc centre, which is what the height budget
+    // has to pay for.  Walking the panel top-down in units of rad:
+    //
+    //     mm                      panel margin
+    //   + 0.241 · rad             apex clearance (topClear, below)
+    //   + 1.000 · rad             the radius itself, down to the centre
+    //   + 0.536 · rad             the readout column: it starts 0.42·rad ABOVE
+    //                             the centre and runs three Consolas lines
+    //                             (0.42 + 0.22 + 0.17)·rad deep, ~1.18 line box
+    //   + mm                      panel margin
+    //
+    // which totals 2·mm + 1.777·rad.  Round the divisor up to 1.80 for font
+    // metrics.  The old 1.62 paid for the arc but not the numerics under it,
+    // so on a wide dock (where the radius grows until HEIGHT is what binds)
+    // the SNR line ran off the bottom of the panel.
     readonly property real mm:  4
     readonly property real ccx: width / 2
     readonly property real rad: Math.max(20,
-        Math.min((width / 2 - mm) / 1.222, (height - 2 * mm) / 1.62))
+        Math.min((width / 2 - mm) / 1.222, (height - 2 * mm) / 1.80))
     readonly property real lw:  Math.max(7, rad * 0.17)
     // Tick-label font + the top clearance it (and the band) need above the
     // arc apex.  Outer labels sit at rad + lw*0.78; this reserves that

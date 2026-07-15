@@ -185,7 +185,43 @@ graphics are fine.
 | &nbsp;&nbsp;• Intel | HD Graphics 4000 (Ivy Bridge) or newer / UHD / Iris | UHD 620 / Iris Xe / Arc | Arc A-series or newer |
 | **Storage** | ~300 MB free (SSD recommended) | SSD, ~500 MB free | NVMe Gen4 SSD |
 | **Network** | 100 Mbit **wired** Ethernet to the radio | Gigabit Ethernet, ideally a dedicated NIC | Dedicated Gigabit / 2.5 GbE NIC, wired straight to the radio |
-| **Display** | 1366 × 768 | 1920 × 1080 | Dual / triple monitor; 1440p or 4K |
+| **Display** | 1600 × 900 | 1920 × 1080 | Dual / triple monitor; 1440p or 4K |
+
+**About the display minimum — what you get at 1600 × 900.** Lyra's front panel
+is a set of dockable panels, and they need real estate, so it's worth being
+precise about what the minimum buys you rather than leaving you to find out.
+
+At **1600 × 900** Lyra ships arranged with the panels you need to operate, all
+of them fully reachable:
+
+| Panel | What it's for |
+|---|---|
+| **Panadapter + waterfall** | See the band, click to tune |
+| **Tuning** | The VFO, step, mode, RIT / XIT, split |
+| **Band** | Band switching |
+| **Filters** | Sample rate, RX and TX bandwidth |
+| **Audio** | LNA, volume, AF gain, mute, and the RX DSP row (NB / NR / ANF / LMS / SQ …) |
+| **Meter** | S-meter on receive, power / SWR / ALC on transmit |
+| **TX** | Drive, mic gain, ATT, PROT, VOX, Tune, MOX |
+
+The remaining panels are **closed by default at that size** and available any
+time from the **View** menu — but each one needs screen space you don't have to
+spare at 1600 × 900, so opening them means giving something else up:
+
+| Panel | Roughly needs |
+|---|---|
+| **Solar / Propagation** | ~780 px of width on its own — it's a wide strip |
+| **Display** | Panadapter zoom, frame rate, waterfall rate, peak hold |
+| **Profiles** | TX/RX profile picker and Save |
+
+At **1920 × 1080** you can have all of them open at once with room to spare,
+which is why that's the Recommended tier.
+
+**Why not 1366 × 768?** It's height, not width, that binds. Below about 900 px
+there simply isn't room for a usable panadapter *and* the operating panels
+without something being cut off the bottom — so 1366 × 768 doesn't work even
+for the minimal set. Lyra will still start on a smaller screen, but the window
+won't be able to shrink to fit it.
 
 **About the graphics tiers.** Lyra draws the spectrum and waterfall on the GPU.
 It works on any DirectX 11 / OpenGL-class card (the Minimum tier), but the

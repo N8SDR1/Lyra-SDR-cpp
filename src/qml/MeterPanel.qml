@@ -24,6 +24,13 @@ Rectangle {
     color: "#101820"
     border.color: "#2a4a5a"
 
+    // Honest floor — see AudioPanel.  The meter face is a Loader, so there is no
+    // content layout to measure: these are the smallest size at which the arc /
+    // bar / ladder faces and the style toggle above them stay readable.  The
+    // implicit size above is what the panel PREFERS; this is what it needs.
+    readonly property int lyraMinWidth:  220
+    readonly property int lyraMinHeight: 150
+
     // ── Style toggle (top-right): Arc | Bar | Ladder ──
     Row {
         id: styleToggle

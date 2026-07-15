@@ -183,8 +183,15 @@ private:
     void onNoUpdate();
     void onUpdateCheckFailed(const QString &reason);
     void applyPanelLock(bool locked);
+    void refuseLayoutWrite();          // LYRA_TEST_SIZE run: say no, out loud
+    // The session layout is stored per DISPLAY SETUP (see layoutSlotKey() in
+    // mainwindow.cpp): each monitor configuration keeps its own geometry, dock
+    // arrangement, panadapter split and undo history, so a session on a smaller
+    // screen can never overwrite the layout built for a bigger one.
     void saveLayout();                 // session auto-save (on close)
     void restoreLayout();              // session auto-restore (on launch)
+    void fitWindowToScreen();          // clamp a restored window onto its screen
+    void dumpDockMinimums();           // LYRA_DUMP_MINS=1 → lyra_min_sizes.txt
     void flushLayoutToSettings();      // persist live geometry+dock state now
                                        // (so export/snapshot reflect the screen)
     // Operator-driven layout management (View menu), mirroring old Lyra:
@@ -200,15 +207,18 @@ private:
     void refreshLayoutMenus();         // refresh slot labels on menu open
     // Layout undo (randol request): snapshot the dock arrangement before each
     // change so a bad drag-drop can be walked back a step or two (View →
-    // Layouts → Undo layout change).  Session-scoped, NOT persisted.  A dock
-    // move / float / dock arms a debounce that coalesces one drag's several
-    // signals into a single snapshot; undo restores the previous arrangement,
-    // so a mis-dropped panel goes back where it came from.
+    // Layouts → Undo layout change).  A dock move / float / dock arms a debounce
+    // that coalesces one drag's several signals into a single snapshot; undo
+    // restores the previous arrangement, so a mis-dropped panel goes back where
+    // it came from.  The stack is PERSISTED per display setup: an operator
+    // usually notices the damage the next morning, not before they close.
     void initLayoutUndo();             // wire signals + baseline (after restore)
     void onLayoutMaybeChanged();       // a dock moved/floated → arm the debounce
     void commitLayoutSnapshot();       // debounce fired → push the pre-change state
     void undoLayoutChange();           // pop + restore one step
     void refreshLayoutUndoAction();    // enable/relabel the menu action
+    void loadLayoutUndoStack();        // this setup's history, from QSettings
+    void saveLayoutUndoStack();        // persist it
     // Export/import the full settings profile (layout + all prefs) to a
     // portable .lyra file — backup, transfer to another machine, or
     // instant recovery after layout tinkering.  Machine-specific keys
@@ -268,7 +278,8 @@ private:
     bool                        spaceConsumedPress_ = false; // space-PTT: swallow paired release/repeats
     QAction                    *layoutRecallActs_[4]{};   // named-layout recall slots
     QAction                    *layoutSaveActs_[4]{};      // named-layout save slots
-    // Layout-undo state (session-scoped; see initLayoutUndo).
+    QString                     layoutSource_;   // which layout this session came up in
+    // Layout-undo state (persisted per display setup; see initLayoutUndo).
     QAction                    *layoutUndoAct_ = nullptr;   // View → Layouts → Undo
     QList<QByteArray>           layoutUndoStack_;            // pre-change states, newest last
     QByteArray                  layoutCurrent_;              // last settled arrangement

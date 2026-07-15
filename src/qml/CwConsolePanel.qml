@@ -484,8 +484,16 @@ Rectangle {
                       : qsTr("Click into a macro's text or the send line, then click a token:")
                 color: root.cMuted; font.pixelSize: 10
             }
-            Flow {
+            // A Flow is height-for-width, which Qt Quick Layouts does not
+            // support: as a direct Layout child its height feeds back into the
+            // width the layout gives it, and on a negotiated (docked) width that
+            // cycle recurses until the stack blows.  The Item breaks the cycle.
+            Item {
                 Layout.fillWidth: true
+                Layout.preferredHeight: tokenFlow.implicitHeight
+                Flow {
+                id: tokenFlow
+                width: parent.width
                 spacing: 6
                 Repeater {
                     model: root.builtinTokens.concat(root.userTokenChips)
@@ -534,6 +542,7 @@ Rectangle {
                         ToolTip.text: qsTr("Action token — not keyed as CW. When this macro is sent, it logs the QSO to a linked SDRLogger+ (Combo). Click into a macro's text field first.")
                     }
                 }
+                }   // tokenFlow
             }
         }
 

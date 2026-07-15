@@ -38,6 +38,10 @@ Rectangle {
     color: "#101820"
     border.color: "#2a4a5a"
 
+    // Honest floor, measured from the content — see AudioPanel for the rationale.
+    readonly property int lyraMinWidth:  body.implicitWidth + 24
+    readonly property int lyraMinHeight: body.implicitHeight + 16
+
     // Local mirror of the wire (DDS) freq — signal-driven (a direct
     // binding to Stream.rx1FreqHz is unreliable in this QQuickWidget).
     property int centerHz: 0
@@ -150,6 +154,7 @@ Rectangle {
     }
 
     ColumnLayout {
+        id: body
         anchors.fill: parent
         anchors.leftMargin: 12
         anchors.rightMargin: 12
@@ -171,6 +176,10 @@ Rectangle {
             ColumnLayout {
                 Layout.preferredWidth: 360
                 Layout.maximumWidth: 360
+                // A real floor, so the readout can't be crushed to nothing when
+                // the row is squeezed — 300px still seats the LED digits and the
+                // Step/Mode combos beneath them.
+                Layout.minimumWidth: 300
                 Layout.alignment: Qt.AlignVCenter
                 spacing: 4
 
@@ -286,105 +295,105 @@ Rectangle {
                         Item { Layout.fillWidth: true }
                     }
                 }
+              }
 
-                // Zero-beat needle — overlays into the row's slack just BELOW
-                // the freq box (anchored to it, NOT a Layout child) so turning
-                // it on never grows the Tuning panel nor nudges the freq
-                // readout upward.  A gap sits above the meter; the "Zero Beat"
-                // label rides underneath, dropping the pair down toward the
-                // SPLIT button.  Hidden unless enabled in Visuals AND in a
-                // lockable carrier mode (CW / AM / SAM / FM).
-                Item {
-                    id: zbStrip
-                    anchors.top: parent.bottom
-                    anchors.topMargin: 7
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.leftMargin: 2
-                    anchors.rightMargin: 2
-                    height: 30
-                    visible: Prefs.zeroBeatMarkers && WdspEngine.zeroBeatActive
-                    readonly property real rangeHz: 500
-                    readonly property bool locked: WdspEngine.zeroBeatValid
-                    readonly property real offHz:
-                        Math.max(-rangeHz, Math.min(rangeHz, WdspEngine.zeroBeatOffsetHz))
-                    readonly property color zbCol:
-                        !locked                 ? "#55708a"
-                        : Math.abs(offHz) <= 8  ? "#39e08a"
-                        : Math.abs(offHz) <= 45 ? "#00d8ff" : "#e8c477"
+              // Zero-beat needle strip — a Layout FLOW child of the VFO-A
+              // cluster (sibling of the freq box), NOT an anchored overlay.
+              // The v0.18.0 anchored-overlay form (anchors.top: vfoA.bottom)
+              // destabilised the VFO RowLayout and let the centre logo paint
+              // over the frequency readout — an unusable VFO for every user,
+              // zero-beat on or off.  As a plain flow child it collapses to
+              // zero height when hidden (the default, and every non-CW mode),
+              // so the panel is unchanged until zero-beat is enabled; when it
+              // is, the wrapper grows just enough to seat the needle + the
+              // "Zero Beat" caption below the freq box.  Shown only when the
+              // Visuals pref is on AND in a lockable carrier mode
+              // (CW / AM / SAM / FM).
+              Item {
+                id: zbStrip
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible ? 34 : 0
+                visible: Prefs.zeroBeatMarkers && WdspEngine.zeroBeatActive
+                readonly property real rangeHz: 500
+                readonly property bool locked: WdspEngine.zeroBeatValid
+                readonly property real offHz:
+                    Math.max(-rangeHz, Math.min(rangeHz, WdspEngine.zeroBeatOffsetHz))
+                readonly property color zbCol:
+                    !locked                 ? "#55708a"
+                    : Math.abs(offHz) <= 8  ? "#39e08a"
+                    : Math.abs(offHz) <= 45 ? "#00d8ff" : "#e8c477"
 
-                    Component.onCompleted:
+                Component.onCompleted:
+                    WdspEngine.setZeroBeatEnabled(Prefs.zeroBeatMarkers)
+                Connections {
+                    target: Prefs
+                    function onZeroBeatMarkersChanged() {
                         WdspEngine.setZeroBeatEnabled(Prefs.zeroBeatMarkers)
-                    Connections {
-                        target: Prefs
-                        function onZeroBeatMarkersChanged() {
-                            WdspEngine.setZeroBeatEnabled(Prefs.zeroBeatMarkers)
+                    }
+                }
+
+                Rectangle {
+                    id: zbTrack
+                    anchors.left: parent.left
+                    anchors.right: zbRead.left
+                    anchors.rightMargin: 8
+                    anchors.top: parent.top
+                    height: 18
+                    radius: 4
+                    color: "#080d15"
+                    border.width: 1
+                    border.color: "#1e2a38"
+
+                    Rectangle {   // centre detent
+                        width: 1.5; height: parent.height - 8
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: "#3a86a0"
+                    }
+                    Repeater {    // ± quarter ticks
+                        model: [0.25, 0.75]
+                        Rectangle {
+                            width: 1; height: zbTrack.height - 14
+                            x: zbTrack.width * modelData
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: "#22303e"
                         }
                     }
-
-                    Rectangle {
-                        id: zbTrack
-                        anchors.left: parent.left
-                        anchors.right: zbRead.left
-                        anchors.rightMargin: 8
-                        anchors.top: parent.top
-                        height: 18
-                        radius: 4
-                        color: "#080d15"
-                        border.width: 1
-                        border.color: "#1e2a38"
-
-                        Rectangle {   // centre detent
-                            width: 1.5; height: parent.height - 8
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            anchors.verticalCenter: parent.verticalCenter
-                            color: "#3a86a0"
-                        }
-                        Repeater {    // ± quarter ticks
-                            model: [0.25, 0.75]
-                            Rectangle {
-                                width: 1; height: zbTrack.height - 14
-                                x: zbTrack.width * modelData
-                                anchors.verticalCenter: parent.verticalCenter
-                                color: "#22303e"
-                            }
-                        }
-                        Rectangle {   // the needle
-                            width: 3; radius: 1.5
-                            height: parent.height - 6
-                            anchors.verticalCenter: parent.verticalCenter
-                            color: zbStrip.zbCol
-                            x: Math.round((zbTrack.width - width) / 2
-                               + (zbStrip.offHz / zbStrip.rangeHz)
-                                 * (zbTrack.width - width) / 2)
-                            Behavior on x { NumberAnimation { duration: 90 } }
-                        }
-                    }
-                    Label {
-                        id: zbRead
-                        anchors.right: parent.right
-                        anchors.verticalCenter: zbTrack.verticalCenter
-                        width: 62
-                        horizontalAlignment: Text.AlignRight
-                        font.family: "Consolas"
-                        font.pixelSize: 12
-                        font.bold: true
+                    Rectangle {   // the needle
+                        width: 3; radius: 1.5
+                        height: parent.height - 6
+                        anchors.verticalCenter: parent.verticalCenter
                         color: zbStrip.zbCol
-                        text: !zbStrip.locked ? "—"
-                              : Math.abs(zbStrip.offHz) <= 8 ? "● 0 Hz"
-                              : (zbStrip.offHz > 0 ? "+" : "")
-                                + Math.round(zbStrip.offHz) + " Hz"
+                        x: Math.round((zbTrack.width - width) / 2
+                           + (zbStrip.offHz / zbStrip.rangeHz)
+                             * (zbTrack.width - width) / 2)
+                        Behavior on x { NumberAnimation { duration: 90 } }
                     }
-                    Label {          // caption under the meter
-                        anchors.horizontalCenter: zbTrack.horizontalCenter
-                        anchors.top: zbTrack.bottom
-                        anchors.topMargin: 1
-                        text: qsTr("Zero Beat")
-                        font.pixelSize: 11
-                        font.bold: true
-                        font.letterSpacing: 0.5
-                        color: "#8de04a"
-                    }
+                }
+                Label {
+                    id: zbRead
+                    anchors.right: parent.right
+                    anchors.verticalCenter: zbTrack.verticalCenter
+                    width: 62
+                    horizontalAlignment: Text.AlignRight
+                    font.family: "Consolas"
+                    font.pixelSize: 12
+                    font.bold: true
+                    color: zbStrip.zbCol
+                    text: !zbStrip.locked ? "—"
+                          : Math.abs(zbStrip.offHz) <= 8 ? "● 0 Hz"
+                          : (zbStrip.offHz > 0 ? "+" : "")
+                            + Math.round(zbStrip.offHz) + " Hz"
+                }
+                Label {          // caption under the meter
+                    anchors.horizontalCenter: zbTrack.horizontalCenter
+                    anchors.top: zbTrack.bottom
+                    anchors.topMargin: 1
+                    text: qsTr("Zero Beat")
+                    font.pixelSize: 11
+                    font.bold: true
+                    font.letterSpacing: 0.5
+                    color: "#8de04a"
                 }
               }
             }
@@ -393,12 +402,35 @@ Rectangle {
 
             Image {
                 source: "qrc:/qt/qml/Lyra/src/assets/logo/lyra-icon-256.png"
-                Layout.fillHeight: true
+                // Fixed square footprint, centred by the flanking fillWidth
+                // spacers.  The old `Layout.fillHeight` + `Layout.preferredWidth:
+                // height` form coupled the logo's WIDTH to its own layout-driven
+                // HEIGHT; that feedback could mis-resolve and jam the logo a
+                // third of the way across the VFO row with dead grey space
+                // beside it (v0.18.0 report).  A fixed preferred+maximum size,
+                // plus a bounded sourceSize so the 256px asset's implicit size
+                // can't drive the layout, removes the coupling entirely.
+                //
+                // The logo is DECORATION, and it must never be the thing that
+                // forces an overlap.  When a RowLayout's children can't fit even
+                // at their MINIMUM widths, Qt Quick Layouts overflows and lets
+                // them overlap — and the Image's minimum was its 140px
+                // sourceSize, which is how the logo ended up painted across the
+                // frequency readout on a narrow panel.  A minimum of zero means
+                // it gives way and scales down under pressure instead, so the
+                // readout — which the operator actually needs — always wins.
+                // It only disappears entirely when the panel is too narrow for
+                // it to mean anything.
+                visible: root.width >= 760
+                Layout.preferredWidth: visible ? 132 : 0
                 Layout.preferredHeight: 132
-                Layout.preferredWidth: height   // square, as tall as the row
+                Layout.minimumWidth: 0
+                Layout.maximumWidth: visible ? 140 : 0
                 Layout.maximumHeight: 140
                 Layout.alignment: Qt.AlignVCenter
                 fillMode: Image.PreserveAspectFit
+                sourceSize.width: 140
+                sourceSize.height: 140
                 smooth: true
                 mipmap: true
             }
@@ -407,10 +439,21 @@ Rectangle {
 
             // VFO-B slot — empty (reserved, no dead widget) in simplex;
             // SPLIT fills it with the TX VFO cluster (no relayout).
+            //
+            // The reservation is deliberate: it keeps the logo centred and stops
+            // the row re-laying out when SPLIT toggles.  But it is 360px, and
+            // when the panel is too narrow to afford it the reservation is what
+            // squeezes VFO-A's readout — paying a third of the row for an empty
+            // hole is not a trade worth making on a small screen.  So hold the
+            // slot while there is room for the whole row, and give it back when
+            // there isn't.  Wide panels behave exactly as before.
             Item {
                 id: vfoBSlot
-                Layout.preferredWidth: 360
-                Layout.maximumWidth: 360
+                readonly property bool reserve:
+                    Stream.splitEnabled || root.width >= 900
+                Layout.preferredWidth: reserve ? 360 : 0
+                Layout.maximumWidth: reserve ? 360 : 0
+                Layout.minimumWidth: Stream.splitEnabled ? 300 : 0
                 Layout.fillHeight: true
                 Layout.alignment: Qt.AlignVCenter
 
@@ -553,6 +596,10 @@ Rectangle {
                     verticalAlignment: Text.AlignVCenter
                     color: splitBtn.checked ? "#00e5ff" : "#cdd9e5"
                     font: splitBtn.font
+                    // A custom contentItem drops the style's default eliding, so
+                    // a squeezed button paints its label out over its neighbours.
+                    elide: Text.ElideRight
+                    clip: true
                 }
                 ToolTip.text: qsTr("SPLIT — receive on VFO A, transmit on VFO B "
                     + "(same band).  Set VFO B to your TX freq; key and the red "
@@ -641,6 +688,8 @@ Rectangle {
                     verticalAlignment: Text.AlignVCenter
                     color: rptBtn.checked ? "#00e5ff" : "#cdd9e5"
                     font: rptBtn.font
+                    elide: Text.ElideRight
+                    clip: true
                 }
                 ToolTip.text: qsTr("Repeater — TX on VFO B = VFO A ± offset, RX on "
                     + "A.  Pick the shift direction + offset and (if needed) the "
@@ -693,6 +742,8 @@ Rectangle {
                     verticalAlignment: Text.AlignVCenter
                     color: ctcssBtn.checked ? "#ff9a3c" : "#cdd9e5"
                     font: ctcssBtn.font
+                    elide: Text.ElideRight
+                    clip: true
                 }
                 ToolTip.text: qsTr("Send a CTCSS sub-audible access tone — required "
                     + "by tone-protected repeaters.  Pick the tone at right.")
@@ -764,6 +815,8 @@ Rectangle {
                     verticalAlignment: Text.AlignVCenter
                     color: ritBtn.checked ? "#00e5ff" : "#cdd9e5"
                     font: ritBtn.font
+                    elide: Text.ElideRight
+                    clip: true
                 }
                 ToolTip.text: qsTr("RIT — Receiver Incremental Tuning.  Shifts "
                     + "only the RX by the offset; TX stays put.  Chase an "
@@ -833,6 +886,8 @@ Rectangle {
                     verticalAlignment: Text.AlignVCenter
                     color: xitBtn.checked ? "#00e5ff" : "#cdd9e5"
                     font: xitBtn.font
+                    elide: Text.ElideRight
+                    clip: true
                 }
                 ToolTip.text: qsTr("XIT — Transmitter Incremental Tuning.  Shifts "
                     + "only the TX by the offset; RX stays put.  PureSignal "

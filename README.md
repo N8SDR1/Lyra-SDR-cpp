@@ -236,7 +236,23 @@ fine.
 | &nbsp;&nbsp;Intel | HD 4000 (Ivy Bridge)+ / UHD / Iris | UHD 620 / Iris Xe / Arc | Arc A-series+ |
 | **Storage** | ~300 MB free (SSD recommended) | SSD, ~500 MB free | NVMe Gen4 SSD |
 | **Network** | 100 Mbit **wired** to the radio | Gigabit, dedicated NIC ideal | Dedicated 1/2.5 GbE, wired to the radio |
-| **Display** | 1366 × 768 | 1920 × 1080 | Dual/triple; 1440p or 4K |
+| **Display** | 1600 × 900 | 1920 × 1080 | Dual/triple; 1440p or 4K |
+
+**About the display minimum.** Lyra's front panel is a set of dockable panels,
+and they need real estate. At **1600 × 900** you get the panels you need to
+operate — **Panadapter + waterfall, Tuning, Band, Filters, Audio, Meter and
+TX** — laid out with everything reachable. That's what Lyra ships arranged for
+at that size, and it's a genuinely usable radio.
+
+The other panels — **Solar / Propagation, Display, and Profiles** — are closed
+by default at that size and available any time from the **View** menu, but
+opening them will want more screen. **Solar / Propagation** in particular is a
+wide strip and needs about 780 px of width on its own. At **1920 × 1080** you
+can have everything open at once with room to spare.
+
+Height is what actually binds: below about 900 px there isn't room for the
+panadapter *and* the operating panels without something being cut off, so 1366 ×
+768 is not enough — even for the minimal set.
 
 Lyra draws the spectrum and waterfall on the GPU. It works on any DirectX 11 /
 OpenGL-class card, but the **Vulkan** path is smoother, lower-CPU, and

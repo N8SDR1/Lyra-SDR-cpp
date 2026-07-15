@@ -28,6 +28,10 @@ Rectangle {
     color: "#101820"
     border.color: "#2a4a5a"
 
+    // Honest floor, measured from the content — see AudioPanel for the rationale.
+    readonly property int lyraMinWidth:  body.implicitWidth + 24
+    readonly property int lyraMinHeight: body.implicitHeight + 16
+
     readonly property color cAccent:   "#00e5ff"
     readonly property color cText:     "#cdd9e5"
     readonly property color cMuted:    "#8a9aac"
@@ -76,6 +80,7 @@ Rectangle {
     }
 
     RowLayout {
+        id: body
         anchors.fill: parent
         anchors.leftMargin: 12
         anchors.rightMargin: 12
@@ -245,6 +250,12 @@ Rectangle {
                      : attBtn.checked ? root.cOn
                      : root.cText
                 font: attBtn.font
+                // A custom contentItem drops the style's default eliding, so a
+                // squeezed button paints its label straight out over whatever is
+                // next to it.  protBtn below already guards against this; the
+                // safety-critical controls in this row must too.
+                elide: Text.ElideRight
+                clip: true
             }
             ToolTip.text: qsTr("ATT-on-TX — forces the HL2 step attenuator (RX LNA "
                 + "to minimum) while transmitting so TX coupling can't blind the "
@@ -470,6 +481,8 @@ Rectangle {
                      : voxBtn.checked ? "#3fd07f"
                      : root.cText
                 font: voxBtn.font
+                elide: Text.ElideRight
+                clip: true
             }
             ToolTip.text: qsTr("VOX — voice-operated transmit.  Green = armed "
                 + "(listening to your mic); red = keying now.  Keys TX when you "
@@ -528,6 +541,8 @@ Rectangle {
                 verticalAlignment: Text.AlignVCenter
                 color: Stream.tuneEnabled ? root.cOn : root.cText
                 font: tunBtn.font
+                elide: Text.ElideRight
+                clip: true
             }
             ToolTip.text: qsTr("Tune carrier — emits a 1 kHz complex tone in the "
                 + "TX I/Q stream and keys MOX.  Carrier power = TX Drive %.  "
@@ -583,6 +598,8 @@ Rectangle {
                 font: moxBtn.font
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                clip: true
             }
             ToolTip.text: qsTr("Key the radio (MOX).  Goes red the instant the "
                 + "wire-MOX bit settles after the TR-delay.  Space-bar momentary "

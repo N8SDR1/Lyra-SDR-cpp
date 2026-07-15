@@ -22,6 +22,10 @@ Rectangle {
     color: "#101820"
     border.color: "#2a4a5a"
 
+    // Honest floor, measured from the content — see AudioPanel for the rationale.
+    readonly property int lyraMinWidth:  body.implicitWidth + 24
+    readonly property int lyraMinHeight: body.implicitHeight + 12
+
     // Mode list + per-mode bandwidth presets (Hz), from old Lyra.
     readonly property var modes: ["LSB", "USB", "CWL", "CWU",
                                   "DSB", "AM", "SAM", "FM", "DIGU", "DIGL"]
@@ -118,6 +122,7 @@ Rectangle {
     // No QML binding needed here.
 
     RowLayout {
+        id: body
         anchors.fill: parent
         anchors.leftMargin: 12
         anchors.rightMargin: 12

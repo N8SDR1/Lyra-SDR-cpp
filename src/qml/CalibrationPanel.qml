@@ -126,24 +126,34 @@ Rectangle {
         Text { text: "Tap an open band's time station — it tunes USB and measures:"
                color: root.cMuted; font.pixelSize: 12 }
 
-        Flow {
+        // A Flow is height-for-width, which Qt Quick Layouts does not support:
+        // as a direct Layout child its height feeds back into the width the
+        // layout hands it, and when the panel is DOCKED (negotiated width) that
+        // cycle recurses until the stack blows.  The Item breaks the cycle —
+        // the Flow takes its width from the parent and only reports a height.
+        Item {
             Layout.fillWidth: true
-            spacing: 6
-            Repeater {
-                model: Time.calStations(Prefs.bandPlanRegion)
-                delegate: Rectangle {
-                    required property var modelData
-                    readonly property bool sel: root.active
-                                                && root.stationLabel === modelData.label
-                    width: chipTxt.implicitWidth + 18; height: 26; radius: 13
-                    color: sel ? root.cAccent : "#12202b"
-                    border.color: sel ? root.cAccent : "#2a4a5a"
-                    Text { id: chipTxt; anchors.centerIn: parent
-                           text: modelData.label
-                           color: parent.sel ? "#04121a" : root.cText
-                           font.pixelSize: 12 }
-                    MouseArea { anchors.fill: parent
-                        onClicked: root.startStation(modelData.freqHz, modelData.label) }
+            Layout.preferredHeight: stationFlow.implicitHeight
+            Flow {
+                id: stationFlow
+                width: parent.width
+                spacing: 6
+                Repeater {
+                    model: Time.calStations(Prefs.bandPlanRegion)
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property bool sel: root.active
+                                                    && root.stationLabel === modelData.label
+                        width: chipTxt.implicitWidth + 18; height: 26; radius: 13
+                        color: sel ? root.cAccent : "#12202b"
+                        border.color: sel ? root.cAccent : "#2a4a5a"
+                        Text { id: chipTxt; anchors.centerIn: parent
+                               text: modelData.label
+                               color: parent.sel ? "#04121a" : root.cText
+                               font.pixelSize: 12 }
+                        MouseArea { anchors.fill: parent
+                            onClicked: root.startStation(modelData.freqHz, modelData.label) }
+                    }
                 }
             }
         }

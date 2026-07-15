@@ -23,6 +23,14 @@ Rectangle {
     color: "#101820"
     border.color: "#2a4a5a"
 
+    // Honest floor, measured from the content — NOT the same thing as the
+    // implicit size above, which is only a preferred size.  MainWindow pushes
+    // these to Qt as the dock's real minimum, so a row can't come up too small
+    // and quietly clip controls off the edge.  Derived from the layout rather
+    // than hard-coded so it stays true as the panel changes.
+    readonly property int lyraMinWidth:  body.implicitWidth + 16
+    readonly property int lyraMinHeight: body.implicitHeight + 16
+
     readonly property color cAccent: "#00e5ff"
     readonly property color cText:   "#cdd9e5"
     readonly property color cMuted:  "#8a9aac"
@@ -53,10 +61,15 @@ Rectangle {
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             font: btn.font
+            // A custom contentItem drops the style's default eliding, so a
+            // squeezed toggle paints its label out over its neighbours.
+            elide: Text.ElideRight
+            clip: true
         }
     }
 
     ColumnLayout {
+        id: body
         anchors.fill: parent
         anchors.margins: 8
         spacing: 5
@@ -105,6 +118,8 @@ Rectangle {
                     verticalAlignment: Text.AlignVCenter
                     color: autoBtn.checked ? root.cOn : root.cText
                     font.pixelSize: 12
+                    elide: Text.ElideRight
+                    clip: true
                 }
                 ToolTip.text: qsTr("Auto-LNA — backs the LNA off on ADC overload and "
                     + "creeps it back when the band clears (rides the overload edge).\n"
@@ -212,6 +227,8 @@ Rectangle {
                     verticalAlignment: Text.AlignVCenter
                     color: monBtn.checked ? root.cOn : root.cText
                     font.pixelSize: 12
+                    elide: Text.ElideRight
+                    clip: true
                 }
                 ToolTip.text: qsTr("Monitor — hear your own processed TX audio "
                     + "(post-rack: Speech / EQ / Combinator / Plating) on the "
@@ -263,7 +280,9 @@ Rectangle {
                 contentItem: Text { text: outBtn.text; color: root.cText
                     font.pixelSize: 12
                     horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter }
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                    clip: true }
                 ToolTip.text: {
                     var d = WdspEngine.audioOutputDevices()
                     var i = WdspEngine.audioDeviceIndex
@@ -413,6 +432,11 @@ Rectangle {
                 id: agcCell
                 Layout.preferredHeight: 26
                 implicitWidth: agcRow.implicitWidth + 16
+                // agcRow is anchors.centerIn, not filled, so it keeps its
+                // implicit width when the layout squeezes this cell — and
+                // without a clip the AGC readout paints straight out over the
+                // DSP toggles beside it.  Clip so it degrades instead.
+                clip: true
                 radius: 4
                 color: agcMa.containsMouse ? "#16242e" : "transparent"
                 border.width: 1
@@ -668,6 +692,8 @@ Rectangle {
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     font: capBtn.font
+                    elide: Text.ElideRight
+                    clip: true
                 }
                 ToolTip.text: qsTr("Capture the band's noise spectrum over the chosen "
                     + "window — do it on a quiet, signal-free frequency. Click again to cancel.")

@@ -62,10 +62,18 @@ Rectangle {
     //   Row 2 : Peak Hold + Decay + Clear (left)         | WF rate (right)
     // We mirror those exact row/column slots; the row-1 left cells stay
     // empty until Panafall Step / Exact-100 Hz land in the C++ build.
+    // FILL, don't anchor-left.  Anchored to the left edge only, the grid keeps
+    // its implicit width no matter how narrow the panel gets — it doesn't shrink,
+    // it just runs off the right edge and the QQuickWidget viewport clips it.
+    // The Spec-FPS and WF-rate controls (columns 4-6) then aren't small, they're
+    // GONE: no scrollbar, no cue, unreachable.  Filled, the layout can give way,
+    // and the three sliders below yield first (fillWidth with a floor).
     GridLayout {
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.fill: parent
         anchors.leftMargin: 12
+        anchors.rightMargin: 12
+        anchors.topMargin: 6
+        anchors.bottomMargin: 6
         columns: 7
         rowSpacing: 7
         columnSpacing: 6
@@ -87,6 +95,8 @@ Rectangle {
             id: zoomSlider
             Layout.row: 0; Layout.column: 2
             Layout.preferredWidth: 110
+            Layout.fillWidth: true          // the slider yields, not the panel
+            Layout.minimumWidth: 60
             from: 10; to: 160; stepSize: 1     // slider int = zoom × 10
             value: Prefs.zoom * 10
             onMoved: Prefs.zoom = Math.round(value) / 10
@@ -147,6 +157,8 @@ Rectangle {
             id: fpsSlider
             Layout.row: 1; Layout.column: 5
             Layout.preferredWidth: 140
+            Layout.fillWidth: true
+            Layout.minimumWidth: 60
             from: 5; to: 120; stepSize: 1
             value: Prefs.targetFps
             onMoved: Prefs.targetFps = Math.round(value)
@@ -214,6 +226,8 @@ Rectangle {
             id: wfSlider
             Layout.row: 2; Layout.column: 5
             Layout.preferredWidth: 140
+            Layout.fillWidth: true
+            Layout.minimumWidth: 60
             from: 1; to: 120; stepSize: 1
             value: Prefs.waterfallSpeed
             onMoved: Prefs.waterfallSpeed = Math.round(value)

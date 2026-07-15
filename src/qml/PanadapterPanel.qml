@@ -20,6 +20,15 @@ Item {
     implicitWidth: 600
     implicitHeight: 360
 
+    // Honest floor — see AudioPanel.  The implicit size above is what the
+    // panadapter PREFERS; this is the smallest it can be and still be usable:
+    // the spectrum's own 90px minimum, the waterfall's 60px, the frequency
+    // scale, and the dB labels down the sides.  Below ~560 wide the frequency
+    // labels start to collide, but it stays workable and click-to-tune still
+    // lands, so that is a legibility limit rather than a hard floor.
+    readonly property int lyraMinWidth:  320
+    readonly property int lyraMinHeight: 200
+
     // RX1 centre frequency.  The panadapter is always centred on the
     // tuned DDC freq, so this drives the frequency scale AND click-to-
     // tune.  Held in a LOCAL property updated via the rx1FreqChanged
@@ -137,20 +146,55 @@ Item {
         // save↔notify feedback loop.  Same approach old Lyra used for
         // its central spectrum/waterfall splitter.
         property bool _applying: false
+        // The waterfall height the operator actually chose, in pixels (-1 = none
+        // saved, use the 60/40 factory split).  restoreState() carries an
+        // ABSOLUTE height, so on a shorter dock than the one it was saved on it
+        // can be nearly all of it — the spectrum gets squeezed to a sliver and
+        // the operator can't see the signal they're tuning.  So we remember what
+        // they wanted and re-apply it clamped against the CURRENT height, every
+        // time the dock resizes.  Clamping once at startup is not enough: the
+        // SplitView has no meaningful height yet when the panel is constructed,
+        // so a one-shot clamp measures against a stale number and permanently
+        // shrinks the waterfall.
+        property real _wantWf: -1
         function applyFromPrefs() {
             _applying = true
-            var st = Prefs.panadapterSplit
-            if (st === undefined || st === null || st === "")
-                wf.SplitView.preferredHeight = splitV.height * 0.4   // factory 60/40
-            else
+            const st = Prefs.panadapterSplit
+            if (st === undefined || st === null || st === "") {
+                _wantWf = -1
+            } else {
                 splitV.restoreState(st)
+                _wantWf = wf.SplitView.preferredHeight
+            }
+            _applying = false
+            reflow()
+        }
+        // Re-apply the operator's chosen waterfall height against the CURRENT dock
+        // height.  The ONLY thing that may override their choice is a dock too
+        // short to honour it: the cap is what the spectrum itself declares it
+        // needs (SplitView.minimumHeight), nothing more.  An earlier version of
+        // this capped the waterfall at 60% of the dock, which quietly refused any
+        // taller waterfall the operator had deliberately dragged out and saved —
+        // it came back shrunk on every restart.  A percentage cap here is
+        // second-guessing; the SplitView's own minimums already stop either pane
+        // from vanishing (spectrum 90px, waterfall 60px), and they are the honest
+        // limit.  _wantWf is deliberately NOT rewritten when we cap, so the full
+        // height comes back the moment the dock is tall enough for it again.
+        function reflow() {
+            if (splitV.height <= 0 || splitV.resizing || _applying) return
+            _applying = true
+            const want = _wantWf > 0 ? _wantWf : splitV.height * 0.4   // factory 60/40
+            const hi = splitV.height - spectrumArea.SplitView.minimumHeight
+            wf.SplitView.preferredHeight = Math.min(hi, want)
             _applying = false
         }
         Component.onCompleted: applyFromPrefs()
+        onHeightChanged: reflow()
         onResizingChanged: {
             // Persist only when the operator finishes dragging the handle.
             if (!resizing && !_applying) {
                 _applying = true
+                _wantWf = wf.SplitView.preferredHeight
                 Prefs.panadapterSplit = splitV.saveState()
                 _applying = false
             }

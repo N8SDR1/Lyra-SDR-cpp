@@ -24,6 +24,10 @@ Rectangle {
     color: "#101820"
     border.color: "#2a4a5a"
 
+    // Honest floor, measured from the content — see AudioPanel for the rationale.
+    readonly property int lyraMinWidth:  col.implicitWidth + 16
+    readonly property int lyraMinHeight: col.implicitHeight + 16
+
     property int activeBand: -1     // amateur band index containing RX1, or -1
     property int activeBc: -1       // broadcast band index, or -1
     property int activeCb: -1       // CB band index, or -1
@@ -73,6 +77,10 @@ Rectangle {
             font.pixelSize: 13
             font.bold: true
             color: cb.chipActive ? cb.activeText : "#5ec8ff"
+            // Without this the band label paints outside its shrinking chip and
+            // the whole row smears together at narrow widths.
+            elide: Text.ElideRight
+            clip: true
         }
     }
 

@@ -13,6 +13,11 @@ Lyra is a native **Windows** application.
 - **Windows 10 (64-bit, v1809 or newer)** or **Windows 11** — 32-bit is not
   supported.
 - A **DirectX 11 / OpenGL 3.3-capable** GPU (built-in graphics are fine).
+- A display of at least **1600 × 900**. That fits the panels you need to
+  operate — panadapter and waterfall, Tuning, Band, Filters, Audio, Meter and
+  TX. The optional panels (Solar / Propagation, Display, Profiles) are closed
+  by default at that size and want a bigger screen; **1920 × 1080** holds
+  everything at once.
 - A **wired Ethernet** connection to the radio — this is the single biggest
   factor in glitch-free audio.
 - A Hermes Lite 2 or 2+ (HL2 / HL2+).
