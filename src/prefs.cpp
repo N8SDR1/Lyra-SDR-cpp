@@ -49,6 +49,7 @@ constexpr auto kCwDecMfilt  = "cw/decodeMatchedFilter";
 constexpr auto kCwDecSqlOn  = "cw/decodeSquelchOn";
 constexpr auto kCwDecSqlVal = "cw/decodeSquelchValue";
 constexpr auto kCwLearnCalls = "cw/learn_calls";
+constexpr auto kCwCaptureEn = "cw/capture_enabled";
 constexpr auto kPkShow  = "panadapter/peakShowDb";
 constexpr auto kNfEn    = "panadapter/noiseFloorEnabled";
 constexpr auto kNfColor = "panadapter/noiseFloorColor";
@@ -205,6 +206,7 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     cwDecodeSquelchOn_     = s.value(kCwDecSqlOn, false).toBool();
     cwDecodeSquelchValue_  = std::clamp(s.value(kCwDecSqlVal, 5.0).toDouble(), 0.0, 100.0);
     cwLearnCalls_          = s.value(kCwLearnCalls, false).toBool();
+    cwCaptureEnabled_      = s.value(kCwCaptureEn, false).toBool();
     peakShowDb_    = s.value(kPkShow, false).toBool();
     noiseFloorEnabled_ = s.value(kNfEn, true).toBool();
     noiseFloorColor_   = s.value(kNfColor, QStringLiteral("#78c88c")).toString();
@@ -612,6 +614,14 @@ void Prefs::setCwLearnCalls(bool on) {
         cwLearnCalls_ = on;
         QSettings().setValue(kCwLearnCalls, on);
         emit cwLearnCallsChanged();
+    }
+}
+
+void Prefs::setCwCaptureEnabled(bool on) {
+    if (on != cwCaptureEnabled_) {
+        cwCaptureEnabled_ = on;
+        QSettings().setValue(kCwCaptureEn, on);
+        emit cwCaptureEnabledChanged();
     }
 }
 

@@ -35,10 +35,12 @@
 #include <QSettings>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <vector>
 #include <cstring>
 #include <mutex>
+#include <thread>
 
 namespace lyra::dsp {
 
@@ -317,6 +319,8 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     cwDecoder_.setSampleRate(cfg_.outRate);
     cwDecoder_.setToneHz(cwPitchHz_);
     cwDecoder_.onText = [this](const std::string& s) {
+        if (cwCaptureOn_.load(std::memory_order_relaxed))
+            cwHarvester_->feedText(/*fromClassic=*/true, s);
         if (cwEngine_.load(std::memory_order_relaxed) == 2) {
             cwArbiter_.pushClassic(s);
             return;
@@ -325,6 +329,8 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
                                              static_cast<int>(s.size())), 1.0);
     };
     cwDecoder_.onWpm = [this](int w) {
+        if (cwCaptureOn_.load(std::memory_order_relaxed))
+            cwHarvester_->feedWpm(w);
         // Auto: only the engine that owns the display drives the WPM readout.
         if (cwEngine_.load(std::memory_order_relaxed) == 2 &&
             cwArbiter_.owner() != lyra::dsp::CwArbiter::Source::Classic) return;
@@ -338,6 +344,8 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     // queued signal marshals it to the GUI.
     neuralCw_.setSampleRate(cfg_.outRate);
     neuralCw_.onText = [this](const std::string& s) {
+        if (cwCaptureOn_.load(std::memory_order_relaxed))
+            cwHarvester_->feedText(/*fromClassic=*/false, s);
         if (cwEngine_.load(std::memory_order_relaxed) == 2) {
             cwArbiter_.pushDeepFist(s);
             return;
@@ -350,6 +358,8 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     // the rescore work entirely.  Re-wire here if a callsign UI returns.
     // Estimated RX WPM → the same cwRxWpmChanged surface the classic decoder uses.
     neuralCw_.onWpm = [this](int wpm) {
+        if (cwCaptureOn_.load(std::memory_order_relaxed))
+            cwHarvester_->feedWpm(wpm);
         // Auto: only the engine that owns the display drives the WPM readout.
         if (cwEngine_.load(std::memory_order_relaxed) == 2 &&
             cwArbiter_.owner() != lyra::dsp::CwArbiter::Source::DeepFist) return;
@@ -361,10 +371,20 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     neuralCw_.onKeying = [this](float r) {
         if (cwEngine_.load(std::memory_order_relaxed) == 2)
             cwArbiter_.updateKeying(r);
+        if (cwCaptureOn_.load(std::memory_order_relaxed))
+            cwHarvester_->feedKeying(r, QDateTime::currentSecsSinceEpoch());
     };
     cwArbiter_.onOutput = [this](const std::string& s, bool fallback) {
         emit cwAutoText(QString::fromUtf8(s.c_str(),
                                           static_cast<int>(s.size())), fallback);
+    };
+    // Phase 2 harvest: a DeepFist->Classic ownership switch IS the fade event.
+    cwArbiter_.onOwnerChange = [this](lyra::dsp::CwArbiter::Source from,
+                                      lyra::dsp::CwArbiter::Source to) {
+        if (from == lyra::dsp::CwArbiter::Source::DeepFist &&
+            to   == lyra::dsp::CwArbiter::Source::Classic  &&
+            cwCaptureOn_.load(std::memory_order_relaxed))
+            cwHarvester_->triggerFade(QDateTime::currentSecsSinceEpoch());
     };
 
     // 5 Hz UI poll: emit levelsChanged so the QML audioDbFs binding
@@ -533,6 +553,10 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
 
 WdspEngine::~WdspEngine()
 {
+    // Phase 2 harvest — stop the pump worker before the rest of teardown so
+    // it can't touch a half-torn-down engine.
+    cwHarvestRun_.store(false);
+    if (cwHarvestWorker_.joinable()) cwHarvestWorker_.join();
     closeRx1();
 }
 
@@ -1996,6 +2020,45 @@ void WdspEngine::cwNoteConfirmedCall(const QString& call)
     ensureCwScpLocal();
     cwScpLocal_.note(call.trimmed().toUpper().toStdString(),
                      QDateTime::currentSecsSinceEpoch());
+    if (cwCaptureOn_.load(std::memory_order_relaxed))
+        cwHarvester_->triggerGoldRbn(call.trimmed().toUpper().toStdString(),
+                                     QDateTime::currentSecsSinceEpoch());
+}
+
+// Phase 2 — opt-in harvest lifecycle.  First enable allocates the 60 s ring,
+// its own 48k->3200 decimator (parallel to the neural engine's, so capture
+// works in EVERY engine mode), and the harvester; a 1 Hz worker pumps
+// post-rolls + retention.  Disable stops the worker; objects stay for cheap
+// re-enable.  GUI thread only.
+void WdspEngine::setCwCaptureEnabled(bool on)
+{
+    if (on == cwCaptureOn_.load(std::memory_order_relaxed)) return;
+    if (on) {
+        if (!cwHarvester_) {
+            const QString dir =
+                QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+                + QStringLiteral("/Lyra/cw_harvest");
+            QDir().mkpath(dir);
+            cwHarvestRing_  = std::make_unique<lyra::dsp::CwHarvestRing>(3200 * 60);
+            cwHarvestDecim_ =
+                std::make_unique<lyra::dsp::DeepFistResampler>(cfg_.outRate, 3200.0);
+            cwHarvester_    = std::make_unique<lyra::dsp::CwCaptureHarvester>(
+                *cwHarvestRing_, dir.toStdString());
+        }
+        cwHarvestRun_.store(true);
+        cwHarvestWorker_ = std::thread([this] {
+            while (cwHarvestRun_.load()) {
+                cwHarvester_->pump(QDateTime::currentSecsSinceEpoch());
+                for (int i = 0; i < 10 && cwHarvestRun_.load(); ++i)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        });
+        cwCaptureOn_.store(true, std::memory_order_relaxed);   // tap feeds from here
+    } else {
+        cwCaptureOn_.store(false, std::memory_order_relaxed);  // tap stops first
+        cwHarvestRun_.store(false);
+        if (cwHarvestWorker_.joinable()) cwHarvestWorker_.join();
+    }
 }
 
 // DeepFist — select the active CW decode engine (0=Classic fldigi, 1=Neural,
@@ -3762,6 +3825,15 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
             static CwWavCapture cwWav(QString::fromLocal8Bit(cwWavPath),
                                       static_cast<quint32>(cfg_.outRate));
             cwWav.write(cwMonoBuf_.data(), nframes);
+        }
+
+        // Phase 2 harvest: parallel decimate into the capture ring (opt-in).
+        if (cwCaptureOn_.load(std::memory_order_relaxed)) {
+            cwHarvestTmp_.clear();
+            cwHarvestDecim_->process(cwMonoBuf_.data(), nframes, cwHarvestTmp_);
+            if (!cwHarvestTmp_.empty())
+                cwHarvestRing_->push(cwHarvestTmp_.data(),
+                                     static_cast<int>(cwHarvestTmp_.size()));
         }
     }
 

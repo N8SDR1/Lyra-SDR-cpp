@@ -37,6 +37,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 #include "dsp/MonitorRing.h"   // #90 — TX-monitor SPSC ring (value member)
@@ -44,6 +45,8 @@
 #include "dsp/deepfist/NeuralCwDecoder.h" // DeepFist neural CW decoder (2nd engine)
 #include "dsp/CwArbiter.h"          // Auto-engine ownership arbiter (Phase 1)
 #include "dsp/deepfist/ScpLocal.h"  // Phase 3: RBN-confirmed local call list
+#include "dsp/deepfist/CwCaptureHarvester.h"  // Phase 2: training harvest
+#include "dsp/deepfist/CwHarvestRing.h"
 #include "dsp/FreqCalMeasure.h" // freq calibration — carrier tone estimator
 #include "dsp/ZeroBeat.h"       // zero-beat carrier-offset tuning aid (value member)
 
@@ -646,6 +649,15 @@ public:
     // (Prefs.cwLearnCalls gate lives in QML; this always records).  GUI
     // thread only.
     Q_INVOKABLE void cwNoteConfirmedCall(const QString& call);
+
+    // Phase 2 harvest — opt-in capture of trust-tiered CW segments for
+    // DeepFist training (spec §6).  Enabling creates <Documents>/Lyra/
+    // cw_harvest, allocates the ring+harvester and starts a 1 Hz pump worker;
+    // disabling stops the worker.  GUI thread.
+    Q_INVOKABLE void setCwCaptureEnabled(bool on);
+    Q_INVOKABLE int  cwCaptureCount() const {
+        return cwHarvester_ ? cwHarvester_->segmentsWritten() : 0;
+    }
 
     double cwBlankPenalty() const { return neuralCw_.blankPenalty(); }
     Q_INVOKABLE void setCwBlankPenalty(double p);
@@ -1259,6 +1271,15 @@ private:
     std::atomic<int>                     cwEngine_{0};
     lyra::dsp::ScpLocal                  cwScpLocal_;       // Phase 3 local calls
     bool                                 cwScpLocalLoaded_ = false;
+
+    // Phase 2 harvest — allocated on first enable (opt-in, default off).
+    std::unique_ptr<lyra::dsp::CwHarvestRing>       cwHarvestRing_;
+    std::unique_ptr<lyra::dsp::DeepFistResampler>   cwHarvestDecim_;
+    std::unique_ptr<lyra::dsp::CwCaptureHarvester>  cwHarvester_;
+    std::vector<float>                              cwHarvestTmp_;
+    std::atomic<bool>                               cwCaptureOn_{false};
+    std::thread                                     cwHarvestWorker_;
+    std::atomic<bool>                               cwHarvestRun_{false};
 
     // Zero-beat tuning aid.  zeroBeat_ is touched ONLY on the RX worker
     // (feedIq); zbRunPrev_/zbRate_ are worker-only edge trackers.  The result

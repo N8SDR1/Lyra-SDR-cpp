@@ -151,6 +151,11 @@ class Prefs : public QObject {
     // local SCP list (privacy: a record of received activity, default off).
     Q_PROPERTY(bool cwLearnCalls READ cwLearnCalls WRITE setCwLearnCalls
                NOTIFY cwLearnCallsChanged)
+    // Phase 2 — opt-in: capture trust-tiered CW audio segments to Documents/
+    // Lyra/cw_harvest for DeepFist training (privacy: records received
+    // audio, default off; size-capped).
+    Q_PROPERTY(bool cwCaptureEnabled READ cwCaptureEnabled WRITE setCwCaptureEnabled
+               NOTIFY cwCaptureEnabledChanged)
     // Noise-floor reference line on the panadapter (old-Lyra parity):
     // a dashed line at the rolling ~20th-percentile floor + an
     // "NF -NN dBFS" label.  On/off + colour are operator-tunable.
@@ -464,6 +469,11 @@ public:
     void    setCwDecodeTracking(bool on);
     bool    cwLearnCalls() const { return cwLearnCalls_; }
     void    setCwLearnCalls(bool on);
+    // Phase 2 — opt-in: capture trust-tiered CW audio segments to Documents/
+    // Lyra/cw_harvest for DeepFist training (privacy: records received
+    // audio, default off; size-capped).
+    bool    cwCaptureEnabled() const { return cwCaptureEnabled_; }
+    void    setCwCaptureEnabled(bool on);
     bool    cwDecodeMatchedFilter() const { return cwDecodeMatchedFilter_; }
     void    setCwDecodeMatchedFilter(bool on);
     bool    cwDecodeSquelchOn() const { return cwDecodeSquelchOn_; }
@@ -652,6 +662,7 @@ signals:
     void cwBlankPenaltyChanged();
     void cwDecodeTrackingChanged();
     void cwLearnCallsChanged();
+    void cwCaptureEnabledChanged();
     void cwDecodeMatchedFilterChanged();
     void cwDecodeSquelchOnChanged();
     void cwDecodeSquelchValueChanged();
@@ -751,6 +762,7 @@ private:
     double  cwBlankPenalty_;
     bool    cwDecodeTracking_;
     bool    cwLearnCalls_;
+    bool    cwCaptureEnabled_;
     bool    cwDecodeMatchedFilter_;
     bool    cwDecodeSquelchOn_;
     double  cwDecodeSquelchValue_;

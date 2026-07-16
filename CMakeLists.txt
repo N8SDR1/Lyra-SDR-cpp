@@ -253,6 +253,12 @@ qt_add_executable(lyra
     # cwNoteConfirmedCall).
     src/dsp/deepfist/ScpLocal.h
     src/dsp/deepfist/ScpLocal.cpp
+    # Phase 2 — opt-in CW training-harvest capture (WdspEngine::setCwCaptureEnabled).
+    src/dsp/deepfist/CwHarvestRing.h
+    src/dsp/deepfist/CwHarvestIo.h
+    src/dsp/deepfist/CwHarvestIo.cpp
+    src/dsp/deepfist/CwCaptureHarvester.h
+    src/dsp/deepfist/CwCaptureHarvester.cpp
     # CW Auto arbiter — engine-agnostic ownership state machine (Phase 1).
     src/dsp/CwArbiter.h
     src/dsp/CwArbiter.cpp
