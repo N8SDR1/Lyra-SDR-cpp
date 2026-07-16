@@ -93,7 +93,9 @@ rescorer's SCP candidate space at the next model load. The shipped
 **Harvest** (opt-in, CW panel): captures trust-tiered training segments to
 `Documents/Lyra/cw_harvest` — `hard_negative` fades (the arbiter's
 DeepFist→Classic switches; audio for channel statistics, text untrusted) and
-`gold_rbn` segments (copy whose callsign was RBN-confirmed live). Each segment
+`gold_rbn` segments (copy whose callsign was RBN-confirmed live — this
+detection rides the Learn tap, so enable **Learn** too or you'll only ever get
+hard negatives). Each segment
 is an int16 @ 3200 Hz WAV (peak in the sidecar) + a JSON sidecar (tier,
 keying-ratio trace, both engines' rolling text). Size-capped (2 GiB, oldest
 deleted). Curation into training clips happens offline in the DeepFist repo's
