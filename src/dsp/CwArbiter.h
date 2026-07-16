@@ -49,6 +49,12 @@ public:
 
     std::function<void(const std::string& text, bool fallback)> onOutput;
 
+    // Fires OUTSIDE the lock whenever display ownership actually changes —
+    // gap-aligned switches (from the pushing thread) and the cold-start seed
+    // (from updateKeying's caller).  Consumed by the Phase-2 harvester as its
+    // capture trigger; leaving it null costs nothing.  reset() does not fire.
+    std::function<void(Source from, Source to)> onOwnerChange;
+
     Source owner() const;
 
 private:

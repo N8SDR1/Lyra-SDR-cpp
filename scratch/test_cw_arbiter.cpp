@@ -18,10 +18,14 @@ int g_fail = 0;
 // Capture arbiter output as (text, fallback) pairs and the concatenated string.
 struct Sink {
     std::vector<std::pair<std::string,bool>> runs;
+    std::vector<std::pair<int,int>> switches;   // (from, to) as ints
     std::string text;
     void attach(CwArbiter& a) {
         a.onOutput = [this](const std::string& s, bool fb) {
             runs.push_back({s, fb}); text += s;
+        };
+        a.onOwnerChange = [this](CwArbiter::Source f, CwArbiter::Source t) {
+            switches.push_back({static_cast<int>(f), static_cast<int>(t)});
         };
     }
     bool anyFallback() const {
@@ -113,6 +117,29 @@ int main() {
         a.reset();                                       // re-arm the seed
         a.updateKeying(50.0f);                           // first sample: solid
         CHECK(a.owner() == CwArbiter::Source::DeepFist);
+    }
+
+    // 8) onOwnerChange fires exactly once per real switch, outside the lock:
+    //    seed (solid->no event: owner unchanged from default), fade switch at
+    //    the gap (DeepFist->Classic), recovery switch back, and a cold-start
+    //    seed INTO Classic fires DeepFist->Classic.
+    {
+        CwArbiter a; Sink k; k.attach(a);
+        a.updateKeying(50.0f);                   // seed solid: owner stays DeepFist
+        CHECK(k.switches.empty());               //   -> no event
+        a.updateKeying(4.0f); a.pushDeepFist(" "); // fade -> switch at gap
+        CHECK(k.switches.size() == 1);
+        CHECK(k.switches[0] == std::make_pair(0, 1));   // DeepFist -> Classic
+        a.updateKeying(50.0f); a.updateKeying(50.0f); a.updateKeying(50.0f);
+        a.pushClassic(" ");                      // recovered -> switch back
+        CHECK(k.switches.size() == 2);
+        CHECK(k.switches[1] == std::make_pair(1, 0));   // Classic -> DeepFist
+    }
+    {
+        CwArbiter a; Sink k; k.attach(a);
+        a.updateKeying(4.0f);                    // cold-start seed mid-fade
+        CHECK(k.switches.size() == 1);           // DeepFist(default) -> Classic
+        CHECK(k.switches[0] == std::make_pair(0, 1));
     }
 
     if (g_fail == 0) std::printf("test_cw_arbiter: ALL PASS\n");
