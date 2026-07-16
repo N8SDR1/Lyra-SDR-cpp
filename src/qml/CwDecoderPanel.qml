@@ -38,57 +38,23 @@ Rectangle {
     // latency).  So both just append to decodedText.
     readonly property int cwEngine: WdspEngine.cwDecodeEngine
 
-    // Phase 3 "Learn calls": watch the decode stream for completed words and
-    // remember the RBN/cluster-confirmed ones in the local SCP list — the
-    // amber highlight knows them immediately, the DeepFist rescorer from the
-    // next model load.  Opt-in (Prefs.cwLearnCalls, default off).
-    property string pendingWord: ""
-    function tapWord(s) {
-        for (var i = 0; i < s.length; ++i) {
-            var cc = s.charCodeAt(i)
-            if (cc === 2 || cc === 3) continue      // Auto dim markers: invisible
-            var c = s.charAt(i)
-            if ((c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || c === "/") {
-                pendingWord += c
-            } else if (pendingWord.length > 0) {
-                var w = pendingWord
-                pendingWord = ""
-                if (Prefs.cwLearnCalls && w.length >= 3 && /[0-9]/.test(w)
-                        && Spots.isSpottedHere(w))
-                    WdspEngine.cwNoteConfirmedCall(w)
-            }
-        }
-    }
+    // Phase 3 "Learn calls" — the invariant is "if the operator SAW it green,
+    // it is learned": displayHtml() notes each call in the same pass that
+    // first renders it green (see there).  Every earlier scheme re-checked
+    // spotted-ness at some OTHER moment and lost calls to timing on air:
+    // tap-at-word-completion missed spots that arrived seconds later (W2DON),
+    // a rescan window missed calls still visibly green further back (KT4K),
+    // and rescan-on-spot-change missed spots evicted from the 200-cap bank
+    // before the next bank event (KA1ULN).  Render time is the ONLY moment
+    // green-ness is guaranteed observed.  Opt-in (Prefs.cwLearnCalls).
+    property var greenSeen: ({})    // call -> ms epoch of the last learn note
 
     function appendDecoded(s) {
-        tapWord(s)
         var t = root.decodedText + s
         if (t.length > 6000) t = t.slice(-4500)
         root.decodedText = t
     }
-
-    // RBN/cluster spots often land 10-60 s after a station starts up, so a
-    // cleanly-copied call can complete its tapWord() check before its spot
-    // exists.  When the spot bank changes, re-scan the recent transcript for
-    // now-spotted calls the live tap missed.  ScpLocal::note() dedupes, so
-    // repeat scans of the same call are free.
-    function rescanLearn() {
-        if (!Prefs.cwLearnCalls) return
-        // Scan the WHOLE kept transcript (capped at 6000 chars) — the display
-        // greens everything it renders, and a call the operator can still see
-        // green must stay learnable (KT4K slid past a smaller window on air).
-        var words = root.decodedText.match(/[A-Z0-9\/]{3,}/g)
-        if (!words) return
-        var seen = {}
-        for (var i = 0; i < words.length; ++i) {
-            var w = words[i]
-            if (seen[w]) continue
-            seen[w] = true
-            if (/[0-9]/.test(w) && Spots.isSpottedHere(w))
-                WdspEngine.cwNoteConfirmedCall(w)
-        }
-    }
-    function clearDecoded() { root.decodedText = ""; root.pendingWord = "" }
+    function clearDecoded() { root.decodedText = ""; root.greenSeen = {} }
 
     // Auto engine: fallback (Classic-during-fade) runs are wrapped in private
     // control-char markers (U+0002 / U+0003) so displayHtml() can dim them.
@@ -132,16 +98,28 @@ Rectangle {
 
     // Render the transcript as HTML: any callsign-shaped word is coloured amber
     // so calls always pop out of the copy; one that is currently spotted on
-    // RBN/cluster (Spots.isSpotted) upgrades to bright green + bold — a real,
-    // active, verified station.
+    // RBN/cluster near the tuned frequency (Spots.isSpottedHere) upgrades to
+    // bright green + bold — a real, active, verified station.  The green pass
+    // doubles as the Learn tap (greenSeen memo above).
     function displayHtml(t) {
         var rev = root.spotRev   // create a binding dependency on spot updates
         var esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
         var html = esc.replace(/[A-Z0-9\/]{3,}/g, function(w) {
             // only bother the lookups with call-shaped tokens (contain a digit)
             if (/[0-9]/.test(w)) {
-                if (Spots.isSpottedHere(w))   // RBN/cluster-verified: live HERE
+                if (Spots.isSpottedHere(w)) { // RBN/cluster-verified: live HERE
+                    // Learn what renders green, AS it renders (see greenSeen).
+                    // Memo keeps this one C++ call per call per 10 min — the
+                    // same window as the harvester's per-call gold dedupe.
+                    if (Prefs.cwLearnCalls) {
+                        var tn = Date.now()
+                        if (!root.greenSeen[w] || tn - root.greenSeen[w] > 600000) {
+                            root.greenSeen[w] = tn
+                            WdspEngine.cwNoteConfirmedCall(w)
+                        }
+                    }
                     return '<span style="color:#5fffa8; font-weight:bold">' + w + '</span>'
+                }
                 if (WdspEngine.cwCallKnown(w) // known-real (MASTER.SCP) —
                         || (!WdspEngine.cwNeuralAvailable && root.isCallShaped(w)))
                     return '<span style="color:#ffbe5a">' + w + '</span>'
@@ -229,11 +207,12 @@ Rectangle {
         function onCwNeuralAvailableChanged() { root.spotRev++ }
     }
 
-    // Re-highlight the transcript when the spot bank changes — and give the
-    // learner a second look at calls whose spot arrived after they were copied.
+    // Re-highlight the transcript when the spot bank changes.  The bumped
+    // spotRev re-runs displayHtml, whose green pass is also the learner — so a
+    // late-arriving spot both greens AND learns the call in the same render.
     Connections {
         target: Spots
-        function onChanged() { root.spotRev++; root.rescanLearn() }
+        function onChanged() { root.spotRev++ }
     }
 
     // Poll the live squelch metric (~10 Hz) only while the decoder is running
