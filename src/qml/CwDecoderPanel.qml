@@ -193,6 +193,9 @@ Rectangle {
         // truth, and the chips light accordingly).
         if (Prefs.cwDecodeEngine === 1 || Prefs.cwDecodeEngine === 2)
             WdspEngine.cwDecodeEngine = Prefs.cwDecodeEngine
+        // Phase 2: resume harvest capture if the operator left it on.
+        if (Prefs.cwCaptureEnabled)
+            WdspEngine.setCwCaptureEnabled(true)
     }
 
     function applyWpmToKeyer(w) {
@@ -326,6 +329,14 @@ Rectangle {
                 label: qsTr("Learn")
                 lit: Prefs.cwLearnCalls
                 onClicked: Prefs.cwLearnCalls = !Prefs.cwLearnCalls
+            }
+            ChipButton {
+                label: qsTr("Harvest")
+                lit: Prefs.cwCaptureEnabled
+                onClicked: {
+                    Prefs.cwCaptureEnabled = !Prefs.cwCaptureEnabled
+                    WdspEngine.setCwCaptureEnabled(Prefs.cwCaptureEnabled)
+                }
             }
         }
 

@@ -90,6 +90,16 @@ known-real (amber) highlight immediately and merge into the callsign
 rescorer's SCP candidate space at the next model load. The shipped
 `MASTER.SCP` stays untouched — refreshing it is still a plain file swap.
 
+**Harvest** (opt-in, CW panel): captures trust-tiered training segments to
+`Documents/Lyra/cw_harvest` — `hard_negative` fades (the arbiter's
+DeepFist→Classic switches; audio for channel statistics, text untrusted) and
+`gold_rbn` segments (copy whose callsign was RBN-confirmed live). Each segment
+is an int16 @ 3200 Hz WAV (peak in the sidecar) + a JSON sidecar (tier,
+keying-ratio trace, both engines' rolling text). Size-capped (2 GiB, oldest
+deleted). Curation into training clips happens offline in the DeepFist repo's
+`tools/`; Lyra only captures. SILVER and agreement/SCP-margin GOLD tiers are
+deferred (sidecar `schema:1` reserves them).
+
 ## Build & run (Windows, MSVC)
 
 **Use the VS 2022 vcvars64 environment.** The full app builds with the normal
