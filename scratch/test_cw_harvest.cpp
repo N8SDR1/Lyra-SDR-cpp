@@ -3,6 +3,8 @@
 //   cmake --build build --target test_cw_harvest && build/test_cw_harvest
 #include "dsp/deepfist/CwHarvestRing.h"
 #include "dsp/deepfist/CwHarvestIo.h"
+#include "dsp/deepfist/CwCaptureHarvester.h"
+#include <filesystem>
 
 #include <cmath>
 #include <cstdio>
@@ -96,6 +98,87 @@ int main() {
         std::fclose(f);
         CHECK(std::string(buf, n) == "{\"k\":1}\n");
         std::remove("test_cw_harvest_tmp.json");
+    }
+
+    // 7) Harvester: gold trigger writes wav+json immediately; fade trigger
+    //    waits postSec of pump() time; debounce suppresses a repeat trigger.
+    {
+        namespace fs = std::filesystem;
+        const std::string dir = "test_cw_harvest_seg";
+        fs::remove_all(dir); fs::create_directory(dir);
+
+        CwHarvestRing ring(3200 * 60);
+        std::vector<float> sec(3200, 0.1f);
+        for (int i = 0; i < 30; ++i) ring.push(sec.data(), 3200);  // 30 s audio
+
+        CwCaptureHarvester::Config cfg;
+        cfg.preSec = 5; cfg.postSec = 2; cfg.debounceSec = 10;
+        CwCaptureHarvester h(ring, dir, cfg);
+        h.feedKeying(35.0f, 100); h.feedKeying(4.0f, 101);
+        h.feedText(false, "NA2DX 5NN");
+        h.feedText(true,  "NA2DX 5NN K");
+
+        h.triggerGoldRbn("NA2DX", 101);
+        h.pump(101);
+        CHECK(h.segmentsWritten() == 1);                 // gold: immediate
+
+        h.triggerGoldRbn("NA2DX", 102);                  // inside debounce
+        h.pump(102);
+        CHECK(h.segmentsWritten() == 1);                 // suppressed
+
+        h.triggerFade(105);
+        h.pump(105);
+        CHECK(h.segmentsWritten() == 1);                 // fade: post-roll pending
+        h.pump(106);
+        CHECK(h.segmentsWritten() == 1);                 // still pending (105+2>106)
+        h.pump(107);
+        CHECK(h.segmentsWritten() == 2);                 // post-roll complete
+
+        // Files exist in pairs, and the gold sidecar carries the call + texts.
+        int wavs = 0, jsons = 0; std::string goldJson;
+        for (auto& e : fs::directory_iterator(dir)) {
+            const std::string p = e.path().string();
+            if (p.size() > 4 && p.substr(p.size() - 4) == ".wav") ++wavs;
+            if (p.size() > 5 && p.substr(p.size() - 5) == ".json") {
+                ++jsons;
+                if (p.find("gold_rbn") != std::string::npos) {
+                    FILE* f = std::fopen(p.c_str(), "rb");
+                    char buf[4096] = {0};
+                    const size_t n = std::fread(buf, 1, sizeof buf - 1, f);
+                    std::fclose(f);
+                    goldJson.assign(buf, n);
+                }
+            }
+        }
+        CHECK(wavs == 2 && jsons == 2);
+        CHECK(goldJson.find("\"tier\":\"gold_rbn\"") != std::string::npos);
+        CHECK(goldJson.find("\"trigger_call\":\"NA2DX\"") != std::string::npos);
+        CHECK(goldJson.find("NA2DX 5NN K") != std::string::npos);
+        CHECK(goldJson.find("\"keying_trace\":[[100,35") != std::string::npos);
+
+        fs::remove_all(dir);
+    }
+
+    // 8) Retention: with a tiny capBytes, older segments are deleted so the
+    //    directory stays under the cap.
+    {
+        namespace fs = std::filesystem;
+        const std::string dir = "test_cw_harvest_cap";
+        fs::remove_all(dir); fs::create_directory(dir);
+        CwHarvestRing ring(3200 * 60);
+        std::vector<float> sec(3200, 0.1f);
+        for (int i = 0; i < 30; ++i) ring.push(sec.data(), 3200);
+
+        CwCaptureHarvester::Config cfg;
+        cfg.preSec = 5; cfg.postSec = 0; cfg.debounceSec = 0;
+        cfg.capBytes = 80000;             // ~2 five-second wav16 segments
+        CwCaptureHarvester h(ring, dir, cfg);
+        for (int k = 0; k < 4; ++k) { h.triggerGoldRbn("K7CO", 200 + k * 100); h.pump(200 + k * 100); }
+        CHECK(h.segmentsWritten() == 4);
+        long long bytes = 0;
+        for (auto& e : fs::directory_iterator(dir)) bytes += (long long)fs::file_size(e);
+        CHECK(bytes <= cfg.capBytes);
+        fs::remove_all(dir);
     }
 
     if (g_fail == 0) std::printf("test_cw_harvest: ALL PASS\n");
