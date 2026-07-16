@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 
 #include "dsp/deepfist/CwHarvestIo.h"
@@ -20,6 +21,24 @@ constexpr size_t kTextMax  = 200;    // rolling per-engine context chars
 void rollAppend(std::string& acc, const std::string& s) {
     acc += s;
     if (acc.size() > kTextMax) acc.erase(0, acc.size() - kTextMax);
+}
+
+// Age key for retention ordering.  Segment stems are "<tier>_<epoch>_<seq>"
+// (see writeSegment), and the tier prefix itself contains underscores
+// ("hard_negative", "gold_rbn"), so the epoch/seq fields must be parsed from
+// the END of the stem, not assumed to start after the first '_'.
+std::pair<long long, long long> segmentAgeKey(const fs::path& path) {
+    const std::string stem = path.stem().string();   // strip .wav/.json
+    const size_t lastUs = stem.find_last_of('_');
+    const size_t prevUs = (lastUs == std::string::npos)
+                              ? std::string::npos
+                              : stem.find_last_of('_', lastUs - 1);
+    if (lastUs == std::string::npos || prevUs == std::string::npos)
+        return {0, 0};   // unrecognized name — treat as oldest
+    const long long epoch = std::strtoll(stem.substr(prevUs + 1, lastUs - prevUs - 1).c_str(),
+                                         nullptr, 10);
+    const long long seq   = std::strtoll(stem.substr(lastUs + 1).c_str(), nullptr, 10);
+    return {epoch, seq};
 }
 }  // namespace
 
@@ -135,20 +154,29 @@ void CwCaptureHarvester::writeSegment(const Pending& p, long long nowSec) {
 }
 
 void CwCaptureHarvester::enforceCap() {
-    // Oldest-first delete until the directory fits the cap.  Names embed the
-    // trigger epoch, so lexicographic-by-epoch ordering == age ordering.
+    // Oldest-first delete until the directory fits the cap.  Eviction order
+    // must be tier-independent: plain lexicographic filename order sorts by
+    // the tier prefix FIRST (e.g. "gold_rbn_..." < "hard_negative_..."),
+    // which would evict the high-trust gold_rbn tier ahead of older
+    // hard_negative segments.  Sort by the (epoch, seq) age key parsed from
+    // the trailing filename fields instead.
     std::error_code ec;
-    std::vector<std::pair<std::string, long long>> files;   // path, size
+    struct Entry { std::string path; long long size; long long epoch; long long seq; };
+    std::vector<Entry> files;
     long long total = 0;
     for (const auto& e : fs::directory_iterator(dir_, ec)) {
         const long long sz = static_cast<long long>(fs::file_size(e, ec));
-        files.push_back({e.path().string(), sz});
+        const auto [epoch, seq] = segmentAgeKey(e.path());
+        files.push_back({e.path().string(), sz, epoch, seq});
         total += sz;
     }
-    std::sort(files.begin(), files.end());
-    for (const auto& [path, sz] : files) {
+    std::sort(files.begin(), files.end(), [](const Entry& a, const Entry& b) {
+        if (a.epoch != b.epoch) return a.epoch < b.epoch;
+        return a.seq < b.seq;
+    });
+    for (const auto& f : files) {
         if (total <= cfg_.capBytes) break;
-        if (fs::remove(path, ec)) total -= sz;
+        if (fs::remove(f.path, ec)) total -= f.size;
     }
 }
 
