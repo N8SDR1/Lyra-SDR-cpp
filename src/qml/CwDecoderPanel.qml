@@ -54,7 +54,7 @@ Rectangle {
                 var w = pendingWord
                 pendingWord = ""
                 if (Prefs.cwLearnCalls && w.length >= 3 && /[0-9]/.test(w)
-                        && Spots.isSpotted(w))
+                        && Spots.isSpottedHere(w))
                     WdspEngine.cwNoteConfirmedCall(w)
             }
         }
@@ -81,7 +81,7 @@ Rectangle {
             var w = words[i]
             if (seen[w]) continue
             seen[w] = true
-            if (/[0-9]/.test(w) && Spots.isSpotted(w))
+            if (/[0-9]/.test(w) && Spots.isSpottedHere(w))
                 WdspEngine.cwNoteConfirmedCall(w)
         }
     }
@@ -137,7 +137,7 @@ Rectangle {
         var html = esc.replace(/[A-Z0-9\/]{3,}/g, function(w) {
             // only bother the lookups with call-shaped tokens (contain a digit)
             if (/[0-9]/.test(w)) {
-                if (Spots.isSpotted(w))       // RBN/cluster-verified: live now
+                if (Spots.isSpottedHere(w))   // RBN/cluster-verified: live HERE
                     return '<span style="color:#5fffa8; font-weight:bold">' + w + '</span>'
                 if (WdspEngine.cwCallKnown(w) // known-real (MASTER.SCP) —
                         || (!WdspEngine.cwNeuralAvailable && root.isCallShaped(w)))
