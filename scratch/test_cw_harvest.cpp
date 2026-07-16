@@ -171,6 +171,7 @@ int main() {
 
         CwCaptureHarvester::Config cfg;
         cfg.preSec = 5; cfg.postSec = 0; cfg.debounceSec = 0;
+        cfg.goldRepeatSec = 0;            // repeat-K7CO golds on purpose here
         cfg.capBytes = 80000;             // ~2 five-second wav16 segments
         CwCaptureHarvester h(ring, dir, cfg);
         for (int k = 0; k < 4; ++k) { h.triggerGoldRbn("K7CO", 200 + k * 100); h.pump(200 + k * 100); }
@@ -217,6 +218,35 @@ int main() {
         CHECK(hasGold);       // newer pair survives despite sorting after
                                // "hard_negative" only in trigger-epoch terms,
                                // NOT lexicographically ("gold_rbn" < "hard_negative")
+        fs::remove_all(dir);
+    }
+
+    // 10) Per-call gold dedupe: the Learn re-scan re-confirms the same call on
+    //     every spot-bank change, so a repeat of the SAME call inside
+    //     goldRepeatSec is suppressed even outside the tier debounce; a
+    //     DIFFERENT call passes, and the same call passes again after the
+    //     window expires.
+    {
+        namespace fs = std::filesystem;
+        const std::string dir = "test_cw_harvest_dedupe";
+        fs::remove_all(dir); fs::create_directory(dir);
+        CwHarvestRing ring(3200 * 60);
+        std::vector<float> sec(3200, 0.1f);
+        for (int i = 0; i < 30; ++i) ring.push(sec.data(), 3200);
+
+        CwCaptureHarvester::Config cfg;
+        cfg.preSec = 5; cfg.postSec = 0; cfg.debounceSec = 0;
+        cfg.goldRepeatSec = 600;
+        CwCaptureHarvester h(ring, dir, cfg);
+
+        h.triggerGoldRbn("W1AW/3", 100); h.pump(100);
+        CHECK(h.segmentsWritten() == 1);                 // first gold: writes
+        h.triggerGoldRbn("W1AW/3", 200); h.pump(200);
+        CHECK(h.segmentsWritten() == 1);                 // same call, in window
+        h.triggerGoldRbn("K7CO", 300); h.pump(300);
+        CHECK(h.segmentsWritten() == 2);                 // different call: writes
+        h.triggerGoldRbn("W1AW/3", 800); h.pump(800);
+        CHECK(h.segmentsWritten() == 3);                 // window expired: writes
         fs::remove_all(dir);
     }
 

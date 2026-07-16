@@ -19,6 +19,7 @@
 #pragma once
 
 #include <deque>
+#include <map>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -35,6 +36,7 @@ public:
         int       preSec      = 20;    // audio before the trigger
         int       postSec     = 10;    // post-roll for fade captures
         int       debounceSec = 30;    // min gap between segments per tier
+        int       goldRepeatSec = 600; // min gap between golds of the SAME call
         long long capBytes    = 2LL * 1024 * 1024 * 1024;   // retention cap
     };
 
@@ -75,6 +77,7 @@ private:
     std::vector<Pending> pending_;
     long long           lastFadeAt_ = -1000000;          // debounce, PER TIER
     long long           lastGoldAt_ = -1000000;
+    std::map<std::string, long long> goldCallAt_;        // per-call gold dedupe
     int                 written_   = 0;
     int                 seq_       = 0;
 };

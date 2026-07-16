@@ -72,6 +72,15 @@ void CwCaptureHarvester::triggerFade(long long nowSec) {
 void CwCaptureHarvester::triggerGoldRbn(const std::string& call, long long nowSec) {
     std::lock_guard<std::mutex> lk(mx_);
     if (nowSec - lastGoldAt_ < cfg_.debounceSec) return;   // per-tier debounce
+    // Per-call dedupe: the Learn re-scan re-confirms every spotted call still
+    // in the transcript on EVERY spot-bank change, so the same call would
+    // otherwise mint a near-identical gold segment each debounce window
+    // (observed on air: 5x W1AW/3 in 3 min).  One gold per call per
+    // goldRepeatSec is plenty — a genuine re-work later still captures.
+    auto it = goldCallAt_.find(call);
+    if (it != goldCallAt_.end() && nowSec - it->second < cfg_.goldRepeatSec)
+        return;
+    goldCallAt_[call] = nowSec;
     lastGoldAt_ = nowSec;
     pending_.push_back({"gold_rbn", call, nowSec, 0});
 }
