@@ -2293,10 +2293,36 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (edgeCk->isChecked() != prefs_->bandPlanEdges())
                 edgeCk->setChecked(prefs_->bandPlanEdges());
         });
+        auto *classCk = addLayer(6, tr("License-class edges (US)"),
+            tr("Amber markers at the US phone sub-band edges where each "
+               "license class (Extra / Advanced / General / Tech) gains "
+               "privileges.  US-only; the operator is responsible for "
+               "knowing their own class limits."),
+            prefs_->bandPlanClassEdges(),
+            [this](bool v){ prefs_->setBandPlanClassEdges(v); }, grp);
+        connect(prefs_, &Prefs::bandPlanClassEdgesChanged, classCk, [this, classCk]() {
+            if (classCk->isChecked() != prefs_->bandPlanClassEdges())
+                classCk->setChecked(prefs_->bandPlanClassEdges());
+        });
+        auto *txWarnCk = addLayer(7, tr("Warn on transmit out of band"),
+            tr("Posts an advisory at key-down if your transmit signal falls "
+               "outside the amateur band for your region.  Checks the whole "
+               "occupied bandwidth (mode + TX filter), not just the dial "
+               "frequency — so a wide signal that reaches past the band edge "
+               "warns even when the carrier is in band; VFO B is used when "
+               "split.  Advisory only — it never inhibits transmit.  "
+               "Independent of the band-edge lines above so decluttering the "
+               "display can't disable the transmit-safety warning."),
+            prefs_->bandPlanTxWarn(),
+            [this](bool v){ prefs_->setBandPlanTxWarn(v); }, grp);
+        connect(prefs_, &Prefs::bandPlanTxWarnChanged, txWarnCk, [this, txWarnCk]() {
+            if (txWarnCk->isChecked() != prefs_->bandPlanTxWarn())
+                txWarnCk->setChecked(prefs_->bandPlanTxWarn());
+        });
 
         // Per-mode segment colours — a swatch button per kind (click to
         // recolour; picking the default clears the override).
-        g->addWidget(new QLabel(tr("Segment colors"), grp), 6, 0);
+        g->addWidget(new QLabel(tr("Segment colors"), grp), 8, 0);
         auto *colorRow = new QWidget(grp);
         auto *ch = new QHBoxLayout(colorRow);
         ch->setContentsMargins(0, 0, 0, 0);
@@ -2332,7 +2358,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
         });
         ch->addWidget(resetColors);
         ch->addStretch(1);
-        g->addWidget(colorRow, 6, 1);
+        g->addWidget(colorRow, 8, 1);
 
         form->addRow(grp);
     }

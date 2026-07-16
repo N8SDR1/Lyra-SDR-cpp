@@ -45,6 +45,13 @@ public:
     // Band edges (low/high of each allocation) in view.
     // Each: { freq, name }.
     Q_INVOKABLE QVariantList edges(double centerHz, double spanHz) const;
+    // US license-class phone-edge markers in view (Extra/Advanced/General
+    // /Tech sub-band boundaries).  Each: { freq, label }.  US-only: returns
+    // empty for every other region (class-dependent phone edges are a US/FCC
+    // peculiarity; most countries gate license classes by power + whole-band
+    // access, not sub-band edges).  Purely advisory — the operator is
+    // responsible for knowing their own class limits.
+    Q_INVOKABLE QVariantList classEdges(double centerHz, double spanHz) const;
     // Watering-hole landmarks in view, gated by group.
     // Each: { freq, label, mode, beacon (bool) }.
     Q_INVOKABLE QVariantList landmarks(double centerHz, double spanHz,
@@ -60,6 +67,21 @@ public:
     // The 40 US CB channels visible in the window, each { freq, label }.
     // Empty unless the 11m/CB band is enabled (Settings → Hardware).
     Q_INVOKABLE QVariantList cbChannels(double centerHz, double spanHz) const;
+    // True when freqHz falls within the 11m / CB band extent (the 40-channel
+    // plan + a small guard for AM sidebands).  A pure range test — the caller
+    // gates on cbBandEnabled.  Used to suppress the amateur out-of-band TX
+    // warning when the operator is deliberately on the CB band they enabled.
+    Q_INVOKABLE bool inCbBand(double freqHz) const;
+    // Channel compliance for a CHANNELIZED band (US/Canada 60m — 5 discrete
+    // 2.8 kHz USB channels), given the carrier and its emission window
+    // [minF, maxF].  Returns:
+    //   ""            ordinary band (no channel rule) / carrier not in a band
+    //   "offchannel"  in the band span but in a between-channel gap
+    //   "toowide"     on a channel but the emission exceeds the channel width
+    // Channel windows come from the band data, so the 2.8 kHz limit tracks
+    // whatever the region/country table defines.  Used by the TX warning.
+    Q_INVOKABLE QString channelStatus(double carrierHz, double minFHz,
+                                      double maxFHz) const;
 
 signals:
     void regionChanged();

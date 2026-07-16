@@ -776,6 +776,14 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
                                      .arg(f / 1.0e6, 0, 'f', 3)
                                      .arg(prefs_->bandPlanRegion()), 5000);
         });
+
+        // NOTE: the TX-time out-of-band advisory is rendered as a prominent,
+        // live-updating banner on the panadapter (PanadapterPanel.qml
+        // `txWarn` + banner), NOT a corner status message — it is emission-
+        // aware (occupied bandwidth, not just the dial carrier) and its
+        // reactive bindings re-check on every dial/bandwidth change WHILE
+        // keyed, so tuning past the edge mid-transmit warns immediately.
+        // Advisory only; nothing inhibits TX.
     }
     connect(usbBcd_, &UsbBcd::statusMessage, this, [](const QString &) {});
 

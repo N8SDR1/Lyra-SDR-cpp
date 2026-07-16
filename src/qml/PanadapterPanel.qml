@@ -1143,12 +1143,88 @@ Item {
                 readonly property var edges:
                     (Prefs.bandPlanEdges && BandPlan.region !== "NONE")
                     ? BandPlan.edges(root.centerHz, bandPlan.spanHz) : []
+                // US license-class phone-edge markers.  Gated on its own
+                // opt-in toggle AND region == "US" (classEdges() also returns
+                // [] for any other region, so this is belt-and-braces).
+                readonly property var classEdges:
+                    (Prefs.bandPlanClassEdges && BandPlan.region === "US")
+                    ? BandPlan.classEdges(root.centerHz, bandPlan.spanHz) : []
                 readonly property var marks:
                     (BandPlan.region !== "NONE"
                      && (Prefs.bandPlanLandmarks || Prefs.bandPlanBeacons))
                     ? BandPlan.landmarks(root.centerHz, bandPlan.spanHz,
                                          Prefs.bandPlanLandmarks,
                                          Prefs.bandPlanBeacons) : []
+                // TX out-of-band advisory (emission-aware).  Reactive: the
+                // binding touches Stream.txDisplayActive + the TX carrier
+                // (VFO B when split) + mode/filter, so it re-evaluates LIVE —
+                // if the operator wheels the dial past the edge WHILE keyed,
+                // the banner appears immediately, not just at the next
+                // key-down.  Returns { out: bool, text: string }.  Advisory
+                // only; nothing here inhibits TX.
+                readonly property var txWarn: {
+                    if (!Stream.txDisplayActive || !Prefs.bandPlanTxWarn
+                        || BandPlan.region === "NONE")
+                        return { out: false, text: "" }
+                    var carrier = Stream.splitEnabled ? Stream.vfoBHz
+                                                      : Stream.rx1FreqHz
+                    // If the operator has enabled the 11m/CB band and is
+                    // tuned there, this is a deliberate non-amateur band —
+                    // don't nag "outside the amateur bands".
+                    if (Prefs.cbBandEnabled && BandPlan.inCbBand(carrier))
+                        return { out: false, text: "" }
+                    var mode = (Prefs.mode || "").toUpperCase()
+                    var hi = Prefs.txBandwidth       // TX high edge (Hz)
+                    var lo = Prefs.filterLow         // TX low edge (Hz)
+                    var minF, maxF
+                    if (mode === "CWU" || mode === "CWL" || mode === "CW") {
+                        minF = carrier - 150; maxF = carrier + 150
+                    } else if (mode === "USB" || mode === "DIGU") {
+                        minF = carrier + lo; maxF = carrier + hi
+                    } else if (mode === "LSB" || mode === "DIGL") {
+                        minF = carrier - hi; maxF = carrier - lo
+                    } else if (mode === "FM") {
+                        var half = Stream.fmDeviationHz + 3000
+                        minF = carrier - half; maxF = carrier + half
+                    } else {   // AM / DSB / SAM — symmetric ±hi
+                        minF = carrier - hi; maxF = carrier + hi
+                    }
+                    var bMin = BandPlan.bandContaining(minF)
+                    var bMax = BandPlan.bandContaining(maxF)
+                    var reg = BandPlan.region
+                    var bCar = BandPlan.bandContaining(carrier)
+                    if (bMin !== "" && bMax !== "") {
+                        // Emission fits within the band span — but a
+                        // CHANNELIZED band (US/Canada 60m) also requires being
+                        // ON a channel AND within its 2.8 kHz width.
+                        var cs = BandPlan.channelStatus(carrier, minF, maxF)
+                        if (cs === "offchannel")
+                            return { out: true,
+                                     text: "⚠  OFF CHANNEL\n"
+                                           + (carrier / 1e6).toFixed(4) + " MHz — "
+                                           + bCar + " is channel-only; tune to a "
+                                           + "channel" }
+                        if (cs === "toowide")
+                            return { out: true,
+                                     text: "⚠  TX TOO WIDE FOR CHANNEL\nyour "
+                                           + mode + " signal is wider than the "
+                                           + bCar + " channel (2.8 kHz max)" }
+                        return { out: false, text: "" }
+                    }
+                    if (bCar === "")
+                        return { out: true,
+                                 text: "⚠  TRANSMITTING OUT OF BAND\n"
+                                       + (carrier / 1e6).toFixed(3)
+                                       + " MHz — outside the " + reg
+                                       + " amateur bands" }
+                    var edge = (bMin === "") ? minF : maxF
+                    return { out: true,
+                             text: "⚠  TX BANDWIDTH OVER THE EDGE\nyour "
+                                   + mode + " signal reaches "
+                                   + (edge / 1e6).toFixed(3)
+                                   + " MHz — past the " + bCar + " edge" }
+                }
+
                 // CB channel markers — only when the 11m/CB band is enabled.
                 readonly property var cbChans:
                     Prefs.cbBandEnabled
@@ -1269,6 +1345,40 @@ Item {
                             y: spectrumArea.height - height - 16
                             text: edgeItem.modelData.name + qsTr(" EDGE")
                             color: "#ff8080"
+                            font.pixelSize: 9
+                            font.bold: true
+                            style: Text.Outline
+                            styleColor: "#cc000000"
+                        }
+                    }
+                }
+
+                // US license-class phone edges — amber dashed lines with a
+                // class label, deliberately distinct from the red band-EDGE
+                // lines.  Opt-in, US-only; a passive reference (no tune).
+                Repeater {
+                    model: bandPlan.classEdges
+                    delegate: Item {
+                        id: classEdgeItem
+                        required property var modelData
+                        readonly property real cx: bandPlan.xOf(modelData.freq)
+                        Repeater {           // dashed: 4 px dash + 6 px gap
+                            model: Math.max(1, Math.ceil(spectrumArea.height / 10))
+                            delegate: Rectangle {
+                                required property int index
+                                x: classEdgeItem.cx - 0.5
+                                y: index * 10
+                                width: 1; height: 4
+                                color: "#ffb000"
+                                opacity: 0.7
+                            }
+                        }
+                        Text {
+                            x: Math.max(0, Math.min(spectrumArea.width - width,
+                                                    classEdgeItem.cx + 2))
+                            y: spectrumArea.height - height - 30
+                            text: classEdgeItem.modelData.label
+                            color: "#ffc65a"
                             font.pixelSize: 9
                             font.bold: true
                             style: Text.Outline
@@ -1535,6 +1645,41 @@ Item {
                                 }
                             }
                         }
+                    }
+                }
+
+                // TX out-of-band warning banner — big, centred, and pulsing
+                // so it's impossible to miss (operator eyesight).  Driven by
+                // the reactive txWarn binding, so it appears and updates LIVE
+                // as the dial or bandwidth changes mid-transmit, and clears
+                // when the signal is back in band or on un-key.
+                Rectangle {
+                    id: txWarnBanner
+                    visible: bandPlan.txWarn.out
+                    z: 100
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.top
+                    anchors.topMargin: 10
+                    width: txWarnLabel.implicitWidth + 32
+                    height: txWarnLabel.implicitHeight + 18
+                    radius: 6
+                    color: "#e0300000"
+                    border.color: "#ff4136"
+                    border.width: 2
+                    SequentialAnimation on opacity {
+                        running: txWarnBanner.visible
+                        loops: Animation.Infinite
+                        NumberAnimation { from: 1.0; to: 0.5; duration: 480 }
+                        NumberAnimation { from: 0.5; to: 1.0; duration: 480 }
+                    }
+                    Text {
+                        id: txWarnLabel
+                        anchors.centerIn: parent
+                        text: bandPlan.txWarn.text
+                        color: "#ffe0e0"
+                        font.pixelSize: 16
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
                     }
                 }
             }

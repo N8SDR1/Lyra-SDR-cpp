@@ -92,6 +92,8 @@ constexpr auto kBpSegs     = "band_plan/segments";
 constexpr auto kBpLand     = "band_plan/landmarks";
 constexpr auto kBpBeacons  = "band_plan/beacons";
 constexpr auto kBpEdges    = "band_plan/edges";
+constexpr auto kBpClassEdges = "band_plan/class_edges";
+constexpr auto kBpTxWarn   = "band_plan/tx_warn";
 constexpr auto kBpColorPfx = "band_plan/color_";   // + <kind>
 constexpr auto kCbBand     = "bands/cb_enabled";
 constexpr auto kPanStep    = "panadapter/scroll_step_hz";
@@ -270,6 +272,8 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     bandPlanLandmarks_ = s.value(kBpLand, true).toBool();
     bandPlanBeacons_   = s.value(kBpBeacons, true).toBool();
     bandPlanEdges_     = s.value(kBpEdges, true).toBool();
+    bandPlanClassEdges_ = s.value(kBpClassEdges, false).toBool();
+    bandPlanTxWarn_    = s.value(kBpTxWarn, true).toBool();
     for (auto it = kBpDefaultColors.cbegin(); it != kBpDefaultColors.cend(); ++it) {
         const QVariant v = s.value(QString(kBpColorPfx) + it.key());
         if (v.isValid() && !v.toString().isEmpty())
@@ -1148,6 +1152,22 @@ void Prefs::setBandPlanEdges(bool v) {
         bandPlanEdges_ = v;
         QSettings().setValue(kBpEdges, v);
         emit bandPlanEdgesChanged();
+    }
+}
+
+void Prefs::setBandPlanClassEdges(bool v) {
+    if (v != bandPlanClassEdges_) {
+        bandPlanClassEdges_ = v;
+        QSettings().setValue(kBpClassEdges, v);
+        emit bandPlanClassEdgesChanged();
+    }
+}
+
+void Prefs::setBandPlanTxWarn(bool v) {
+    if (v != bandPlanTxWarn_) {
+        bandPlanTxWarn_ = v;
+        QSettings().setValue(kBpTxWarn, v);
+        emit bandPlanTxWarnChanged();
     }
 }
 

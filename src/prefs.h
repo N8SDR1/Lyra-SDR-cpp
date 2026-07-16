@@ -280,6 +280,18 @@ class Prefs : public QObject {
                WRITE setBandPlanBeacons NOTIFY bandPlanBeaconsChanged)
     Q_PROPERTY(bool bandPlanEdges READ bandPlanEdges
                WRITE setBandPlanEdges NOTIFY bandPlanEdgesChanged)
+    // US license-class phone-edge markers on the panadapter overlay.
+    // US-only (the QML gates on region == "US"); default OFF — it is a
+    // decluttered opt-in reference cue, not on by default.
+    Q_PROPERTY(bool bandPlanClassEdges READ bandPlanClassEdges
+               WRITE setBandPlanClassEdges NOTIFY bandPlanClassEdgesChanged)
+    // Advisory toast at key-down when the effective TX frequency is outside
+    // any amateur band for the current region.  Default ON, and DECOUPLED
+    // from the visual bandPlanEdges toggle — decluttering the overlay must
+    // never silently disable the transmit-safety warning.  Advisory only:
+    // it never inhibits TX.
+    Q_PROPERTY(bool bandPlanTxWarn READ bandPlanTxWarn
+               WRITE setBandPlanTxWarn NOTIFY bandPlanTxWarnChanged)
     // Show the 11m / CB band row on the Band panel (Settings → Hardware).
     Q_PROPERTY(bool cbBandEnabled READ cbBandEnabled
                WRITE setCbBandEnabled NOTIFY cbBandEnabledChanged)
@@ -551,6 +563,10 @@ public:
     void setBandPlanBeacons(bool v);
     bool bandPlanEdges() const { return bandPlanEdges_; }
     void setBandPlanEdges(bool v);
+    bool bandPlanClassEdges() const { return bandPlanClassEdges_; }
+    void setBandPlanClassEdges(bool v);
+    bool bandPlanTxWarn() const { return bandPlanTxWarn_; }
+    void setBandPlanTxWarn(bool v);
     bool cbBandEnabled() const { return cbBandEnabled_; }
     void setCbBandEnabled(bool v);
     int  panScrollStepHz() const { return panScrollStepHz_; }
@@ -674,6 +690,8 @@ signals:
     void bandPlanLandmarksChanged();
     void bandPlanBeaconsChanged();
     void bandPlanEdgesChanged();
+    void bandPlanClassEdgesChanged();
+    void bandPlanTxWarnChanged();
     void bandPlanColorsChanged();
     void cbBandEnabledChanged();
     void panScrollStepHzChanged();
@@ -787,6 +805,8 @@ private:
     bool    bandPlanLandmarks_ = true;
     bool    bandPlanBeacons_   = true;
     bool    bandPlanEdges_     = true;
+    bool    bandPlanClassEdges_ = false;   // US license-class edges, opt-in
+    bool    bandPlanTxWarn_    = true;     // TX out-of-band advisory, on
     QHash<QString, QString> bandPlanColors_;   // kind → override hex (sparse)
     bool    cbBandEnabled_ = false;
     int     panScrollStepHz_ = 1000;
