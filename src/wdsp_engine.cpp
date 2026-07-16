@@ -553,6 +553,26 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
 
 WdspEngine::~WdspEngine()
 {
+    // Reverse-destruction-order hazard: neuralCw_ is declared (wdsp_engine.h)
+    // BEFORE cwArbiter_ and the cwHarvest*/cwHarvester_ members, so members
+    // destruct in the OPPOSITE order — cwHarvester_, cwHarvestDecim_,
+    // cwHarvestRing_ and cwArbiter_ would all tear down BEFORE neuralCw_'s own
+    // destructor (which stops its worker thread) ever runs. neuralCw_'s
+    // worker fires onText/onWpm/onKeying synchronously off ITS OWN thread
+    // (wired in setCwDecodeEngine above), and those lambdas dereference
+    // cwHarvester_ (when cwCaptureOn_ is true) and unconditionally call
+    // cwArbiter_.updateKeying — so without stopping that worker first, a
+    // decode callback can land on an already-(or mid-)destroyed
+    // harvester/arbiter. Explicitly stopping+joining it HERE, before any
+    // harvest/arbiter member is touched, guarantees no callback is left in
+    // flight; it covers cwArbiter_ "for free" since the worker thread is the
+    // only caller of updateKeying(). neuralCw_'s own destructor calls
+    // stopWorker() again once neuralCw_ itself destructs further down — that
+    // second call is a safe no-op (stop() -> stopWorker() is idempotent via
+    // running_.exchange(false)).
+    cwCaptureOn_.store(false, std::memory_order_relaxed);  // no new harvester work
+    neuralCw_.stop();                                      // join: no callback in flight after this
+
     // Phase 2 harvest — stop the pump worker before the rest of teardown so
     // it can't touch a half-torn-down engine.
     cwHarvestRun_.store(false);
