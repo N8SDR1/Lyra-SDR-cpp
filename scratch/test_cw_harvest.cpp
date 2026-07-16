@@ -181,6 +181,45 @@ int main() {
         fs::remove_all(dir);
     }
 
+    // 9) Retention across tiers: eviction must be strictly oldest-first by
+    //    trigger epoch, NOT by lexicographic filename (which would sort the
+    //    "gold_rbn" tier ahead of "hard_negative" and evict the high-trust
+    //    segment first even though it's newer).
+    {
+        namespace fs = std::filesystem;
+        const std::string dir = "test_cw_harvest_cap_tiers";
+        fs::remove_all(dir); fs::create_directory(dir);
+        CwHarvestRing ring(3200 * 60);
+        std::vector<float> sec(3200, 0.1f);
+        for (int i = 0; i < 30; ++i) ring.push(sec.data(), 3200);
+
+        CwCaptureHarvester::Config cfg;
+        cfg.preSec = 5; cfg.postSec = 0; cfg.debounceSec = 0;
+        cfg.capBytes = 40000;              // fits ~1 segment pair, not 2
+        CwCaptureHarvester h(ring, dir, cfg);
+
+        h.triggerFade(200);                // hard_negative — OLDER
+        h.pump(200);
+        h.triggerGoldRbn("K7CO", 500);      // gold_rbn — NEWER
+        h.pump(500);
+        CHECK(h.segmentsWritten() == 2);
+
+        bool hasHardNeg = false, hasGold = false;
+        long long bytes = 0;
+        for (auto& e : fs::directory_iterator(dir)) {
+            bytes += (long long)fs::file_size(e);
+            const std::string p = e.path().filename().string();
+            if (p.find("hard_negative") != std::string::npos) hasHardNeg = true;
+            if (p.find("gold_rbn") != std::string::npos) hasGold = true;
+        }
+        CHECK(bytes <= cfg.capBytes);
+        CHECK(!hasHardNeg);   // older pair evicted regardless of tier name
+        CHECK(hasGold);       // newer pair survives despite sorting after
+                               // "hard_negative" only in trigger-epoch terms,
+                               // NOT lexicographically ("gold_rbn" < "hard_negative")
+        fs::remove_all(dir);
+    }
+
     if (g_fail == 0) std::printf("test_cw_harvest: ALL PASS\n");
     else             std::printf("test_cw_harvest: %d CHECK(s) FAILED\n", g_fail);
     return g_fail == 0 ? 0 : 1;
