@@ -66,6 +66,17 @@ public:
 
     void setSampleRate(double hz);      // input rate (default 48 kHz)
 
+    // Explicitly stop the worker thread and join it.  Idempotent (thin
+    // wrapper over the private stopWorker(), which no-ops via
+    // running_.exchange(false) if already stopped) — safe to call from an
+    // owner's teardown path even though ~NeuralCwDecoder() calls stopWorker()
+    // again.  Callers that own objects the worker's callbacks
+    // (onText/onCalls/onWpm/onKeying) dereference MUST call this and let it
+    // return BEFORE destroying those objects, since the callbacks fire
+    // synchronously off this worker thread and joining is the only way to
+    // guarantee none is left in flight.
+    void stop() { stopWorker(); }
+
     // Fires from the worker thread with the newly-committed characters to append
     // to the transcript (incremental, may be empty).
     std::function<void(const std::string& newText)> onText;
