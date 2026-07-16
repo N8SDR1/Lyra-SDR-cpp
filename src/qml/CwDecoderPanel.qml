@@ -66,6 +66,25 @@ Rectangle {
         if (t.length > 6000) t = t.slice(-4500)
         root.decodedText = t
     }
+
+    // RBN/cluster spots often land 10-60 s after a station starts up, so a
+    // cleanly-copied call can complete its tapWord() check before its spot
+    // exists.  When the spot bank changes, re-scan the recent transcript for
+    // now-spotted calls the live tap missed.  ScpLocal::note() dedupes, so
+    // repeat scans of the same call are free.
+    function rescanLearn() {
+        if (!Prefs.cwLearnCalls) return
+        var words = root.decodedText.slice(-1500).match(/[A-Z0-9\/]{3,}/g)
+        if (!words) return
+        var seen = {}
+        for (var i = 0; i < words.length; ++i) {
+            var w = words[i]
+            if (seen[w]) continue
+            seen[w] = true
+            if (/[0-9]/.test(w) && Spots.isSpotted(w))
+                WdspEngine.cwNoteConfirmedCall(w)
+        }
+    }
     function clearDecoded() { root.decodedText = ""; root.pendingWord = "" }
 
     // Auto engine: fallback (Classic-during-fade) runs are wrapped in private
@@ -204,10 +223,11 @@ Rectangle {
         function onCwNeuralAvailableChanged() { root.spotRev++ }
     }
 
-    // Re-highlight the transcript when the spot bank changes.
+    // Re-highlight the transcript when the spot bank changes — and give the
+    // learner a second look at calls whose spot arrived after they were copied.
     Connections {
         target: Spots
-        function onChanged() { root.spotRev++ }
+        function onChanged() { root.spotRev++; root.rescanLearn() }
     }
 
     // Poll the live squelch metric (~10 Hz) only while the decoder is running
