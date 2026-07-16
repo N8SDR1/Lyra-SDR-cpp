@@ -1043,6 +1043,8 @@ add_executable(test_cw_harvest EXCLUDE_FROM_ALL
     src/dsp/deepfist/CwHarvestRing.h
     src/dsp/deepfist/CwHarvestIo.h
     src/dsp/deepfist/CwHarvestIo.cpp
+    src/dsp/deepfist/CwCaptureHarvester.h
+    src/dsp/deepfist/CwCaptureHarvester.cpp
 )
 target_include_directories(test_cw_harvest PRIVATE src)
 if(MSVC)
