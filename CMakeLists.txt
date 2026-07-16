@@ -1035,3 +1035,16 @@ target_include_directories(test_scp_local PRIVATE src)
 if(MSVC)
     target_compile_options(test_scp_local PRIVATE /utf-8 /Zc:preprocessor)
 endif()
+
+# Phase 2 — harvest support units (ring / wav16 / sidecar io).  Qt-free.
+#   cmake --build build --target test_cw_harvest && build/test_cw_harvest
+add_executable(test_cw_harvest EXCLUDE_FROM_ALL
+    scratch/test_cw_harvest.cpp
+    src/dsp/deepfist/CwHarvestRing.h
+    src/dsp/deepfist/CwHarvestIo.h
+    src/dsp/deepfist/CwHarvestIo.cpp
+)
+target_include_directories(test_cw_harvest PRIVATE src)
+if(MSVC)
+    target_compile_options(test_cw_harvest PRIVATE /utf-8 /Zc:preprocessor)
+endif()
