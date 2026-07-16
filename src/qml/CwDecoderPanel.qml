@@ -74,7 +74,10 @@ Rectangle {
     // repeat scans of the same call are free.
     function rescanLearn() {
         if (!Prefs.cwLearnCalls) return
-        var words = root.decodedText.slice(-1500).match(/[A-Z0-9\/]{3,}/g)
+        // Scan the WHOLE kept transcript (capped at 6000 chars) — the display
+        // greens everything it renders, and a call the operator can still see
+        // green must stay learnable (KT4K slid past a smaller window on air).
+        var words = root.decodedText.match(/[A-Z0-9\/]{3,}/g)
         if (!words) return
         var seen = {}
         for (var i = 0; i < words.length; ++i) {
