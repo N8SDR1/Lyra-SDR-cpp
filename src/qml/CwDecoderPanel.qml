@@ -46,7 +46,8 @@ Rectangle {
     // a rescan window missed calls still visibly green further back (KT4K),
     // and rescan-on-spot-change missed spots evicted from the 200-cap bank
     // before the next bank event (KA1ULN).  Render time is the ONLY moment
-    // green-ness is guaranteed observed.  Opt-in (Prefs.cwLearnCalls).
+    // green-ness is guaranteed observed.  On by default (WdspEngine.cwLearnEnabled;
+    // LYRA_CW_LEARN=0 opts out) — no UI chip.
     property var greenSeen: ({})    // call -> ms epoch of the last learn note
 
     function appendDecoded(s) {
@@ -111,7 +112,7 @@ Rectangle {
                     // Learn what renders green, AS it renders (see greenSeen).
                     // Memo keeps this one C++ call per call per 10 min — the
                     // same window as the harvester's per-call gold dedupe.
-                    if (Prefs.cwLearnCalls) {
+                    if (WdspEngine.cwLearnEnabled) {
                         var tn = Date.now()
                         if (!root.greenSeen[w] || tn - root.greenSeen[w] > 600000) {
                             root.greenSeen[w] = tn
@@ -174,8 +175,9 @@ Rectangle {
         // truth, and the chips light accordingly).
         if (Prefs.cwDecodeEngine === 1 || Prefs.cwDecodeEngine === 2)
             WdspEngine.cwDecodeEngine = Prefs.cwDecodeEngine
-        // Phase 2: resume harvest capture if the operator left it on.
-        if (Prefs.cwCaptureEnabled)
+        // Harvest is a developer capture tool with no UI chip: start it only
+        // when armed by LYRA_CW_HARVEST (WdspEngine.cwHarvestEnabled).
+        if (WdspEngine.cwHarvestEnabled)
             WdspEngine.setCwCaptureEnabled(true)
     }
 
@@ -306,19 +308,6 @@ Rectangle {
             ChipButton {
                 label: qsTr("Clear")
                 onClicked: root.clearDecoded()
-            }
-            ChipButton {
-                label: qsTr("Learn")
-                lit: Prefs.cwLearnCalls
-                onClicked: Prefs.cwLearnCalls = !Prefs.cwLearnCalls
-            }
-            ChipButton {
-                label: qsTr("Harvest")
-                lit: Prefs.cwCaptureEnabled
-                onClicked: {
-                    Prefs.cwCaptureEnabled = !Prefs.cwCaptureEnabled
-                    WdspEngine.setCwCaptureEnabled(Prefs.cwCaptureEnabled)
-                }
             }
         }
 
