@@ -189,6 +189,14 @@ class WdspEngine : public QObject {
                NOTIFY cwDecodeEngineChanged)
     Q_PROPERTY(bool cwNeuralAvailable READ cwNeuralAvailable
                NOTIFY cwNeuralAvailableChanged)
+    // Learn / Harvest are no longer user-facing chips.  Learn (record RBN-
+    // confirmed calls into the local SCP list) is ON for everyone by default,
+    // disabled only with LYRA_CW_LEARN=0.  Harvest (write trust-tiered CW audio
+    // segments to disk for DeepFist training) is a developer tool, OFF unless
+    // LYRA_CW_HARVEST is set truthy.  Both are read once at construction, so the
+    // panel binds them as CONSTANT.
+    Q_PROPERTY(bool cwLearnEnabled READ cwLearnEnabled CONSTANT)
+    Q_PROPERTY(bool cwHarvestEnabled READ cwHarvestEnabled CONSTANT)
     // DeepFist — live CTC blank-logit penalty (0..5).  Higher recovers dropped
     // chars on weak audio, adds spurious chars on strong signals.
     Q_PROPERTY(double cwBlankPenalty READ cwBlankPenalty WRITE setCwBlankPenalty
@@ -632,6 +640,8 @@ public:
     int  cwDecodeEngine() const { return cwEngine_.load(std::memory_order_relaxed); }
     Q_INVOKABLE void setCwDecodeEngine(int engine);
     bool cwNeuralAvailable() const { return neuralCw_.ready(); }
+    bool cwLearnEnabled()   const { return cwLearnEnabled_; }
+    bool cwHarvestEnabled() const { return cwHarvestEnabled_; }
 
     // CW panel — is this decoded token a KNOWN-REAL callsign?  Exact
     // MASTER.SCP membership (loaded with the neural model), OR'd with the
@@ -646,7 +656,7 @@ public:
     }
 
     // CW panel — remember an RBN/cluster-confirmed call copied off the air
-    // (Prefs.cwLearnCalls gate lives in QML; this always records).  GUI
+    // (the cwLearnEnabled gate lives in QML; this always records).  GUI
     // thread only.
     Q_INVOKABLE void cwNoteConfirmedCall(const QString& call);
 
@@ -1280,6 +1290,10 @@ private:
     std::atomic<bool>                               cwCaptureOn_{false};
     std::thread                                     cwHarvestWorker_;
     std::atomic<bool>                               cwHarvestRun_{false};
+    // Env-gated at construction (no UI chips): Learn on unless LYRA_CW_LEARN=0;
+    // Harvest off unless LYRA_CW_HARVEST is set truthy (developer capture).
+    bool                                            cwLearnEnabled_{true};
+    bool                                            cwHarvestEnabled_{false};
 
     // Zero-beat tuning aid.  zeroBeat_ is touched ONLY on the RX worker
     // (feedIq); zbRunPrev_/zbRate_ are worker-only edge trackers.  The result

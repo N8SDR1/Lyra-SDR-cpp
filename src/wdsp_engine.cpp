@@ -298,6 +298,13 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     // store (Task #44 v2.2 amendment A.6).
     inRateAtomic_.store(cfg_.inRate, std::memory_order_relaxed);
 
+    // Learn/Harvest have no UI chips.  Learn (RBN-confirmed calls -> local SCP)
+    // is on for everyone by default; set LYRA_CW_LEARN=0 to opt out.  Harvest
+    // (trust-tiered CW audio capture for DeepFist training) is a developer tool,
+    // off unless LYRA_CW_HARVEST is set to a non-zero value.  Read once here.
+    cwLearnEnabled_   = qEnvironmentVariable("LYRA_CW_LEARN",   "1") != QLatin1String("0");
+    cwHarvestEnabled_ = qEnvironmentVariable("LYRA_CW_HARVEST", "0") != QLatin1String("0");
+
     loadDspFilterTypes();   // #159 — per-family filter-type prefs (default Linear)
 
     // fexchange0 output buffer: 2 * outSize_ doubles (interleaved L/R).
@@ -2022,9 +2029,9 @@ void WdspEngine::setCwDecodeEnabled(bool on)
 
 // Phase 3 — lazy-load the local RBN-confirmed call list from AppData (created
 // on first note).  GUI thread only; cheap after the first call.  Runs (and
-// mkpaths the app dir) regardless of the Learn toggle, but load() never
-// creates the file and note() is QML-gated by Prefs.cwLearnCalls — the FILE,
-// not the directory, is the §6.6 privacy boundary.
+// mkpaths the app dir) regardless of the Learn gate, but load() never
+// creates the file and note() is QML-gated by WdspEngine.cwLearnEnabled — the
+// FILE, not the directory, is the §6.6 privacy boundary.
 void WdspEngine::ensureCwScpLocal()
 {
     if (cwScpLocalLoaded_) return;
