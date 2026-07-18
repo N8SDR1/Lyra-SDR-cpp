@@ -15,6 +15,12 @@ Rectangle {
     id: root
     implicitWidth: 360
     implicitHeight: col.implicitHeight + 16
+    // Honest FLOOR (below the preferred implicitHeight) so the host dock can be
+    // shrunk under the content — the internal ScrollView then scrolls instead of
+    // clipping.  Tuner collapses via the Tuner model (not a root `collapsed`
+    // prop), so makeQuick treats it as non-collapsible and would otherwise pin
+    // the dock to the full content height, defeating the vertical scroll.
+    readonly property int lyraMinHeight: 170
     color: "#101820"
     border.color: "#2a4a5a"
 
@@ -98,11 +104,32 @@ Rectangle {
         return (k >= 0 ? "+" : "") + k.toFixed(1) + " kHz"
     }
 
-    ColumnLayout {
-        id: col
+    // Scroll when the panel is compressed below its natural content size
+    // — both axes, AsNeeded — so a floated-small or racked panel stays
+    // fully usable instead of silently clipping (SizeRootObjectToView
+    // gives no scrollbar on its own).  Same idiom as SpeechPanel / the CW
+    // decoder.  Above the natural size the content fills; below it scrolls.
+    ScrollView {
+        id: bodyScroll
         anchors.fill: parent
         anchors.margins: 8
-        spacing: 8
+        clip: true
+        contentWidth: Math.max(324, availableWidth)
+        // The memory list sizes itself with Layout.fillHeight, so the column
+        // needs a definite height to grow into: fill the viewport when the panel
+        // is tall enough, else hold at the ~380px natural height and let the
+        // ScrollView scroll.  Bind to bodyScroll.height (stable) rather than
+        // availableHeight so the fill can't feed a scrollbar-visibility loop.
+        contentHeight: Tuner.collapsed ? col.implicitHeight
+                                       : Math.max(380, bodyScroll.height)
+        ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+        ScrollBar.vertical.policy:   ScrollBar.AsNeeded
+
+        ColumnLayout {
+            id: col
+            width: bodyScroll.contentWidth
+            height: bodyScroll.contentHeight
+            spacing: 8
 
         // ── Header ──
         RowLayout {
@@ -467,6 +494,7 @@ Rectangle {
                     text: qsTr("click a row to edit · click away saves · − asks before deleting")
                     Layout.fillWidth: true }
             }
+        }
         }
     }
 }

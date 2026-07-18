@@ -213,8 +213,9 @@ void DockDragController::commit(const Zone &z) {
     case ZoneType::None:
         // Dropped off the dock region → leave floating.  A dock that was
         // already floating followed the cursor during the drag; a docked one
-        // tears out here, under the cursor.
-        if (!dragWasFloating_) {
+        // tears out here, under the cursor — UNLESS this is a no-tear-out host
+        // (a rack window), where a drop in empty space just stays put.
+        if (!noTearOut_ && !dragWasFloating_) {
             d->setFloating(true);
             d->move(QCursor::pos() - QPoint(40, 10));
             d->activateWindow();
@@ -342,17 +343,20 @@ bool DockDragController::eventFilter(QObject *obj, QEvent *event) {
         }
         if (state_ != State::Dragging) break;
         auto *me = static_cast<QMouseEvent *>(event);
+        const QPoint gpos = me->globalPosition().toPoint();
         if (isFloatOnly(dragDock_)) {
             // Float-only tool window: leave it floating where dropped, never
             // dock.  (endDrag hides the overlay if a previous non-float drag
             // created it.)
-            dragDock_->raise();
-            dragDock_->activateWindow();
+            QDockWidget *dropped = dragDock_;
+            dropped->raise();
+            dropped->activateWindow();
             emit layoutChanged();   // persist the new floating position
             endDrag();
             return true;
         }
-        commit(hitTest(me->globalPosition().toPoint()));
+        const Zone z = hitTest(gpos);
+        commit(z);
         endDrag();
         return true;
     }

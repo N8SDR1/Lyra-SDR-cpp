@@ -18,7 +18,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.18.1
+    VERSION 0.20.0
     DESCRIPTION "Lyra — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
@@ -360,6 +360,8 @@ qt_add_executable(lyra
     src/mainwindow.cpp
     src/dockdragcontroller.h
     src/dockdragcontroller.cpp
+    src/panelrack.h
+    src/panelrack.cpp
     src/prefs.h
     src/prefs.cpp
     src/settingsdialog.h

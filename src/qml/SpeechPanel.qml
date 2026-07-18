@@ -129,10 +129,20 @@ Rectangle {
         }
     }
 
-    ColumnLayout {
-        id: body
+    // Vertical scroll when the panel is shorter than its content (grouped
+    // into a small container, floated small, or on a small screen) — fills
+    // the width, scrolls only when needed.  Same idiom as the CW decoder.
+    ScrollView {
+        id: bodyScroll
         anchors.fill: parent
         anchors.margins: 6
+        clip: true
+        contentWidth: availableWidth
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+        ColumnLayout {
+        id: body
+        width: bodyScroll.availableWidth
         spacing: 6
 
         RowLayout {
@@ -239,6 +249,7 @@ Rectangle {
                     onMoved: (v) => Speech.deessRangeDb = v
                 }
             }
+        }
         }
     }
 }

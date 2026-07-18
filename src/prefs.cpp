@@ -70,6 +70,8 @@ constexpr auto kWfDbAuto = "panadapter/waterfallDbAuto";
 constexpr auto kPanSplit = "ui/panadapterSplit";
 constexpr auto kCursorRdt = "panadapter/cursorReadout";
 constexpr auto kZeroBeat = "visuals/zeroBeatMarkers";
+constexpr auto kDspGrouped = "visuals/dspPanelsGrouped";
+constexpr auto kOptGrouped = "visuals/optionsPanelsGrouped";
 constexpr auto kZoom   = "panadapter/zoom";
 constexpr auto kRxMode = "modefilter/mode";
 constexpr auto kBwPrefix = "modefilter/bw/";   // + <MODE>
@@ -91,6 +93,8 @@ constexpr auto kBpSegs     = "band_plan/segments";
 constexpr auto kBpLand     = "band_plan/landmarks";
 constexpr auto kBpBeacons  = "band_plan/beacons";
 constexpr auto kBpEdges    = "band_plan/edges";
+constexpr auto kBpClassEdges = "band_plan/class_edges";
+constexpr auto kBpTxWarn   = "band_plan/tx_warn";
 constexpr auto kBpColorPfx = "band_plan/color_";   // + <kind>
 constexpr auto kCbBand     = "bands/cb_enabled";
 constexpr auto kPanStep    = "panadapter/scroll_step_hz";
@@ -223,6 +227,8 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     panadapterSplit_  = s.value(kPanSplit);   // invalid (= QML undefined) if unset
     cursorReadout_    = s.value(kCursorRdt, true).toBool();
     zeroBeatMarkers_  = s.value(kZeroBeat, false).toBool();
+    dspPanelsGrouped_     = s.value(kDspGrouped, false).toBool();
+    optionsPanelsGrouped_ = s.value(kOptGrouped, false).toBool();
     zoom_             = std::clamp(s.value(kZoom, 1.0).toDouble(), 1.0, 32.0);
     mode_             = s.value(kRxMode, QStringLiteral("USB")).toString();
     // Per-FAMILY RX bandwidth (bwFamilyKey): USB/LSB share "SSB", etc.
@@ -268,6 +274,8 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     bandPlanLandmarks_ = s.value(kBpLand, true).toBool();
     bandPlanBeacons_   = s.value(kBpBeacons, true).toBool();
     bandPlanEdges_     = s.value(kBpEdges, true).toBool();
+    bandPlanClassEdges_ = s.value(kBpClassEdges, false).toBool();
+    bandPlanTxWarn_    = s.value(kBpTxWarn, true).toBool();
     for (auto it = kBpDefaultColors.cbegin(); it != kBpDefaultColors.cend(); ++it) {
         const QVariant v = s.value(QString(kBpColorPfx) + it.key());
         if (v.isValid() && !v.toString().isEmpty())
@@ -909,6 +917,22 @@ void Prefs::setZeroBeatMarkers(bool v) {
     }
 }
 
+void Prefs::setDspPanelsGrouped(bool v) {
+    if (v != dspPanelsGrouped_) {
+        dspPanelsGrouped_ = v;
+        QSettings().setValue(kDspGrouped, v);
+        emit dspPanelsGroupedChanged();
+    }
+}
+
+void Prefs::setOptionsPanelsGrouped(bool v) {
+    if (v != optionsPanelsGrouped_) {
+        optionsPanelsGrouped_ = v;
+        QSettings().setValue(kOptGrouped, v);
+        emit optionsPanelsGroupedChanged();
+    }
+}
+
 void Prefs::setZoom(double v) {
     v = std::clamp(v, 1.0, 32.0);
     if (v != zoom_) {
@@ -1138,6 +1162,22 @@ void Prefs::setBandPlanEdges(bool v) {
         bandPlanEdges_ = v;
         QSettings().setValue(kBpEdges, v);
         emit bandPlanEdgesChanged();
+    }
+}
+
+void Prefs::setBandPlanClassEdges(bool v) {
+    if (v != bandPlanClassEdges_) {
+        bandPlanClassEdges_ = v;
+        QSettings().setValue(kBpClassEdges, v);
+        emit bandPlanClassEdgesChanged();
+    }
+}
+
+void Prefs::setBandPlanTxWarn(bool v) {
+    if (v != bandPlanTxWarn_) {
+        bandPlanTxWarn_ = v;
+        QSettings().setValue(kBpTxWarn, v);
+        emit bandPlanTxWarnChanged();
     }
 }
 

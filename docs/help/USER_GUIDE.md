@@ -428,8 +428,10 @@ control panels in a row beneath).
 **Undo a bad drag.** Dropped a panel somewhere you didn't mean to?
 **View → Layouts → Undo layout change** puts it back where it came from.
 It remembers the last few arrangements, so you can step back a couple of
-times. (It starts fresh each launch and only tracks panel *moves* — it
-won't re-open a panel you closed; use the **View** menu for that.)
+times — and it now **survives a restart**, so a layout you wrecked just
+before closing is still recoverable the next morning. (It only tracks
+panel *moves* — it won't re-open a panel you closed; use the **View**
+menu for that.)
 
 **Named layouts.** **View → Layouts** gives you **four save-able slots**
 plus the built-in **Lyra default** — five arrangements you can recall in
@@ -445,9 +447,23 @@ one click:
 Recalling a layout restores only your main panels — it won't pop open the
 TX/RX DSP-rack or CW tool windows you reach from the header chips.
 
-Your window size, layout, and divider position are remembered between
-sessions (and survive a lock + restart). To move a layout to another PC
-or keep a backup, see
+**The factory arrangement** is the set of panels you need to operate a
+radio, and it is built to fit the minimum supported display (1600 × 900):
+the panadapter and waterfall across the top, then **Tuning · Meter ·
+Filters** side by side, with **Audio**, **Band** and **TX** below. The
+optional panels — Solar/Propagation, Display, Profiles and the tool
+windows — start closed, because at the minimum size there is nowhere for
+them to go. On a bigger screen open whatever you like from the **View**
+menu; see [System requirements](#system-requirements) for what fits at
+what size.
+
+**Your layout is remembered per monitor setup.** Lyra keeps a separate
+arrangement for each combination of screens you use it on, so plugging
+into a projector, undocking a laptop, or running it on a small second
+machine **cannot overwrite the layout you built on your main display** —
+each comes back the way you left it. Window size and the
+spectrum/waterfall divider are remembered the same way, and survive a
+lock + restart. To move a layout to another PC or keep a backup, see
 [Backing up & sharing your settings](#backing-up--sharing-your-settings).
 
 **Share a layout with someone.** **Settings → Backup & Restore → Share a
@@ -2543,8 +2559,9 @@ country to override just the bands that differ:
 - **United Kingdom** — replaces 60 m with the UK's own set of permitted
   segments (per the RSGB / Ofcom band plan), which differ from the plain
   WRC-15 band.
-- **Canada** — uses the WRC-15 60 m band rather than the US channels (Canada
-  is in IARU Region 2 but does not use the US channel plan).
+- **Canada** — full 160 m–6 m Canadian mode boundaries (per RAC), including
+  Canada's own **five fixed 60 m channels** (Canada is in IARU Region 2 but
+  channelizes 60 m rather than using the WRC-15 band).
 
 The overlay paints a thin strip across the **top of the panadapter**:
 
@@ -2567,22 +2584,48 @@ The overlay paints a thin strip across the **top of the panadapter**:
 - **Band-edge warning lines** — red dashed lines at each band's edges, so
   you can see at a glance when you're tuning toward the edge of an
   allocation.
+- **License-class edges (US)** — *(optional, off by default)* amber dashed
+  markers at the US phone sub-band boundaries where each license class
+  (**Extra / Advanced / General / Tech**) gains privileges — e.g. the 20 m
+  phone edges at 14.150 (Extra) / 14.175 (Advanced) / 14.225 (General).
+  A passive reference so you can see where your class's limits fall; it's
+  US-only (nothing draws for other regions). You are responsible for
+  knowing your own class limits.
 
-Each of those four layers has its own checkbox here so you can show only
-what you want. They're all on by default. **Segment colors** — the four
-swatch buttons (CW / DIG / SSB / FM) let you recolor each mode category;
-click a swatch to pick a color, or choose the original color to clear the
-override.
+Each layer has its own checkbox here so you can show only what you want
+(all on by default except the license-class edges). **Segment colors** —
+the four swatch buttons (CW / DIG / SSB / FM) let you recolor each mode
+category; click a swatch to pick a color, or choose the original color to
+clear the override.
 
-As you tune, Lyra shows a brief message at the **bottom of the window**
-when you cross a band edge — "In band: 40m (US)" when you're inside an
-allocation, or "⚠ Out of band — X.XXX MHz is outside the US amateur
-allocations" when you're not. (Gated on the band-edge layer above.)
+**Warn on transmit out of band** *(on by default)* — a separate safety
+option, independent of the visual layers above, so turning the overlay
+lines off to declutter never disables it. When you key up, if any part of
+your **transmit signal** falls outside your region's amateur allocation,
+Lyra shows a large, pulsing warning banner across the panadapter:
+
+- It checks your **occupied bandwidth**, not just the dial frequency —
+  Lyra works out where your signal actually reaches from your mode and TX
+  filter. So a wide signal that spills past a band edge warns even when the
+  carrier reads in band (e.g. a 6 kHz USB signal at 14.345 reaches 14.351,
+  1 kHz over the 20 m edge, and warns — while 4 kHz at the same dial does
+  not).
+- It **re-checks live while you're transmitting** — if you roll the dial or
+  change bandwidth mid-transmit and cross the edge, the banner appears
+  immediately, and clears the moment you're back in band or un-key.
+- It uses your **actual transmit frequency** — VFO B when you're in split.
+- On **60 m** (channel-only in the US and Canada) it also warns when you're
+  **off channel** (parked between the five channels) or when your signal is
+  **too wide for the 2.8 kHz channel** — so set TX bandwidth to 2.8 kHz or
+  narrower on 60 m.
+- If you enable the **11 m / CB band** and tune within it, the banner stays
+  silent there — you're deliberately on a non-amateur band, so Lyra doesn't
+  nag you about the amateur allocations.
 
 > The band plan is **advisory only** — the HL2 is unlocked and Lyra will
-> tune anywhere it can receive. Sub-band boundaries vary by license class
-> and country and change over time; verify against your own regulator
-> before transmitting near an edge. The strip is a navigation aid, not a
+> transmit anywhere you tune; **nothing here inhibits transmit**. Sub-band
+> boundaries vary by license class and country and change over time; verify
+> against your own regulator. The overlay and the warning are aids, not a
 > legal reference.
 
 ### Shortwave broadcasters (EiBi)
@@ -2746,6 +2789,31 @@ log** you can read, copy, and send to us.
    and paste it into your message.
 5. Send the log with a one-line note of what it was doing and what you
    expected instead.
+
+### Lyra won't start / hangs at launch — Safe Boot
+
+Almost all "it just spins and never shows a window" cases are a **wedged
+audio device** — most often a virtual audio cable (VoiceMeeter, VB-Cable)
+that Windows has left in a bad state. Lyra enumerates audio devices
+*before* the window appears, and a stuck device can fault right there, so
+you never see anything. Lyra now guards that step and leaves a breadcrumb
+in the log, but if you're locked out, **Safe Boot** gets you back in:
+
+- **Launch with `--safe`** (or set the environment variable `LYRA_SAFE=1`).
+  Safe Boot uses **software graphics**, **skips audio-device enumeration**,
+  and **doesn't auto-connect** — so a wedged audio device or GPU driver
+  can't block startup. You'll come up in a plain, working window where you
+  can change the offending setting, then restart normally.
+- If it *still* won't start, the log at
+  `…/N8SDR/Lyra-cpp/logs/lyra-log.txt` now shows how far startup got —
+  attach it to a bug report (see below).
+- **Last resort — clear Lyra's saved settings** (this forgets your
+  layout/preferences but always un-sticks a bad remembered state). In a
+  Command Prompt: `reg delete "HKCU\Software\N8SDR\Lyra-cpp" /f`, then
+  launch Lyra again for a clean first-run.
+
+The most common real fix once you're in: change your default audio device,
+or restart/reset the virtual audio cable, then launch Lyra normally.
 
 ### Getting help / reporting a bug
 

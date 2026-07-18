@@ -56,6 +56,12 @@ public:
         floatOnly_ = std::move(pred);
     }
 
+    // No-tear-out mode (a rack window): members re-tile / tab freely INSIDE the
+    // host, but a drop into empty space is a no-op instead of floating the
+    // member out — so a fixed-membership rack can't spill panels onto the
+    // screen.  Set true on a PanelRack's own controller.
+    void setNoTearOut(bool v) { noTearOut_ = v; }
+
 signals:
     // A drag committed a new dock placement (or float) — persist the layout.
     void layoutChanged();
@@ -86,6 +92,7 @@ private:
     const QHash<QString, QDockWidget *> *docks_   = nullptr;
     DropOverlay                         *overlay_ = nullptr;
     std::function<bool(const QString &)> floatOnly_;   // chip-summoned → float-only
+    bool                                 noTearOut_ = false;   // rack: None = no-op
 
     State        state_           = State::Idle;
     QDockWidget *dragDock_        = nullptr;

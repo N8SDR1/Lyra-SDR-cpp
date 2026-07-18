@@ -717,6 +717,10 @@ public:
     quint32 rx1FreqHz()         const { return rx1FreqHz_.load(std::memory_order_relaxed); }
     bool    splitEnabled()      const { return splitEnabled_.load(std::memory_order_relaxed); }
     quint32 vfoBHz()            const { return vfoBHz_.load(std::memory_order_relaxed); }
+    // Effective TX carrier the wire NCO is set to (0x02/0x08/0x0a).  Tracks
+    // vfoBHz_ under SPLIT, else rx1FreqHz_ — so an out-of-band TX check reads
+    // the actual transmit frequency, including split operation.
+    quint32 txFreqHz()          const { return txFreqHz_.load(std::memory_order_relaxed); }
     bool    ritEnabled()        const { return ritEnabled_.load(std::memory_order_relaxed); }
     int     ritOffsetHz()       const { return ritOffsetHz_.load(std::memory_order_relaxed); }
     bool    xitEnabled()        const { return xitEnabled_.load(std::memory_order_relaxed); }

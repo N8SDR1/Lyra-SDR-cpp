@@ -92,8 +92,8 @@ const QVector<Band> &r1Bands() {
             {1838000, 1843000, "DIG", "DIG"},
             {1843000, 2000000, "SSB", "SSB"}}},
         {"80m", 3500000, 3800000, {
-            {3500000, 3580000, "CW",  "CW"},
-            {3580000, 3620000, "DIG", "DIG"},
+            {3500000, 3570000, "CW",  "CW"},
+            {3570000, 3600000, "DIG", "DIG"},
             {3600000, 3800000, "SSB", "SSB"}}},
         // 60m: WRC-15 secondary allocation, 5351.5-5366.5 kHz, all-mode
         // (15 W EIRP).  Contiguous band, NOT channelized like the US.
@@ -104,14 +104,15 @@ const QVector<Band> &r1Bands() {
             {5354000, 5366500, "SSB", "SSB"}}},
         {"40m", 7000000, 7200000, {
             {7000000, 7040000, "CW",  "CW"},
-            {7040000, 7060000, "DIG", "DIG"},
-            {7060000, 7200000, "SSB", "SSB"}}},
+            {7040000, 7050000, "DIG", "DIG"},
+            {7050000, 7200000, "SSB", "SSB"}}},
         {"30m", 10100000, 10150000, {
-            {10100000, 10150000, "DIG", "CW/DIG"}}},
+            {10100000, 10130000, "CW",  "CW"},
+            {10130000, 10150000, "DIG", "DIG"}}},
         {"20m", 14000000, 14350000, {
             {14000000, 14070000, "CW",  "CW"},
             {14070000, 14099000, "DIG", "DIG"},
-            {14099000, 14350000, "SSB", "SSB"}}},
+            {14101000, 14350000, "SSB", "SSB"}}},   // 14099-14101 = IBP beacons
         {"17m", 18068000, 18168000, {
             {18068000, 18095000, "CW",  "CW"},
             {18095000, 18110000, "DIG", "DIG"},
@@ -127,12 +128,13 @@ const QVector<Band> &r1Bands() {
         {"10m", 28000000, 29700000, {
             {28000000, 28070000, "CW",  "CW"},
             {28070000, 28190000, "DIG", "DIG"},
-            {28190000, 29520000, "SSB", "SSB"},
+            {28225000, 29520000, "SSB", "SSB"},   // 28190-28225 = IBP beacons
             {29520000, 29700000, "FM",  "FM"}}},
-        {"6m", 50000000, 54000000, {
+        // IARU R1 6m is 50-52 MHz (NOT 50-54, which is a Region 2 extent).
+        {"6m", 50000000, 52000000, {
             {50000000, 50100000, "CW",  "CW"},
             {50100000, 50500000, "SSB", "SSB"},
-            {50500000, 54000000, "FM",  "FM"}}},
+            {50500000, 52000000, "FM",  "FM"}}},
     };
     return b;
 }
@@ -198,13 +200,71 @@ const QVector<Band> &countryBands(const QString &country) {
         return uk;
     }
     if (country == QLatin1String("CA")) {
-        // Canada (ISED): the WRC-15 5351.5-5366.5 kHz band, same as
-        // IARU R1 -- NOT the US 5-channel plan, even though Canada is
-        // IARU Region 2 (the "US" base bucket).
+        // Canada (RAC / ISED band plan, rac.ca).  Canada sits in IARU
+        // Region 2 so it fell through to the US/FCC base table for every
+        // band except 60m -- but the Canadian sub-band boundaries differ
+        // from the US ones on most HF bands (most visibly 40m, where
+        // phone is permitted from 7.040 vs 7.125 in the US).  This full
+        // table replaces the US band-for-band.  Mode regions only
+        // (CW / DIG / SSB / FM) -- Canada's licence-class structure is
+        // not modelled.  SSTV / beacon / satellite / repeater micro-
+        // slices are folded into their surrounding phone/FM region.
         static const QVector<Band> ca = {
-            {"60m", 5351500, 5366500, {
-                {5351500, 5354000, "CW",  "CW/DIG"},
-                {5354000, 5366500, "SSB", "SSB"}}},
+            {"160m", 1800000, 2000000, {
+                {1800000, 1840000, "CW",  "CW/DIG"},
+                {1840000, 2000000, "SSB", "SSB"}}},
+            {"80m", 3500000, 4000000, {
+                {3500000, 3580000, "CW",  "CW"},
+                {3580000, 3600000, "DIG", "DIG"},
+                {3600000, 4000000, "SSB", "SSB"}}},
+            // Canada 60m per RAC (rac.ca/60metres): 5 channels, NOT a
+            // continuous band.  Ch3 is the wider WRC-15 5351.5-5366.5
+            // slice.  (This reverses the previous Lyra override, which
+            // showed the R1-style continuous band -- flagged to operator.)
+            {"60m", 5330500, 5406300, {
+                {5330500, 5333300, "SSB", "CH1"},
+                {5346500, 5349300, "SSB", "CH2"},
+                {5351500, 5366500, "SSB", "CH3"},
+                {5371500, 5374300, "SSB", "CH4"},
+                {5403500, 5406300, "SSB", "CH5"}}},
+            {"40m", 7000000, 7300000, {
+                {7000000, 7035000, "CW",  "CW"},
+                {7035000, 7040000, "CW",  "CW/DIG"},
+                {7040000, 7070000, "SSB", "SSB"},
+                {7070000, 7125000, "DIG", "DIG"},
+                {7125000, 7300000, "SSB", "SSB"}}},
+            {"30m", 10100000, 10150000, {
+                {10100000, 10130000, "CW",  "CW"},
+                {10130000, 10140000, "DIG", "DIG"},
+                {10140000, 10150000, "CW",  "CW"}}},
+            {"20m", 14000000, 14350000, {
+                {14000000, 14070000, "CW",  "CW"},
+                {14070000, 14112000, "DIG", "DIG"},
+                {14112000, 14350000, "SSB", "SSB"}}},
+            {"17m", 18068000, 18168000, {
+                {18068000, 18095000, "CW",  "CW"},
+                {18095000, 18110000, "DIG", "DIG"},
+                {18110000, 18168000, "SSB", "SSB"}}},
+            {"15m", 21000000, 21450000, {
+                {21000000, 21070000, "CW",  "CW"},
+                {21070000, 21125000, "DIG", "DIG"},
+                {21125000, 21150000, "CW",  "CW"},
+                {21150000, 21450000, "SSB", "SSB"}}},
+            {"12m", 24890000, 24990000, {
+                {24890000, 24925000, "CW",  "CW"},
+                {24925000, 24940000, "DIG", "DIG"},
+                {24940000, 24990000, "SSB", "SSB"}}},
+            {"10m", 28000000, 29700000, {
+                {28000000, 28070000, "CW",  "CW"},
+                {28070000, 28320000, "DIG", "CW/DIG"},
+                {28320000, 29300000, "SSB", "SSB"},
+                // 29.300-29.520 is the satellite segment (not modelled).
+                {29520000, 29700000, "FM",  "FM"}}},
+            {"6m", 50000000, 54000000, {
+                {50000000, 50100000, "CW",  "CW"},
+                {50100000, 50600000, "SSB", "SSB"},
+                // 50.600-51.000 is experimental modes (not modelled).
+                {51000000, 54000000, "FM",  "FM"}}},
         };
         return ca;
     }
@@ -323,6 +383,45 @@ QVariantList BandPlan::edges(double centerHz, double spanHz) const {
     return out;
 }
 
+QVariantList BandPlan::classEdges(double centerHz, double spanHz) const {
+    QVariantList out;
+    // US-only: the FCC phone sub-band edges are license-class dependent,
+    // which is unusual worldwide (most administrations gate classes by
+    // power + whole-band access, not sub-band boundaries).  For every other
+    // region we return nothing so the QML overlay draws no class markers.
+    if (spanHz <= 0 || region() != QLatin1String("US")) return out;
+
+    // Phone sub-band edges that OPEN as license class rises (ARRL/FCC band
+    // chart).  The label names the class gaining phone privileges at that
+    // boundary.  The Extra-class outer edges that coincide with a whole-band
+    // edge are already drawn by edges(); listed here only where they are an
+    // in-band boundary (e.g. 80/20/15m Extra phone starts).
+    static const struct { double hz; const char *label; } marks[] = {
+        {3600000.0,  "EXTRA"},   // 80m
+        {3700000.0,  "ADV"},
+        {3800000.0,  "GEN"},
+        {7125000.0,  "EXT/ADV"}, // 40m
+        {7175000.0,  "GEN"},
+        {14150000.0, "EXTRA"},   // 20m
+        {14175000.0, "ADV"},
+        {14225000.0, "GEN"},
+        {21200000.0, "EXTRA"},   // 15m
+        {21225000.0, "ADV"},
+        {21275000.0, "GEN"},
+        {28500000.0, "TECH"},    // 10m — Technician phone upper limit
+    };
+    const double lo = centerHz - spanHz / 2;
+    const double hi = centerHz + spanHz / 2;
+    for (const auto &m : marks) {
+        if (m.hz < lo || m.hz > hi) continue;
+        QVariantMap e;
+        e["freq"]  = m.hz;
+        e["label"] = QString::fromLatin1(m.label);
+        out.append(e);
+    }
+    return out;
+}
+
 QString BandPlan::ncdxfStation(double freqHz) const {
     // 5 NCDXF beacon bands (kHz), in the canonical rotation order.
     static const int bandKhz[5] = {14100, 18110, 21150, 24930, 28200};
@@ -381,6 +480,49 @@ QVariantList BandPlan::cbChannels(double centerHz, double spanHz) const {
         out.append(m);
     }
     return out;
+}
+
+bool BandPlan::inCbBand(double freqHz) const {
+    // US CB plan spans Ch1 26.965 MHz … Ch40 27.405 MHz; a ~10 kHz guard on
+    // each side covers on-channel AM/SSB operation at the band edges.  Pure
+    // range test — caller gates on cbBandEnabled.
+    return freqHz >= 26955000.0 && freqHz <= 27415000.0;
+}
+
+QString BandPlan::channelStatus(double carrierHz, double minFHz,
+                                double maxFHz) const {
+    const QString reg = region();
+    if (reg == QLatin1String("NONE")) return QString();
+    const qint64 car = qint64(carrierHz);
+    for (const Band &b : bandsFor(reg, country())) {
+        if (car < b.lo || car >= b.hi) continue;   // carrier not in this band
+        // Channelized band?  (any CH* sub-segment, e.g. US/Canada 60m.)
+        bool channelized = false;
+        for (const Seg &s : b.segs)
+            if (QString::fromLatin1(s.label).startsWith(QLatin1String("CH"))) {
+                channelized = true; break;
+            }
+        if (!channelized) return QString();   // ordinary band — no channel rule
+        // On a channel?  (carrier within a CH sub-segment window.)
+        qint64 chLo = 0, chHi = 0;
+        bool onChan = false;
+        for (const Seg &s : b.segs) {
+            if (!QString::fromLatin1(s.label).startsWith(QLatin1String("CH")))
+                continue;
+            if (car >= s.lo && car < s.hi) {
+                chLo = s.lo; chHi = s.hi; onChan = true; break;
+            }
+        }
+        if (!onChan) return QStringLiteral("offchannel");
+        // On a channel — does the emission fit within it?  Small 50 Hz guard
+        // for float/rounding slop only: a true 2.8 kHz signal (maxF == chHi)
+        // passes, but 3 kHz (200 Hz over the 2.8 kHz channel) correctly flags.
+        const double guard = 50.0;
+        if (minFHz < double(chLo) - guard || maxFHz > double(chHi) + guard)
+            return QStringLiteral("toowide");
+        return QString();   // on channel and within width — OK
+    }
+    return QString();   // carrier not in a band (normal out-of-band handles it)
 }
 
 QString BandPlan::bandContaining(double freqHz) const {

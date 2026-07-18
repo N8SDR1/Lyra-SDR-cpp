@@ -40,6 +40,44 @@
 #include <cstring>
 #include <mutex>
 
+#if defined(_WIN32)
+#  include <excpt.h>   // __try / __except SEH filter constants
+#endif
+
+namespace {
+
+// C++ half of the guarded enumeration — kept OUT of the __try function below
+// because it allocates QList / QAudioDevice temporaries, and an SEH frame that
+// unwinds can't hold objects with destructors (MSVC C2712).
+void enumerateOutputsRaw(QList<QAudioDevice> *outs, QAudioDevice *def) {
+    *outs = QMediaDevices::audioOutputs();
+    *def  = QMediaDevices::defaultAudioOutput();
+}
+
+// Enumerate the PC audio outputs, but never let a wedged virtual audio device
+// (VoiceMeeter / VB-Cable / a half-disconnected USB interface) take the whole
+// app down.  This runs in the WdspEngine ctor — BEFORE the main window exists —
+// so an unhandled fault here is an invisible "spins, then no window" lockout
+// with no way back in (tester report, 2026-07-17).  On Windows the OS
+// enumeration is a COM call that can fault inside a bad device's endpoint;
+// contain it (SEH) and return false so the caller falls back to an empty list,
+// which every consumer already treats as "use the HL2 codec / system default".
+bool enumerateOutputsGuarded(QList<QAudioDevice> *outs, QAudioDevice *def) {
+#if defined(_WIN32)
+    __try {
+        enumerateOutputsRaw(outs, def);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+#else
+    enumerateOutputsRaw(outs, def);
+    return true;
+#endif
+}
+
+}  // namespace
+
 namespace lyra::dsp {
 
 namespace {
@@ -357,13 +395,34 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
         }
     });
 
-    // Step 3e: enumerate the operator's PC output devices + default.
-    devices_ = QMediaDevices::audioOutputs();
-    const QAudioDevice def = QMediaDevices::defaultAudioOutput();
-    for (int i = 0; i < devices_.size(); ++i) {
-        if (devices_[i].id() == def.id()) {
-            deviceIndex_ = i;
-            break;
+    // Step 3e: enumerate the operator's PC output devices + default.  Guarded,
+    // and skippable via LYRA_SAFE (safe-boot): a wedged virtual audio device is
+    // a prime cause of a pre-window startup fault, and this runs before the main
+    // window exists.  An empty list degrades to the HL2 codec / system default —
+    // every deviceIndex_ consumer bounds-checks it.
+    if (qEnvironmentVariableIsSet("LYRA_SAFE")) {
+        qWarning("[audio] LYRA_SAFE set — skipping PC output-device enumeration");
+        devices_.clear();
+        deviceIndex_ = 0;
+    } else {
+        qInfo("[audio] enumerating PC output devices...");
+        QAudioDevice def;
+        if (enumerateOutputsGuarded(&devices_, &def)) {
+            qInfo("[audio] %lld PC output device(s) enumerated",
+                  static_cast<long long>(devices_.size()));
+            for (int i = 0; i < devices_.size(); ++i) {
+                if (devices_[i].id() == def.id()) {
+                    deviceIndex_ = i;
+                    break;
+                }
+            }
+        } else {
+            qWarning("[audio] output-device enumeration FAULTED — continuing "
+                     "with no PC output devices; pick one in Settings -> Audio. "
+                     "A wedged virtual audio device (e.g. VoiceMeeter) is the "
+                     "usual cause.");
+            devices_.clear();
+            deviceIndex_ = 0;
         }
     }
 

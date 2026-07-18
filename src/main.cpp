@@ -15,6 +15,7 @@
 #include "wdsp_engine.h"
 #include "mic_source.h"
 #include "mainwindow.h"
+#include "single_instance.h"   // one-instance guard (TCI-port / double-radio collision)
 // TX-rip Phase 1 (Q2): tci_mic_source.h / tx_dsp_worker.h removed —
 // the TX DSP subsystem is being rebuilt from empty files per
 // docs/TX_ARCHITECTURAL_MAPPING.md §10.3.  TX wiring below collapses
@@ -148,6 +149,24 @@ int main(int argc, char *argv[])
     ::WSAStartup(MAKEWORD(2, 2), &wsa);
 #endif
 
+    // Single-instance guard — FIRST, before the graphics-safe-mode sentinel
+    // below (so a bounced second launch never leaves ui/gfxStartupPending
+    // set and false-triggers safe mode on the next real launch) and before
+    // any radio / audio / port is touched.  A second copy would collide on
+    // the HL2 socket, the audio device, and the TCI listen port (40001) the
+    // first already owns — the operator-visible "port in use".  Instead the
+    // second launch RAISES the running window and exits.  `siServerName` is
+    // used further down (after the window exists) to start the raise channel.
+    //
+    // instanceId is "default" today; the planned two-radio / two-config
+    // feature will pass a distinct id per config so each radio gets exactly
+    // one instance.  `--new-instance` bypasses the guard (power-user hatch).
+    QString siServerName;
+    if (!lyra::ui::acquireSingleInstance(argc, argv,
+                                         QStringLiteral("default"),
+                                         &siServerName))
+        return 0;   // another Lyra is already running — it has been raised
+
     // Qt RHI backend selection.  Lyra targets Vulkan as the
     // primary graphics path per FEATURES.md §0 (cross-vendor /
     // cross-platform).  setGraphicsApi()
@@ -194,6 +213,24 @@ int main(int argc, char *argv[])
             qInfo("[factory-reset] cleared all settings to defaults");
         }
     }
+
+    // Safe-boot hatch: `--safe` (or LYRA_SAFE=1 in the environment) forces the
+    // software renderer and skips PC audio-device enumeration + auto-connect —
+    // a guaranteed way in when a wedged GPU driver or a faulting virtual audio
+    // device (VoiceMeeter / VB-Cable) is killing startup before the window ever
+    // appears, and a quick way to localise which one.  --safe is normalised to
+    // the env var so the WdspEngine ctor (which owns the audio enumeration) and
+    // the auto-connect gate both see it without threading a flag through.
+    bool safeBoot = qEnvironmentVariableIsSet("LYRA_SAFE");
+    for (int i = 1; i < argc; ++i) {
+        if (QString::fromLocal8Bit(argv[i]) == QStringLiteral("--safe")) {
+            safeBoot = true;
+            qputenv("LYRA_SAFE", "1");
+        }
+    }
+    if (safeBoot)
+        qWarning("[safe] SAFE BOOT active — software graphics, no audio device "
+                 "enumeration, no auto-connect");
 
     // Operator-selectable RHI backend (Settings → Visuals → Graphics
     // backend; restart-to-apply since the API is fixed at startup).
@@ -247,6 +284,7 @@ int main(int argc, char *argv[])
                                   : QStringLiteral("opengl");
             gfxSafeBackend = be;
         }
+        if (safeBoot) be = QStringLiteral("software");   // safe-boot override
         if      (be == "vulkan")   QQuickWindow::setGraphicsApi(RI::Vulkan);
         else if (be == "opengl")   QQuickWindow::setGraphicsApi(RI::OpenGL);
         else if (be == "d3d11")    QQuickWindow::setGraphicsApi(RI::Direct3D11);
@@ -1069,9 +1107,21 @@ int main(int argc, char *argv[])
     auto *wx = new lyra::wx::WxService(prefs, &app);
     QObject::connect(prefs, &lyra::ui::Prefs::locationChanged,
                      wx, &lyra::wx::WxService::reloadConfig);
+    qInfo("[startup] services ready — building main window");
     auto *win = new lyra::ui::MainWindow(discovery, stream, wdsp,
                                          wdspEngine, prefs, wx, profiles);
     winRef = win;   // populate the aboutToQuit teardown handler's reference
+    qInfo("[startup] main window constructed");
+    // Single-instance raise channel: a later launch of the same instanceId
+    // pings this server (see acquireSingleInstance) instead of starting a
+    // second radio; bring the existing window to the front.
+    lyra::ui::startSingleInstanceServer(siServerName, win, [win]() {
+        win->setWindowState((win->windowState() & ~Qt::WindowMinimized)
+                            | Qt::WindowActive);
+        win->show();
+        win->raise();
+        win->activateWindow();
+    });
     // Defer showing the main window when a one-time FFTW-wisdom BUILD is
     // pending (the build runs in-process below, behind a modal 'please
     // wait').  We must NOT present a fully-rendered, ready-looking Lyra
@@ -1090,9 +1140,16 @@ int main(int argc, char *argv[])
     // during UI build never reaches the event loop, so the sentinel stays set
     // and the NEXT launch steps down to a safer backend.  Also cleared on a
     // clean quit; a hard crash reaches neither, which is the whole point.
-    QTimer::singleShot(2000, win, []() {
+    QTimer::singleShot(2000, win, [safeBoot]() {
         QSettings s;
         s.setValue(QStringLiteral("ui/gfxStartupPending"), false);
+        // A successful --safe boot also clears the graphics crash-ladder, so the
+        // operator's NEXT normal launch retries their real backend from scratch
+        // instead of staying pinned to the software rasterizer.
+        if (safeBoot) {
+            s.setValue(QStringLiteral("ui/gfxSafeMode"), false);
+            s.setValue(QStringLiteral("ui/gfxSafeDepth"), 0);
+        }
         s.sync();
     });
     QObject::connect(&app, &QApplication::aboutToQuit, []() {
@@ -1726,7 +1783,8 @@ int main(int argc, char *argv[])
         // Auto-start-on-launch opt-out (Settings → Hardware).  Default ON
         // (historical behaviour).  When the operator unticks it Lyra loads
         // but waits for an explicit Start instead of opening the radio.
-        if (!lastIp.isEmpty() && prefs->autoStartOnLaunch()) {
+        if (!lastIp.isEmpty() && prefs->autoStartOnLaunch()
+            && !qEnvironmentVariableIsSet("LYRA_SAFE")) {
             // Resilient connect: probe the remembered IP and open it only
             // if the radio answers; otherwise scan and self-heal to its
             // real address.  Prevents a blind open of a stale saved IP

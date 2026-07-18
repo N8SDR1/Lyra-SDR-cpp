@@ -68,6 +68,7 @@ class UpdateChecker;
 class WxIndicator;
 class NcdxfFollow;
 class DockDragController;
+class PanelRack;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -305,6 +306,25 @@ private:
     // restores tear-out / move / snap-to-edge re-dock / tabify that the
     // replaced title bar removed.  Installed as each title bar's event filter.
     DockDragController         *dragController_ = nullptr;
+
+    // ── Optional grouped panel racks (Settings → Visuals → Panel layout) ─────
+    // Instead of each DSP / Options tool panel floating individually from its
+    // own header chip, the operator can opt (per set) to house the whole set in
+    // one saved "rack" window with an internal show/hide toggle per module.
+    // The mode is read at startup from Prefs (dspPanelsGrouped /
+    // optionsPanelsGrouped); switching it takes effect on the next launch.
+    // Closing a rack HIDES it (its members go with it — nothing spills onto the
+    // screen); the rack chip re-summons it.  Individual mode is byte-identical
+    // to the classic chip-per-panel behaviour.
+    PanelRack   *dspRack_          = nullptr;
+    PanelRack   *optionsRack_      = nullptr;
+    QToolButton *dspRackChip_      = nullptr;   // header chip toggling the DSP rack
+    QToolButton *optionsRackChip_  = nullptr;   // header chip toggling the Options rack
+
+    // Build a rack from a member objectName list; reparent those docks into it,
+    // wire its close→hide + a header chip.  Returns the rack (owned by `this`).
+    PanelRack *buildRack(const QString &objName, const QString &title,
+                         const QStringList &members);
 
     SettingsDialog             *settingsDlg_ = nullptr;
     Help                       *help_    = nullptr;   // QML→C++ help bridge
