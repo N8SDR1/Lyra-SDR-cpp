@@ -61,11 +61,25 @@ Rectangle {
         }
     }
 
-    ColumnLayout {
-        id: body
+    // Scroll when the panel is compressed below its natural content size
+    // — both axes, AsNeeded — so a floated-small or racked panel stays
+    // fully usable instead of silently clipping (SizeRootObjectToView
+    // gives no scrollbar on its own).  Same idiom as SpeechPanel / the CW
+    // decoder.  Above the natural size the content fills; below it scrolls.
+    ScrollView {
+        id: bodyScroll
         anchors.fill: parent
         anchors.margins: 6
-        spacing: 6
+        clip: true
+        contentWidth: Math.max(428, availableWidth)
+        contentHeight: body.implicitHeight
+        ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+        ScrollBar.vertical.policy:   ScrollBar.AsNeeded
+
+        ColumnLayout {
+            id: body
+            width: bodyScroll.contentWidth
+            spacing: 6
 
         // ── Header: title + ON + collapse ─────────────────────────────
         RowLayout {
@@ -155,6 +169,7 @@ Rectangle {
             CtlRow { label: qsTr("Mix"); from: 0; to: 15; step: 1; suffix: " %"
                 value: Plate.mix * 100
                 onMoved: (v) => Plate.mix = v / 100 }
+        }
         }
     }
 }

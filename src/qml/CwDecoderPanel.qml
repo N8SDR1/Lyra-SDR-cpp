@@ -398,22 +398,37 @@ Rectangle {
                 anchors.fill: parent
                 anchors.margins: 8
                 clip: true
+
+                // Auto-scroll follows the newest copy ONLY while the view is
+                // parked at the bottom; if the operator scrolls up to re-read
+                // earlier text, following pauses until they return to the end.
+                property bool followBottom: true
+
+                function atBottom() {
+                    var f = decodeScroll.contentItem
+                    if (!f) return true
+                    var ch = Math.max(f.contentHeight, decodeOut.implicitHeight)
+                    if (ch <= f.height) return true
+                    // Grace band ~1.5 lines so a per-character re-pin never reads
+                    // as a deliberate scroll-up and turns following off.
+                    return f.contentY >= (ch - f.height) - decodeOut.font.pixelSize * 1.5
+                }
                 function scrollToBottom() {
                     var f = decodeScroll.contentItem
                     if (!f) return
                     var ch = Math.max(f.contentHeight, decodeOut.implicitHeight)
                     f.contentY = ch > f.height ? ch - f.height : 0
                 }
-                // Auto-scroll off the VIEWPORT's content height, not the TextArea's:
-                // the Flickable's contentHeight updates only after ScrollView has
-                // taken in the new (possibly just-wrapped) line, so scrolling here
-                // always includes it — fixes the newest line lagging one update.
+
+                // The operator dragging / flicking the view toggles follow off
+                // (scrolled up to read) and back on (returned to the bottom).
                 Connections {
                     target: decodeScroll.contentItem
-                    function onContentHeightChanged() {
-                        Qt.callLater(decodeScroll.scrollToBottom)
+                    function onContentYChanged() {
+                        decodeScroll.followBottom = decodeScroll.atBottom()
                     }
                 }
+
                 TextArea {
                     id: decodeOut
                     readOnly: true
@@ -425,7 +440,19 @@ Rectangle {
                     font.family: "Consolas"
                     font.pixelSize: Prefs.cwDecodeFontSize
                     background: null
-                    onTextChanged: cursorPosition = length
+                    // Re-pin to the end on EVERY appended character, not only
+                    // when a new line grows contentHeight.  The old
+                    // contentHeight-only trigger left the last, still-growing
+                    // line below the fold until it wrapped — which read as
+                    // "decoding hangs, then jumps a line or two later".
+                    onTextChanged: {
+                        cursorPosition = length
+                        if (decodeScroll.followBottom)
+                            Qt.callLater(decodeScroll.scrollToBottom)
+                    }
+                    onContentHeightChanged:
+                        if (decodeScroll.followBottom)
+                            Qt.callLater(decodeScroll.scrollToBottom)
 
                     // Double-click a word → His Call (robust word extraction).
                     TapHandler {

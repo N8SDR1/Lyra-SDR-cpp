@@ -199,6 +199,13 @@ class Prefs : public QObject {
     // SAM / FM).  Off by default; RX-only display.
     Q_PROPERTY(bool zeroBeatMarkers READ zeroBeatMarkers WRITE setZeroBeatMarkers
                NOTIFY zeroBeatMarkersChanged)
+    // Panel layout (Settings → Visuals): group the DSP / Options tool panels
+    // into one saved "rack" window each, instead of each floating individually
+    // from its own header chip.  Read at startup; takes effect on next launch.
+    Q_PROPERTY(bool dspPanelsGrouped READ dspPanelsGrouped WRITE setDspPanelsGrouped
+               NOTIFY dspPanelsGroupedChanged)
+    Q_PROPERTY(bool optionsPanelsGrouped READ optionsPanelsGrouped
+               WRITE setOptionsPanelsGrouped NOTIFY optionsPanelsGroupedChanged)
     // Panadapter zoom: 1.0 = full IQ span, higher magnifies the centre.
     // Drives WdspEngine.zoom (display-side crop, old-Lyra method).
     Q_PROPERTY(double zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
@@ -515,6 +522,10 @@ public:
     void setCursorReadout(bool v);
     bool zeroBeatMarkers() const { return zeroBeatMarkers_; }
     void setZeroBeatMarkers(bool v);
+    bool dspPanelsGrouped() const { return dspPanelsGrouped_; }
+    void setDspPanelsGrouped(bool v);
+    bool optionsPanelsGrouped() const { return optionsPanelsGrouped_; }
+    void setOptionsPanelsGrouped(bool v);
     double zoom() const { return zoom_; }
     void   setZoom(double v);
     QString mode() const { return mode_; }
@@ -666,6 +677,8 @@ signals:
     void panadapterSplitChanged();
     void cursorReadoutChanged();
     void zeroBeatMarkersChanged();
+    void dspPanelsGroupedChanged();
+    void optionsPanelsGroupedChanged();
     void zoomChanged();
     void modeChanged();
     void rxBandwidthChanged();
@@ -770,6 +783,8 @@ private:
     QVariant panadapterSplit_;
     bool    cursorReadout_;
     bool    zeroBeatMarkers_ = false;
+    bool    dspPanelsGrouped_ = false;
+    bool    optionsPanelsGrouped_ = false;
     double  zoom_;
     QString mode_;
     // Bandwidth memory keyed by mode FAMILY (bwFamilyKey): USB/LSB share

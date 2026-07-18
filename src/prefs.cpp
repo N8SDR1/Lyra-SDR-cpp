@@ -70,6 +70,8 @@ constexpr auto kWfDbAuto = "panadapter/waterfallDbAuto";
 constexpr auto kPanSplit = "ui/panadapterSplit";
 constexpr auto kCursorRdt = "panadapter/cursorReadout";
 constexpr auto kZeroBeat = "visuals/zeroBeatMarkers";
+constexpr auto kDspGrouped = "visuals/dspPanelsGrouped";
+constexpr auto kOptGrouped = "visuals/optionsPanelsGrouped";
 constexpr auto kZoom   = "panadapter/zoom";
 constexpr auto kRxMode = "modefilter/mode";
 constexpr auto kBwPrefix = "modefilter/bw/";   // + <MODE>
@@ -225,6 +227,8 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     panadapterSplit_  = s.value(kPanSplit);   // invalid (= QML undefined) if unset
     cursorReadout_    = s.value(kCursorRdt, true).toBool();
     zeroBeatMarkers_  = s.value(kZeroBeat, false).toBool();
+    dspPanelsGrouped_     = s.value(kDspGrouped, false).toBool();
+    optionsPanelsGrouped_ = s.value(kOptGrouped, false).toBool();
     zoom_             = std::clamp(s.value(kZoom, 1.0).toDouble(), 1.0, 32.0);
     mode_             = s.value(kRxMode, QStringLiteral("USB")).toString();
     // Per-FAMILY RX bandwidth (bwFamilyKey): USB/LSB share "SSB", etc.
@@ -910,6 +914,22 @@ void Prefs::setZeroBeatMarkers(bool v) {
         zeroBeatMarkers_ = v;
         QSettings().setValue(kZeroBeat, v);
         emit zeroBeatMarkersChanged();
+    }
+}
+
+void Prefs::setDspPanelsGrouped(bool v) {
+    if (v != dspPanelsGrouped_) {
+        dspPanelsGrouped_ = v;
+        QSettings().setValue(kDspGrouped, v);
+        emit dspPanelsGroupedChanged();
+    }
+}
+
+void Prefs::setOptionsPanelsGrouped(bool v) {
+    if (v != optionsPanelsGrouped_) {
+        optionsPanelsGrouped_ = v;
+        QSettings().setValue(kOptGrouped, v);
+        emit optionsPanelsGroupedChanged();
     }
 }
 

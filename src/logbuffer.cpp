@@ -2,8 +2,10 @@
 
 #include "logbuffer.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QFileInfo>
 #include <QSettings>
 #include <QStandardPaths>
 
@@ -27,18 +29,73 @@ void LogBuffer::install() {
         QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
         + QStringLiteral("/logs");
     QDir().mkpath(dir);
-    filePath_ = dir + QStringLiteral("/lyra-log.txt");
+    const QString primary = dir + QStringLiteral("/lyra-log.txt");
+
+    // Preserve the previous session's log so a crash trace survives one
+    // relaunch (this session truncates the primary below).  Best-effort: if
+    // the old file is still held by another Lyra process the rename fails and
+    // it stays put — the lock fallback below keeps THIS session logging anyway.
+    QFile::remove(dir + QStringLiteral("/lyra-log.prev.txt"));
+    QFile::rename(primary, dir + QStringLiteral("/lyra-log.prev.txt"));
+
+    // Robust open (bug fix 2026-07-17 — "log file dead / every tester log is
+    // stale").  A WriteOnly|Truncate open FAILS while the file is locked by
+    // another Lyra process — an overlapping launch, a second copy, or a
+    // lingering/zombie instance from a prior crash (its LogBuffer handle isn't
+    // released until that process exits).  Before this fix a failed open left
+    // `file_` closed and the WHOLE session logged to nothing, silently, with
+    // no fallback and no on-screen sign — so the on-disk file just kept showing
+    // an old session's date.  Now: if the primary is locked, fall back to a
+    // per-process file so a session ALWAYS logs somewhere the operator can
+    // Save + send, and surface it (logFilePath() → the live file, so Help →
+    // Show Log and its Save button follow).
+    filePath_ = primary;
     file_.setFileName(filePath_);
-    if (file_.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+    bool opened =
+        file_.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text);
+    if (!opened) {
+        const QString alt =
+            dir + QStringLiteral("/lyra-log-%1.txt")
+                      .arg(QCoreApplication::applicationPid());
+        file_.setFileName(alt);
+        opened = file_.open(QIODevice::WriteOnly | QIODevice::Truncate
+                            | QIODevice::Text);
+        if (opened) filePath_ = alt;
+    } else {
+        // Primary opened cleanly → no collision this launch, so sweep away any
+        // stale per-process fallback files a past collision left behind (a
+        // still-live holder's file just fails to delete — best-effort).
+        const auto stale = QDir(dir).entryList(
+            {QStringLiteral("lyra-log-*.txt")}, QDir::Files);
+        for (const QString &f : stale)
+            QFile::remove(dir + QLatin1Char('/') + f);
+    }
+
+    if (opened) {
         stream_.setDevice(&file_);
         stream_ << QStringLiteral("=== Lyra log — %1 ===\n")
-                       .arg(QDateTime::currentDateTime()
-                                .toString(Qt::ISODate));
+                       .arg(QDateTime::currentDateTime().toString(Qt::ISODate));
         stream_.flush();
     }
 
     prev_ = qInstallMessageHandler(&LogBuffer::handler);
     installed_ = true;
+
+    // Release the buffer mutex BEFORE surfacing the warning below: qWarning
+    // re-enters LogBuffer::handler → append(), which locks mutex_ again, and
+    // this QMutex is non-recursive → a self-deadlock if still held here.
+    lock.unlock();
+
+    // Surface a locked-primary fallback through the handler (now installed) so
+    // it lands in BOTH the file and the live in-app viewer — a visible sign
+    // that another Lyra instance was holding the log, instead of silence.
+    if (opened && filePath_ != primary)
+        qWarning("[log] lyra-log.txt was locked by another Lyra instance — "
+                 "this session is logging to %s",
+                 qUtf8Printable(QFileInfo(filePath_).fileName()));
+    else if (!opened)
+        qWarning("[log] could not open any log file in %s — logging to the "
+                 "in-app viewer only this session", qUtf8Printable(dir));
 }
 
 void LogBuffer::setVerbose(bool on) {

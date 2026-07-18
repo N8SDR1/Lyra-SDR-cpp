@@ -128,10 +128,32 @@ Rectangle {
         MenuItem { text: qsTr("Hold (no decay)");    checkable: true; checked: peakMenu.isCur(3); onTriggered: peakMenu.pick(3) }
     }
 
-    ColumnLayout {
+    // Scroll when the panel is compressed below its natural content size
+    // — both axes, AsNeeded — so a floated-small or racked panel stays
+    // fully usable instead of silently clipping (SizeRootObjectToView
+    // gives no scrollbar on its own).  Same idiom as SpeechPanel / the CW
+    // decoder.  Above the natural size the content fills; below it scrolls.
+    ScrollView {
+        id: bodyScroll
         anchors.fill: parent
         anchors.margins: 6
-        spacing: 6
+        clip: true
+        contentWidth: Math.max(828, availableWidth)
+        // The EQ graph sizes itself with Layout.fillHeight, so the column needs
+        // a definite height to grow into: fill the viewport when the panel is
+        // tall enough, else hold at the ~300px natural height and let the
+        // ScrollView scroll.  Bind to bodyScroll.height (stable) rather than
+        // availableHeight so the fill can't feed a scrollbar-visibility loop.
+        contentHeight: root.collapsed ? eqBody.implicitHeight
+                                      : Math.max(300, bodyScroll.height)
+        ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+        ScrollBar.vertical.policy:   ScrollBar.AsNeeded
+
+        ColumnLayout {
+            id: eqBody
+            width: bodyScroll.contentWidth
+            height: bodyScroll.contentHeight
+            spacing: 6
 
         // ── Top bar ────────────────────────────────────────────────────
         RowLayout {
@@ -799,6 +821,7 @@ Rectangle {
                     }
                 }
             }
+        }
         }
     }
 }

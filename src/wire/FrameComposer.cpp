@@ -23,6 +23,8 @@
 #include <cstring>
 #include <vector>
 
+#include <QtGlobal>   // CW wire-probe (LYRA_CW_DEBUG) — diagnostic only
+
 namespace lyra::wire {
 
 // ---- TU-scope state (§1-C Stage 4F.2 + §10.2-revert 2026-06-08) ----
@@ -789,6 +791,50 @@ void compose_case_9(unsigned char& C0, unsigned char& C1,
 //     overlay frames)
 //   - Post-switch packet packing into txbptr[3..7]
 
+// -------------------------------------------------------------------
+// CW wire-probe (env `LYRA_CW_DEBUG`) — READ-ONLY diagnostic, #186.
+//
+// Logs, on-change, the exact CW bytes leaving on the wire so a paddle
+// "acts like 2 keys, not iambic" report can be settled against the
+// ground truth of what the HL2+ gateware keyer actually receives:
+//   - addr 0x16 (case 12): C3[7:6]=CWMode (0=straight/off, 1=iambic-A,
+//     2=iambic-B), C3[5:0]=speed, C2[6]=rev_paddle, C4=weight|spacing.
+//   - addr 0x1e (case 13): C1=cw_enable (the firmware-keyer arm).
+// Also prints the MOX bit (C0[0]) — the HL2 spec requires MOX=0 while
+// sending CW.  If CWMode reads IAMBIC here but the paddle still acts
+// like 2 keys → gateware register-map skew; if it reads STRAIGHT →
+// an intent/population problem upstream.  Zero cost when the env var
+// is unset (one-time static check).
+static void cw_wire_probe(unsigned char C0, unsigned char C1,
+                          unsigned char C2, unsigned char C3,
+                          unsigned char C4) {
+    static const bool on = qEnvironmentVariableIsSet("LYRA_CW_DEBUG");
+    if (!on) return;
+    const unsigned char addr = C0 & 0xFE;   // strip the MOX bit
+    const int mox = C0 & 0x01;
+    if (addr == 0x16) {                     // case 12 — keyer config
+        static int last = -1;
+        const int snap = (C2 << 16) | (C3 << 8) | C4 | (mox << 24);
+        if (snap == last) return;
+        last = snap;
+        const int cwmode = (C3 >> 6) & 0x03;
+        const char* name = cwmode == 0 ? "STRAIGHT/off"
+                         : cwmode == 1 ? "IAMBIC-A"
+                         : cwmode == 2 ? "IAMBIC-B" : "?";
+        qInfo("[cwwire] 0x16 keyer: CWMode=%d(%s) speed=%d rev=%d "
+              "weight=%d strict=%d  MOX=%d  [C2=%02x C3=%02x C4=%02x]",
+              cwmode, name, C3 & 0x3F, (C2 >> 6) & 1, C4 & 0x7F,
+              (C4 >> 7) & 1, mox, C2, C3, C4);
+    } else if (addr == 0x1e) {              // case 13 — cw_enable
+        static int last = -1;
+        const int snap = ((C1 & 1) << 1) | mox;
+        if (snap == last) return;
+        last = snap;
+        qInfo("[cwwire] 0x1e cw_enable=%d  MOX=%d  [C1=%02x]",
+              C1 & 1, mox, C1);
+    }
+}
+
 void write_main_loop_hl2(const char* out_bufp) {
     // No defensive `assert(prn != nullptr); assert(prbpfilter !=
     // nullptr);` — reference `WriteMainLoop_HL2` at
@@ -1004,6 +1050,8 @@ void write_main_loop_hl2(const char* out_bufp) {
         txbptr[5] = static_cast<char>(C2);
         txbptr[6] = static_cast<char>(C3);
         txbptr[7] = static_cast<char>(C4);
+
+        cw_wire_probe(C0, C1, C2, C3, C4);  // #186 diag (LYRA_CW_DEBUG)
     }
 
     // ---- LRIQ memcpy + wire send + paired release ----

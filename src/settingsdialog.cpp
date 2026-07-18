@@ -6984,10 +6984,10 @@ QWidget *SettingsDialog::buildVisualsTab() {
         midForm->insertRow(1, s);
     }
     {
-        auto *h = new QLabel(tr("EFFECTS & PERFORMANCE"), rightCol);
+        auto *h = new QLabel(tr("EFFECTS & INTERFACE"), rightCol);
         h->setProperty("lyraColHeader", true);
         rightForm->insertRow(0, h);
-        auto *s = new QLabel(tr("eye candy + render"), rightCol);
+        auto *s = new QLabel(tr("eye candy · render · UI"), rightCol);
         s->setProperty("lyraColSubtitle", true);
         rightForm->insertRow(1, s);
     }
@@ -7398,6 +7398,54 @@ QWidget *SettingsDialog::buildVisualsTab() {
     });
     form->addRow(tr("Waterfall dB — TX ceiling"), wfTxMax);
 
+    // --- dB display range (vertical scale) ---
+    // Auto-fit OR a manual floor/ceiling.  The manual spinboxes gray
+    // out while Auto is on (the panadapter auto-fits internally).
+    auto *pdAuto = new QCheckBox(tr("Auto-fit the spectrum dB range"), page);
+    pdAuto->setChecked(prefs_->dbAuto());
+    pdAuto->setToolTip(tr("Track the band automatically (noise floor − 15 dB "
+                          "to peak + 15 dB). Off = use the floor/ceiling "
+                          "below. Dragging the right-edge dB scale also "
+                          "turns this off."));
+    connect(pdAuto, &QCheckBox::toggled, prefs_, &Prefs::setDbAuto);
+    form->addRow(tr("Spectrum dB"), pdAuto);
+
+    auto *dbMin = new QDoubleSpinBox(page);
+    dbMin->setRange(-200.0, 0.0);
+    dbMin->setSuffix(tr(" dB"));
+    dbMin->setValue(prefs_->dbMin());
+    connect(dbMin, &QDoubleSpinBox::valueChanged, prefs_, &Prefs::setDbMin);
+    connect(prefs_, &Prefs::dbMinChanged, page, [this, dbMin]() {
+        if (dbMin->value() != prefs_->dbMin()) dbMin->setValue(prefs_->dbMin());
+    });
+    form->addRow(tr("dB range — floor"), dbMin);
+
+    auto *dbMax = new QDoubleSpinBox(page);
+    dbMax->setRange(-200.0, 30.0);
+    dbMax->setSuffix(tr(" dB"));
+    dbMax->setValue(prefs_->dbMax());
+    connect(dbMax, &QDoubleSpinBox::valueChanged, prefs_, &Prefs::setDbMax);
+    connect(prefs_, &Prefs::dbMaxChanged, page, [this, dbMax]() {
+        if (dbMax->value() != prefs_->dbMax()) dbMax->setValue(prefs_->dbMax());
+    });
+    form->addRow(tr("dB range — ceiling"), dbMax);
+
+    // Gray the manual floor/ceiling out while Auto is on, and keep the
+    // checkbox in sync if Auto is flipped elsewhere (e.g. a dB-edge drag
+    // on the panadapter turns it off).
+    auto applyPdAuto = [dbMin, dbMax](bool a) {
+        dbMin->setEnabled(!a);
+        dbMax->setEnabled(!a);
+    };
+    applyPdAuto(prefs_->dbAuto());
+    connect(prefs_, &Prefs::dbAutoChanged, page,
+            [this, pdAuto, applyPdAuto]() {
+                const bool a = prefs_->dbAuto();
+                if (pdAuto->isChecked() != a) pdAuto->setChecked(a);
+                applyPdAuto(a);
+            });
+
+
     // Gray ALL four manual floor/ceiling spinboxes out while Auto is on
     // (Auto applies to whichever pair is currently live — driven by
     // the panadapter's noise-floor / peak tracking).
@@ -7692,6 +7740,25 @@ QWidget *SettingsDialog::buildVisualsTab() {
     });
     form->addRow(tr("Gridline brightness"), grid);
 
+    // --- Target frame rate (fps) ---
+    auto *fps = new QSpinBox(page);
+    fps->setRange(1, 240);
+    fps->setSuffix(tr(" fps"));
+    fps->setValue(prefs_->targetFps());
+    connect(fps, &QSpinBox::valueChanged, prefs_, &Prefs::setTargetFps);
+    connect(prefs_, &Prefs::targetFpsChanged, page, [this, fps]() {
+        if (fps->value() != prefs_->targetFps()) fps->setValue(prefs_->targetFps());
+    });
+    form->addRow(tr("Frame rate"), fps);
+
+
+    // --- Interface sub-heading (cursor readout, zero-beat, tooltips) ---
+    {
+        auto *hdr = new QLabel(tr("Interface"), page);
+        hdr->setStyleSheet(QStringLiteral(
+            "QLabel{color:#7fd6ef;font-weight:700;padding-top:6px;}"));
+        form->addRow(hdr);
+    }
     // --- Cursor frequency readout (floats near the pointer) ---
     auto *curRdt = new QCheckBox(
         tr("Show frequency readout at the cursor"), page);
@@ -7730,63 +7797,53 @@ QWidget *SettingsDialog::buildVisualsTab() {
     });
     form->addRow(tr("Tooltips"), tips);
 
-    // --- Target frame rate (fps) ---
-    auto *fps = new QSpinBox(page);
-    fps->setRange(1, 240);
-    fps->setSuffix(tr(" fps"));
-    fps->setValue(prefs_->targetFps());
-    connect(fps, &QSpinBox::valueChanged, prefs_, &Prefs::setTargetFps);
-    connect(prefs_, &Prefs::targetFpsChanged, page, [this, fps]() {
-        if (fps->value() != prefs_->targetFps()) fps->setValue(prefs_->targetFps());
+    // --- Panel layout: individual floating chips OR grouped rack windows ---
+    // Two independent toggles.  Off (default) = each DSP / Options tool panel
+    // floats individually from its own header chip (classic behaviour).  On =
+    // the whole set is housed in ONE saved "rack" window reached from a single
+    // header chip; closing the rack hides it (nothing spills).  The header chip
+    // strip is built at startup, so a change applies on the next launch.
+    {
+        auto *hdr = new QLabel(tr("Panel layout"), page);
+        hdr->setStyleSheet(QStringLiteral(
+            "QLabel{color:#7fd6ef;font-weight:700;padding-top:6px;}"));
+        form->addRow(hdr);
+    }
+    auto *dspGrp = new QCheckBox(tr("Group DSP panels into one window"), page);
+    dspGrp->setChecked(prefs_->dspPanelsGrouped());
+    dspGrp->setToolTip(tr("Off: TX Speech / TX EQ / TX Combinator / TX Plating "
+                          "/ RX EQ each float from their own chip.  On: one "
+                          "\"DSP Rack\" chip opens a single window holding them "
+                          "all — tick off the modules you don't use inside it.  "
+                          "Applies on the next launch."));
+    connect(dspGrp, &QCheckBox::toggled, prefs_, &Prefs::setDspPanelsGrouped);
+    connect(prefs_, &Prefs::dspPanelsGroupedChanged, page, [this, dspGrp]() {
+        if (dspGrp->isChecked() != prefs_->dspPanelsGrouped())
+            dspGrp->setChecked(prefs_->dspPanelsGrouped());
     });
-    form->addRow(tr("Frame rate"), fps);
+    form->addRow(tr("DSP panels"), dspGrp);
 
-    // --- dB display range (vertical scale) ---
-    // Auto-fit OR a manual floor/ceiling.  The manual spinboxes gray
-    // out while Auto is on (the panadapter auto-fits internally).
-    auto *pdAuto = new QCheckBox(tr("Auto-fit the spectrum dB range"), page);
-    pdAuto->setChecked(prefs_->dbAuto());
-    pdAuto->setToolTip(tr("Track the band automatically (noise floor − 15 dB "
-                          "to peak + 15 dB). Off = use the floor/ceiling "
-                          "below. Dragging the right-edge dB scale also "
-                          "turns this off."));
-    connect(pdAuto, &QCheckBox::toggled, prefs_, &Prefs::setDbAuto);
-    form->addRow(tr("Spectrum dB"), pdAuto);
-
-    auto *dbMin = new QDoubleSpinBox(page);
-    dbMin->setRange(-200.0, 0.0);
-    dbMin->setSuffix(tr(" dB"));
-    dbMin->setValue(prefs_->dbMin());
-    connect(dbMin, &QDoubleSpinBox::valueChanged, prefs_, &Prefs::setDbMin);
-    connect(prefs_, &Prefs::dbMinChanged, page, [this, dbMin]() {
-        if (dbMin->value() != prefs_->dbMin()) dbMin->setValue(prefs_->dbMin());
+    auto *optGrp = new QCheckBox(tr("Group Options panels into one window"), page);
+    optGrp->setChecked(prefs_->optionsPanelsGrouped());
+    optGrp->setToolTip(tr("Off: Tuner / CW / CW Dec / Voice Keyer each float "
+                          "from their own chip.  On: one \"Options\" chip opens "
+                          "a single window holding them all.  (CTUN, Freq Cal "
+                          "and WF-ID always stay on their own chips.)  Applies "
+                          "on the next launch."));
+    connect(optGrp, &QCheckBox::toggled, prefs_, &Prefs::setOptionsPanelsGrouped);
+    connect(prefs_, &Prefs::optionsPanelsGroupedChanged, page, [this, optGrp]() {
+        if (optGrp->isChecked() != prefs_->optionsPanelsGrouped())
+            optGrp->setChecked(prefs_->optionsPanelsGrouped());
     });
-    form->addRow(tr("dB range — floor"), dbMin);
+    form->addRow(tr("Options panels"), optGrp);
 
-    auto *dbMax = new QDoubleSpinBox(page);
-    dbMax->setRange(-200.0, 30.0);
-    dbMax->setSuffix(tr(" dB"));
-    dbMax->setValue(prefs_->dbMax());
-    connect(dbMax, &QDoubleSpinBox::valueChanged, prefs_, &Prefs::setDbMax);
-    connect(prefs_, &Prefs::dbMaxChanged, page, [this, dbMax]() {
-        if (dbMax->value() != prefs_->dbMax()) dbMax->setValue(prefs_->dbMax());
-    });
-    form->addRow(tr("dB range — ceiling"), dbMax);
-
-    // Gray the manual floor/ceiling out while Auto is on, and keep the
-    // checkbox in sync if Auto is flipped elsewhere (e.g. a dB-edge drag
-    // on the panadapter turns it off).
-    auto applyPdAuto = [dbMin, dbMax](bool a) {
-        dbMin->setEnabled(!a);
-        dbMax->setEnabled(!a);
-    };
-    applyPdAuto(prefs_->dbAuto());
-    connect(prefs_, &Prefs::dbAutoChanged, page,
-            [this, pdAuto, applyPdAuto]() {
-                const bool a = prefs_->dbAuto();
-                if (pdAuto->isChecked() != a) pdAuto->setChecked(a);
-                applyPdAuto(a);
-            });
+    {
+        auto *note = new QLabel(
+            tr("Takes effect on the next launch of Lyra."), page);
+        note->setWordWrap(true);
+        note->setStyleSheet(QStringLiteral("QLabel{color:#8fa0aa;}"));
+        form->addRow(QString(), note);
+    }
 
     // --- Graphics backend (advanced; restart to apply) ---
     // The Qt RHI backend is fixed at startup, so this writes a QSettings
@@ -8101,10 +8158,15 @@ QWidget *SettingsDialog::buildRecordingTab() {
     QPushButton *renameBtn  = new QPushButton(tr("Rename"));
     QPushButton *delBtn     = new QPushButton(tr("Delete"));
     QPushButton *refreshBtn = new QPushButton(tr("Refresh"));
+    QCheckBox   *multiSel   = new QCheckBox(tr("Select multiple"));
+    multiSel->setToolTip(tr("Tick to select several sessions (click each one), "
+                            "then Delete removes them all at once."));
     btnRow->addWidget(convertBtn);
     btnRow->addWidget(openBtn);
     btnRow->addWidget(renameBtn);
     btnRow->addWidget(delBtn);
+    btnRow->addSpacing(12);
+    btnRow->addWidget(multiSel);
     btnRow->addStretch(1);
     btnRow->addWidget(refreshBtn);
     // Convert progress (hidden until a conversion runs) + status line.
@@ -8269,17 +8331,48 @@ QWidget *SettingsDialog::buildRecordingTab() {
         }
         refresh();
     });
+    // Delete the selected session(s).  selectedItems() covers both modes: one
+    // row in single-select, or every ticked row once "Select multiple" is on.
     connect(delBtn, &QPushButton::clicked, this, [this, list, refresh]() {
-        QListWidgetItem *it = list->currentItem();
-        if (!it) return;
-        const QString dir = it->data(Qt::UserRole).toString();
-        const auto ret = QMessageBox::question(
-            this, tr("Delete session"),
-            tr("Permanently delete this session folder?  This cannot be "
-               "undone.\n\n%1").arg(QDir(dir).dirName()));
-        if (ret != QMessageBox::Yes) return;
-        QDir(dir).removeRecursively();
+        const auto items = list->selectedItems();
+        if (items.isEmpty()) return;
+        QString msg;
+        if (items.size() == 1) {
+            msg = tr("Permanently delete this session folder?  This cannot be "
+                     "undone.\n\n%1")
+                      .arg(QDir(items.first()->data(Qt::UserRole).toString())
+                               .dirName());
+        } else {
+            QStringList names;
+            for (QListWidgetItem *it : items)
+                names << QDir(it->data(Qt::UserRole).toString()).dirName();
+            msg = tr("Permanently delete these %n session folder(s)?  This "
+                     "cannot be undone.\n\n%1", "", int(items.size()))
+                      .arg(names.join(QLatin1Char('\n')));
+        }
+        if (QMessageBox::question(this, tr("Delete session"), msg)
+                != QMessageBox::Yes)
+            return;
+        for (QListWidgetItem *it : items) {
+            const QString dir = it->data(Qt::UserRole).toString();
+            if (!dir.isEmpty()) QDir(dir).removeRecursively();
+        }
         refresh();
+    });
+
+    // Batch delete: "Select multiple" switches the list to click-to-toggle
+    // multi-selection (no Ctrl needed).  Convert / Open / Rename act on a
+    // single session, so they're disabled while it's on.
+    connect(multiSel, &QCheckBox::toggled, this,
+            [this, list, delBtn, convertBtn, openBtn, renameBtn](bool on) {
+        list->setSelectionMode(on ? QAbstractItemView::MultiSelection
+                                  : QAbstractItemView::SingleSelection);
+        list->clearSelection();
+        delBtn->setText(on ? tr("Delete selected") : tr("Delete"));
+        openBtn->setEnabled(!on);
+        renameBtn->setEnabled(!on);
+        convertBtn->setEnabled(!on && converter_->ffmpegAvailable()
+                               && !converter_->busy());
     });
 
     // ── Convert to MP4 (offline ffmpeg, below-normal priority) ──────────
@@ -8298,12 +8391,15 @@ QWidget *SettingsDialog::buildRecordingTab() {
     });
     connect(converter_, &SessionConverter::busyChanged, convertBtn,
             [this, convertBtn, openBtn, renameBtn, delBtn, refreshBtn,
-             convBar](bool on) {
+             multiSel, convBar](bool on) {
         convBar->setVisible(on);
         if (on) convBar->setValue(0);
-        convertBtn->setEnabled(!on && converter_->ffmpegAvailable());
-        openBtn->setEnabled(!on);
-        renameBtn->setEnabled(!on);
+        // While "Select multiple" is on, single-session actions stay disabled
+        // regardless of the converter state.
+        const bool multi = multiSel->isChecked();
+        convertBtn->setEnabled(!on && !multi && converter_->ffmpegAvailable());
+        openBtn->setEnabled(!on && !multi);
+        renameBtn->setEnabled(!on && !multi);
         delBtn->setEnabled(!on);
         refreshBtn->setEnabled(!on);
         convertBtn->setText(on ? tr("Converting…") : tr("Convert to MP4"));

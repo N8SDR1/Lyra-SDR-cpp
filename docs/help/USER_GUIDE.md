@@ -2790,6 +2790,31 @@ log** you can read, copy, and send to us.
 5. Send the log with a one-line note of what it was doing and what you
    expected instead.
 
+### Lyra won't start / hangs at launch — Safe Boot
+
+Almost all "it just spins and never shows a window" cases are a **wedged
+audio device** — most often a virtual audio cable (VoiceMeeter, VB-Cable)
+that Windows has left in a bad state. Lyra enumerates audio devices
+*before* the window appears, and a stuck device can fault right there, so
+you never see anything. Lyra now guards that step and leaves a breadcrumb
+in the log, but if you're locked out, **Safe Boot** gets you back in:
+
+- **Launch with `--safe`** (or set the environment variable `LYRA_SAFE=1`).
+  Safe Boot uses **software graphics**, **skips audio-device enumeration**,
+  and **doesn't auto-connect** — so a wedged audio device or GPU driver
+  can't block startup. You'll come up in a plain, working window where you
+  can change the offending setting, then restart normally.
+- If it *still* won't start, the log at
+  `…/N8SDR/Lyra-cpp/logs/lyra-log.txt` now shows how far startup got —
+  attach it to a bug report (see below).
+- **Last resort — clear Lyra's saved settings** (this forgets your
+  layout/preferences but always un-sticks a bad remembered state). In a
+  Command Prompt: `reg delete "HKCU\Software\N8SDR\Lyra-cpp" /f`, then
+  launch Lyra again for a clean first-run.
+
+The most common real fix once you're in: change your default audio device,
+or restart/reset the virtual audio cable, then launch Lyra normally.
+
 ### Getting help / reporting a bug
 
 Testers and bug reports are welcome — Lyra is in active development.
