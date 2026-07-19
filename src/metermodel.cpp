@@ -11,6 +11,7 @@
 #include "metermodel.h"
 
 #include "hl2_stream.h"
+#include "wire/P2RxBridge.h"
 // TX-rip Phase 1 (Q2): tx_dsp_worker.h removed — TX DSP worker is being
 // rebuilt from empty files per docs/TX_ARCHITECTURAL_MAPPING.md §10.3.
 // TX meter taps (MIC / LVL / ALC cases below) return their "—"
@@ -611,13 +612,15 @@ QString MeterModel::formatSecondaryText(int src) const {
                    : QStringLiteral("SWR %1:1").arg(swr, 0, 'f', 2);
     }
     case PA_CURRENT: {
-        const double a = stream_->paCurrentA();
+        const double a = (p2_ && p2_->isRunning()) ? p2_->paCurrentA()
+                                                   : stream_->paCurrentA();
         return std::isnan(a)
                    ? QStringLiteral("PA —")
                    : QStringLiteral("PA %1 A").arg(a, 0, 'f', 2);
     }
     case PA_VOLTS: {
-        const double v = stream_->hl2SupplyV();
+        const double v = (p2_ && p2_->isRunning()) ? p2_->supplyVolts()
+                                                   : stream_->hl2SupplyV();
         return std::isnan(v)
                    ? QStringLiteral("V —")
                    : QStringLiteral("V %1 V").arg(v, 0, 'f', 1);
@@ -1426,8 +1429,10 @@ constexpr double kTelGlowDecay = 0.10;
 } // namespace
 
 void MeterModel::computePaCurrent() {
-    const double raw = stream_ ? stream_->paCurrentA()
-                               : std::numeric_limits<double>::quiet_NaN();
+    const double raw = (p2_ && p2_->isRunning())
+                           ? p2_->paCurrentA()
+                           : (stream_ ? stream_->paCurrentA()
+                                      : std::numeric_limits<double>::quiet_NaN());
     const bool valid = !std::isnan(raw);
     const double a = valid ? std::max(0.0, raw) : 0.0;
 
@@ -1467,8 +1472,10 @@ void MeterModel::computePaCurrent() {
 }
 
 void MeterModel::computePaVolts() {
-    const double raw = stream_ ? stream_->hl2SupplyV()
-                               : std::numeric_limits<double>::quiet_NaN();
+    const double raw = (p2_ && p2_->isRunning())
+                           ? p2_->supplyVolts()
+                           : (stream_ ? stream_->hl2SupplyV()
+                                      : std::numeric_limits<double>::quiet_NaN());
     const bool valid = !std::isnan(raw);
     const double v = valid ? std::max(0.0, raw) : 0.0;
 

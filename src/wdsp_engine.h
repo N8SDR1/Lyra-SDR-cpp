@@ -633,6 +633,27 @@ public:
     Q_INVOKABLE QStringList audioOutputDevices() const;
     Q_INVOKABLE void setAudioOutputDevice(int index);
 
+    // P2 "radio speaker" audio return (ANAN G2 on-radio amp): when
+    // set, dispatchAudioFrame hands each final stereo int16 block to
+    // this sink ON THE RX FEEDER THREAD (= the P2 session thread
+    // while a Saturn is the live radio — the sink may drive the
+    // session socket directly).  The P2 bridge sets it around a
+    // session whose profile audioRoute is "radio"; empty clears.
+    void setRadioAudioSink(
+        std::function<void(const qint16 *lr, int nframes)> sink);
+
+    // Per-radio audio routing (Layer-2 radio profiles).  Applies an
+    // output route for the SESSION only — unlike setAudioOutputDevice
+    // it never writes the audio/output|deviceName settings, so the
+    // persisted global config (the HL2's home setup — retention
+    // rules, docs/P2_HARDWARE_PROFILES_PLAN.md) stays untouched.
+    // hl2=false resolves <deviceName> when found, else the persisted
+    // PC device, else the current/first output.
+    void applyAudioRouteTransient(bool hl2, const QString &deviceName);
+    // Re-apply the persisted global route (called when a P2 session
+    // closes, returning audio exactly to the configured state).
+    void restoreAudioRouteFromSettings();
+
     // ── #158 — VAC1 (virtual audio cable) operator controls (Settings →
     // Audio).  enable + output-device (by description) + RX gain (dB).
     // Persisted (QSettings vac1/*); applied live (rebuild on enable/device,
@@ -973,6 +994,10 @@ private:
     AudioRing          *audioRing_ = nullptr;
     QAudioSink         *audioSink_ = nullptr;
     std::vector<qint16> pcm16_;
+    // P2 radio-speaker tee (setRadioAudioSink) — mutex-guarded; the
+    // dispatch-path lock is uncontended except during set/clear.
+    std::mutex          radioSinkMtx_;
+    std::function<void(const qint16 *, int)> radioSink_;
     // P4.b — interleaved L/R doubles handed to the verbatim
     // OutBound(0) RX-audio tee (dispatchAudioFrame; the §2 asioOUT
     // pattern).  sendProtocol1Samples does the reference 16-bit

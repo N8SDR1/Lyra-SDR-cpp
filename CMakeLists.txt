@@ -164,6 +164,34 @@ qt_add_executable(lyra
     src/wire/MetisFrame.cpp
     src/wire/ForceCandC.h
     src/wire/ForceCandC.cpp
+    # Protocol 2 (Saturn / ANAN G2) Phase B — control-plane session
+    # (general packet + HP run-bit keepalive + status stream parse).
+    # WIRE-INERT in the app today: compiled so it tracks the tree, but
+    # nothing in lyra.exe opens a P2 session yet.  Bench-driven via the
+    # test_p2_session console tool below.  References: KD4YAL Saturn
+    # p2app (radio side) + Thetis network.c (client side) — see
+    # P2Session.h preamble.
+    src/wire/P2Session.h
+    src/wire/P2Session.cpp
+    # P2 Phase D — app-side bridge: P2Session on its own thread feeding
+    # DDC0 IQ into router 0 (the same sink the EP6 path uses → WdspEngine
+    # feedIq → full RX chain + panadapter + audio out).  HL2Stream stays
+    # the tuning authority; the bridge follows rx1FreqChanged.  RX-only.
+    src/wire/P2RxBridge.h
+    src/wire/P2RxBridge.cpp
+    # Hardware model catalog (Layer 1 of the radio-profile stack) —
+    # Thetis clsHardwareSpecific.cs as a data table: per-marketed-model
+    # ADC/BPF/telemetry/calibration/PA-gain capability rows, keyed by
+    # the Thetis model strings.  See docs/P2_HARDWARE_PROFILES_PLAN.md.
+    src/hardware/HardwareCatalog.h
+    src/hardware/HardwareCatalog.cpp
+    # Layer-2 radio profiles: one JSON per physical radio, keyed by
+    # MAC (profiles/radios/<mac>.json under AppData).  Created/
+    # refreshed on every discovery reply; P2 open consumes model +
+    # antenna from it.  Metadata-only for the HL2 (retention rules).
+    src/radioprofile/RadioProfile.h
+    src/radioprofile/RadioProfileStore.h
+    src/radioprofile/RadioProfileStore.cpp
     # TX-rip Phase 1 step 1c-b — wdsp/ empty skeletons.  Populated
     # in Phase 2 per docs/TX_ARCHITECTURAL_MAPPING.md §6.
     # (src/wdsp/TxChannel.{h,cpp} RETIRED 2026-06-12 — the P0.d
@@ -633,6 +661,22 @@ target_include_directories(test_profile PRIVATE src)
 target_link_libraries(test_profile PRIVATE Qt6::Core)
 if(MSVC)
     target_compile_options(test_profile PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# P2 Phase B — Saturn / ANAN G2 control-plane session bench test.
+# EXCLUDE_FROM_ALL; `cmake --build build --target test_p2_session`.
+# Console tool: opens a P2 session (general + HP run=1), prints the
+# radio's 60-byte status stream, tears down with run=0.  Needs a live
+# Saturn on the LAN — this is the operator bench gate for Phase B.
+add_executable(test_p2_session EXCLUDE_FROM_ALL
+    scratch/test_p2_session.cpp
+    src/wire/P2Session.h
+    src/wire/P2Session.cpp
+)
+target_include_directories(test_p2_session PRIVATE src)
+target_link_libraries(test_p2_session PRIVATE Qt6::Core Qt6::Network)
+if(MSVC)
+    target_compile_options(test_p2_session PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # #199 OC Control Stage 1 — pure compute() + change-gate unit test.

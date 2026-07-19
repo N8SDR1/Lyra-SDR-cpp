@@ -25,6 +25,24 @@ QString boardName(int boardId) {
         default: return QStringLiteral("Unknown(%1)").arg(boardId);
     }
 }
+
+// Protocol 2 board-type table (NOT the same numbering as the P1
+// table above — P2 reply byte [11], per the openHPSDR P2 spec and
+// the Saturn p2app reference which replies 10 for Saturn or 5 when
+// emulating Orion Mk2).
+QString boardNameP2(int boardId) {
+    switch (boardId) {
+        case 0:  return QStringLiteral("Atlas");
+        case 1:  return QStringLiteral("Hermes");
+        case 2:  return QStringLiteral("HermesII");
+        case 3:  return QStringLiteral("Angelia");
+        case 4:  return QStringLiteral("Orion");
+        case 5:  return QStringLiteral("OrionMKII");
+        case 6:  return QStringLiteral("HermesLite");
+        case 10: return QStringLiteral("Saturn (ANAN G2)");
+        default: return QStringLiteral("P2 board %1").arg(boardId);
+    }
+}
 } // namespace
 
 void HL2Discovery::rememberRadio(const QString &ip, const QString &mac,
@@ -115,6 +133,17 @@ QByteArray HL2Discovery::buildDiscoveryPacket() {
     return pkt;
 }
 
+QByteArray HL2Discovery::buildDiscoveryPacketP2() {
+    // 60 bytes: [0..3] zero sequence, [4] = 0x02 discovery command,
+    // rest zero.  The size IS part of the protocol: p2app only
+    // processes size-60 packets on 1024, and P1 radios reject this
+    // packet on the missing 0xEFFE magic — so both probes can share
+    // one sweep without confusing either radio family.
+    QByteArray pkt(kPacketLenP2, char{0});
+    pkt[4] = static_cast<char>(0x02);
+    return pkt;
+}
+
 QList<HL2Discovery::LocalIf> HL2Discovery::localIPv4Interfaces() const {
     QList<LocalIf> out;
     for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces()) {
@@ -152,36 +181,69 @@ bool HL2Discovery::parseReply(const QByteArray &data,
                               RadioInfo &out) const {
     if (data.size() < 24) return false;
     const auto u = reinterpret_cast<const std::uint8_t*>(data.constData());
-    if (u[0] != 0xEF || u[1] != 0xFE) return false;
-    const std::uint8_t status = u[2];
-    if (status != 0x02 && status != 0x03) return false;
 
-    out.ip = sender.toString();
-    // QHostAddress::toString() can prefix IPv4 with "::ffff:" when
-    // arriving on a dual-stack socket — strip that.
-    if (out.ip.startsWith(QStringLiteral("::ffff:"))) {
-        out.ip = out.ip.mid(7);
-    }
-    out.mac = QString::asprintf(
-        "%02X:%02X:%02X:%02X:%02X:%02X",
-        u[3], u[4], u[5], u[6], u[7], u[8]);
-    out.codeVersion = u[9];
-    out.boardId     = u[10];
-    out.boardName   = boardName(out.boardId);
-    out.isBusy      = (status == 0x03);
+    // Shared by both branches below.
+    const auto senderIp = [&sender]() {
+        QString ip = sender.toString();
+        // QHostAddress::toString() can prefix IPv4 with "::ffff:" when
+        // arriving on a dual-stack socket — strip that.
+        if (ip.startsWith(QStringLiteral("::ffff:"))) ip = ip.mid(7);
+        return ip;
+    };
 
-    if (out.boardId == kBoardHL2) {
-        out.eeConfig = u[11];
-        if (data.size() > 16) {
-            out.fixedIpHl2 = QString::asprintf(
-                "%d.%d.%d.%d", u[16], u[15], u[14], u[13]);
+    // ---- Protocol 1 reply: 0xEFFE magic ---------------------------
+    if (u[0] == 0xEF && u[1] == 0xFE) {
+        const std::uint8_t status = u[2];
+        if (status != 0x02 && status != 0x03) return false;
+
+        out.ip  = senderIp();
+        out.mac = QString::asprintf(
+            "%02X:%02X:%02X:%02X:%02X:%02X",
+            u[3], u[4], u[5], u[6], u[7], u[8]);
+        out.codeVersion = u[9];
+        out.boardId     = u[10];
+        out.boardName   = boardName(out.boardId);
+        out.isBusy      = (status == 0x03);
+        out.protocol    = 1;
+
+        if (out.boardId == kBoardHL2) {
+            out.eeConfig = u[11];
+            if (data.size() > 16) {
+                out.fixedIpHl2 = QString::asprintf(
+                    "%d.%d.%d.%d", u[16], u[15], u[14], u[13]);
+            }
+            if (data.size() > 19) out.numRxs      = u[19];
+            if (data.size() > 21) out.betaVersion = u[21];
+        } else {
+            if (data.size() > 20) out.numRxs = u[20];
         }
-        if (data.size() > 19) out.numRxs      = u[19];
-        if (data.size() > 21) out.betaVersion = u[21];
-    } else {
-        if (data.size() > 20) out.numRxs = u[20];
+        return true;
     }
-    return true;
+
+    // ---- Protocol 2 reply (Saturn / ANAN G2 family) ---------------
+    // Layout per the Saturn p2app DiscoveryReply (see header): four
+    // zero sequence bytes, then state 2 (idle) / 3 (in use), MAC,
+    // board type, protocol version, firmware version, ..., DDC
+    // count at [20], p2app software version at [23].  The zero
+    // sequence prefix is what makes it distinguishable from P1
+    // (0xEFFE) and from stray traffic.
+    if (u[0] == 0 && u[1] == 0 && u[2] == 0 && u[3] == 0 &&
+        (u[4] == 0x02 || u[4] == 0x03)) {
+        out.ip  = senderIp();
+        out.mac = QString::asprintf(
+            "%02X:%02X:%02X:%02X:%02X:%02X",
+            u[5], u[6], u[7], u[8], u[9], u[10]);
+        out.boardId     = u[11];
+        out.boardName   = boardNameP2(out.boardId);
+        out.codeVersion = u[13];                 // FPGA firmware version
+        out.isBusy      = (u[4] == 0x03);        // another client running it
+        out.protocol    = 2;
+        if (data.size() > 20) out.numRxs      = u[20];  // DDC count (Saturn: 10)
+        if (data.size() > 23) out.betaVersion = u[23];  // p2app sw version
+        return true;
+    }
+
+    return false;
 }
 
 void HL2Discovery::scan(double timeoutSeconds, int attempts) {
@@ -243,24 +305,31 @@ void HL2Discovery::scan(double timeoutSeconds, int attempts) {
 }
 
 void HL2Discovery::sendBroadcastFromAllSockets() {
-    const QByteArray pkt = buildDiscoveryPacket();
+    // Both protocol probes go out in one sweep: P1 (63 B, 0xEFFE) for
+    // the HL2 family, P2 (60 B, cmd byte [4]) for Saturn / ANAN G2.
+    // Each radio family ignores the other's packet (see header notes).
+    const QByteArray pktP1 = buildDiscoveryPacket();
+    const QByteArray pktP2 = buildDiscoveryPacketP2();
     const QHostAddress limited(QHostAddress::Broadcast);   // 255.255.255.255
     for (std::size_t i = 0; i < sockets_.size(); ++i) {
         auto &sock = sockets_[i];
         // (1) Limited broadcast — reaches radios on the attached segment.
-        const qint64 sent = sock->writeDatagram(pkt, limited, kDiscoveryPort);
-        if (sent != pkt.size()) {
+        const qint64 sent = sock->writeDatagram(pktP1, limited, kDiscoveryPort);
+        if (sent != pktP1.size()) {
             emit logLine(QStringLiteral("  send via %1 short/failed: %2")
                          .arg(sock->localAddress().toString(),
                               sock->errorString()));
         }
+        sock->writeDatagram(pktP2, limited, kDiscoveryPort);
         // (2) Subnet-directed broadcast (e.g. 10.10.30.255) — some NICs /
         // switches / firewall configs drop (1) but pass this (and vice
         // versa); sending both maximizes the chance the probe arrives.
         const QHostAddress &b = (i < socketBroadcast_.size())
                                     ? socketBroadcast_[i] : QHostAddress();
-        if (!b.isNull() && b != limited)
-            sock->writeDatagram(pkt, b, kDiscoveryPort);
+        if (!b.isNull() && b != limited) {
+            sock->writeDatagram(pktP1, b, kDiscoveryPort);
+            sock->writeDatagram(pktP2, b, kDiscoveryPort);
+        }
     }
 }
 
@@ -288,15 +357,16 @@ void HL2Discovery::onReadyRead() {
         foundMacs_.insert(info.mac);
         ++totalFound_;
         emit logLine(QStringLiteral(
-            "  FOUND: %1  %2  %3  gw=v%4.%5  busy=%6  rxs=%7")
+            "  FOUND: %1  %2  %3  P%4  gw=v%5.%6  busy=%7  rxs=%8")
             .arg(info.ip, info.mac, info.boardName)
+            .arg(info.protocol)
             .arg(info.codeVersion).arg(info.betaVersion)
             .arg(info.isBusy ? QStringLiteral("yes")
                               : QStringLiteral("no"))
             .arg(info.numRxs));
         emit radioFound(info.ip, info.mac, info.boardName,
                         info.codeVersion, info.betaVersion,
-                        info.isBusy, info.numRxs);
+                        info.isBusy, info.numRxs, info.protocol);
     }
 }
 
@@ -331,8 +401,10 @@ void HL2Discovery::probe(const QString &ip, double timeoutSeconds) {
             this, &HL2Discovery::onProbeReadyRead);
     probeIp_       = ip;
     probeResolved_ = false;
-    const QByteArray pkt = buildDiscoveryPacket();
-    probeSock_->writeDatagram(pkt, target, kDiscoveryPort);
+    // Probe with both protocols — a fixed-IP target could be an HL2
+    // (P1) or a Saturn (P2); whichever it is answers its own format.
+    probeSock_->writeDatagram(buildDiscoveryPacket(), target, kDiscoveryPort);
+    probeSock_->writeDatagram(buildDiscoveryPacketP2(), target, kDiscoveryPort);
     emit logLine(QStringLiteral("probe: unicast discovery to %1:%2")
                  .arg(ip).arg(kDiscoveryPort));
     probeDeadline_.start(static_cast<int>(timeoutSeconds * 1000.0));
@@ -355,14 +427,15 @@ void HL2Discovery::onProbeReadyRead() {
         // No foundMacs_ dedup here (that's sweep bookkeeping) — the UI
         // de-dupes/updates by IP, so re-emitting is harmless.
         emit logLine(QStringLiteral(
-            "  PROBE FOUND: %1  %2  %3  gw=v%4.%5  busy=%6  rxs=%7")
+            "  PROBE FOUND: %1  %2  %3  P%4  gw=v%5.%6  busy=%7  rxs=%8")
             .arg(info.ip, info.mac, info.boardName)
+            .arg(info.protocol)
             .arg(info.codeVersion).arg(info.betaVersion)
             .arg(info.isBusy ? QStringLiteral("yes") : QStringLiteral("no"))
             .arg(info.numRxs));
         emit radioFound(info.ip, info.mac, info.boardName,
                         info.codeVersion, info.betaVersion,
-                        info.isBusy, info.numRxs);
+                        info.isBusy, info.numRxs, info.protocol);
         // Resolve the probe immediately on the first valid reply (don't
         // wait out the deadline) so a present radio connects snappily.
         if (!probeResolved_) {

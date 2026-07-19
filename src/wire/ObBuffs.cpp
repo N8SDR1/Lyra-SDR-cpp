@@ -107,6 +107,10 @@ void destroy_obbuffs (int id)
 {
 	OBB a = obp.pcbuff[id];
 	if (obp.pcbuff[0] == NULL) return;
+	// Lyra deviation (documented): per-id guard — the reference's
+	// [0]-only check leaves destroy of a never-created id deref'ing
+	// null.  Paired with the slot-nulling below.
+	if (a == NULL) return;
 	InterlockedBitTestAndReset(&a->accept, 0);
 	EnterCriticalSection (&a->csIN);
 	EnterCriticalSection (&a->csOUT);
@@ -121,6 +125,15 @@ void destroy_obbuffs (int id)
 	free (a->out);
 	free (a->r1_baseptr);
 	free (a);
+	// Lyra deviation (documented): null the slot aliases after free.
+	// The reference never destroys rings mid-process so its OutBound
+	// can't see a stale pointer — but Lyra destroys them at
+	// HL2Stream::close(), and the Protocol 2 RX path then drives
+	// dispatchAudioFrame → OutBound with NO P1 session: without this,
+	// OutBound's null-guard passed a DANGLING pointer to freed memory
+	// (use-after-free on every P2 audio frame after an HL2 open→close
+	// in the same app run — bench 2026-07-19).
+	obp.pcbuff[id] = obp.pdbuff[id] = obp.pebuff[id] = obp.pfbuff[id] = NULL;
 }
 
 // Reference obbuffs.c:88-96 (verbatim):
@@ -143,6 +156,16 @@ void OutBound (int id, int nsamples, double* in)
 	int n;
 	int first, second;
 	OBB a = obp.pebuff[id];
+	// Lyra deviation (documented): null-guard on an uncreated ring.
+	// The reference creates rings 0/1 unconditionally at boot
+	// (netInterface.c:1856-1857) so this deref can't fault there —
+	// but Lyra creates them at P1 stream open, and the Protocol 2
+	// RX path (P2RxBridge → feedIq → dispatchAudioFrame) produces
+	// audio frames with NO P1 session, which AV'd here on the first
+	// P2 open (bench 2026-07-18, WER fault lyra.exe+0x6c590).  With
+	// no ring there is no EP2 wire to feed — dropping is correct.
+	if (a == NULL)
+		return;
 	if (_InterlockedAnd (&a->accept, 1))
 	{
 		EnterCriticalSection (&a->csIN);

@@ -1,0 +1,292 @@
+// Lyra — Protocol 2 RX bridge implementation.  See P2RxBridge.h.
+
+#include "P2RxBridge.h"
+
+#include "P2Session.h"
+#include "Router.h"
+#include "hardware/HardwareCatalog.h"
+#include "hl2_stream.h"
+#include "radioprofile/RadioProfileStore.h"
+#include "wdsp_engine.h"
+
+#include <QMetaObject>
+#include <QSettings>
+#include <QtDebug>
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
+namespace lyra::wire {
+
+namespace {
+// Legal Protocol 2 DDC rates (kHz) — p2app rejects the whole DDC
+// config packet on any other value (protocol2_command.c).
+bool p2RateLegal(int khz) {
+    return khz == 48 || khz == 96 || khz == 192 ||
+           khz == 384 || khz == 768 || khz == 1536;
+}
+} // namespace
+
+P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
+                       lyra::dsp::WdspEngine *engine, QObject *parent)
+    : QObject(parent), stream_(stream), engine_(engine) {
+    session_ = new P2Session();          // parentless — moves to thread_
+    session_->moveToThread(&thread_);
+    connect(&thread_, &QThread::finished, session_, &QObject::deleteLater);
+    thread_.setObjectName(QStringLiteral("lyra-p2-session"));
+    thread_.start();
+
+    // IQ frames → interleaved normalized doubles → router 0.  The
+    // context object is session_, so this runs ON the session thread
+    // (direct call at emit time) — the single feeder thread.  Decode
+    // recipe = Thetis network.c:591-601: each 6-byte sample is I then
+    // Q, big-endian signed 24-bit placed in the top 3 bytes of an
+    // int32, scaled by 1/2^31.
+    connect(session_, &P2Session::iqFrameReceived, session_,
+            [](int ddc, quint32 /*seq*/, const QByteArray &iq) {
+                if (ddc != 0) return;
+                static thread_local std::vector<double> buf;
+                const int n = iq.size() / 6;
+                buf.resize(static_cast<std::size_t>(n) * 2);
+                const auto *u =
+                    reinterpret_cast<const unsigned char *>(iq.constData());
+                for (int i = 0, k = 0; i < n; ++i, k += 6) {
+                    const auto iRaw = static_cast<qint32>(
+                        (u[k]     << 24) | (u[k + 1] << 16) | (u[k + 2] << 8));
+                    const auto qRaw = static_cast<qint32>(
+                        (u[k + 3] << 24) | (u[k + 4] << 16) | (u[k + 5] << 8));
+                    buf[2 * static_cast<std::size_t>(i)]     = iRaw / 2147483648.0;
+                    buf[2 * static_cast<std::size_t>(i) + 1] = qRaw / 2147483648.0;
+                }
+                xrouter(router_instance(0), 0, /*source=*/0, n, buf.data());
+            });
+
+    // Session diagnostics → app log (qInfo lands in the in-app
+    // diagnostic log via the installed message handler) + our signal.
+    connect(session_, &P2Session::logLine, this, [this](const QString &l) {
+        qInfo().noquote() << l;
+        emit logLine(l);
+    });
+
+    // Telemetry: HP status → real units via the active profile's
+    // constants (Thetis convertToVolts/convertToAmps, console.cs:
+    // volts = raw/4095·5·(23/1.1) from AIN3; amps = max(0,
+    // (raw·5000/4095 − voff)/sens) from AIN4).  Light smoothing —
+    // status arrives ~5/s in RX; the meter model smooths further.
+    connect(session_, &P2Session::statusReceived, this,
+            [this](quint32, quint8, quint8, quint16, quint16, quint16,
+                   quint16, quint16, quint16,
+                   quint16 ain3Raw, quint16 ain4Raw) {
+                if (!running_ || !hasVoltsAmps_) return;
+                const double volts =
+                    (ain3Raw / 4095.0) * 5.0 * ((22.0 + 1.0) / 1.1);
+                const double mv = ain4Raw * 5000.0 / 4095.0;
+                const double amps =
+                    std::max(0.0, (mv - ampVoff_) / ampSens_);
+                supplyV_ = std::isnan(supplyV_)
+                               ? volts : supplyV_ + 0.5 * (volts - supplyV_);
+                paA_     = std::isnan(paA_)
+                               ? amps  : paA_     + 0.5 * (amps  - paA_);
+            });
+
+    // VFO + RIT follow: HL2Stream stays the tuning authority (see
+    // header); the DDC mirrors the RIT-adjusted effective RX
+    // frequency exactly as the P1 path's pushEffectiveRxFreq does.
+    if (stream_) {
+        connect(stream_, &lyra::ipc::HL2Stream::rx1FreqChanged, this,
+                [this]() { pushDialToSession(); });
+        connect(stream_, &lyra::ipc::HL2Stream::ritChanged, this,
+                [this]() { pushDialToSession(); });
+    }
+
+    // IQ-rate follow: the Display panel's rate switch reopens the WDSP
+    // channel at the new rate (spanChanged fires); mirror it onto the
+    // DDC so pitch/span stay true.  spanChanged also fires on zoom —
+    // the rate comparison filters those out.
+    if (engine_) {
+        connect(engine_, &lyra::dsp::WdspEngine::spanChanged, this,
+                [this]() {
+                    if (!running_ || !engine_) return;
+                    const int khz = engine_->sampleRate() / 1000;
+                    if (!p2RateLegal(khz) ||
+                        khz == static_cast<int>(rateKhz_)) return;
+                    rateKhz_ = static_cast<quint16>(khz);
+                    auto *s = session_;
+                    QMetaObject::invokeMethod(s, [s, khz]() {
+                        s->enableDdc(0, static_cast<quint16>(khz));
+                    });
+                    emit logLine(QStringLiteral(
+                        "P2: DDC0 rate → %1 kHz (following engine)").arg(khz));
+                });
+    }
+}
+
+P2RxBridge::~P2RxBridge() {
+    // Deterministic teardown: run=0 must reach the radio before the
+    // socket thread dies, so the close is a BLOCKING queued call.
+    if (thread_.isRunning()) {
+        auto *s = session_;
+        QMetaObject::invokeMethod(s, &P2Session::close,
+                                  Qt::BlockingQueuedConnection);
+    }
+    thread_.quit();
+    thread_.wait(2000);
+}
+
+void P2RxBridge::pushDialToSession() {
+    if (!running_ || !stream_) return;
+    quint32 rx = stream_->rx1FreqHz();
+    if (stream_->ritEnabled())
+        rx = static_cast<quint32>(
+            std::max<qint64>(0, qint64(rx) + stream_->ritOffsetHz()));
+    const quint32 tx = stream_->rx1FreqHz();
+    auto *s = session_;
+    QMetaObject::invokeMethod(s, [s, rx, tx]() {
+        s->setDdcFrequencyHz(0, rx);
+        s->setDucFrequencyHz(tx);
+    });
+}
+
+quint16 P2RxBridge::chooseRateKhz() {
+    // Follow the engine's configured IQ rate when legal for P2 (all of
+    // the engine's own rate choices are).  Anything else → normalize
+    // both sides to the 192 kHz default.
+    int khz = engine_ ? engine_->sampleRate() / 1000 : 192;
+    if (!p2RateLegal(khz)) {
+        khz = 192;
+        if (engine_) engine_->setSampleRate(192000);
+    }
+    return static_cast<quint16>(khz);
+}
+
+void P2RxBridge::open(const QString &ip, const QString &mac) {
+    if (running_) {
+        if (ip_ == ip) return;
+        close();
+    }
+    if (stream_ && stream_->isRunning()) {
+        emit logLine(QStringLiteral(
+            "P2: an HL2 connection is active — Close it before opening "
+            "a Protocol 2 radio"));
+        return;
+    }
+
+    rateKhz_ = chooseRateKhz();
+    // Seed DDC0 from the dial (rx/freqHz persists across launches; 0
+    // only on a truly fresh install → park on 20 m).
+    quint32 hz = stream_ ? stream_->rx1FreqHz() : 0;
+    if (hz == 0) hz = 14'100'000u;
+
+    // Layer-2 radio profile (per-MAC): its model + antenna win over
+    // the global Settings defaults when the MAC is known.
+    lyra::radioprofile::RadioProfile prof;
+    if (!mac.isEmpty())
+        prof = lyra::radioprofile::RadioProfileStore::instance()
+                   .touch(mac, /*protocol=*/2, ip);
+
+    // Per-radio audio routing — applied TRANSIENTLY (globals stay as
+    // the HL2 configured them; restored at close()).  P2 profiles are
+    // seeded "pc" so a Saturn just plays out the PC without touching
+    // the HL2-jack setting.  No profile + globals on the HL2 jack →
+    // warn (that path rides the P1 EP2 writer, which isn't running).
+    if (engine_) {
+        engine_->setRadioAudioSink({});   // clear any stale sink
+        const QString route = prof.isValid() ? prof.audioRoute : QString();
+        if (route == QLatin1String("radio")) {
+            // RX audio out the RADIO's speaker (G2 on-board amp): the
+            // engine's post-DSP int16 tee feeds the session's speaker
+            // stream (fires on the session thread — see P2Session
+            // sendSpeakerAudio).  The PC path is silenced via the
+            // transient hl2 route so audio isn't doubled.  (That route
+            // also applies the AK4951 jack attenuation to the gain —
+            // ride the Volume slider; a dedicated gain trim can come
+            // with the profile UI.)
+            engine_->applyAudioRouteTransient(true, QString());
+            auto *sess = session_;
+            engine_->setRadioAudioSink([sess](const qint16 *lr, int n) {
+                sess->sendSpeakerAudio(lr, n);
+            });
+        } else if (route == QLatin1String("pc"))
+            engine_->applyAudioRouteTransient(false, QString());
+        else if (route == QLatin1String("hl2"))
+            engine_->applyAudioRouteTransient(true, QString());
+        else if (engine_->audioDeviceIndex() == 0)
+            emit logLine(QStringLiteral(
+                "P2: RX audio output is set to the HL2 jack — pick a PC "
+                "output device in Settings → Audio to hear this radio"));
+    }
+
+    // Hardware model (Layer-1 catalog; Thetis comboRadioModel
+    // equivalent).  Precedence: radio profile → global setting →
+    // Saturn-board default (the only bench-verified P2 family).
+    QString modelKey = prof.isValid() ? prof.hardwareModelKey : QString();
+    if (modelKey.isEmpty())
+        modelKey = QSettings().value(QStringLiteral("radio/hardwareModel"),
+                                     QStringLiteral("ANAN-G2")).toString();
+    const auto *hw = lyra::hardware::modelByKey(modelKey);
+    if (!hw) hw = lyra::hardware::defaultModelForBoard(10, /*p2=*/true);
+    // Telemetry conversion constants for this session's model.
+    hasVoltsAmps_ = hw && hw->hasVolts && hw->hasAmps;
+    ampVoff_ = hw ? hw->voltOff  : 360.f;
+    ampSens_ = hw ? hw->voltSens : 120.f;
+    supplyV_ = std::numeric_limits<double>::quiet_NaN();
+    paA_     = std::numeric_limits<double>::quiet_NaN();
+    if (hw)
+        emit logLine(QStringLiteral(
+            "P2: hardware profile %1 — %2 ADC%3, PS peak %4%5")
+            .arg(QLatin1String(hw->displayName)).arg(hw->adcCount)
+            .arg(hw->mkiiBpf ? QStringLiteral(", MkII BPF") : QString())
+            .arg(hw->psDefaultPeakP2)
+            .arg(prof.isValid()
+                     ? QStringLiteral("  [radio profile %1]").arg(prof.mac)
+                     : QString()));
+
+    // TRX antenna port (ANT1/2/3): radio profile → global setting.
+    const int ant = prof.isValid()
+        ? prof.trxAntenna
+        : std::clamp(QSettings()
+                         .value(QStringLiteral("p2/trxAntenna"), 1)
+                         .toInt(), 1, 3);
+
+    auto *s = session_;
+    const quint16 rate = rateKhz_;
+    QMetaObject::invokeMethod(s, [s, ip, hz, rate, ant]() {
+        s->setTrxAntenna(ant);
+        s->setDdcFrequencyHz(0, hz);
+        s->setDucFrequencyHz(hz);
+        s->enableDdc(0, rate);
+        s->open(ip);
+    });
+
+    ip_      = ip;
+    running_ = true;
+    emit logLine(QStringLiteral(
+        "P2: opening %1 (DDC0 @ %2 kHz, %3 Hz)").arg(ip).arg(rateKhz_).arg(hz));
+    emit runningChanged();
+    pushDialToSession();   // refresh with RIT applied (seed was raw dial)
+}
+
+void P2RxBridge::close() {
+    if (!running_) return;
+    auto *s = session_;
+    // BLOCKING: callers use close() to switch wire paths (Settings
+    // Close, Start-button switch to an HL2) — the IQ feed must have
+    // fully stopped before the P1 EP6 thread can start feeding the
+    // same router sink.  The session thread is a pure event loop, so
+    // this returns in microseconds.  Main-thread-only caller (would
+    // deadlock if ever called on the session thread itself).
+    QMetaObject::invokeMethod(s, &P2Session::close,
+                              Qt::BlockingQueuedConnection);
+    running_ = false;
+    ip_.clear();
+    supplyV_ = std::numeric_limits<double>::quiet_NaN();
+    paA_     = std::numeric_limits<double>::quiet_NaN();
+    if (engine_) engine_->setRadioAudioSink({});   // stop the speaker tee
+    // Return audio to the persisted global route (a per-radio "pc"
+    // session route may have been applied at open; the HL2's
+    // configured output comes back exactly as saved).
+    if (engine_) engine_->restoreAudioRouteFromSettings();
+    emit runningChanged();
+}
+
+} // namespace lyra::wire

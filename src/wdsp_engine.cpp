@@ -3415,6 +3415,65 @@ void WdspEngine::setAudioOutputDevice(int index)
     }
 }
 
+void WdspEngine::setRadioAudioSink(
+    std::function<void(const qint16 *lr, int nframes)> sink)
+{
+    std::lock_guard<std::mutex> lk(radioSinkMtx_);
+    radioSink_ = std::move(sink);
+}
+
+void WdspEngine::applyAudioRouteTransient(bool hl2,
+                                          const QString &deviceName)
+{
+    // setAudioOutputDevice minus the QSettings writes — see header.
+    if (hl2) {
+        if (!hl2Out_) {
+            hl2Out_ = true;
+            if (running_) stopAudio();
+            emit audioDeviceChanged();
+            emitLog(QStringLiteral(
+                "[wdsp] audio: output -> HL2 audio jack (session route)"));
+        }
+        return;
+    }
+    if (devices_.isEmpty()) return;     // no PC outputs to route to
+    int devIdx = -1;
+    if (!deviceName.isEmpty()) {
+        for (int i = 0; i < devices_.size(); ++i)
+            if (devices_[i].description() == deviceName) { devIdx = i; break; }
+    }
+    if (devIdx < 0) {
+        // Fall back to the operator's persisted PC device choice.
+        const QString saved =
+            QSettings().value(QStringLiteral("audio/deviceName")).toString();
+        for (int i = 0; i < devices_.size(); ++i)
+            if (devices_[i].description() == saved) { devIdx = i; break; }
+    }
+    if (devIdx < 0)
+        devIdx = (deviceIndex_ >= 0 && deviceIndex_ < devices_.size())
+                     ? deviceIndex_ : 0;
+    if (!hl2Out_ && devIdx == deviceIndex_) return;   // already there
+    hl2Out_      = false;
+    deviceIndex_ = devIdx;
+    emit audioDeviceChanged();
+    emitLog(QStringLiteral("[wdsp] audio: output -> %1 (session route)")
+                .arg(devices_[devIdx].description()));
+    if (running_) {
+        stopAudio();
+        startAudio();
+    }
+}
+
+void WdspEngine::restoreAudioRouteFromSettings()
+{
+    QSettings s;
+    const bool hl2 =
+        s.value(QStringLiteral("audio/output"), QStringLiteral("hl2"))
+            .toString() != QLatin1String("pc");
+    applyAudioRouteTransient(
+        hl2, s.value(QStringLiteral("audio/deviceName")).toString());
+}
+
 // Stage B.6.a (2026-06-08) -- pure extraction from feedIq's inline
 // audio-dispatch tail.  Operator gain/mute/balance/BIN/HL2-atten +
 // int16 quantization + sink dispatch.  EVERY state read uses the
@@ -3887,6 +3946,13 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
             static_cast<qint16>(l * 32767.0);
         pcm16_[static_cast<size_t>(2 * f + 1)] =
             static_cast<qint16>(r * 32767.0);
+    }
+    // P2 radio-speaker tee: the final stereo int16 block, whatever the
+    // PC/HL2 routing below decides (the bridge silences the PC path via
+    // the transient hl2 route when this is active, so it isn't doubled).
+    {
+        std::lock_guard<std::mutex> lk(radioSinkMtx_);
+        if (radioSink_) radioSink_(pcm16_.data(), nframes);
     }
     // P4.b — RX audio → the verbatim EP2 writer via OutBound(0), per the
     // reference asioOUT P1 posture (cmasio.c:137-145) + design §2.

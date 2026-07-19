@@ -1780,10 +1780,18 @@ int main(int argc, char *argv[])
         // radio is off/unreachable the UI just shows "RX stalled".
         const QString lastIp =
             QSettings().value(QStringLiteral("radio/lastIp")).toString();
+        // Layer-2 startup radio: an explicit "Open at startup" choice
+        // (radio/startupMac) also arms the launch connect — its P2
+        // branch is handled inside beginConnect.  A box that has only
+        // ever run a P2 radio has no radio/lastIp, so lastIp alone
+        // would never fire.
+        const bool haveStartupRadio = !QSettings()
+            .value(QStringLiteral("radio/startupMac")).toString().isEmpty();
         // Auto-start-on-launch opt-out (Settings → Hardware).  Default ON
         // (historical behaviour).  When the operator unticks it Lyra loads
         // but waits for an explicit Start instead of opening the radio.
-        if (!lastIp.isEmpty() && prefs->autoStartOnLaunch()
+        if ((!lastIp.isEmpty() || haveStartupRadio)
+            && prefs->autoStartOnLaunch()
             && !qEnvironmentVariableIsSet("LYRA_SAFE")) {
             // Resilient connect: probe the remembered IP and open it only
             // if the radio answers; otherwise scan and self-heal to its

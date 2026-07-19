@@ -28,6 +28,7 @@
 
 namespace lyra::ipc { class HL2Stream; }
 namespace lyra::dsp { class WdspEngine; }  // TxDspWorker ripped (Q2)
+namespace lyra::wire { class P2RxBridge; }
 
 namespace lyra::ui {
 
@@ -261,6 +262,12 @@ public:
                         lyra::dsp::WdspEngine *wdsp,
                         QObject *parent = nullptr);
 
+    // P2 (Saturn / ANAN) telemetry source — when the P2 bridge is
+    // running, PA volts/current read from it (converted with the
+    // radio's hardware-profile constants) instead of the idle
+    // HL2Stream's NaN.  Same meters, either wire path.
+    void setP2Bridge(lyra::wire::P2RxBridge *b) { p2_ = b; }
+
     // TX-rip Phase 1 (Q2): setTxDspWorker removed — TX DSP worker is
     // being rebuilt from empty files per the signed Phase 0 mapping
     // (docs/TX_ARCHITECTURAL_MAPPING.md §10.3).  TX meter taps go
@@ -473,6 +480,7 @@ private:
 
     lyra::ipc::HL2Stream   *stream_   = nullptr;
     lyra::dsp::WdspEngine  *wdsp_     = nullptr;
+    lyra::wire::P2RxBridge *p2_       = nullptr;   // P2 telemetry source
     // TX-rip Phase 1 (Q2): txWorker_ removed; field returns with the
     // new TX DSP worker (docs/TX_ARCHITECTURAL_MAPPING.md §10.3).
     QTimer timer_;

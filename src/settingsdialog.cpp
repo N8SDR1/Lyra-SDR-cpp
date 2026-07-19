@@ -6,6 +6,9 @@
 #include "hl2_discovery.h"
 #include "mainwindow.h"   // Share-a-layout buttons call MainWindow export/import
 #include "hl2_stream.h"
+#include "wire/P2RxBridge.h"
+#include "hardware/HardwareCatalog.h"
+#include "radioprofile/RadioProfileStore.h"
 #include "palettes.h"
 #include "prefs.h"
 #include "time_stations.h"
@@ -272,9 +275,10 @@ SettingsDialog::SettingsDialog(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                                lyra::cat::SerialPtt *serialPtt,
                                lyra::cat::SerialCwKey *serialCwKey,
                                const QList<lyra::cat::CatServer *> &catServers,
+                               lyra::wire::P2RxBridge *p2,
                                QWidget *parent)
     : QDialog(parent), prefs_(prefs), stream_(stream),
-      discovery_(discovery), bcd_(bcd), engine_(engine), wx_(wx),
+      discovery_(discovery), p2_(p2), bcd_(bcd), engine_(engine), wx_(wx),
       memory_(memory), eibi_(eibi), tci_(tci), spots_(spots),
       spotHole_(spotHole), dxCluster_(dxCluster),
       meter_(meter), tuner_(tuner), voiceKeyer_(voiceKeyer),
@@ -2571,8 +2575,10 @@ QWidget *SettingsDialog::buildHardwareTab() {
         // connect/disconnect (called from refresh()).  Uses item roles, NOT
         // setText, so it survives addRadio() re-rendering a row.
         auto markConnected = [this, list]() {
-            const QString connIp = (stream_ && stream_->isRunning())
-                                       ? stream_->targetIp() : QString();
+            // Whichever wire path is live (they're mutually exclusive).
+            QString connIp;
+            if (stream_ && stream_->isRunning())   connIp = stream_->targetIp();
+            else if (p2_ && p2_->isRunning())      connIp = p2_->targetIp();
             QFont boldFont = list->font();
             boldFont.setBold(true);
             for (int i = 0; i < list->count(); ++i) {
@@ -2599,7 +2605,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
         // board/gw/rx info — and a re-Discover refreshes BUSY/rx state.
         auto addRadio = [list](const QString &ip, const QString &mac,
                                const QString &board, int codeVer, int betaVer,
-                               bool busy, int numRxs) {
+                               bool busy, int numRxs, int protocol) {
             QListWidgetItem *it = nullptr;
             for (int i = 0; i < list->count(); ++i)
                 if (list->item(i)->data(Qt::UserRole).toString() == ip) {
@@ -2608,10 +2614,22 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 }
             if (!it)
                 it = new QListWidgetItem(list);
-            it->setText(
-                tr("%1  —  %2  (gw v%3.%4, %5 rx)%6")
-                    .arg(ip, board).arg(codeVer).arg(betaVer).arg(numRxs)
-                    .arg(busy ? tr("  [BUSY]") : QString()));
+            if (protocol == 2) {
+                // Protocol 2 (Saturn / ANAN G2): detected + listed so the
+                // operator sees it's on the network, but Open is gated
+                // until the P2 wire layer lands (roadmap).  DDC count in
+                // place of "rx"; fw = FPGA version from the P2 reply.
+                it->setText(
+                    tr("%1  —  %2  (P2, fw v%3, %4 DDC)%5  — P2 support "
+                       "in development, can't open yet")
+                        .arg(ip, board).arg(codeVer).arg(numRxs)
+                        .arg(busy ? tr("  [BUSY]") : QString()));
+            } else {
+                it->setText(
+                    tr("%1  —  %2  (gw v%3.%4, %5 rx)%6")
+                        .arg(ip, board).arg(codeVer).arg(betaVer).arg(numRxs)
+                        .arg(busy ? tr("  [BUSY]") : QString()));
+            }
             it->setData(Qt::UserRole,     ip);
             it->setData(Qt::UserRole + 1, mac);
             it->setData(Qt::UserRole + 2, board);
@@ -2619,20 +2637,39 @@ QWidget *SettingsDialog::buildHardwareTab() {
             it->setData(Qt::UserRole + 4, betaVer);
             it->setData(Qt::UserRole + 5, busy);
             it->setData(Qt::UserRole + 6, numRxs);
+            it->setData(Qt::UserRole + 7, protocol);
         };
+
+        // Layer-2 saved radios: seed the list from the profile store
+        // so the station's known radios appear WITHOUT a Discover
+        // sweep (each row refreshes in place when discovery answers;
+        // lastKnownIp is the open target until then).
+        for (const auto &p :
+             lyra::radioprofile::RadioProfileStore::instance().all()) {
+            if (p.lastKnownIp.isEmpty()) continue;
+            const auto *d = lyra::hardware::modelByKey(p.hardwareModelKey);
+            addRadio(p.lastKnownIp, p.mac,
+                     p.nickname.isEmpty()
+                         ? (d ? QString::fromLatin1(d->displayName)
+                              : tr("saved radio"))
+                         : p.nickname,
+                     0, 0, false, 0, p.protocol);
+        }
 
         // Show the remembered radio on open so the operator sees what
         // auto-connect attached to.
         if (discovery_) {
             const QVariantMap r = discovery_->savedRadio();
             if (!r.value(QStringLiteral("ip")).toString().isEmpty()) {
+                // Remembered radios are always P1 — only openable radios
+                // get persisted (P2 Open is gated below).
                 addRadio(r.value(QStringLiteral("ip")).toString(),
                          r.value(QStringLiteral("mac")).toString(),
                          r.value(QStringLiteral("boardName")).toString(),
                          r.value(QStringLiteral("codeVersion")).toInt(),
                          r.value(QStringLiteral("betaVersion")).toInt(),
                          r.value(QStringLiteral("busy")).toBool(),
-                         r.value(QStringLiteral("numRxs")).toInt());
+                         r.value(QStringLiteral("numRxs")).toInt(), 1);
             }
         }
 
@@ -2665,16 +2702,174 @@ QWidget *SettingsDialog::buildHardwareTab() {
         rv->addLayout(manualRow);
         rv->addLayout(btnRow);
 
+        // ── P2 hardware profile (Saturn / ANAN family) ──────────────
+        // Layer-1 hardware-catalog selection — the Thetis
+        // comboRadioModel equivalent — plus the TRX antenna port.
+        // Both persist immediately and take effect at the next Open
+        // of a Protocol 2 radio.  (The HL2 path ignores these.)
+        {
+            auto *hwRow = new QHBoxLayout();
+            hwRow->addWidget(new QLabel(tr("P2 radio model:"), radioBox));
+            auto *modelCombo = new QComboBox(radioBox);
+            const QStringList keys = lyra::hardware::p2ModelKeys();
+            for (const QString &k : keys) {
+                const auto *d = lyra::hardware::modelByKey(k);
+                modelCombo->addItem(
+                    d ? QString::fromLatin1(d->displayName) : k, k);
+            }
+            const QString savedKey =
+                QSettings().value(QStringLiteral("radio/hardwareModel"),
+                                  QStringLiteral("ANAN-G2")).toString();
+            const int mi = modelCombo->findData(savedKey);
+            if (mi >= 0) modelCombo->setCurrentIndex(mi);
+            // Writes the GLOBAL default and, when a P2 radio row is
+            // selected, that radio's Layer-2 profile (per-MAC).
+            connect(modelCombo,
+                    QOverload<int>::of(&QComboBox::currentIndexChanged),
+                    radioBox, [modelCombo, status, list](int) {
+                        const QString key =
+                            modelCombo->currentData().toString();
+                        QSettings().setValue(
+                            QStringLiteral("radio/hardwareModel"), key);
+                        if (auto *it = list->currentItem();
+                            it && it->data(Qt::UserRole + 7).toInt() == 2) {
+                            auto &store = lyra::radioprofile::
+                                RadioProfileStore::instance();
+                            auto p = store.forMac(
+                                it->data(Qt::UserRole + 1).toString());
+                            if (p.isValid()) {
+                                p.hardwareModelKey = key;
+                                store.save(p);
+                            }
+                        }
+                        status->setText(tr("Hardware model saved — applied "
+                                           "at the next Open."));
+                    });
+            hwRow->addWidget(modelCombo, 1);
+
+            hwRow->addWidget(new QLabel(tr("Antenna:"), radioBox));
+            auto *antCombo = new QComboBox(radioBox);
+            antCombo->addItems({tr("ANT 1"), tr("ANT 2"), tr("ANT 3")});
+            antCombo->setCurrentIndex(qBound(
+                1, QSettings().value(QStringLiteral("p2/trxAntenna"), 1)
+                       .toInt(), 3) - 1);
+            connect(antCombo,
+                    QOverload<int>::of(&QComboBox::currentIndexChanged),
+                    radioBox, [status, list](int idx) {
+                        QSettings().setValue(
+                            QStringLiteral("p2/trxAntenna"), idx + 1);
+                        if (auto *it = list->currentItem();
+                            it && it->data(Qt::UserRole + 7).toInt() == 2) {
+                            auto &store = lyra::radioprofile::
+                                RadioProfileStore::instance();
+                            auto p = store.forMac(
+                                it->data(Qt::UserRole + 1).toString());
+                            if (p.isValid()) {
+                                p.trxAntenna = idx + 1;
+                                store.save(p);
+                            }
+                        }
+                        status->setText(tr("Antenna saved — applied at the "
+                                           "next Open."));
+                    });
+            hwRow->addWidget(antCombo);
+
+            // Per-radio audio route (RadioProfile.audioRoute) for the
+            // selected P2 row: PC output, the RADIO's own speaker (G2
+            // on-board amp via the P2 speaker stream), or follow the
+            // global Settings → Audio choice.
+            hwRow->addWidget(new QLabel(tr("Audio:"), radioBox));
+            auto *audCombo = new QComboBox(radioBox);
+            audCombo->addItem(tr("PC output"),     QStringLiteral("pc"));
+            audCombo->addItem(tr("Radio speaker"), QStringLiteral("radio"));
+            audCombo->addItem(tr("Follow global"), QString());
+            connect(audCombo,
+                    QOverload<int>::of(&QComboBox::currentIndexChanged),
+                    radioBox, [audCombo, status, list](int) {
+                        auto *it = list->currentItem();
+                        if (!it || it->data(Qt::UserRole + 7).toInt() != 2) {
+                            status->setText(tr("Select a Protocol 2 radio "
+                                               "row first."));
+                            return;
+                        }
+                        auto &store = lyra::radioprofile::
+                            RadioProfileStore::instance();
+                        auto p = store.forMac(
+                            it->data(Qt::UserRole + 1).toString());
+                        if (p.isValid()) {
+                            p.audioRoute =
+                                audCombo->currentData().toString();
+                            store.save(p);
+                            status->setText(tr("Audio route saved — applied "
+                                               "at the next Open."));
+                        }
+                    });
+            hwRow->addWidget(audCombo);
+
+            // Startup radio (radio/startupMac): explicit operator choice
+            // of which SAVED radio auto-opens at launch.  Unset = the
+            // legacy behavior (P1/HL2 auto-connect) — retention rules.
+            auto *startupChk = new QCheckBox(tr("Open at startup"), radioBox);
+            auto syncStartup = [startupChk, list]() {
+                const QString mac = QSettings()
+                    .value(QStringLiteral("radio/startupMac")).toString();
+                auto *it = list->currentItem();
+                const bool on = it && !mac.isEmpty() &&
+                    it->data(Qt::UserRole + 1).toString()
+                        .compare(mac, Qt::CaseInsensitive) == 0;
+                startupChk->blockSignals(true);
+                startupChk->setChecked(on);
+                startupChk->blockSignals(false);
+            };
+            connect(list, &QListWidget::currentRowChanged, radioBox,
+                    [syncStartup](int) { syncStartup(); });
+            syncStartup();
+            connect(startupChk, &QCheckBox::toggled, radioBox,
+                    [status, list](bool on) {
+                        auto *it = list->currentItem();
+                        if (!it) return;
+                        const QString mac =
+                            it->data(Qt::UserRole + 1).toString();
+                        QSettings s;
+                        if (on && !mac.isEmpty()) {
+                            s.setValue(QStringLiteral("radio/startupMac"), mac);
+                            status->setText(tr(
+                                "%1 will open at the next launch.")
+                                    .arg(it->data(Qt::UserRole).toString()));
+                        } else if (!on &&
+                                   s.value(QStringLiteral("radio/startupMac"))
+                                       .toString().compare(
+                                           mac, Qt::CaseInsensitive) == 0) {
+                            s.remove(QStringLiteral("radio/startupMac"));
+                            status->setText(tr(
+                                "Startup radio cleared — the HL2 "
+                                "auto-connect behavior returns."));
+                        }
+                    });
+            hwRow->addWidget(startupChk);
+            rv->addLayout(hwRow);
+        }
+
         auto refresh = [this, scanBtn, openBtn, closeBtn, removeBtn,
                         list, status, markConnected]() {
-            const bool running = stream_ && stream_->isRunning();
-            scanBtn->setEnabled(discovery_ && !running);
+            const bool p1Running = stream_ && stream_->isRunning();
+            const bool p2Running = p2_ && p2_->isRunning();
+            const bool running   = p1Running || p2Running;
+            // Discover stays enabled while connected: scanning is
+            // passive (its own sockets; radios answer even when busy)
+            // and the operator needs the list populated to SEE the
+            // other radio before Close-then-Open switching.  Open
+            // itself stays gated on !running below.
+            scanBtn->setEnabled(discovery_ != nullptr);
             openBtn->setEnabled(stream_ && !running &&
                                 list->currentItem() != nullptr);
             closeBtn->setEnabled(running);
             removeBtn->setEnabled(list->currentItem() != nullptr);
-            if (running && stream_)
+            if (p1Running)
                 status->setText(tr("Connected to %1").arg(stream_->targetIp()));
+            else if (p2Running)
+                status->setText(tr("Connected to %1 (Saturn / ANAN G2, "
+                                   "Protocol 2 — RX)").arg(p2_->targetIp()));
             markConnected();
         };
         refresh();
@@ -2689,8 +2884,8 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     });
             connect(discovery_, &lyra::ipc::HL2Discovery::radioFound, radioBox,
                     [addRadio](QString ip, QString mac, QString board,
-                               int cv, int bv, bool busy, int nr) {
-                        addRadio(ip, mac, board, cv, bv, busy, nr);
+                               int cv, int bv, bool busy, int nr, int proto) {
+                        addRadio(ip, mac, board, cv, bv, busy, nr, proto);
                     });
             connect(discovery_, &lyra::ipc::HL2Discovery::scanFinished, radioBox,
                     [status](int count) {
@@ -2704,8 +2899,34 @@ QWidget *SettingsDialog::buildHardwareTab() {
         if (stream_) {
             // Open one list item — shared by the Open button AND double-click.
             // No-op while already connected (Close first to switch radios).
-            auto openItem = [this](QListWidgetItem *it) {
-                if (!it || stream_->isRunning()) return;
+            auto openItem = [this, status](QListWidgetItem *it) {
+                if (!it) return;
+                // One radio at a time — but SAY so instead of silently
+                // ignoring the click (operator-reported: with a radio
+                // auto-connected, double-clicking another looked like
+                // "can't connect" because nothing happened at all).
+                if (stream_->isRunning() || (p2_ && p2_->isRunning())) {
+                    status->setText(tr(
+                        "A radio is already open — click Close first, "
+                        "then Open (or double-click) the other radio."));
+                    return;
+                }
+                // Protocol 2 (Saturn / ANAN G2): opens through the P2
+                // bridge (session thread + DDC0 IQ → the same WDSP RX
+                // chain).  RX-only today; the P1 rememberRadio /
+                // auto-connect persistence stays HL2-only.
+                if (it->data(Qt::UserRole + 7).toInt() == 2) {
+                    const QString ip = it->data(Qt::UserRole).toString();
+                    if (p2_) {
+                        // MAC selects the radio's Layer-2 profile
+                        // (model + antenna) inside the bridge.
+                        p2_->open(ip, it->data(Qt::UserRole + 1).toString());
+                        status->setText(tr(
+                            "Opening %1 (Saturn / ANAN G2, Protocol 2) — "
+                            "RX only for now.").arg(ip));
+                    }
+                    return;
+                }
                 const QString ip = it->data(Qt::UserRole).toString();
                 if (discovery_) {
                     discovery_->rememberRadio(
@@ -2722,10 +2943,16 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     [openItem, list]() { openItem(list->currentItem()); });
             connect(list, &QListWidget::itemDoubleClicked, radioBox,
                     [openItem](QListWidgetItem *it) { openItem(it); });
-            connect(closeBtn, &QPushButton::clicked, stream_,
-                    [this]() { stream_->close(); });
+            connect(closeBtn, &QPushButton::clicked, radioBox, [this]() {
+                // Close whichever wire path is live.
+                if (stream_ && stream_->isRunning()) stream_->close();
+                if (p2_ && p2_->isRunning())         p2_->close();
+            });
             connect(stream_, &lyra::ipc::HL2Stream::runningChanged, radioBox,
                     [refresh]() { refresh(); });
+            if (p2_)
+                connect(p2_, &lyra::wire::P2RxBridge::runningChanged, radioBox,
+                        [refresh]() { refresh(); });
         } else {
             openBtn->setEnabled(false);
             closeBtn->setEnabled(false);
@@ -2746,7 +2973,10 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     tr("Enter a valid IPv4 address (e.g. 192.168.1.50)."));
                 return;
             }
-            addRadio(ip, QString(), tr("manual"), 0, 0, false, 0);
+            // Placeholder defaults to P1; if the probe reply says the radio
+            // is actually P2, addRadio's IP-keyed update rewrites the row
+            // (and its protocol role) with the real record.
+            addRadio(ip, QString(), tr("manual"), 0, 0, false, 0, 1);
             for (int i = 0; i < list->count(); ++i)
                 if (list->item(i)->data(Qt::UserRole).toString() == ip) {
                     list->setCurrentRow(i);
@@ -2769,8 +2999,19 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 [this, list, status, refresh]() {
             auto *it = list->currentItem();
             if (!it) return;
-            const QString ip = it->data(Qt::UserRole).toString();
+            const QString ip  = it->data(Qt::UserRole).toString();
+            const QString mac = it->data(Qt::UserRole + 1).toString();
             if (discovery_) discovery_->forgetRadio(ip);
+            // Layer-2: also delete the saved RadioProfile (otherwise the
+            // profile store re-seeds the row on the next dialog open) and
+            // clear a startup-radio choice pointing at it.
+            if (!mac.isEmpty()) {
+                lyra::radioprofile::RadioProfileStore::instance().remove(mac);
+                QSettings s;
+                if (s.value(QStringLiteral("radio/startupMac")).toString()
+                        .compare(mac, Qt::CaseInsensitive) == 0)
+                    s.remove(QStringLiteral("radio/startupMac"));
+            }
             delete list->takeItem(list->row(it));
             status->setText(tr("Removed %1.").arg(ip));
             refresh();
