@@ -4,6 +4,7 @@
 
 #include "palettes.h"
 #include "grid.h"
+#include "rig/RigScope.h"   // multi-rig Stage 4d — per-rig panadapter dB-scale keys
 
 #include <QSettings>
 
@@ -14,6 +15,14 @@
 namespace lyra::ui {
 
 namespace {
+// Multi-rig Stage 4d: per-rig scope for the panadapter dB-SCALE keys only
+// (RX+TX spectrum & waterfall floor/ceiling).  The rest of panadapter/ is
+// UI prefs (palette, peak, glow, zoom…) that stay shared, so we wrap the
+// specific scaling keys at their read/write sites, not the whole group.
+// Returns rig/<activeId>/<flatKey> (or the flat key when no rig active).
+QString scaledKey(const char *flatKey) {
+    return lyra::rig::scope::rigKey(QLatin1String(flatKey));
+}
 constexpr auto kGrid   = "panadapter/gridLevel";
 constexpr auto kFps    = "panadapter/targetFps";
 constexpr auto kDbMin  = "panadapter/dbMin";
@@ -152,10 +161,10 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     QSettings s;
     gridLevel_  = std::clamp(s.value(kGrid, 35).toInt(), 0, 100);
     targetFps_  = std::clamp(s.value(kFps, 60).toInt(), 1, 240);
-    rxDbMin_      = s.value(kDbMin, -130.0).toDouble();
-    rxDbMax_      = s.value(kDbMax, -20.0).toDouble();
-    txDbMin_    = s.value(kTxDbMin, -80.0).toDouble();
-    txDbMax_    = s.value(kTxDbMax, 20.0).toDouble();
+    rxDbMin_      = s.value(scaledKey(kDbMin), -130.0).toDouble();
+    rxDbMax_      = s.value(scaledKey(kDbMax), -20.0).toDouble();
+    txDbMin_    = s.value(scaledKey(kTxDbMin), -80.0).toDouble();
+    txDbMax_    = s.value(scaledKey(kTxDbMax), 20.0).toDouble();
     // #95 TUN drive mode.  Migrate the legacy #74 bool when the new
     // key is absent: useTuneDrive ON → TuneDriveTune(1), OFF → slider(0).
     if (s.contains(kTuneDriveMode)) {
@@ -215,10 +224,10 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     // (their tuned RX waterfall) on the SAME keys for byte-identical
     // upgrade; the new TX pair lives on kTxWfDbMin/kTxWfDbMax with
     // reference-faithful defaults +30 / -70 dBFS.
-    rxWaterfallDbMin_ = s.value(kWfDbMin, -120.0).toDouble();
-    rxWaterfallDbMax_ = s.value(kWfDbMax,  -20.0).toDouble();
-    txWaterfallDbMin_ = s.value(kTxWfDbMin, -70.0).toDouble();
-    txWaterfallDbMax_ = s.value(kTxWfDbMax,  30.0).toDouble();
+    rxWaterfallDbMin_ = s.value(scaledKey(kWfDbMin), -120.0).toDouble();
+    rxWaterfallDbMax_ = s.value(scaledKey(kWfDbMax),  -20.0).toDouble();
+    txWaterfallDbMin_ = s.value(scaledKey(kTxWfDbMin), -70.0).toDouble();
+    txWaterfallDbMax_ = s.value(scaledKey(kTxWfDbMax),  30.0).toDouble();
     waterfallDbAuto_  = s.value(kWfDbAuto, false).toBool();
     panadapterSplit_  = s.value(kPanSplit);   // invalid (= QML undefined) if unset
     cursorReadout_    = s.value(kCursorRdt, true).toBool();
@@ -362,14 +371,14 @@ void Prefs::setDbMin(double v) {
     if (moxActive_) {
         if (v != txDbMin_) {
             txDbMin_ = v;
-            QSettings().setValue(kTxDbMin, v);
+            QSettings().setValue(scaledKey(kTxDbMin), v);
             emit txDbMinChanged();
             emit dbMinChanged();
         }
     } else {
         if (v != rxDbMin_) {
             rxDbMin_ = v;
-            QSettings().setValue(kDbMin, v);
+            QSettings().setValue(scaledKey(kDbMin), v);
             emit dbMinChanged();
         }
     }
@@ -379,14 +388,14 @@ void Prefs::setDbMax(double v) {
     if (moxActive_) {
         if (v != txDbMax_) {
             txDbMax_ = v;
-            QSettings().setValue(kTxDbMax, v);
+            QSettings().setValue(scaledKey(kTxDbMax), v);
             emit txDbMaxChanged();
             emit dbMaxChanged();
         }
     } else {
         if (v != rxDbMax_) {
             rxDbMax_ = v;
-            QSettings().setValue(kDbMax, v);
+            QSettings().setValue(scaledKey(kDbMax), v);
             emit dbMaxChanged();
         }
     }
@@ -398,7 +407,7 @@ void Prefs::setRxDbMin(double v) {
     // MOX-off) rather than the live TX pair.
     if (v != rxDbMin_) {
         rxDbMin_ = v;
-        QSettings().setValue(kDbMin, v);
+        QSettings().setValue(scaledKey(kDbMin), v);
         if (!moxActive_) emit dbMinChanged();
     }
 }
@@ -406,7 +415,7 @@ void Prefs::setRxDbMin(double v) {
 void Prefs::setRxDbMax(double v) {
     if (v != rxDbMax_) {
         rxDbMax_ = v;
-        QSettings().setValue(kDbMax, v);
+        QSettings().setValue(scaledKey(kDbMax), v);
         if (!moxActive_) emit dbMaxChanged();
     }
 }
@@ -503,7 +512,7 @@ void Prefs::setMoxActive(bool on) {
 void Prefs::setTxDbMin(double v) {
     if (v != txDbMin_) {
         txDbMin_ = v;
-        QSettings().setValue(kTxDbMin, v);
+        QSettings().setValue(scaledKey(kTxDbMin), v);
         emit txDbMinChanged();
         if (moxActive_) emit dbMinChanged();
     }
@@ -512,7 +521,7 @@ void Prefs::setTxDbMin(double v) {
 void Prefs::setTxDbMax(double v) {
     if (v != txDbMax_) {
         txDbMax_ = v;
-        QSettings().setValue(kTxDbMax, v);
+        QSettings().setValue(scaledKey(kTxDbMax), v);
         emit txDbMaxChanged();
         if (moxActive_) emit dbMaxChanged();
     }
@@ -804,14 +813,14 @@ void Prefs::setWaterfallDbMin(double v) {
     if (moxActive_) {
         if (v != txWaterfallDbMin_) {
             txWaterfallDbMin_ = v;
-            QSettings().setValue(kTxWfDbMin, v);
+            QSettings().setValue(scaledKey(kTxWfDbMin), v);
             emit txWaterfallDbMinChanged();
             emit waterfallDbMinChanged();
         }
     } else {
         if (v != rxWaterfallDbMin_) {
             rxWaterfallDbMin_ = v;
-            QSettings().setValue(kWfDbMin, v);
+            QSettings().setValue(scaledKey(kWfDbMin), v);
             emit waterfallDbMinChanged();
         }
     }
@@ -821,14 +830,14 @@ void Prefs::setWaterfallDbMax(double v) {
     if (moxActive_) {
         if (v != txWaterfallDbMax_) {
             txWaterfallDbMax_ = v;
-            QSettings().setValue(kTxWfDbMax, v);
+            QSettings().setValue(scaledKey(kTxWfDbMax), v);
             emit txWaterfallDbMaxChanged();
             emit waterfallDbMaxChanged();
         }
     } else {
         if (v != rxWaterfallDbMax_) {
             rxWaterfallDbMax_ = v;
-            QSettings().setValue(kWfDbMax, v);
+            QSettings().setValue(scaledKey(kWfDbMax), v);
             emit waterfallDbMaxChanged();
         }
     }
@@ -840,7 +849,7 @@ void Prefs::setRxWaterfallDbMin(double v) {
     // MOX-off) rather than the live TX pair.
     if (v != rxWaterfallDbMin_) {
         rxWaterfallDbMin_ = v;
-        QSettings().setValue(kWfDbMin, v);
+        QSettings().setValue(scaledKey(kWfDbMin), v);
         if (!moxActive_) emit waterfallDbMinChanged();
     }
 }
@@ -848,7 +857,7 @@ void Prefs::setRxWaterfallDbMin(double v) {
 void Prefs::setRxWaterfallDbMax(double v) {
     if (v != rxWaterfallDbMax_) {
         rxWaterfallDbMax_ = v;
-        QSettings().setValue(kWfDbMax, v);
+        QSettings().setValue(scaledKey(kWfDbMax), v);
         if (!moxActive_) emit waterfallDbMaxChanged();
     }
 }
@@ -856,7 +865,7 @@ void Prefs::setRxWaterfallDbMax(double v) {
 void Prefs::setTxWaterfallDbMin(double v) {
     if (v != txWaterfallDbMin_) {
         txWaterfallDbMin_ = v;
-        QSettings().setValue(kTxWfDbMin, v);
+        QSettings().setValue(scaledKey(kTxWfDbMin), v);
         emit txWaterfallDbMinChanged();
         if (moxActive_) emit waterfallDbMinChanged();
     }
@@ -865,7 +874,7 @@ void Prefs::setTxWaterfallDbMin(double v) {
 void Prefs::setTxWaterfallDbMax(double v) {
     if (v != txWaterfallDbMax_) {
         txWaterfallDbMax_ = v;
-        QSettings().setValue(kTxWfDbMax, v);
+        QSettings().setValue(scaledKey(kTxWfDbMax), v);
         emit txWaterfallDbMaxChanged();
         if (moxActive_) emit waterfallDbMaxChanged();
     }

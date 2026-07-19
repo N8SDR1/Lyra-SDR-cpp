@@ -37,6 +37,7 @@
 #include "logdialog.h"
 #include "hl2_discovery.h"
 #include "hl2_stream.h"
+#include "rig/RigRegistry.h"   // multi-rig — the Rig menu (switch active rig)
 #include "wdsp_engine.h"
 #include "prefs.h"
 #include "CwMacroModel.h"
@@ -82,6 +83,7 @@
 #include <QTextEdit>
 #include <QMessageBox>
 #include <QInputDialog>
+#include <QUuid>
 #include <QCursor>
 #include <QPixmap>
 #include <QQmlContext>
@@ -256,6 +258,18 @@ inline QSize testWindowSize() {
     return sz;
 }
 
+// Safe boot (--safe / LYRA_SAFE, set in main()): a GUARANTEED, NON-DESTRUCTIVE
+// way in.  If the operator's saved layout is itself what crashes the restore,
+// replaying it under safe boot would defeat the hatch — so restoreLayout() comes
+// up in the factory arrangement for this session, and (exactly like the
+// LYRA_TEST_SIZE diagnostic) the layout store is READ-ONLY: saveLayout() bails,
+// so the operator's real slot is left untouched and restores normally on their
+// next NORMAL launch.  Distinct from the ui/uiSafeReset crash-recovery path,
+// which deliberately PURGES a slot proven bad by repeated crashes.
+inline bool safeBootLayout() {
+    return qEnvironmentVariableIsSet("LYRA_SAFE");
+}
+
 // The session layout is stored per DISPLAY SETUP, not in one global slot.
 //
 // A dock layout is only meaningful on the screen it was built for: panel widths
@@ -295,6 +309,26 @@ inline QString layoutSlotKey() {
 // QSettings prefix for this setup's session layout, e.g. "session/2560x1400/".
 inline QString layoutSlotPrefix() {
     return QStringLiteral("session/") + layoutSlotKey() + QLatin1Char('/');
+}
+
+// Remove every persisted window-layout key so a crash-recovery launch can come
+// up in the factory arrangement: this display's whole session slot subtree
+// (geometry / windowState / panadapterSplit / named slots / undo), the legacy
+// single-slot keys (which restoreLayout() would otherwise re-migrate into the
+// slot and re-crash on), the user-default-layout keys, and the grouped-panel
+// rack windows.  Non-layout settings — station, radio, DSP/TX profiles,
+// calibration, colours — are deliberately left untouched.
+inline void purgeSavedLayoutKeys() {
+    QSettings s;
+    s.beginGroup(QStringLiteral("session/") + layoutSlotKey());
+    s.remove(QString());   // empty key clears every key in the current group
+    s.endGroup();
+    for (const char *k :
+         {"ui/geometry", "ui/windowState", "ui/panadapterSplit",
+          "ui/userGeometry", "ui/userWindowState", "ui/userPanadapterSplit"})
+        s.remove(QLatin1String(k));
+    s.remove(QStringLiteral("panelRack"));   // grouped-panel rack windows subtree
+    s.sync();
 }
 
 // Global tooltip gate — swallows QWidget tooltip events app-wide when the
@@ -1573,6 +1607,13 @@ void MainWindow::buildMenus() {
     fileMenu->addAction(tr("E&xit"), QKeySequence(QKeySequence::Quit),
                         this, &QWidget::close);
 
+    // Rig — switch between saved radio profiles (multi-rig).  Rebuilt from
+    // the rig registry each time it opens; the active rig is checked.
+    // Switching sets the active rig and offers a restart to load its
+    // settings (restart-to-load MVP; live hot-reload is a later refinement).
+    rigMenu_ = menuBar()->addMenu(tr("&Rig"));
+    connect(rigMenu_, &QMenu::aboutToShow, this, &MainWindow::rebuildRigMenu);
+
     // View — one show/hide toggle per dock + Lock panels.
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
     for (auto it = docks_.cbegin(); it != docks_.cend(); ++it) {
@@ -1759,6 +1800,126 @@ void MainWindow::showHelp(const QString &topic) {
         helpDlg_ = new HelpDialog(this);
     }
     helpDlg_->showTopic(topic);
+}
+
+// ── Multi-rig: the "Rig" menu ──────────────────────────────────────────────
+
+void MainWindow::rebuildRigMenu() {
+    rigMenu_->clear();
+    const QString active = lyra::rig::registry::activeRigId();
+    const auto rigs = lyra::rig::registry::rigs();
+    if (rigs.isEmpty()) {
+        QAction *none = rigMenu_->addAction(tr("(no rigs yet)"));
+        none->setEnabled(false);
+    }
+    for (const auto &r : rigs) {
+        const QString label = r.label.isEmpty() ? r.rigId : r.label;
+        QAction *a = rigMenu_->addAction(label);
+        a->setCheckable(true);
+        a->setChecked(r.rigId == active);
+        const QString id = r.rigId;
+        connect(a, &QAction::triggered, this, [this, id]() { switchRig(id); });
+    }
+    rigMenu_->addSeparator();
+    rigMenu_->addAction(tr("Add rig…"), this, &MainWindow::addRigInteractive);
+    if (!active.isEmpty())
+        rigMenu_->addAction(tr("Rename active rig…"), this,
+                            &MainWindow::renameActiveRig);
+    rigMenu_->addAction(tr("Manage rigs (Settings → Hardware)…"),
+                        this, &MainWindow::openSettings);
+}
+
+void MainWindow::switchRig(const QString &rigId) {
+    if (rigId.isEmpty() || rigId == lyra::rig::registry::activeRigId())
+        return;   // already active — nothing to do
+
+    // Mid-TX guard — never yank the config or restart while keyed.
+    if (auto *s = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+        if (s->moxActive() || s->cwKeyingActive()) {
+            QMessageBox::warning(this, tr("Switch rig"),
+                tr("Can't switch rigs while transmitting — unkey first."));
+            return;
+        }
+    }
+
+    const auto r = lyra::rig::registry::rig(rigId);
+    const QString label = r.label.isEmpty() ? rigId : r.label;
+
+    QMessageBox box(this);
+    box.setWindowTitle(tr("Switch rig"));
+    box.setIcon(QMessageBox::Question);
+    box.setText(tr("Switch to \"%1\"?").arg(label));
+    box.setInformativeText(
+        tr("Lyra loads a rig's settings at startup, so it will restart to "
+           "switch. Restart now, or switch on the next launch?"));
+    QAbstractButton *restartBtn =
+        box.addButton(tr("Restart now"), QMessageBox::AcceptRole);
+    QAbstractButton *laterBtn =
+        box.addButton(tr("Later"), QMessageBox::ActionRole);
+    box.addButton(QMessageBox::Cancel);
+    box.exec();
+    QAbstractButton *clicked = box.clickedButton();
+    if (clicked != restartBtn && clicked != laterBtn)
+        return;   // Cancel / closed — leave the active rig unchanged
+
+    lyra::rig::registry::setActiveRigId(rigId);
+    if (clicked == restartBtn) {
+        // Relaunch a fresh instance, then close cleanly.  The new instance
+        // seeds/loads the now-active rig and auto-connects to its lastIp.
+        QProcess::startDetached(QCoreApplication::applicationFilePath(),
+                                QCoreApplication::arguments().mid(1));
+        close();
+    }
+    // "Later" — active rig recorded; loads on the next manual restart.
+}
+
+void MainWindow::addRigInteractive() {
+    bool ok = false;
+    const QString label = QInputDialog::getText(
+        this, tr("Add rig"), tr("Rig name:"),
+        QLineEdit::Normal, QString(), &ok).trimmed();
+    if (!ok || label.isEmpty())
+        return;
+    const QString mac = QInputDialog::getText(
+        this, tr("Add rig"),
+        tr("MAC address (optional — e.g. aa:bb:cc:dd:ee:ff).\n"
+           "Leave blank to pre-stage a rig before its hardware is present."),
+        QLineEdit::Normal, QString(), &ok).trimmed();
+    if (!ok)
+        return;
+
+    QString rigId;
+    if (!mac.isEmpty())
+        rigId = lyra::rig::registry::ensureRig(
+            mac, lyra::rig::RadioFamily::Unknown, label);
+    if (rigId.isEmpty()) {
+        // MAC-less (or unparseable MAC): synthesise a stable profile id.
+        rigId = QStringLiteral("rig_")
+                + QUuid::createUuid().toString(QUuid::Id128);
+        lyra::rig::RigProfile p;
+        p.rigId = rigId;
+        p.label = label;
+        p.mac   = mac;   // may be empty
+        lyra::rig::registry::upsertRig(p);
+    }
+    QMessageBox::information(this, tr("Add rig"),
+        tr("Added rig \"%1\". Pick it from the Rig menu to switch "
+           "(Lyra restarts to load it).").arg(label));
+}
+
+void MainWindow::renameActiveRig() {
+    const QString id = lyra::rig::registry::activeRigId();
+    if (id.isEmpty())
+        return;
+    auto r = lyra::rig::registry::rig(id);
+    bool ok = false;
+    const QString name = QInputDialog::getText(
+        this, tr("Rename rig"), tr("Rig name:"),
+        QLineEdit::Normal, r.label, &ok).trimmed();
+    if (!ok || name.isEmpty() || name == r.label)
+        return;
+    r.label = name;
+    lyra::rig::registry::upsertRig(r);
 }
 
 void MainWindow::openSettingsTopic(const QString &topic) {
@@ -2748,8 +2909,9 @@ void MainWindow::applyPanelLock(bool locked) {
 // the title bar says LAYOUT SAVING DISABLED, and that has to be the whole truth.
 void MainWindow::refuseLayoutWrite() {
     statusBar()->showMessage(
-        tr("Layout saving is disabled: this is a LYRA_TEST_SIZE diagnostic "
-           "session and must not overwrite your real layout."), 6000);
+        tr("Layout saving is disabled for this session (safe boot, or a "
+           "LYRA_TEST_SIZE diagnostic) so it can't overwrite your real "
+           "layout."), 6000);
 }
 
 // Clamp the window into the screen it landed on.  A geometry saved on a screen
@@ -2792,6 +2954,7 @@ void MainWindow::fitWindowToScreen() {
 
 void MainWindow::saveLayout() {
     if (testWindowSize().isValid()) return;   // diagnostic run — see testWindowSize()
+    if (safeBootLayout()) return;             // safe boot is READ-ONLY — see safeBootLayout()
     QSettings s;
     const QString p = layoutSlotPrefix();     // this display setup's own slot
     // Grouped-rack panels are children of their rack window, not the main
@@ -2818,6 +2981,40 @@ void MainWindow::restoreLayout() {
         applyDefaultLayout();
         layoutSource_ = QStringLiteral("FACTORY (diagnostic run — no slot read)");
         qInfo("[layout] %s", qUtf8Printable(layoutSource_));
+        applyPanelLock(s.value(QStringLiteral("ui/panelsLocked"), false).toBool());
+        return;
+    }
+
+    // Safe boot (--safe / LYRA_SAFE): come up in the factory arrangement without
+    // touching the saved slot, so the hatch is a guaranteed way in even when the
+    // operator's remembered layout is what crashes the restore.  saveLayout()
+    // bails under safe boot (see safeBootLayout()), so this is fully
+    // non-destructive — their layout restores normally next normal launch.
+    if (safeBootLayout()) {
+        applyDefaultLayout();
+        layoutSource_ =
+            QStringLiteral("FACTORY (safe boot — saved layout left untouched)");
+        qWarning("[layout] %s", qUtf8Printable(layoutSource_));
+        applyPanelLock(s.value(QStringLiteral("ui/panelsLocked"), false).toBool());
+        return;
+    }
+
+    // Repeated-startup-crash recovery (see the RHI safe-mode ladder in main()).
+    // If a prior launch crashed during UI build even in the software renderer,
+    // the fault is very likely a persisted window layout this build can't
+    // restore (e.g. one saved by an older Lyra).  Purge the saved layout and
+    // come up in the factory arrangement so a bad remembered layout can never
+    // lock a tester out with no on-screen way back — every other setting is
+    // kept.  One-shot: the flag is cleared here so a normal restore resumes
+    // next launch.
+    if (s.value(QStringLiteral("ui/uiSafeReset"), false).toBool()) {
+        s.remove(QStringLiteral("ui/uiSafeReset"));
+        s.sync();
+        purgeSavedLayoutKeys();
+        applyDefaultLayout();
+        layoutSource_ =
+            QStringLiteral("FACTORY (layout reset after repeated startup crash)");
+        qWarning("[layout] %s", qUtf8Printable(layoutSource_));
         applyPanelLock(s.value(QStringLiteral("ui/panelsLocked"), false).toBool());
         return;
     }
@@ -2882,7 +3079,7 @@ void MainWindow::saveUserLayout() {
     // keys — separate from the ui/geometry+windowState session auto-save
     // so "Restore my saved layout" always returns to THIS deliberate
     // arrangement regardless of how the panels drift between sessions.
-    if (testWindowSize().isValid()) return refuseLayoutWrite();
+    if (testWindowSize().isValid() || safeBootLayout()) return refuseLayoutWrite();
     QSettings s;
     s.setValue(QStringLiteral("ui/userGeometry"), saveGeometry());
     s.setValue(QStringLiteral("ui/userWindowState"), saveState());
@@ -3133,7 +3330,7 @@ void MainWindow::refreshLayoutMenus() {
 }
 
 void MainWindow::saveNamedLayout(int slot) {
-    if (testWindowSize().isValid()) return refuseLayoutWrite();
+    if (testWindowSize().isValid() || safeBootLayout()) return refuseLayoutWrite();
     QSettings s;
     const QString base = QStringLiteral("layouts/%1/").arg(slot);
     QString cur = s.value(base + QStringLiteral("name")).toString();
@@ -3275,7 +3472,10 @@ void MainWindow::applyDefaultLayout() {
     // Factory split (invalid QVariant → the QML restores its 60/40 default,
     // proportional rather than the absolute pixel height a snapshot would bake
     // in).
-    if (prefs_) prefs_->setPanadapterSplit(QVariant());
+    // Under safe boot the layout store is read-only — setPanadapterSplit(QVariant())
+    // would remove the persisted ui/panadapterSplit key, so skip it (the operator's
+    // real slot keeps its own split, restored on the next normal launch).
+    if (prefs_ && !safeBootLayout()) prefs_->setPanadapterSplit(QVariant());
 }
 
 // ── Layout undo (randol request) ─────────────────────────────────────────
@@ -3303,7 +3503,7 @@ void MainWindow::loadLayoutUndoStack() {
 }
 
 void MainWindow::saveLayoutUndoStack() {
-    if (testWindowSize().isValid()) return;   // diagnostic run — writes nothing
+    if (testWindowSize().isValid() || safeBootLayout()) return;   // read-only session — writes nothing
     QVariantList v;
     v.reserve(layoutUndoStack_.size());
     for (const QByteArray &b : std::as_const(layoutUndoStack_)) v.append(b);

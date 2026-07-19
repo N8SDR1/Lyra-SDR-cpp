@@ -207,6 +207,13 @@ private:
     void saveNamedLayout(int slot);
     void recallNamedLayout(int slot);
     void refreshLayoutMenus();         // refresh slot labels on menu open
+    // Multi-rig: the menu-bar "Rig" dropdown — rebuilt from the rig
+    // registry on open; switch = set active rig + restart-to-load.
+    void rebuildRigMenu();
+    void switchRig(const QString &rigId);
+    void addRigInteractive();
+    void renameActiveRig();
+    QMenu *rigMenu_ = nullptr;
     // Layout undo (randol request): snapshot the dock arrangement before each
     // change so a bad drag-drop can be walked back a step or two (View →
     // Layouts → Undo layout change).  A dock move / float / dock arms a debounce

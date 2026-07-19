@@ -18,7 +18,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.20.0
+    VERSION 0.21.1
     DESCRIPTION "Lyra — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
@@ -75,6 +75,17 @@ qt_add_executable(lyra
     src/wdsp_engine.cpp
     src/mic_source.h
     src/mic_source.cpp
+    # Multi-rig Stage 1 — per-family capability descriptor (inert
+    # scaffolding; see docs/architecture/multi_rig_design.md).
+    src/rig/RadioCapabilities.h
+    src/rig/RadioCapabilities.cpp
+    # Multi-rig Stage 2 — rig registry + identity (inert; seeded/routed
+    # in Stage 3).
+    src/rig/RigRegistry.h
+    src/rig/RigRegistry.cpp
+    # Multi-rig Stage 3 — active-rig key routing + snapshot-gated migration.
+    src/rig/RigScope.h
+    src/rig/RigScope.cpp
     # TX-rip Phase 1 step 1c-a — wire/ empty skeletons.  Populated
     # in Phase 2 per docs/TX_ARCHITECTURAL_MAPPING.md §3 / §5.4 / §8.
     src/wire/RadioNet.h

@@ -214,20 +214,22 @@ QByteArray audioPayload(const float *mono, int frames, int fmt, int chans) {
         for (int f = 0; f < frames; ++f)
             for (int c = 0; c < chans; ++c) writer(mono[f]);
     };
+    // Integer formats round-to-nearest (as Thetis encodeSamples: Math.Round
+    // before the cast), not truncate — a sub-LSB but byte-affecting nuance.
     QByteArray out;
     if (fmt == FMT_FLOAT32) {
         out.resize(scalars * 4); float *d = reinterpret_cast<float *>(out.data());
         int i = 0; dup([&](float v){ d[i++] = v; });
     } else if (fmt == FMT_INT32) {
         out.resize(scalars * 4); char *d = out.data(); int i = 0;
-        dup([&](float v){ putU32(d + 4 * i++, quint32(qint32(std::clamp(v,-1.f,1.f) * 2147483647.0f))); });
+        dup([&](float v){ putU32(d + 4 * i++, quint32(qint32(std::lround(std::clamp(v,-1.f,1.f) * 2147483647.0f)))); });
     } else if (fmt == FMT_INT24) {
         out.resize(scalars * 3); char *d = out.data(); int i = 0;
-        dup([&](float v){ qint32 s = qint32(std::clamp(v,-1.f,1.f) * 8388607.0f);
+        dup([&](float v){ qint32 s = qint32(std::lround(std::clamp(v,-1.f,1.f) * 8388607.0f));
             d[3*i] = char(s & 0xFF); d[3*i+1] = char((s>>8)&0xFF); d[3*i+2] = char((s>>16)&0xFF); ++i; });
     } else {  // FMT_INT16
         out.resize(scalars * 2); char *d = out.data(); int i = 0;
-        dup([&](float v){ qint16 s = qint16(std::clamp(v,-1.f,1.f) * 32767.0f);
+        dup([&](float v){ qint16 s = qint16(std::lround(std::clamp(v,-1.f,1.f) * 32767.0f));
             d[2*i] = char(s & 0xFF); d[2*i+1] = char((s>>8)&0xFF); ++i; });
     }
     return out;
@@ -272,9 +274,37 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
     maintTimer_->setInterval(8000);
     connect(maintTimer_, &QTimer::timeout, this, &TciServer::onMaintenanceTick);
 
+    // Trailing-edge flush for rate-limited broadcasts (A3): single-shot, armed
+    // by broadcast() when it drops an update inside the rate-limit window.
+    rlFlushTimer_ = new QTimer(this);
+    rlFlushTimer_->setSingleShot(true);
+    connect(rlFlushTimer_, &QTimer::timeout, this, &TciServer::onRlFlush);
+
     if (stream_) {
         connect(stream_, &lyra::ipc::HL2Stream::rx1FreqChanged,
                 this, &TciServer::onFreqChanged);
+        // TCI §3.1 synchronizer: the server must echo VFO B (vfo:0,1) back to
+        // ALL clients on every change, same as VFO A.  Without this echo a
+        // digital-mode client (WSJT-X) never gets its "did VFO B take?"
+        // confirmation and re-sends VFO B in a loop → a stale old-band VFO B
+        // can land after the RX moved = the cross-band / "2-3 clicks" bug.
+        connect(stream_, &lyra::ipc::HL2Stream::vfoBHzChanged,
+                this, &TciServer::onVfoBChanged);
+        // §3.1 echo: whether split came from the operator's toggle or was
+        // derived from a client's VFO B, confirm the new state to every client.
+        connect(stream_, &lyra::ipc::HL2Stream::splitEnabledChanged, this, [this]() {
+            if (!stream_) return;
+            broadcast(QStringLiteral("split_enable:0"),
+                      QStringLiteral("split_enable:0,%1")
+                          .arg(stream_->splitEnabled() ? QStringLiteral("true")
+                                                       : QStringLiteral("false")));
+            // A split toggle flips the TX-freq source (VFO A↔B), so the actual
+            // TX carrier changes even though no VFO moved — re-announce it, as
+            // Thetis does via its dedicated OnTXFrequencyChanged on VFOBTX change
+            // (TCIServer.cs:7417).  Without this tx_frequency goes stale until
+            // the next tune.
+            broadcastTxFrequency();
+        });
         connect(stream_, &lyra::ipc::HL2Stream::runningChanged,
                 this, &TciServer::onRunningChanged);
         // Task #33 — SyncTciPttToMox (TCIServer.cs:5560-5577).  If the
@@ -1062,8 +1092,27 @@ void TciServer::onMoxActiveChanged(bool on) {
     // discrete event that must never be coalesced or dropped.  Idempotent
     // for a TCI owner that already got its direct trx: reply — it just
     // re-confirms the now-live wire state.
+    // Do NOT broadcast tx_enable on the MOX edge.  The Expert TCI spec defines
+    // TX_ENABLE as TX *permission* per band — "Sent to the client when connected
+    // and when the band is changed" (Unidirectional control), NOT a per-key TX-
+    // state signal.  Thetis sends it on every MOX edge anyway; MSHV follows the
+    // spec and reads each mid-cycle tx_enable:0,false as "TX no longer permitted",
+    // which wedged it in TX after its own TCI TX cycle (deaf until MSHV/Lyra
+    // restart; WSJT-X reacts looser → a return-to-RX lag).  trx alone is the
+    // RX/TX switch every client needs on the edge; tx_enable stays off it.
+    // Spec- AND operator-verified 2026-07-18 (MSHV vs WSJT-X).
     broadcastNow(QStringLiteral("trx:0,%1").arg(
         on ? QStringLiteral("true") : QStringLiteral("false")));
+
+    // TCI-tune mirror: if this key edge is a TCI `tune:` command, emit the
+    // tune: confirmation HERE, on the real wire edge — Thetis emits tune: from
+    // its TuneChange event on the edge (TCIServer.cs:1096-1099), never a pre-
+    // edge reply.  Clear the flag on the falling edge.
+    if (tciTuneActive_) {
+        broadcastNow(QStringLiteral("tune:0,%1").arg(
+            on ? QStringLiteral("true") : QStringLiteral("false")));
+        if (!on) tciTuneActive_ = false;
+    }
 
     // Task #33 — SyncTciPttToMox (working reference at TCIServer.cs:
     // 5560-5577, called from the MOX-change emit sites at :6884/6899).
@@ -1088,10 +1137,12 @@ void TciServer::onMoxActiveChanged(bool on) {
     chronoTimer_->stop();
     emit statusMessage(QStringLiteral(
         "TCI: TX-audio ownership released (wire MOX dropped externally)"));
-    if (was && was->state() == QAbstractSocket::ConnectedState) {
-        // Inform the client so it stops pushing TX audio cleanly.
-        sendTo(was, QStringLiteral("trx:0,false"));
-    }
+    // Do NOT send an extra trx:0,false to the released owner here — the
+    // onMoxActiveChanged broadcast above already emitted trx:0,false to EVERY
+    // client including this owner.  Thetis's SyncTciPttToMox tears down ownership
+    // WITHOUT emitting trx (TCIServer.cs:5560-5577): exactly one trx per edge,
+    // from the wire edge only.
+    (void)was;
 }
 
 void TciServer::onMaintenanceTick() {
@@ -1103,7 +1154,10 @@ void TciServer::onMaintenanceTick() {
 }
 
 QString TciServer::modulationsList() const {
-    QString list = QStringLiteral("USB,LSB,CWU,CWL,AM,SAM,DSB,FM,DIGU,DIGL");
+    // Order + entries match Thetis (TCIServer.cs:2544, uppercased):
+    // am,sam,dsb,lsb,usb,nfm,fm,digl,digu,cwl,cwu + the "cw" alias when the pref
+    // is on.  (NFM is advertised too — a client's NFM maps to Lyra's FM.)
+    QString list = QStringLiteral("AM,SAM,DSB,LSB,USB,NFM,FM,DIGL,DIGU,CWL,CWU");
     if (cwluBecomesCw_) list += QStringLiteral(",CW");   // legacy-client alias
     return list;
 }
@@ -1120,7 +1174,7 @@ void TciServer::sendInit(QWebSocket *ws) {
     const QString dev = emulateSunSdr2_ ? QStringLiteral("SunSDR2PRO")
                                         : QStringLiteral("HermesLite2");
 
-    sendTo(ws, QStringLiteral("protocol:%1,1.9").arg(proto));
+    sendTo(ws, QStringLiteral("protocol:%1,2.0").arg(proto));
     sendTo(ws, QStringLiteral("device:%1").arg(dev));
     sendTo(ws, QStringLiteral("receive_only:false"));
     sendTo(ws, QStringLiteral("trx_count:1"));
@@ -1154,23 +1208,55 @@ void TciServer::sendInit(QWebSocket *ws) {
     // first frame (independent of send_initial_state, which gates radio state).
     if (comboEnabled_) sendTo(ws, QStringLiteral("lyra_combo:on"));
 
-    if (!sendInitialState_) return;
-    const qint64 carrier = hz + (engine_ ? engine_->markerOffsetHz() : 0);
-    sendTo(ws, QStringLiteral("dds:0,%1").arg(hz));        // DDS centre
-    sendTo(ws, QStringLiteral("vfo:0,0,%1").arg(carrier)); // operating carrier
-    sendTo(ws, txFrequencyLine());                         // logged QSO freq (LogHX3 &c.)
-    sendTo(ws, txFrequencyThetisLine());
+    // Frequency block — gated by send-initial-state, exactly like Thetis's
+    // `bSend` (SendInitialFrequencyStateOnConnect) which gates ONLY the
+    // dds/if/vfo/tx_frequency seed (TCIServer.cs:2368-2382).  Everything AFTER
+    // this block is seeded unconditionally, below.
+    const qint64 marker = engine_ ? engine_->markerOffsetHz() : 0;
+    if (sendInitialState_) {
+        const qint64 carrier = hz + marker;
+        sendTo(ws, QStringLiteral("dds:0,%1").arg(hz));        // DDS centre
+        sendTo(ws, QStringLiteral("vfo:0,0,%1").arg(carrier)); // operating carrier (VFO A)
+        const qint64 vfobCarrier =
+            (stream_ ? qint64(stream_->vfoBHz()) : hz) + marker;
+        sendTo(ws, QStringLiteral("vfo:0,1,%1").arg(vfobCarrier));  // VFO B
+        sendTo(ws, txFrequencyLine());                         // logged QSO freq (LogHX3 &c.)
+        sendTo(ws, txFrequencyThetisLine());
+    }
+    // Mode / filter / volume / mute / split / tx_enable / MOX / run-state are
+    // ALWAYS seeded — Thetis sends these OUTSIDE the bSend gate (TCIServer.cs:
+    // 2385-2507) so a client relying on the connect seed for mode/run isn't
+    // left blind when send-initial-state is off.
     sendTo(ws, QStringLiteral("modulation:0,%1").arg(mode));
     if (engine_) {
         sendTo(ws, QStringLiteral("rx_filter_band:0,%1,%2")
                        .arg(qRound(engine_->passbandLowHz()))
                        .arg(qRound(engine_->passbandHighHz())));
-        sendTo(ws, QStringLiteral("volume:%1").arg(qRound(engine_->volumeDb())));
+        {   // Thetis sendVolume: one-decimal (F1), skip out-of-[-60,0].
+            const double v = engine_->volumeDb();
+            if (v >= -60.0 && v <= 0.0)
+                sendTo(ws, QStringLiteral("volume:%1").arg(QString::number(v, 'f', 1)));
+        }
         sendTo(ws, QStringLiteral("mute:%1")
                        .arg(engine_->muted() ? QStringLiteral("true")
                                              : QStringLiteral("false")));
     }
-    sendTo(ws, QStringLiteral("trx:0,false"));
+    const bool keyed = stream_ && stream_->moxActive();
+    sendTo(ws, QStringLiteral("split_enable:0,%1")               // Thetis sendSplit(0,VFOSplit)
+                   .arg((stream_ && stream_->splitEnabled())
+                            ? QStringLiteral("true") : QStringLiteral("false")));
+    sendTo(ws, QStringLiteral("tx_enable:0,%1")                  // Thetis sendTXEnable(0,!MOX)
+                   .arg(keyed ? QStringLiteral("false") : QStringLiteral("true")));
+    sendTo(ws, QStringLiteral("trx:0,%1")                        // Thetis sendMOX(0,MOX)
+                   .arg(keyed ? QStringLiteral("true") : QStringLiteral("false")));
+    // Remaining unconditional seeds Thetis sends (TCIServer.cs:2391/2486/2489/
+    // 2492): RX-enable (= !MOX), tune state, IQ stream stopped, IQ sample rate.
+    sendTo(ws, QStringLiteral("rx_enable:0,%1")                  // sendRXEnable(0,!MOX)
+                   .arg(keyed ? QStringLiteral("false") : QStringLiteral("true")));
+    sendTo(ws, QStringLiteral("tune:0,false"));                 // sendTune(0,TUN) — not tuning at connect
+    sendTo(ws, QStringLiteral("iq_stop:0"));                    // sendIQStartStop(0,false)
+    sendTo(ws, QStringLiteral("iq_samplerate:%1")               // sendIQSampleRate (clamp 48k..384k)
+                   .arg(std::clamp(rate, 48000, 384000)));
     sendTo(ws, run ? QStringLiteral("start") : QStringLiteral("stop"));
 }
 
@@ -1185,9 +1271,38 @@ void TciServer::broadcast(const QString &key, const QString &line) {
     if (clients_.isEmpty()) return;
     const qint64 now = rateClock_.elapsed();
     const qint64 last = lastSent_.value(key, -1000000);
-    if (now - last < rateLimitMs_) return;
+    if (now - last < rateLimitMs_) {
+        // Inside the window: stash the LATEST line and arm the trailing-edge
+        // flush so this value is delivered when the window elapses — never
+        // silently dropped (Thetis schedules a per-type trailing timer).
+        pendingLine_[key] = line;
+        if (rlFlushTimer_ && !rlFlushTimer_->isActive())
+            rlFlushTimer_->start(int(rateLimitMs_ - (now - last)) + 1);
+        return;
+    }
     lastSent_[key] = now;
+    pendingLine_.remove(key);   // this send supersedes any queued trailing value
     broadcastNow(line);
+}
+
+void TciServer::onRlFlush() {
+    if (pendingLine_.isEmpty()) return;
+    const qint64 now = rateClock_.elapsed();
+    qint64 soonest = -1;   // earliest ms-from-now a not-yet-ready key comes due
+    for (auto it = pendingLine_.begin(); it != pendingLine_.end(); ) {
+        const qint64 last = lastSent_.value(it.key(), -1000000);
+        if (now - last >= rateLimitMs_) {
+            lastSent_[it.key()] = now;
+            broadcastNow(it.value());
+            it = pendingLine_.erase(it);
+        } else {
+            const qint64 due = rateLimitMs_ - (now - last);
+            if (soonest < 0 || due < soonest) soonest = due;
+            ++it;
+        }
+    }
+    if (!pendingLine_.isEmpty() && rlFlushTimer_)
+        rlFlushTimer_->start(int(soonest > 0 ? soonest : rateLimitMs_) + 1);
 }
 
 QString TciServer::softGet(const QString &key, const QString &def) const {
@@ -1204,15 +1319,22 @@ int TciServer::parseChannel(const QString &s, bool *ok) {
     return -1;
 }
 bool TciServer::parseBool(const QString &s) {
-    const QString u = s.trimmed().toLower();
-    return u == QStringLiteral("true") || u == QStringLiteral("1");
+    // Thetis uses bool.TryParse throughout — accepts only "true"/"false"
+    // (case-insensitive), NOT "1"/"0".  Match that (was also treating "1" as
+    // true).  Note: a non-"true" token yields false, as before.
+    return s.trimmed().compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0;
 }
 
-QString TciServer::toTciMode(const QString &m) {
+QString TciServer::toTciMode(const QString &m) const {
+    // Report the REAL CW sideband (CWL/CWU) so a CW TCI client knows which
+    // sideband Lyra is on — collapse to "CW" ONLY when the compatibility pref
+    // is set, exactly as Thetis sendMode: `if (CWLUbecomesCW && (CWL||CWU))
+    // sMode="cw"` else report the actual mode.  Was unconditionally collapsing.
     if (m == QStringLiteral("CWL") || m == QStringLiteral("CWU"))
-        return QStringLiteral("CW");
-    if (m == QStringLiteral("FM")) return QStringLiteral("NFM");
-    if (m == QStringLiteral("SAM")) return QStringLiteral("AM");  // RX-only; report AM
+        return cwluBecomesCw_ ? QStringLiteral("CW") : m;
+    // FM reported as FM, SAM as SAM — both advertised in modulations_list, so
+    // report the real mode (SAM was being collapsed to AM, inconsistent with
+    // the advertised list).  USB/LSB/DIGU/DIGL/AM/DSB pass through unchanged.
     return m;
 }
 QString TciServer::fromTciMode(const QString &t, qint64 freqHz) const {
@@ -1221,7 +1343,17 @@ QString TciServer::fromTciMode(const QString &t, qint64 freqHz) const {
         return freqHz >= 10000000 ? QStringLiteral("CWU") : QStringLiteral("CWL");
     if (u == QStringLiteral("NFM") || u == QStringLiteral("WFM"))
         return QStringLiteral("FM");
-    return u;
+    // Validate against Lyra's mode set — an UNKNOWN token returns "" so the
+    // caller skips the set, exactly as Thetis (unrecognized → DSPMode.FIRST →
+    // `if (mode != FIRST)` guard skips it, TCIServer.cs:3909-3913).  Was passing
+    // arbitrary strings straight to setMode.
+    const bool known =
+        u == QStringLiteral("USB")  || u == QStringLiteral("LSB")
+     || u == QStringLiteral("CWU")  || u == QStringLiteral("CWL")
+     || u == QStringLiteral("AM")   || u == QStringLiteral("SAM")
+     || u == QStringLiteral("DSB")  || u == QStringLiteral("FM")
+     || u == QStringLiteral("DIGU") || u == QStringLiteral("DIGL");
+    return known ? u : QString();
 }
 
 void TciServer::onTextMessage(const QString &raw) {
@@ -1294,24 +1426,63 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
     if (cmd == QStringLiteral("VFO")) {
         // VFO = operating (carrier) freq.  In CW the carrier sits pitch Hz
         // off the tuned DDS centre, so convert carrier↔DDS both ways
-        // (markerOffsetHz = VFO−DDS; 0 outside CW).
+        // (markerOffsetHz = VFO−DDS; 0 outside CW).  Channel 0 = VFO A (RX +
+        // simplex TX); channel 1 = VFO B (the SPLIT TX freq).  A digital-mode
+        // client running rig/hardware split (WSJT-X et al.) sets its TX freq on
+        // VFO B — honour it via setVfoBHz so split TX actually follows the
+        // client (was ch-0-only, silently dropping VFO B).
         const qint64 off = engine_ ? engine_->markerOffsetHz() : 0;
         bool okc = false; const int ch = args.size() >= 2 ? parseChannel(args[1], &okc) : -1;
         if (!okc) return;
         if (args.size() >= 3) {
-            if (ch == 0 && stream_) { bool f=false; qint64 v=args[2].toLongLong(&f);
-                if (f) stream_->setRx1FreqHz(quint32(v - off)); }   // carrier → DDS
+            bool f=false; const qint64 v = args[2].toLongLong(&f);
+            if (f && stream_) {
+                // As Thetis (handleVFOMessage): chan 0 → VFO A, chan 1 → VFO B.
+                // Setting VFO B ONLY sets the freq — it does NOT touch split.
+                // Split is the client's explicit split_enable command (below),
+                // never derived from where VFO B sits.
+                if (ch == 0)      stream_->setRx1FreqHz(quint32(v - off));  // carrier → DDS (VFO A)
+                else if (ch == 1) stream_->setVfoBHz(quint32(v - off));     // carrier → DDS (VFO B)
+            }
         } else if (ch == 0) {
-            sendTo(ws, QStringLiteral("vfo:0,0,%1").arg(curHz + off));  // DDS → carrier
+            sendTo(ws, QStringLiteral("vfo:0,0,%1").arg(curHz + off));      // DDS → carrier (VFO A)
+        } else if (ch == 1 && stream_) {
+            sendTo(ws, QStringLiteral("vfo:0,1,%1").arg(stream_->vfoBHz() + off));  // VFO B read-back
         }
         return;
     }
     if (cmd == QStringLiteral("IF")) {
-        if (args.size() >= 3) {
-            bool okc=false; const int ch = parseChannel(args[1], &okc);
+        // As Thetis (handleIF): IF is the ABSOLUTE offset of the VFO from the
+        // panorama CENTRE (vfo = CentreFrequency + offset), NOT cumulative on
+        // the live VFO.  Lyra's centre = the locked DDC centre under CTUN, else
+        // it tracks the VFO (centre == VFO) — exactly like Thetis when centre-
+        // lock is off.  chan 0 → VFO A, chan 1 → VFO B.  rx index 1 (RX2) not
+        // wired yet.  Centre/VFO are DDS-domain here; the CW marker offset
+        // applies equally to both so it cancels in the SET carrier math.
+        if (args.size() < 2 || !stream_) return;
+        bool okr=false; const int rxi = args[0].trimmed().toInt(&okr);
+        bool okc=false; const int ch  = parseChannel(args[1], &okc);
+        if (!okr || !okc || rxi != 0) return;
+        const qint64 centre = stream_->ctuneEnabled()
+                                  ? qint64(stream_->ctuneCenterHz())
+                                  : qint64(stream_->rx1FreqHz());
+        if (args.size() >= 3) {                        // SET — vfo = centre + off
             bool oko=false; const qint64 off = args[2].toLongLong(&oko);
-            if (okc && oko && ch == 0 && stream_)
-                stream_->setRx1FreqHz(quint32(curHz + off));
+            if (!oko) return;
+            const qint64 target = centre + off;
+            if (target <= 0) return;
+            if (ch == 0)      stream_->setRx1FreqHz(quint32(target));
+            else if (ch == 1) stream_->setVfoBHz(quint32(target));
+        } else {                                       // GET — offset = vfo − centre
+            // Mirror of Thetis sendIF: reply = (VFO − Centre) − cwPitchShift.
+            // Lyra's cwPitchShift equivalent is −markerOffsetHz (markerOffset =
+            // VFO−DDS = +pitch for CWU / −pitch for CWL; GetDSPcwPitchShiftToZero
+            // = −pitch for CWU / +pitch for CWL), so −cwPitchShift = +markerOffset.
+            // 0 outside CW → identical in every non-CW mode.
+            const qint64 vfo = (ch == 1) ? qint64(stream_->vfoBHz())
+                                         : qint64(stream_->rx1FreqHz());
+            const qint64 mk  = engine_ ? engine_->markerOffsetHz() : 0;
+            sendTo(ws, QStringLiteral("if:0,%1,%2").arg(ch).arg((vfo - centre) + mk));
         }
         return;
     }
@@ -1321,7 +1492,10 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         bool okc = false; const int ch = args.size() >= 1 ? parseChannel(args[0], &okc) : -1;
         if (!okc) return;
         if (args.size() >= 2) {
-            if (ch == 0 && prefs_) prefs_->setMode(fromTciMode(args[1], curHz));
+            // Skip the set on an UNKNOWN mode token (fromTciMode returns "") —
+            // as Thetis ignores an unrecognized modulation instead of applying it.
+            const QString lm = fromTciMode(args[1], curHz);
+            if (ch == 0 && prefs_ && !lm.isEmpty()) prefs_->setMode(lm);
         } else if (ch == 0) {
             const QString m = prefs_ ? toTciMode(prefs_->mode()) : QStringLiteral("USB");
             sendTo(ws, QStringLiteral("modulation:0,%1").arg(m));
@@ -1617,8 +1791,13 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                         "TCI: TX-audio ownership ACQUIRED (tune)"));
                 }
             }
+            // Mark this as a TCI-tune key so the wire-edge onMoxActiveChanged
+            // mirrors it on the tune: channel — NO pre-edge direct reply (same
+            // Thetis single-on-edge-authority model as TRX; handleTune sets TUN
+            // and returns, sendTune fires from TuneChange on the real edge —
+            // TCIServer.cs:4343-4362 → 7040 → 1096-1099).
+            tciTuneActive_ = true;
             stream_->requestMoxFromTci(true);
-            sendTo(ws, QStringLiteral("tune:0,true"));
         } else {
             if (txAudioOwner_ == ws) {
                 txAudioOwner_ = nullptr;
@@ -1627,8 +1806,10 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                 emit statusMessage(QStringLiteral(
                     "TCI: TX-audio ownership RELEASED (tune)"));
             }
+            // NO pre-edge direct reply — the tune: confirmation is mirrored on
+            // the real wire edge in onMoxActiveChanged (Thetis model).  Leave
+            // tciTuneActive_ set; the falling edge clears it after broadcasting.
             stream_->requestMoxFromTci(false);
-            sendTo(ws, QStringLiteral("tune:0,false"));
         }
         return;
     }
@@ -1648,6 +1829,21 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         if (!okc || ch != 0 || !stream_) {
             const QString idx = args.isEmpty() ? QStringLiteral("0") : args[0];
             sendTo(ws, QStringLiteral("trx:%1,false").arg(idx));
+            return;
+        }
+        // Thetis handleTRX: a 1-arg `trx:<rx>` is a QUERY — report current MOX,
+        // change NOTHING (TCIServer.cs:3555-3558 → sendMOX(rx, MOX,
+        // m_txUsesTCIAudio)).  sendMOX appends the `,tci` source token when the
+        // active TX is using TCI audio; Lyra's equivalent is "a TCI client owns
+        // the TX-audio path" (txAudioOwner_ set).  The old code let a bare
+        // `trx:0` fall through to the un-key path below and drop TX.
+        if (args.size() < 2) {
+            const bool mox = stream_->moxActive();
+            const QString tok = (mox && txAudioOwner_) ? QStringLiteral(",tci")
+                                                       : QString();
+            sendTo(ws, QStringLiteral("trx:0,%1%2")
+                           .arg(mox ? QStringLiteral("true") : QStringLiteral("false"))
+                           .arg(tok));
             return;
         }
         if (wantsTx) {
@@ -1739,9 +1935,14 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
             // Key MOX (Thetis-faithful) — records PttSource::Tci on
             // the FSM since the request arrived via the TCI WebSocket.
             stream_->requestMoxFromTci(true);
-            sendTo(ws, useTciAudio
-                       ? QStringLiteral("trx:0,true,tci")
-                       : QStringLiteral("trx:0,true"));
+            // NO direct/pre-edge trx reply here.  As Thetis (handleTrxMessage
+            // sets TCIPTT and returns with NO reply, TCIServer.cs:3459-3559), the
+            // SOLE trx confirmation to clients is the on-wire-edge broadcast from
+            // onMoxActiveChanged.  requestMoxFromTci is ASYNC — replying trx:0,true
+            // here confirms the key BEFORE the radio is actually keyed, so a spec-
+            // following client (MSHV) starts its cycle early and then classifies the
+            // real on-edge messages as mid-cycle events → wedged in TX.  One trx per
+            // edge, from the true edge, only.  (2026-07-18 TCI-audit root cause.)
             return;
         }
         // wantsTx == false — release MOX + ownership if held.
@@ -1760,15 +1961,47 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         // TX-rip Phase 1 (Q2): R-H2 keyup-restore returns with the
         // new TX DSP worker per docs/TX_ARCHITECTURAL_MAPPING.md §10.3.
         stream_->requestMoxFromTci(false);
-        sendTo(ws, QStringLiteral("trx:0,false"));
+        // NO direct/pre-edge trx reply — the on-wire-edge onMoxActiveChanged
+        // broadcast is the sole trx authority (as Thetis).  Replying trx:0,false
+        // here, before the async unkey takes effect, told MSHV "back to RX" while
+        // the wire was still keyed, decoupling its return-to-RX from reality.
         return;
     }
-    // ── Acknowledge other TX-side queries as inactive (TUNE moved
-    //    above into commit 3.4's real handler).
-    if (cmd == QStringLiteral("RIT_ENABLE") || cmd == QStringLiteral("XIT_ENABLE")
-        || cmd == QStringLiteral("SPLIT_ENABLE")) {
+    // ── RIT/XIT: acknowledge inactive (Lyra RIT/XIT aren't driven over TCI).
+    //   NOTE (WSJT-X TCI, verified from live [tci-rx-text] captures 2026-07-18):
+    //   WSJT-X drives its "split" ENTIRELY through VFO B (`vfo:0,1,<dial+500>`)
+    //   and spams `split_enable:0,false` ~1/s — it NEVER sends split_enable:true.
+    //   SPLIT_ENABLE below is Thetis-literal (honors the client's explicit
+    //   value, never derives split from VFO positions), so WSJT-X simply never
+    //   asks Lyra to enable split — exactly as it never asks Thetis to.
+    if (cmd == QStringLiteral("RIT_ENABLE") || cmd == QStringLiteral("XIT_ENABLE")) {
         const QString idx = args.isEmpty() ? QStringLiteral("0") : args[0];
         sendTo(ws, cmd.toLower() + QStringLiteral(":%1,false").arg(idx));
+        return;
+    }
+    // SPLIT_ENABLE — as Thetis (handleSplitEnableMessage): 2 args = SET, 1 arg =
+    // GET.  Honor the client's explicit split command literally (true AND false);
+    // split is NEVER derived from VFO positions.  On a SET the state change is
+    // echoed to all clients by the splitEnabledChanged handler (ctor lambda),
+    // matching Thetis's OnSplitChanged→sendSplit.
+    if (cmd == QStringLiteral("SPLIT_ENABLE")) {
+        // Thetis int.TryParse(args[0], out rx) gate: arg 0 MUST be a numeric rx
+        // index.  WSJT-X's 1-arg `split_enable:false` fails that parse, so
+        // Thetis ignores it entirely (no set, no reply) — match that exactly
+        // rather than mis-reading "false" as an rx index.
+        bool okr = false;
+        const int rx = args.isEmpty() ? -1 : args[0].trimmed().toInt(&okr);
+        if (!okr) return;
+        if (args.size() >= 2 && stream_) {          // SET (2 args)
+            const QString val = args[1].trimmed().toLower();
+            stream_->setSplitEnabled(val == QStringLiteral("true")
+                                     || val == QStringLiteral("1"));
+        } else if (stream_) {                        // GET (1 numeric arg)
+            sendTo(ws, QStringLiteral("split_enable:%1,%2")
+                           .arg(rx)
+                           .arg(stream_->splitEnabled() ? QStringLiteral("true")
+                                                        : QStringLiteral("false")));
+        }
         return;
     }
     // #172 — DRIVE / TUNE_DRIVE: operator TX-power setters over TCI
@@ -1782,23 +2015,28 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
     // already a percent in Prefs (Task #74), set directly.  Last arg is
     // the value (matches the CW_*_SPEED arg handling above; tolerates a
     // stray leading rx index a non-conformant client might prepend).
+    // DRIVE / TUNE_DRIVE — as Thetis (handleDrivePower TCIServer.cs:4003-4029):
+    // 2 args (rx,pct) = SET, 1 arg (rx) = GET (report, change nothing).  The
+    // old `!args.isEmpty()` form treated a `drive:0` QUERY as "set drive 0%",
+    // zeroing TX power.
     if (cmd == QStringLiteral("DRIVE")) {
-        if (!args.isEmpty() && stream_) {
-            bool f = false; const int pct = args.last().toInt(&f);
+        if (args.size() >= 2 && stream_) {
+            bool f = false; const int pct = args[1].toInt(&f);
             if (f) stream_->setTxDriveLevel(
                        qRound(qBound(0, pct, 100) * 255.0 / 100.0));
         } else if (stream_) {
-            sendTo(ws, QStringLiteral("drive:%1")
+            sendTo(ws, QStringLiteral("drive:0,%1")   // Thetis sendDrivePower: drive:<rx>,<pwr>
                           .arg(qRound(stream_->txDriveLevel() * 100.0 / 255.0)));
         }
         return;
     }
     if (cmd == QStringLiteral("TUNE_DRIVE")) {
-        if (!args.isEmpty() && prefs_) {
-            bool f = false; const int pct = args.last().toInt(&f);
+        if (args.size() >= 2 && prefs_) {
+            bool f = false; const int pct = args[1].toInt(&f);
             if (f) prefs_->setTuneDrivePct(qBound(0, pct, 100));
         } else if (prefs_) {
-            sendTo(ws, QStringLiteral("tune_drive:%1").arg(prefs_->tuneDrivePct()));
+            sendTo(ws, QStringLiteral("tune_drive:0,%1")  // Thetis sendTunePower: tune_drive:<rx>,<pwr>
+                          .arg(prefs_->tuneDrivePct()));
         }
         return;
     }
@@ -1929,22 +2167,26 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
 // consistent whichever field it prefers.
 QString TciServer::txFrequencyLine() const {
     if (!stream_) return QString();
-    const qint64 carrier = qint64(stream_->rx1FreqHz())
+    // Actual TX carrier: VFO B under split, else VFO A (txFreqHz() resolves it).
+    const qint64 carrier = qint64(stream_->txFreqHz())
                            + (engine_ ? engine_->markerOffsetHz() : 0);
     return QStringLiteral("tx_frequency:%1").arg(carrier);
 }
 QString TciServer::txFrequencyThetisLine() const {
     if (!stream_) return QString();
-    const qint64 carrier = qint64(stream_->rx1FreqHz())
+    const qint64 carrier = qint64(stream_->txFreqHz())
                            + (engine_ ? engine_->markerOffsetHz() : 0);
     // Reference: tx_frequency_thetis:<freq>,<band>,<rx2_enabled>,<tx_vfob>.
     // Band token mirrors Thetis's enum ("b40m"/"b80m"/…); GEN out-of-band.
     QString band = BandMemory::bandNameFor(int(carrier));
     band = (band.isEmpty() || band.contains(QLatin1Char('_')))
-               ? QStringLiteral("bgen")
+               ? QStringLiteral("gen")   // Thetis Band.GEN → "gen" (no "b" prefix)
                : QStringLiteral("b") + band;
-    return QStringLiteral("tx_frequency_thetis:%1,%2,false,false")
-        .arg(carrier).arg(band);
+    const QLatin1String txVfoB = stream_->splitEnabled()
+                                     ? QLatin1String("true")
+                                     : QLatin1String("false");
+    return QStringLiteral("tx_frequency_thetis:%1,%2,false,%3")
+        .arg(carrier).arg(band).arg(txVfoB);
 }
 void TciServer::broadcastTxFrequency() {
     if (!stream_) return;
@@ -1958,26 +2200,52 @@ void TciServer::onFreqChanged() {
     const qint64 carrier = hz + (engine_ ? engine_->markerOffsetHz() : 0);
     broadcast(QStringLiteral("dds:0"),   QStringLiteral("dds:0,%1").arg(hz));
     broadcast(QStringLiteral("vfo:0,0"), QStringLiteral("vfo:0,0,%1").arg(carrier));
-    broadcastTxFrequency();
+    // tx_frequency reflects the ACTUAL TX freq (as Thetis, whose dedicated
+    // OnTXFrequencyChanged signal fires only on a real TX-freq change).  A VFO-A
+    // move only changes the TX freq when split is OFF (TX = VFO A).  Under split
+    // TX = VFO B (unchanged here), so re-announcing tx_frequency on every VFO-A
+    // move is a needless extra broadcast — skip it.  Mirror of onVfoBChanged.
+    if (!stream_->splitEnabled())
+        broadcastTxFrequency();
+}
+void TciServer::onVfoBChanged() {
+    if (!stream_) return;
+    // §3.1 synchronizer echo: VFO B moved (operator split, or a client set it) —
+    // confirm it to ALL clients so WSJT-X et al. stop re-sending.
+    const qint64 carrier = qint64(stream_->vfoBHz())
+                           + (engine_ ? engine_->markerOffsetHz() : 0);
+    broadcast(QStringLiteral("vfo:0,1"), QStringLiteral("vfo:0,1,%1").arg(carrier));
+    // tx_frequency reflects the ACTUAL TX freq (as Thetis, whose VFO-data loop
+    // only re-announces it when the TX freq truly changes).  A VFO-B move only
+    // changes the TX freq when split is ON (TX follows VFO B).  When split is
+    // OFF, TX = VFO A (unchanged here) — re-announcing tx_frequency on every
+    // client VFO-B set (e.g. WSJT-X's dial+500 on every tune) is a needless
+    // extra broadcast, so skip it.
+    if (stream_->splitEnabled())
+        broadcastTxFrequency();
 }
 void TciServer::onModeChanged() {
     if (!prefs_) return;
     broadcast(QStringLiteral("modulation:0"),
               QStringLiteral("modulation:0,%1").arg(toTciMode(prefs_->mode())));
-    // The CW carrier offset flips with the mode, so the operating (VFO)
-    // freq changes even though the DDS centre didn't — re-announce it.
+    // The CW carrier offset flips with the mode, so the operating (VFO) freq
+    // changes even though the DDS centre didn't — re-announce it (Lyra's
+    // carrier=DDS+pitch convention; for non-CW the value is unchanged).  Thetis
+    // emits ONLY `sendMode` from the mode path (ModeChange, TCIServer.cs:1439-
+    // 1443) and never tx_frequency, so do NOT broadcast tx_frequency here.
     if (stream_) {
         const qint64 carrier = qint64(stream_->rx1FreqHz())
                                + (engine_ ? engine_->markerOffsetHz() : 0);
         broadcast(QStringLiteral("vfo:0,0"),
                   QStringLiteral("vfo:0,0,%1").arg(carrier));
-        broadcastTxFrequency();
     }
 }
 void TciServer::onVolumeChanged() {
     if (!engine_) return;
+    const double v = engine_->volumeDb();
+    if (v < -60.0 || v > 0.0) return;   // Thetis sendVolume skips out-of-range
     broadcast(QStringLiteral("volume"),
-              QStringLiteral("volume:%1").arg(qRound(engine_->volumeDb())));
+              QStringLiteral("volume:%1").arg(QString::number(v, 'f', 1)));  // F1
 }
 void TciServer::onMutedChanged() {
     if (!engine_) return;

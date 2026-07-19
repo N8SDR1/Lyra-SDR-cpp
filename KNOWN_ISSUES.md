@@ -5,7 +5,7 @@ for the Hermes Lite 2 / 2+ — full receive *and* transmit — but it isn't
 finished. This page sets expectations so you know what's a real bug versus
 a feature that simply hasn't landed yet. (Pin or link this in Discord.)
 
-Current release: **v0.12.3**. Always grab the latest from the
+Current release: **v0.21.1**. Always grab the latest from the
 [Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases).
 
 > **What already works** (so you don't wonder): full RX DSP, and **transmit

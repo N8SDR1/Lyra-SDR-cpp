@@ -111,6 +111,8 @@ std::atomic<bool> g_shutdown_complete{false};
 #include "profile/ProfileBindings.h"
 #include "profile/ProfileStore.h"
 #include "profile/CompanionLauncher.h"   // startup auto-launch (Settings → Hardware)
+#include "rig/RigRegistry.h"   // multi-rig Stage 2 — rig identity/registry
+#include "rig/RigScope.h"      // multi-rig Stage 3 — seed + snapshot-gated migration
 #include <QSettings>
 #include "logbuffer.h"
 #include "theme.h"
@@ -214,6 +216,37 @@ int main(int argc, char *argv[])
         }
     }
 
+    // Multi-rig (Stage 2/3): seed the rig registry from the remembered
+    // single radio (additive/idempotent), then relocate the per-rig config
+    // GROUPS routed so far under the active rig's namespace — snapshot-gated,
+    // once.  Runs before any subsystem reads a per-rig key.  On a fresh
+    // install (no remembered radio) the seed is a no-op and every routed key
+    // stays at its legacy flat location, so behavior is unchanged.
+    // Routed groups (grow one per stage): cal/, band_mem/, oc/.  Plus
+    // specific per-rig keys inside mixed groups (meter/ = hardware cal +
+    // shared UI prefs) via the exact-key migration.
+    {
+        lyra::rig::registry::seedFromLegacyRadio();
+        lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("cal/"));
+        lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("band_mem/"));
+        lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("oc/"));
+        lyra::rig::migrate::migrateKeyToActiveRig(QStringLiteral("meter/pwrRatedMaxW"));
+        lyra::rig::migrate::migrateKeyToActiveRig(QStringLiteral("meter/calDb"));
+        // S4d — panadapter dB-scale defaults (RX+TX spectrum & waterfall
+        // floor/ceiling).  Closes the S4a "never-visited band" fallback gap.
+        for (const auto *k : {"panadapter/dbMin", "panadapter/dbMax",
+                              "panadapter/txDbMin", "panadapter/txDbMax",
+                              "panadapter/waterfallDbMin", "panadapter/waterfallDbMax",
+                              "panadapter/txWaterfallDbMin", "panadapter/txWaterfallDbMax"})
+            lyra::rig::migrate::migrateKeyToActiveRig(QLatin1String(k));
+        // S4e — per-rig TX hardware: watts cap, global drive fallback, PA
+        // arm (new rig defaults PA-off = safer), mic boost.  Per-band drive
+        // already lives in band_mem/.
+        for (const auto *k : {"tx/maxOutputW", "tx/driveLevel",
+                              "tx/paEnabled", "tx/micBoost"})
+            lyra::rig::migrate::migrateKeyToActiveRig(QLatin1String(k));
+    }
+
     // Safe-boot hatch: `--safe` (or LYRA_SAFE=1 in the environment) forces the
     // software renderer and skips PC audio-device enumeration + auto-connect —
     // a guaranteed way in when a wedged GPU driver or a faulting virtual audio
@@ -240,6 +273,7 @@ int main(int argc, char *argv[])
     // that the previous startup crashed — used to show a one-time notice once
     // the window is up.  gfxSafeBackend names the backend safe mode forced.
     bool    gfxCrashRecovered = false;
+    bool    layoutResetThisLaunch = false;
     QString gfxSafeBackend;
     {
         using RI = QSGRendererInterface;
@@ -265,11 +299,43 @@ int main(int argc, char *argv[])
         const bool envForced =
             !qEnvironmentVariable("LYRA_GRAPHICS").trimmed().isEmpty();
         int safeDepth = s.value(QStringLiteral("ui/gfxSafeDepth"), 0).toInt();
-        if (crashed && !envForced) {
-            safeDepth = std::min(safeDepth + 1, 2);   // 1 = OpenGL, 2 = Software
-            s.setValue(QStringLiteral("ui/gfxSafeDepth"), safeDepth);
-            s.setValue(QStringLiteral("ui/gfxSafeMode"), true);
-            gfxCrashRecovered = true;
+        const int prevSafeDepth = safeDepth;   // depth the PREVIOUS launch ran at
+        // Consecutive-incomplete-start counter — reset to 0 by the +2s success
+        // timer once the window survives.  Drives the layout-reset rung on the
+        // envForced path (where the graphics ladder can't run, so depth alone
+        // can't gate it).
+        int crashCount = s.value(QStringLiteral("ui/startupCrashCount"), 0).toInt();
+        if (crashed) {
+            crashCount = std::min(crashCount + 1, 99);
+            s.setValue(QStringLiteral("ui/startupCrashCount"), crashCount);
+            // Graphics step-down (auto/D3D11 -> OpenGL -> software), UNLESS the
+            // operator pinned a backend via LYRA_GRAPHICS — we never fight an
+            // explicit choice.
+            if (!envForced) {
+                safeDepth = std::min(safeDepth + 1, 2);   // 1 = OpenGL, 2 = Software
+                s.setValue(QStringLiteral("ui/gfxSafeDepth"), safeDepth);
+                s.setValue(QStringLiteral("ui/gfxSafeMode"), true);
+                gfxCrashRecovered = true;
+            }
+            // Layout-reset rung — restoreLayout() consumes ui/uiSafeReset and
+            // comes up factory, keeping every non-layout setting.  A bad
+            // remembered layout (e.g. one saved by an older build) crashes UI
+            // construction no matter the graphics backend, so the graphics
+            // ladder never clears it; this is the lever that does.  Fire it once
+            // we've EITHER (a) already RUN at the software rasterizer on the
+            // previous launch and STILL crashed (prevSafeDepth >= 2) — so the
+            // fault is provably not the backend, and we don't tear down a good
+            // layout for a graphics-only fault that the software renderer would
+            // have fixed on its own — OR (b) the operator PINNED a backend
+            // (LYRA_GRAPHICS), so the ladder can't run at all and we've now
+            // crashed twice.  Case (b) is deliberately decoupled from the
+            // graphics gate so a pinned-backend tester is never locked out of
+            // the layout rescue; the !envForced qualifier on (a) keeps a
+            // sticky-high safeDepth from short-circuiting (b)'s two-crash gate.
+            if ((!envForced && prevSafeDepth >= 2) || (envForced && crashCount >= 2)) {
+                s.setValue(QStringLiteral("ui/uiSafeReset"), true);
+                layoutResetThisLaunch = true;
+            }
         }
         s.setValue(QStringLiteral("ui/gfxStartupPending"), true);
         s.sync();                          // flush to registry before we risk a crash
@@ -1140,13 +1206,28 @@ int main(int argc, char *argv[])
     // during UI build never reaches the event loop, so the sentinel stays set
     // and the NEXT launch steps down to a safer backend.  Also cleared on a
     // clean quit; a hard crash reaches neither, which is the whole point.
-    QTimer::singleShot(2000, win, [safeBoot]() {
+    QTimer::singleShot(2000, win, [safeBoot, layoutResetThisLaunch]() {
         QSettings s;
         s.setValue(QStringLiteral("ui/gfxStartupPending"), false);
+        // The window survived — this launch was clean, so the consecutive-crash
+        // counter resets (envForced layout-reset rung + the recovering notice
+        // both key off it).
+        s.remove(QStringLiteral("ui/startupCrashCount"));
+        // A completed launch also consumes any pending one-shot UI-safe-reset:
+        // the layout was already rebuilt from the factory this session, so the
+        // operator's NEXT launch restores normally.  Authoritative clear here
+        // (fires only once the window has survived) — belt-and-suspenders to
+        // restoreLayout()'s own clear, so a recovered launch can never end up
+        // resetting the layout on every subsequent start.
+        s.remove(QStringLiteral("ui/uiSafeReset"));
         // A successful --safe boot also clears the graphics crash-ladder, so the
         // operator's NEXT normal launch retries their real backend from scratch
-        // instead of staying pinned to the software rasterizer.
-        if (safeBoot) {
+        // instead of staying pinned to the software rasterizer.  Likewise a
+        // launch that recovered via the LAYOUT reset: the graphics ladder only
+        // climbed to software as collateral of the layout crash, so clear it too
+        // and hand back the operator's real backend next launch — if graphics
+        // was genuinely bad as well, the ladder simply re-climbs and self-heals.
+        if (safeBoot || layoutResetThisLaunch) {
             s.setValue(QStringLiteral("ui/gfxSafeMode"), false);
             s.setValue(QStringLiteral("ui/gfxSafeDepth"), 0);
         }
@@ -1156,8 +1237,23 @@ int main(int argc, char *argv[])
         QSettings().setValue(QStringLiteral("ui/gfxStartupPending"), false);
     });
     // One-time notice if this launch recovered from a startup crash (deferred
-    // so the main window paints first, then the dialog pops over it).
-    if (gfxCrashRecovered) {
+    // so the main window paints first, then the dialog pops over it).  A layout
+    // reset is the more informative thing to tell the operator when it happened,
+    // so it takes precedence over the graphics-safe-mode notice.
+    if (layoutResetThisLaunch) {
+        QTimer::singleShot(500, win, [win]() {
+            QMessageBox box(win);
+            box.setIcon(QMessageBox::Information);
+            box.setWindowTitle(QObject::tr("Startup recovery"));
+            box.setText(QObject::tr(
+                "Lyra couldn't start the last few times, so your panel "
+                "<b>layout was reset to defaults</b> to get you running again."
+                "\n\nEvery other setting — station, radio, DSP, profiles — was "
+                "kept.  Rearrange the panels whenever you like and they'll be "
+                "remembered again."));
+            box.exec();
+        });
+    } else if (gfxCrashRecovered) {
         QTimer::singleShot(500, win, [win, gfxSafeBackend]() {
             const QString name = (gfxSafeBackend == QStringLiteral("software"))
                 ? QObject::tr("Software (no GPU)") : QObject::tr("OpenGL");
@@ -1778,13 +1874,18 @@ int main(int argc, char *argv[])
         // doesn't have to Discover every launch.  Independent of the
         // WDSP load above — the RX/wire path works regardless.  If the
         // radio is off/unreachable the UI just shows "RX stalled".
-        const QString lastIp =
-            QSettings().value(QStringLiteral("radio/lastIp")).toString();
-        // Layer-2 startup radio: an explicit "Open at startup" choice
-        // (radio/startupMac) also arms the launch connect — its P2
-        // branch is handled inside beginConnect.  A box that has only
-        // ever run a P2 radio has no radio/lastIp, so lastIp alone
-        // would never fire.
+        // Multi-rig: auto-connect to the ACTIVE rig's radio.  The rig's
+        // lastIp is kept current by HL2Stream::open; fall back to the legacy
+        // global radio/lastIp (fresh installs / the seeded HL2 rig).
+        QString lastIp =
+            lyra::rig::registry::rig(lyra::rig::registry::activeRigId()).lastIp;
+        if (lastIp.isEmpty())
+            lastIp = QSettings().value(QStringLiteral("radio/lastIp")).toString();
+        // Layer-2 startup radio (P2): an explicit "Open at startup"
+        // choice (radio/startupMac) also arms the launch connect — its
+        // P2 branch is handled inside beginConnect.  A box that has
+        // only ever run a P2 radio has no rig/legacy lastIp, so lastIp
+        // alone would never fire.
         const bool haveStartupRadio = !QSettings()
             .value(QStringLiteral("radio/startupMac")).toString().isEmpty();
         // Auto-start-on-launch opt-out (Settings → Hardware).  Default ON

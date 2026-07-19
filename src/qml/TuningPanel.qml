@@ -280,9 +280,9 @@ Rectangle {
                         LyraComboBox {
                             id: stepCombo
                             Layout.preferredWidth: 78
-                            property var stepVals: [1, 10, 100, 1000, 5000, 10000]
-                            model: ["1 Hz", "10 Hz", "100 Hz", "1 kHz", "5 kHz", "10 kHz"]
-                            currentIndex: 3   // 1 kHz default
+                            property var stepVals: [1, 10, 100, 500, 1000, 5000, 10000]
+                            model: ["1 Hz", "10 Hz", "100 Hz", "500 Hz", "1 kHz", "5 kHz", "10 kHz"]
+                            currentIndex: 4   // 1 kHz default
                         }
                         Label { text: qsTr("Mode"); color: "#cccccc"; font.bold: true }
                         LyraComboBox {
@@ -550,9 +550,9 @@ Rectangle {
                             LyraComboBox {
                                 id: stepComboB
                                 Layout.preferredWidth: 78
-                                property var stepVals: [1, 10, 100, 1000, 5000, 10000]
-                                model: ["1 Hz", "10 Hz", "100 Hz", "1 kHz", "5 kHz", "10 kHz"]
-                                currentIndex: 3
+                                property var stepVals: [1, 10, 100, 500, 1000, 5000, 10000]
+                                model: ["1 Hz", "10 Hz", "100 Hz", "500 Hz", "1 kHz", "5 kHz", "10 kHz"]
+                                currentIndex: 4
                             }
                             Item { Layout.fillWidth: true }
                         }

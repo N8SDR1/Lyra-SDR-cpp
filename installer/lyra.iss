@@ -12,7 +12,7 @@
 ; Keep AppVersion in sync with CMake project(VERSION) / LYRA_VERSION.
 
 #define AppName     "Lyra"
-#define AppVersion  "0.20.0"
+#define AppVersion  "0.21.1"
 #define AppPublisher "Rick Langford (N8SDR)"
 #define AppURL      "https://github.com/N8SDR1/Lyra-SDR-cpp"
 #define AppExe      "lyra.exe"
@@ -44,6 +44,12 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ; Windows 10 1809+ (matches the Qt 6.11 / RHI baseline).
 MinVersion=10.0.17763
+; If an upgrade finds lyra.exe (or a Qt DLL) in use by a running instance, use
+; the Restart Manager to offer to close it first — otherwise the over-top copy
+; hits locked-file errors and leaves a mixed old/new install.  Don't auto-relaunch
+; afterwards (a fresh install racing its own first launch is asking for trouble).
+CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -65,6 +71,16 @@ Name: "netthrottle"; Description: "Disable Windows network throttling (recommend
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"; \
     ValueType: dword; ValueName: "NetworkThrottlingIndex"; ValueData: "$ffffffff"; \
     Tasks: netthrottle
+
+[InstallDelete]
+; Clean-sweep the previous install's deployed tree before copying the new one,
+; so Qt plugin / QML DLLs (and any other files) orphaned between versions can't
+; linger and get loaded by the new lyra.exe — a classic version-mismatch crash
+; that `ignoreversion` alone can't prevent (it overwrites what's present but
+; never removes what the new build dropped).  {app} holds ONLY the deployed
+; build; all operator data lives in %APPDATA% / %LOCALAPPDATA%, so this is safe.
+; Runs after the wizard and after CloseApplications, before [Files].
+Type: filesandordirs; Name: "{app}\*"
 
 [Files]
 ; The whole deployed build tree, minus CMake/Ninja build artifacts.
