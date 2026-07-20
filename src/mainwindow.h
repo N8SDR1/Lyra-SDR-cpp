@@ -96,6 +96,11 @@ public:
     // "Connecting…" to a radio that moved / changed lease / is off.
     void beginConnect(const QString &preferIp);
 
+    // Exposed so main.cpp's early aboutToQuit teardown handler can
+    // close the P2 session before destroy_cmaster() tears down the
+    // router/DSP state the session's IQ callbacks dispatch into.
+    lyra::wire::P2RxBridge *p2Bridge() const { return p2Bridge_; }
+
     // Share JUST the panel layout as a small .lyralayout file (driven from
     // Settings → Backup & Restore → "Share a layout").  Arrangement only —
     // no window size/position, so a layout is monitor-independent and safe to

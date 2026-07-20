@@ -1423,6 +1423,25 @@ constexpr double kPaDangerA   = 2.5;
 // voltage condition (the HL2's input regulator can take 12-15 V).
 constexpr double kVScaleMaxV  = 16.0;
 constexpr double kVDangerV    = 14.0;
+// P2 (Saturn / ANAN) telemetry — SEPARATE scale from the HL2's.
+// P2RxBridge reads AIN3/AIN4 through Thetis's fixed resistor-divider
+// conversion (console.cs convertToVolts, shared across the whole
+// MkII-BPF family, not just Saturn) and per-model amp offset/
+// sensitivity from the hardware catalog.  Bench-verified on a live
+// G2 (2026-07-19/20): idle supply read ~13.7-14.0 V, current ~0-0.2 A
+// — i.e. this ADC channel reads a 13.8 V-class housekeeping/bias
+// rail common to the family, NOT the RF PA's own (possibly higher)
+// supply.  That number sits right at/above the HL2's 14 V danger
+// threshold, so reusing the HL2 constants painted a healthy G2 red.
+// These constants give headroom around that verified idle reading;
+// they are NOT bench-confirmed under TX load or on non-Saturn P2
+// hardware — revisit per-model if the catalog ever needs to carry
+// its own scale (it already carries per-model amp conversion
+// constants, this could join them).
+constexpr double kP2PaScaleMaxA = 5.0;
+constexpr double kP2PaDangerA   = 4.0;
+constexpr double kP2VScaleMaxV  = 20.0;
+constexpr double kP2VDangerV    = 17.0;
 // HL2 board temperature.  Idle ~25 °C, full-tune climbs to ~31 °C;
 // 80 °C full-scale (well above the gateware thermal-cutoff floor);
 // 60 °C danger gives the operator a clear "back off" margin before
@@ -1440,16 +1459,19 @@ constexpr double kTelGlowDecay = 0.10;
 } // namespace
 
 void MeterModel::computePaCurrent() {
-    const double raw = (p2_ && p2_->isRunning())
+    const bool onP2 = p2_ && p2_->isRunning();
+    const double raw = onP2
                            ? p2_->paCurrentA()
                            : (stream_ ? stream_->paCurrentA()
                                       : std::numeric_limits<double>::quiet_NaN());
     const bool valid = !std::isnan(raw);
     const double a = valid ? std::max(0.0, raw) : 0.0;
+    const double scaleMaxA = onP2 ? kP2PaScaleMaxA : kPaScaleMaxA;
+    const double dangerA   = onP2 ? kP2PaDangerA   : kPaDangerA;
 
     if (dispDbm_ < -100.0 || dispDbm_ > 1000.0) dispDbm_ = a;
     dispDbm_ += kTelSmooth * (a - dispDbm_);
-    const double n = std::clamp(dispDbm_ / kPaScaleMaxA, 0.0, 1.0);
+    const double n = std::clamp(dispDbm_ / scaleMaxA, 0.0, 1.0);
     level_ = n;
     if (n >= peak_) { peak_ = n; holdCtr_ = peakHoldTicks_; }
     else if (holdCtr_ > 0) { --holdCtr_; }
@@ -1461,7 +1483,7 @@ void MeterModel::computePaCurrent() {
     } else { maxPeak_ = 0.0; }
     glow_ = (n >= glow_) ? n : std::max(n, glow_ - kTelGlowDecay);
     noiseLevel_ = 0.0;
-    normDanger_ = kPaDangerA / kPaScaleMaxA;
+    normDanger_ = dangerA / scaleMaxA;
     text_ = valid ? QStringLiteral("%1 A").arg(dispDbm_, 0, 'f', 2)
                   : QStringLiteral("—");
     dbmText_.clear();
@@ -1483,16 +1505,19 @@ void MeterModel::computePaCurrent() {
 }
 
 void MeterModel::computePaVolts() {
-    const double raw = (p2_ && p2_->isRunning())
+    const bool onP2 = p2_ && p2_->isRunning();
+    const double raw = onP2
                            ? p2_->supplyVolts()
                            : (stream_ ? stream_->hl2SupplyV()
                                       : std::numeric_limits<double>::quiet_NaN());
     const bool valid = !std::isnan(raw);
     const double v = valid ? std::max(0.0, raw) : 0.0;
+    const double scaleMaxV = onP2 ? kP2VScaleMaxV : kVScaleMaxV;
+    const double dangerV   = onP2 ? kP2VDangerV   : kVDangerV;
 
     if (dispDbm_ < -100.0 || dispDbm_ > 1000.0) dispDbm_ = v;
     dispDbm_ += kTelSmooth * (v - dispDbm_);
-    const double n = std::clamp(dispDbm_ / kVScaleMaxV, 0.0, 1.0);
+    const double n = std::clamp(dispDbm_ / scaleMaxV, 0.0, 1.0);
     level_ = n;
     if (n >= peak_) { peak_ = n; holdCtr_ = peakHoldTicks_; }
     else if (holdCtr_ > 0) { --holdCtr_; }
@@ -1504,7 +1529,7 @@ void MeterModel::computePaVolts() {
     } else { maxPeak_ = 0.0; }
     glow_ = (n >= glow_) ? n : std::max(n, glow_ - kTelGlowDecay);
     noiseLevel_ = 0.0;
-    normDanger_ = kVDangerV / kVScaleMaxV;
+    normDanger_ = dangerV / scaleMaxV;
     text_ = valid ? QStringLiteral("%1 V").arg(dispDbm_, 0, 'f', 1)
                   : QStringLiteral("—");
     dbmText_.clear();

@@ -99,6 +99,17 @@ private:
     lyra::dsp::WdspEngine *engine_  = nullptr;
     QThread    thread_;
     P2Session *session_ = nullptr;   // lives on thread_
+    // open_  = an open() attempt is in flight or a session is live —
+    //          set synchronously in open(), cleared in close().  Used
+    //          for the open()/close() reentry guard and to gate
+    //          control-plane pushes (pushDialToSession) that are safe
+    //          to send whether or not the radio has answered yet.
+    // running_ = the radio has actually CONFIRMED the session (the
+    //          first HP status packet arrived — P2Session::started).
+    //          isRunning() reports this, not open_, so a stale DHCP
+    //          address or offline radio doesn't show "connected"
+    //          forever (bench finding 2026-07-20).
+    bool       open_    = false;
     bool       running_ = false;
     QString    ip_;
     quint16    rateKhz_ = 192;

@@ -61,12 +61,14 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 xrouter(router_instance(0), 0, /*source=*/0, n, buf.data());
             });
 
-    // Session diagnostics → app log (qInfo lands in the in-app
-    // diagnostic log via the installed message handler) + our signal.
-    connect(session_, &P2Session::logLine, this, [this](const QString &l) {
-        qInfo().noquote() << l;
-        emit logLine(l);
-    });
+    // Session diagnostics → re-emit as our own logLine.  Does NOT
+    // call qInfo() itself — MainWindow connects P2RxBridge::logLine
+    // to qInfo() once, covering both these relayed session lines and
+    // the bridge's own (hardware profile, audio route, ...); doing it
+    // here too double-printed every session-originated line once that
+    // connection existed (bench-caught 2026-07-20).
+    connect(session_, &P2Session::logLine, this,
+            [this](const QString &l) { emit logLine(l); });
 
     // Telemetry: HP status → real units via the active profile's
     // constants (Thetis convertToVolts/convertToAmps, console.cs:
@@ -88,6 +90,28 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 paA_     = std::isnan(paA_)
                                ? amps  : paA_     + 0.5 * (amps  - paA_);
             });
+
+    // Connection confirmation: isRunning() must not go true until the
+    // radio has actually answered.  open() only BINDS the socket and
+    // fires off the general/HP packets — a stale DHCP address or an
+    // offline radio would otherwise report "connected" forever (the
+    // socket bind succeeds regardless of whether anything is
+    // listening at the far end).  P2Session::started() fires from
+    // parseStatus() the first time a real HP status packet comes
+    // back, which is the earliest honest "the radio is there" signal
+    // — mirrors how the P1 path only shows Connected after HL2Stream
+    // itself confirms traffic, not merely after calling open().
+    connect(session_, &P2Session::started, this, [this](const QString &ip) {
+        if (!open_) return;   // a stale signal from a session we already left
+        running_ = true;
+        ip_      = ip;
+        emit runningChanged();
+    });
+    connect(session_, &P2Session::stopped, this, [this]() {
+        if (!running_) return;
+        running_ = false;
+        emit runningChanged();
+    });
 
     // VFO + RIT follow: HL2Stream stays the tuning authority (see
     // header); the DDC mirrors the RIT-adjusted effective RX
@@ -134,7 +158,11 @@ P2RxBridge::~P2RxBridge() {
 }
 
 void P2RxBridge::pushDialToSession() {
-    if (!running_ || !stream_) return;
+    // open_ (not running_): safe/meaningful to push a frequency update
+    // to the session as soon as it's opening, whether or not the
+    // radio has confirmed the session yet (P2Session applies it on
+    // its next HP tick regardless).
+    if (!open_ || !stream_) return;
     quint32 rx = stream_->rx1FreqHz();
     if (stream_->ritEnabled())
         rx = static_cast<quint32>(
@@ -160,7 +188,7 @@ quint16 P2RxBridge::chooseRateKhz() {
 }
 
 void P2RxBridge::open(const QString &ip, const QString &mac) {
-    if (running_) {
+    if (open_) {
         if (ip_ == ip) return;
         close();
     }
@@ -248,9 +276,27 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
                          .value(QStringLiteral("p2/trxAntenna"), 1)
                          .toInt(), 1, 3);
 
+    // Front-end (Alex) word-generator profile for this model — was
+    // unconditionally Saturn's regardless of the Settings selection
+    // (p2ProfileForBoard() ignored its argument; nothing here ever
+    // called session_->setProfile()).  Now resolved from the selected
+    // model's expected board and actually applied.  See
+    // p2ProfileForBoard()'s own comment for which boards share
+    // Saturn's word tables (the classic Alex HPF/LPF/ANT bit layout
+    // is common to the whole family per Thetis's own
+    // setBPF1ForOrionIISaturn sharing) versus genuinely unverified.
+    const auto *p2hw = hw
+        ? lyra::wire::p2ProfileForBoard(hw->expectedBoard) : nullptr;
+    if (!p2hw)
+        emit logLine(QStringLiteral(
+            "P2: no verified antenna/filter profile for %1 — front end "
+            "may not be configured correctly; verify manually")
+            .arg(hw ? QLatin1String(hw->displayName) : modelKey));
+
     auto *s = session_;
     const quint16 rate = rateKhz_;
-    QMetaObject::invokeMethod(s, [s, ip, hz, rate, ant]() {
+    QMetaObject::invokeMethod(s, [s, ip, hz, rate, ant, p2hw]() {
+        if (p2hw) s->setProfile(p2hw);
         s->setTrxAntenna(ant);
         s->setDdcFrequencyHz(0, hz);
         s->setDucFrequencyHz(hz);
@@ -258,16 +304,19 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
         s->open(ip);
     });
 
-    ip_      = ip;
-    running_ = true;
+    ip_   = ip;
+    open_ = true;
     emit logLine(QStringLiteral(
         "P2: opening %1 (DDC0 @ %2 kHz, %3 Hz)").arg(ip).arg(rateKhz_).arg(hz));
-    emit runningChanged();
+    // isRunning() stays false — and runningChanged() does NOT fire —
+    // until P2Session::started() confirms the radio actually answered
+    // (connected in the constructor).  See the open_/running_ split
+    // in the header.
     pushDialToSession();   // refresh with RIT applied (seed was raw dial)
 }
 
 void P2RxBridge::close() {
-    if (!running_) return;
+    if (!open_) return;
     auto *s = session_;
     // BLOCKING: callers use close() to switch wire paths (Settings
     // Close, Start-button switch to an HL2) — the IQ feed must have
@@ -277,6 +326,7 @@ void P2RxBridge::close() {
     // deadlock if ever called on the session thread itself).
     QMetaObject::invokeMethod(s, &P2Session::close,
                               Qt::BlockingQueuedConnection);
+    open_    = false;
     running_ = false;
     ip_.clear();
     supplyV_ = std::numeric_limits<double>::quiet_NaN();

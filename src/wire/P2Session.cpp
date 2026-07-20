@@ -83,10 +83,29 @@ const P2HardwareProfile kSaturnProfile = {
 };
 } // namespace
 
-const P2HardwareProfile *p2ProfileForBoard(int /*boardId*/) {
-    // Saturn is the only bench-verified P2 family; other ANAN models
-    // get their own entries here as tester hardware appears.
-    return &kSaturnProfile;
+const P2HardwareProfile *p2ProfileForBoard(int boardId) {
+    // Saturn (board 10/11) is the only family bench-verified against
+    // real hardware.  It is ALSO the correct table for the rest of
+    // the classic-Alex-board family (Hermes/HermesII/Angelia/Orion/
+    // OrionMKII) — Thetis's own console.cs draws the Saturn/OrionMKII
+    // split only on WHICH UI Setup-form fields supply the band-edge
+    // thresholds (setBPF1ForOrionIISaturn vs setAlexHPF); the actual
+    // bits written (NetworkIO.SetAlexHPFBits/SetAlexLPFBits) are
+    // IDENTICAL either way.  So this covers every Alex-equipped P2
+    // board with the correct BIT ENCODING; only the hardcoded band-
+    // edge THRESHOLDS in saturnAlexRxWord/TxWord are Saturn-typical
+    // approximations on non-Saturn hardware, not independently
+    // bench-verified there.  Atlas (no Alex board) and anything
+    // unrecognized get nullptr rather than a silently-possibly-wrong
+    // guess; the caller (P2RxBridge::open) logs a warning when this
+    // happens instead of defaulting quietly.
+    switch (boardId) {
+        case 1: case 2: case 3: case 4: case 5:   // Hermes..OrionMKII
+        case 10: case 11:                          // Saturn, SaturnMKII
+            return &kSaturnProfile;
+        default:
+            return nullptr;
+    }
 }
 
 P2Session::P2Session(QObject *parent)

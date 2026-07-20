@@ -2608,22 +2608,36 @@ QWidget *SettingsDialog::buildHardwareTab() {
         auto addRadio = [list](const QString &ip, const QString &mac,
                                const QString &board, int codeVer, int betaVer,
                                bool busy, int numRxs, int protocol) {
+            // Match by MAC first — the stable identity (RadioProfile
+            // is keyed by it too).  Matching by IP alone meant a DHCP
+            // address change created a SECOND row for the same radio
+            // (one retaining the stale IP) instead of updating the
+            // existing one; IP reuse could also silently update the
+            // wrong device.  Fall back to IP only when either side
+            // has no MAC yet — the "Add by IP" placeholder before its
+            // probe resolves, which legitimately has none.
             QListWidgetItem *it = nullptr;
-            for (int i = 0; i < list->count(); ++i)
-                if (list->item(i)->data(Qt::UserRole).toString() == ip) {
-                    it = list->item(i);
+            for (int i = 0; i < list->count(); ++i) {
+                QListWidgetItem *cand = list->item(i);
+                const QString candMac = cand->data(Qt::UserRole + 1).toString();
+                if (!mac.isEmpty() && !candMac.isEmpty()) {
+                    if (candMac.compare(mac, Qt::CaseInsensitive) == 0) {
+                        it = cand;
+                        break;
+                    }
+                } else if (cand->data(Qt::UserRole).toString() == ip) {
+                    it = cand;
                     break;
                 }
+            }
             if (!it)
                 it = new QListWidgetItem(list);
             if (protocol == 2) {
-                // Protocol 2 (Saturn / ANAN G2): detected + listed so the
-                // operator sees it's on the network, but Open is gated
-                // until the P2 wire layer lands (roadmap).  DDC count in
-                // place of "rx"; fw = FPGA version from the P2 reply.
+                // Protocol 2 (Saturn / ANAN G2): DDC count in place of
+                // "rx"; fw = FPGA version from the P2 reply.  Opens
+                // via the P2 bridge like any other radio.
                 it->setText(
-                    tr("%1  —  %2  (P2, fw v%3, %4 DDC)%5  — P2 support "
-                       "in development, can't open yet")
+                    tr("%1  —  %2  (P2, fw v%3, %4 DDC)%5")
                         .arg(ip, board).arg(codeVer).arg(numRxs)
                         .arg(busy ? tr("  [BUSY]") : QString()));
             } else {

@@ -383,6 +383,14 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_), this);
     connect(p2Bridge_, &lyra::wire::P2RxBridge::runningChanged,
             this, [this]() { updateConnState(); });
+    // The bridge's OWN diagnostics (hardware-profile resolution, the
+    // audio-route choice, refusals, ...) were never connected to
+    // anything — unlike P2Session's logLine (relayed through qInfo()
+    // inside P2RxBridge's own constructor), these silently went
+    // nowhere, including out of the in-app diagnostic log viewer.
+    // Same relay pattern as the session's.
+    connect(p2Bridge_, &lyra::wire::P2RxBridge::logLine,
+            this, [](const QString &l) { qInfo().noquote() << l; });
 
     // Layer-2 radio profiles: every discovery reply finds-or-creates
     // the per-MAC RadioProfile (first sight seeds the catalog's
@@ -2639,6 +2647,15 @@ void MainWindow::onStartStop() {
     if (!st) {
         return;
     }
+    // A P2 (Saturn) session counts as "running" for Start/Stop too —
+    // otherwise the button (which only checked the P1 stream) showed
+    // "Start" while connected, and pressing it fell through to
+    // beginConnect(), which closed the P2 session only to reopen it
+    // (or a P1 radio) instead of actually stopping.
+    if (p2Bridge_ && p2Bridge_->isRunning()) {
+        p2Bridge_->close();
+        return;
+    }
     if (st->isRunning()) {
         st->close();
         return;
@@ -2774,15 +2791,18 @@ void MainWindow::updateConnState() {
     auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
     const bool running   = st && st->isRunning();
     const bool p2Running = p2Bridge_ && p2Bridge_->isRunning();
+    // The button reflects EITHER wire path — a live P2 session is
+    // just as "running" as a live P1 stream (see onStartStop).
+    const bool anyRunning = running || p2Running;
     if (startStopAction_) {
-        startStopAction_->setText(running ? tr("■  Stop")
-                                          : tr("▶  Start"));
+        startStopAction_->setText(anyRunning ? tr("■  Stop")
+                                             : tr("▶  Start"));
     }
     if (startStopBtn_) {
         // Green when stopped (the button says "Start"); red when running
         // (it says "Stop") — the colour signals the ACTION the click does.
         startStopBtn_->setStyleSheet(
-            running
+            anyRunning
                 ? QStringLiteral("QToolButton{color:#e53935;font-weight:bold;}")
                 : QStringLiteral("QToolButton{color:#4caf50;font-weight:bold;}"));
     }
