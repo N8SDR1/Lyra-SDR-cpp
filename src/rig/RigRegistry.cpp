@@ -64,6 +64,18 @@ RadioFamily familyForBoardName(const QString &boardName) {
     return RadioFamily::Hl2;
 }
 
+RadioFamily familyForDiscovery(int protocol, const QString &boardName) {
+    if (protocol == 2) {
+        // P2 board table (hl2_discovery boardNameP2): 10 = "Saturn (ANAN
+        // G2)" ⇒ AnanP2; everything else on P2 (the Brick answers as
+        // Hermes-class) ⇒ BrickP2.
+        if (boardName.startsWith(QStringLiteral("Saturn")))
+            return RadioFamily::AnanP2;
+        return RadioFamily::BrickP2;
+    }
+    return familyForBoardName(boardName);   // protocol 1 (or unset)
+}
+
 QString rigIdForMac(const QString &mac) {
     if (mac.isEmpty()) return QString();
     QString hex = mac.toLower();

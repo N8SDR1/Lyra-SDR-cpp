@@ -71,6 +71,15 @@ QString rigIdForMac(const QString &mac);
 // (the only shipping hardware today).
 RadioFamily familyForBoardName(const QString &boardName);
 
+// Protocol-aware family resolution for the discovery→rig hook.  A P2
+// reply uses a DIFFERENT board table from P1 (byte [11]), so the board
+// NAME alone can't distinguish e.g. a P1 "Hermes" from the P2 Hermes-
+// class BrickSDR2 — the protocol is the discriminator.
+//   protocol 1 → familyForBoardName (HL2 / ANAN-P1)
+//   protocol 2 → "Saturn…" ⇒ AnanP2 (ANAN G2), else ⇒ BrickP2
+//                (the BrickSDR2 reports Hermes-class on P2)
+RadioFamily familyForDiscovery(int protocol, const QString &boardName);
+
 // Find-or-create a rig by MAC.  Returns the rigId.  If it already exists,
 // refreshes label/family/lastIp from any non-empty argument.  Pure
 // identity — never relocates config.

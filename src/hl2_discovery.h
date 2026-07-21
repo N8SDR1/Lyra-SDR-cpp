@@ -1,13 +1,16 @@
-// Lyra — HPSDR discovery: Protocol 1 (Hermes Lite 2 / 2+) plus
-// Protocol 2 (Saturn / ANAN G2 family) detection.
+// Lyra — HPSDR discovery (Protocol 1 + Protocol 2).
 //
-// P1 mirrors the verified byte layout from the existing Python
+// Mirrors the verified byte layout from the existing Python
 // implementation at ../lyra/protocol/discovery.py (which has been
 // running cleanly on N8SDR's real HL2+ for months).  Translated to
 // native C++ + QtNetwork.  Runs on its OWN worker QThread — the
 // wire path NEVER touches the Qt main thread.
 //
-// Protocol 1 summary:
+// One sweep probes BOTH protocols so a mixed bench (an HL2 on P1 and a
+// BrickSDR2 / ANAN G2 on P2) answers in a single pass: each radio
+// ignores the other protocol's probe.  The reply SHAPE disambiguates.
+//
+// Protocol 1 (Metis) — Hermes Lite 2 / 2+, older ANAN:
 //   Send: 63-byte UDP packet
 //     bytes [0..2] = 0xEF 0xFE 0x02
 //     bytes [3..62] = zero padding
@@ -28,31 +31,23 @@
 //     byte  [19]   = num_rxs
 //     byte  [21]   = beta_version
 //
-// Protocol 2 summary (detection only for now — the P2 wire layer is
-// roadmap work; bench reference = KD4YAL's Saturn p2app,
-// sw_projects/P2_app/p2app.c, which is the radio-side implementation
-// running on the ANAN G2's Pi):
-//   Send: 60-byte UDP packet
-//     bytes [0..3] = 0 (sequence)
-//     byte  [4]    = 0x02 (discovery command)
-//     bytes [5..59] = zero padding
-//     destination = same 255.255.255.255:1024 broadcast
-//   The two probes coexist in one sweep: a P1 radio checks the
-//   0xEFFE magic and ignores the 60-byte P2 packet; p2app processes
-//   ONLY size-60 packets on 1024 (p2app.c: "to exclude protocol 1
-//   discovery") and so ignores our 63-byte P1 packet.
+// Protocol 2 (openHPSDR) — Saturn / ANAN G2, BrickSDR2:
+//   Send: 60-byte UDP packet, all zero except byte [4] = 0x02
+//     (command).  P1 radios reject the size-60 packet; P2 radios only
+//     act on a size-60 packet arriving on port 1024.
 //
-//   Reply (60 bytes; useful bytes per p2app DiscoveryReply):
-//     bytes [0..3] = 0 (sequence — never incremented)
-//     byte  [4]    = state (0x02 = idle, 0x03 = in use / running)
+//   Reply (>= 24 bytes):
+//     bytes [0..3] = 0x00 (zero sequence — distinguishes from the P1
+//                          0xEFFE magic and from stray traffic)
+//     byte  [4]    = status (0x02 = idle, 0x03 = in use)
 //     bytes [5..10] = MAC (6 bytes)
-//     byte  [11]   = board type (10 = Saturn / ANAN G2)
-//     byte  [12]   = protocol version (43 = P2 v4.3)
-//     byte  [13]   = firmware (FPGA) version
-//     byte  [20]   = DDC count (Saturn advertises 10)
-//     byte  [23]   = p2app software version (Saturn extra)
-//   P1 vs P2 replies are unambiguous: P1 starts 0xEF 0xFE, a P2
-//   reply starts with four zero sequence bytes.
+//     byte  [11]   = board_id  (P2 numbering, NOT the P1 table:
+//                               1 = Hermes-class — the BrickSDR2's
+//                               reply, bench-captured on N8SDR's unit;
+//                               10 = Saturn / ANAN G2)
+//     byte  [13]   = fpga firmware version
+//     byte  [20]   = DDC count (num rxs)
+//     byte  [23]   = software (p2app) version
 //
 // Multi-NIC: walks every local IPv4 interface, binds a socket per
 // interface, broadcasts from each.  Without this, a host with both
@@ -86,8 +81,11 @@ struct RadioInfo {
     bool    isBusy       = false;
     int     eeConfig     = 0;
     QString fixedIpHl2;
-    // 1 = HPSDR Protocol 1 (HL2 — openable today), 2 = Protocol 2
-    // (Saturn / ANAN G2 — detected + listed, wire layer is roadmap).
+    // HPSDR protocol the radio answered on: 1 = Metis/P1 (Hermes Lite 2/2+,
+    // older ANAN), 2 = openHPSDR Protocol 2 (Saturn/ANAN G2, BrickSDR2).
+    // Set by parseReply from the reply shape; carried on radioFound so the
+    // connect path can refuse to open a P2 rig on the P1 HL2Stream (the P2
+    // receive engine is separate, deferred work).
     int     protocol     = 1;
 };
 
@@ -111,7 +109,7 @@ public:
     Q_INVOKABLE void rememberRadio(const QString &ip, const QString &mac,
                                    const QString &boardName,
                                    int codeVersion, int betaVersion,
-                                   bool busy, int numRxs);
+                                   bool busy, int numRxs, int protocol = 1);
     Q_INVOKABLE QVariantMap savedRadio() const;
 
     // Remove a radio from persistence: clears the remembered record
@@ -137,10 +135,9 @@ public slots:
     void probe(const QString &ip, double timeoutSeconds = 1.0);
 
 signals:
-    // Emitted once per UNIQUE radio found (de-duped by MAC).
-    // `protocol` = 1 (HL2 / P1) or 2 (Saturn / ANAN G2 / P2 —
-    // listed for the operator but not openable until the P2 wire
-    // layer lands; consumers gate Open/auto-connect on this).
+    // Emitted once per UNIQUE radio found (de-duped by MAC).  `protocol`
+    // is 1 (Metis/P1) or 2 (openHPSDR P2) — the connect path uses it to
+    // avoid opening a P2 rig on the P1 HL2Stream.
     void radioFound(QString ip, QString mac, QString boardName,
                     int codeVersion, int betaVersion,
                     bool busy, int numRxs, int protocol);
@@ -171,8 +168,8 @@ private:
         QHostAddress broadcast;   // may be null if the OS didn't supply one
     };
     QList<LocalIf> localIPv4Interfaces() const;
-    static QByteArray buildDiscoveryPacket();     // P1: 63 B, 0xEFFE 0x02
-    static QByteArray buildDiscoveryPacketP2();   // P2: 60 B, [4]=0x02
+    static QByteArray buildDiscoveryPacket();     // P1 (Metis) — 63 B
+    static QByteArray buildDiscoveryPacketP2();   // P2 (openHPSDR) — 60 B
     bool parseReply(const QByteArray &data,
                     const QHostAddress &sender,
                     RadioInfo &out) const;
@@ -197,10 +194,9 @@ private:
     bool                                probeResolved_ = false;  // probeFinished emitted?
 
     static constexpr quint16 kDiscoveryPort = 1024;
-    static constexpr int     kPacketLen     = 63;   // P1 discovery request
-    static constexpr int     kPacketLenP2   = 60;   // P2 discovery request/reply
+    static constexpr int     kPacketLen     = 63;   // P1 probe size
+    static constexpr int     kPacketLenP2   = 60;   // P2 probe size (exact)
     static constexpr int     kBoardHL2      = 6;
-    static constexpr int     kBoardSaturnP2 = 10;   // P2 board type: Saturn / ANAN G2
 };
 
 } // namespace lyra::ipc

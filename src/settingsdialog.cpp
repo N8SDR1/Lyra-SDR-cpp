@@ -11,6 +11,7 @@
 #include "radioprofile/RadioProfileStore.h"
 #include "palettes.h"
 #include "prefs.h"
+#include "win_perf.h"   // Performance group — network-throttle read/set
 #include "time_stations.h"
 #include "logdialog.h"
 
@@ -2426,6 +2427,67 @@ QWidget *SettingsDialog::buildHardwareTab() {
         form->addRow(grp);
     }
 
+    // --- Performance (per-PC; helps hold the HL2 wire cadence under load) ---
+    // Two machine-local knobs that address the "another app running alongside
+    // Lyra causes PA chatter / distorted TX" class of report: the EP2 writer
+    // thread misses its ~2.6 ms send window when a busy foreground app starves
+    // the CPU or the network stack.  Neither is per-rig.
+    {
+        auto *grp = new QGroupBox(tr("Performance"), page);
+        auto *g = new QGridLayout(grp);
+        g->setColumnStretch(1, 1);
+
+        // Process priority — SetPriorityClass on the Lyra process.
+        g->addWidget(new QLabel(tr("Process priority"), grp), 0, 0);
+        auto *prio = new QComboBox(grp);
+        prio->addItem(tr("Normal (default)"));   // index 0
+        prio->addItem(tr("Above Normal"));       // index 1
+        prio->addItem(tr("High"));               // index 2
+        prio->setCurrentIndex(prefs_->processPriority());
+        prio->setToolTip(tr("Raise Lyra's Windows process priority so it "
+                            "competes better with a busy app (e.g. a browser) "
+                            "for the CPU. Higher helps on weaker machines; "
+                            "applies immediately, no restart."));
+        connect(prio, QOverload<int>::of(&QComboBox::activated), grp,
+                [this](int idx) { prefs_->setProcessPriority(idx); });
+        connect(prefs_, &Prefs::processPriorityChanged, prio, [this, prio]() {
+            if (prio->currentIndex() != prefs_->processPriority())
+                prio->setCurrentIndex(prefs_->processPriority());
+        });
+        g->addWidget(prio, 0, 1);
+
+        // Network throttle — machine-wide HKLM value; needs elevation to
+        // change (one UAC prompt), reads freely.  State reflects the live
+        // registry, not a Lyra pref.
+        auto *thr = new QCheckBox(
+            tr("Disable Windows network throttling"), grp);
+        thr->setChecked(lyra::perf::networkThrottleDisabled());
+        thr->setToolTip(tr("Windows caps non-multimedia network traffic to "
+                           "~10 packets/ms, which can starve the HL2's UDP "
+                           "stream and cause audio glitches / TX distortion. "
+                           "Disabling it is the standard SDR fix. Machine-wide "
+                           "change (asks for admin); takes effect after a "
+                           "reboot."));
+        connect(thr, &QCheckBox::toggled, grp, [this, thr](bool on) {
+            lyra::perf::setNetworkThrottleDisabled(on);
+            // Reflect the ACTUAL registry state (the user may have declined
+            // the UAC prompt, or the value may already differ).
+            const bool actual = lyra::perf::networkThrottleDisabled();
+            if (thr->isChecked() != actual) {
+                const QSignalBlocker block(thr);
+                thr->setChecked(actual);
+            }
+        });
+        g->addWidget(thr, 1, 0, 1, 2);
+
+        auto *note = new QLabel(
+            tr("Network-throttle change applies after a reboot."), grp);
+        note->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+        g->addWidget(note, 2, 0, 1, 2);
+
+        form->addRow(grp);
+    }
+
     // --- Startup: auto-launch companion apps when Lyra opens ---
     // Global (per-machine, QSettings "autostart/*"), independent of the
     // per-profile companion launcher.  A promoted SDRLogger+ button (detect /
@@ -2633,9 +2695,9 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (!it)
                 it = new QListWidgetItem(list);
             if (protocol == 2) {
-                // Protocol 2 (Saturn / ANAN G2): DDC count in place of
-                // "rx"; fw = FPGA version from the P2 reply.  Opens
-                // via the P2 bridge like any other radio.
+                // Protocol 2 (Saturn / ANAN G2 / Brick): DDC count in
+                // place of "rx"; fw = FPGA version from the P2 reply.
+                // Opens via the P2 bridge like any other radio.
                 it->setText(
                     tr("%1  —  %2  (P2, fw v%3, %4 DDC)%5")
                         .arg(ip, board).arg(codeVer).arg(numRxs)
@@ -2677,15 +2739,18 @@ QWidget *SettingsDialog::buildHardwareTab() {
         if (discovery_) {
             const QVariantMap r = discovery_->savedRadio();
             if (!r.value(QStringLiteral("ip")).toString().isEmpty()) {
-                // Remembered radios are always P1 — only openable radios
-                // get persisted (P2 Open is gated below).
+                // Only auto-connect's own remembered radio (always P1 —
+                // scanAndOpenFirst only remembers a P1 radio) uses this
+                // key; default 1 covers records saved before "protocol"
+                // existed.
                 addRadio(r.value(QStringLiteral("ip")).toString(),
                          r.value(QStringLiteral("mac")).toString(),
                          r.value(QStringLiteral("boardName")).toString(),
                          r.value(QStringLiteral("codeVersion")).toInt(),
                          r.value(QStringLiteral("betaVersion")).toInt(),
                          r.value(QStringLiteral("busy")).toBool(),
-                         r.value(QStringLiteral("numRxs")).toInt(), 1);
+                         r.value(QStringLiteral("numRxs")).toInt(),
+                         r.value(QStringLiteral("protocol"), 1).toInt());
             }
         }
 
@@ -2927,42 +2992,50 @@ QWidget *SettingsDialog::buildHardwareTab() {
                         "then Open (or double-click) the other radio."));
                     return;
                 }
+                const QString ip    = it->data(Qt::UserRole).toString();
+                const QString mac   = it->data(Qt::UserRole + 1).toString();
+                const QString board = it->data(Qt::UserRole + 2).toString();
+                const int     proto = it->data(Qt::UserRole + 7).toInt();
+
+                // Multi-rig: create/update this radio's rig identity (family
+                // by protocol + board, lastIp = this ip) so it appears in the
+                // Rig picker.  Done for BOTH protocols, regardless of
+                // whether this Open call can actually bring the radio up —
+                // a rig should be identifiable the moment it's been opened
+                // once.  Empty label → ensureRig defaults it to the family
+                // name on first meet, keeps any operator-set name on update.
+                lyra::rig::registry::ensureRig(
+                    mac, lyra::rig::registry::familyForDiscovery(proto, board),
+                    QString(), ip);
+
                 // Protocol 2 (Saturn / ANAN G2): opens through the P2
                 // bridge (session thread + DDC0 IQ → the same WDSP RX
                 // chain).  RX-only today; the P1 rememberRadio /
-                // auto-connect persistence stays HL2-only.
-                if (it->data(Qt::UserRole + 7).toInt() == 2) {
-                    const QString ip = it->data(Qt::UserRole).toString();
+                // auto-connect persistence stays HL2-only.  (A Brick, or
+                // any other P2 family the bridge doesn't have a verified
+                // front-end profile for, still opens — P2Session logs a
+                // warning and the receiver runs without antenna/filter
+                // control rather than refusing outright.)
+                if (proto == 2) {
                     if (p2_) {
                         // MAC selects the radio's Layer-2 profile
                         // (model + antenna) inside the bridge.
-                        p2_->open(ip, it->data(Qt::UserRole + 1).toString());
-                        status->setText(tr(
-                            "Opening %1 (Saturn / ANAN G2, Protocol 2) — "
-                            "RX only for now.").arg(ip));
+                        p2_->open(ip, mac);
+                        status->setText(
+                            tr("Opening %1 (Protocol 2) — RX only for now.")
+                                .arg(ip));
                     }
                     return;
                 }
-                const QString ip = it->data(Qt::UserRole).toString();
                 if (discovery_) {
                     discovery_->rememberRadio(
-                        ip, it->data(Qt::UserRole + 1).toString(),
-                        it->data(Qt::UserRole + 2).toString(),
+                        ip, mac, board,
                         it->data(Qt::UserRole + 3).toInt(),
                         it->data(Qt::UserRole + 4).toInt(),
                         it->data(Qt::UserRole + 5).toBool(),
-                        it->data(Qt::UserRole + 6).toInt());
+                        it->data(Qt::UserRole + 6).toInt(),
+                        proto);
                 }
-                // Multi-rig: create/update this radio's rig profile (family
-                // from the discovered board, lastIp = this ip) so opening a
-                // radio populates the Rig menu.  Empty label → ensureRig
-                // defaults it to the family name on first meet, keeps any
-                // operator-set name on update.
-                lyra::rig::registry::ensureRig(
-                    it->data(Qt::UserRole + 1).toString(),
-                    lyra::rig::registry::familyForBoardName(
-                        it->data(Qt::UserRole + 2).toString()),
-                    QString(), ip);
                 stream_->open(ip);
             };
             connect(openBtn, &QPushButton::clicked, radioBox,
@@ -2999,9 +3072,10 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     tr("Enter a valid IPv4 address (e.g. 192.168.1.50)."));
                 return;
             }
-            // Placeholder defaults to P1; if the probe reply says the radio
-            // is actually P2, addRadio's IP-keyed update rewrites the row
-            // (and its protocol role) with the real record.
+            // Protocol unknown until the probe replies (it sends BOTH P1
+            // and P2 and re-renders this row — matched by MAC once the
+            // probe resolves it — with the real protocol); the placeholder
+            // assumes P1.
             addRadio(ip, QString(), tr("manual"), 0, 0, false, 0, 1);
             for (int i = 0; i < list->count(); ++i)
                 if (list->item(i)->data(Qt::UserRole).toString() == ip) {
@@ -5971,6 +6045,55 @@ QWidget *SettingsDialog::buildTxTab() {
         }
 
         col3->addWidget(grp);      // §15.28 — TUNE + MODES column (Tune)
+    }
+
+    // ── Digital modes: reduce TX drive in DIGU/DIGL ──────────────
+    // Opt-in checkbox + a "% of set drive" spinbox.  The reduction is
+    // transient (HL2Stream applies it in applyTxPower_ only while keyed in
+    // a digital mode) — the operator's per-band set drive + dial are
+    // untouched, and it composes under the Max-TX-drive cap (both only
+    // reduce).  Bound to Prefs; main.cpp forwards the values to the wire.
+    {
+        auto *grp = new QGroupBox(tr("Digital modes"), page);
+        auto *form = new QFormLayout(grp);
+
+        auto *en = new QCheckBox(
+            tr("Reduce TX drive in digital modes (DIGU/DIGL)"), grp);
+        en->setChecked(prefs_->digitalDriveEnabled());
+        en->setToolTip(tr("When on, transmit at a fraction of the band's set "
+                          "drive while in the digital data modes — back off on "
+                          "FT8/JS8/etc. without touching your voice drive. "
+                          "Off = no change."));
+        form->addRow(en);
+
+        auto *pct = new QSpinBox(grp);
+        pct->setRange(10, 100);
+        pct->setSuffix(tr(" %"));
+        pct->setValue(prefs_->digitalDrivePct());
+        pct->setEnabled(prefs_->digitalDriveEnabled());
+        pct->setToolTip(tr("Digital-mode TX drive as a percentage of the "
+                           "band's set drive. Stays under the Max-TX-drive "
+                           "cap; your dial and per-band drive are unchanged."));
+        form->addRow(tr("Digital drive:"), pct);
+
+        connect(en, &QCheckBox::toggled, grp, [this, pct](bool on) {
+            prefs_->setDigitalDriveEnabled(on);
+            pct->setEnabled(on);
+        });
+        connect(prefs_, &Prefs::digitalDriveEnabledChanged, en,
+                [this, en, pct]() {
+            if (en->isChecked() != prefs_->digitalDriveEnabled())
+                en->setChecked(prefs_->digitalDriveEnabled());
+            pct->setEnabled(prefs_->digitalDriveEnabled());
+        });
+        connect(pct, qOverload<int>(&QSpinBox::valueChanged), grp,
+                [this](int v) { prefs_->setDigitalDrivePct(v); });
+        connect(prefs_, &Prefs::digitalDrivePctChanged, pct, [this, pct]() {
+            if (pct->value() != prefs_->digitalDrivePct())
+                pct->setValue(prefs_->digitalDrivePct());
+        });
+
+        col3->addWidget(grp);      // TUNE + MODES column (Digital modes)
     }
 
     // ── Mic + ALC (TXA input/output gain stages) group ───────────

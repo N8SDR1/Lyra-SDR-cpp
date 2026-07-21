@@ -2124,8 +2124,23 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
     // Stage 3b — apply the per-band watts ceiling here (NOT at the stored
     // setpoint), so the operator's drive is preserved + moving to a
     // less-restrictive band restores power.
+    // Digital-mode transient drive reduction — applied HERE (emit path),
+    // NOT at the stored setpoint, so the operator's per-band set drive +
+    // dial stay pristine (same posture as ATT-on-TX).  Only bites when the
+    // operator enabled it AND the TX mode is a digital data mode (WDSP
+    // DIGU=7 / DIGL=9).  100 % = no change.  This only ever reduces, so it
+    // composes safely with the Max-Drive cap (already applied to the stored
+    // setpoint) and the per-band watts ceiling below — the emitted drive is
+    // always <= both.
+    int effRaw = requestedRaw;
+    if (digitalDriveEnabled_.load(std::memory_order_relaxed)) {
+        const int m = txMode_.load(std::memory_order_relaxed);
+        if (m == 7 || m == 9)
+            effRaw = requestedRaw
+                   * digitalDrivePct_.load(std::memory_order_relaxed) / 100;
+    }
     const int    ceiling = wattsDriveCeilingRaw_();
-    const int    capped = std::min(requestedRaw, ceiling);
+    const int    capped = std::min(effRaw, ceiling);
     const double rv  = radioVolumeFor_(capped);
     // #170c — CW watts-cap fold.  On CW key-down the gateware SUBSTITUTES a
     // full-scale carrier for the WDSP TX-I/Q path (hl2_rtl_radio.v:1145,
@@ -3657,6 +3672,19 @@ void HL2Stream::setMaxDrivePct(int pct) {
     const int cap = maxDriveRaw();
     if (txDriveLevel_.load(std::memory_order_relaxed) > cap) setTxDriveLevel(cap);
     safetyLog(QStringLiteral("TX max drive cap -> %1 %%").arg(clamped));
+}
+
+void HL2Stream::setDigitalDriveEnabled(bool on) {
+    digitalDriveEnabled_.store(on, std::memory_order_relaxed);
+    // Live-apply: re-emit the current set drive so the scale takes effect
+    // now (only changes the wire if we're keyed in a digital mode; inert
+    // otherwise).  Does NOT persist or touch txDriveLevel_ — transient.
+    applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+}
+
+void HL2Stream::setDigitalDrivePct(int pct) {
+    digitalDrivePct_.store(std::clamp(pct, 10, 100), std::memory_order_relaxed);
+    applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
 }
 
 // =========================================================================

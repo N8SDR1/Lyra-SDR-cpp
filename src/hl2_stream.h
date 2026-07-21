@@ -1304,6 +1304,17 @@ public slots:
     void setSwrProtectAction(int action);   // 0 = Cut, 1 = Fold
     void setFoldMinDrivePct(int pct);        // fold floor, 1..90 %
     void setMaxDrivePct(int pct);            // #170a drive cap, 1..100 %
+    // Digital-mode transient TX-drive reduction (Settings → TX → Digital
+    // modes).  When enabled AND the TX mode is DIGU/DIGL, applyTxPower_
+    // emits at digitalDrivePct % of the operator's set drive — a transient
+    // emit-time scale that does NOT persist and leaves the per-band set
+    // drive + the operator's dial untouched (same posture as ATT-on-TX).
+    // Composes safely under the #170a Max-Drive cap + the per-band watts
+    // ceiling (all three only ever reduce).  Driven from Prefs
+    // (tx/digitalDriveEnabled + tx/digitalDrivePct) via main.cpp; each
+    // setter re-applies power live so a change takes effect immediately.
+    void setDigitalDriveEnabled(bool on);
+    void setDigitalDrivePct(int pct);        // 10..100 %
     // #105 CW-1a — CW keyer config setters.  Each clamps, stores, persists
     // (tx/cw/*), emits, and (if prn exists) pushes the whole CW block to
     // prn->cw via applyCwConfigToPrn().  INERT on the wire until the keying
@@ -2253,6 +2264,9 @@ private:
     // setTxDriveLevel (every drive write funnels there) + the open
     // re-push + applyDriveLevelNoPersist via maxDriveRaw().
     int     maxDrivePct_      = kMaxDrivePctDefault;
+    // Digital-mode transient drive scale (see setDigitalDrive* above).
+    std::atomic<bool> digitalDriveEnabled_{false};
+    std::atomic<int>  digitalDrivePct_{100};   // 10..100; 100 = no reduction
     // #105 CW-1a — CW keyer config (operator surface; cw_tx_design.md §7
     // defaults).  Mirrored into prn->cw via applyCwConfigToPrn(); the
     // composer (cases 12/13/14) reads prn->cw.  INERT until cw_enable is

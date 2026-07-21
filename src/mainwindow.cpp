@@ -1853,6 +1853,18 @@ void MainWindow::switchRig(const QString &rigId) {
     const auto r = lyra::rig::registry::rig(rigId);
     const QString label = r.label.isEmpty() ? rigId : r.label;
 
+    // A Protocol-2 rig (Brick / ANAN G2) is registered for identity, but
+    // Lyra can't bring it up yet — the P2 receive engine is deferred, and
+    // the launch auto-connect would try to open it on the P1 stream.  Block
+    // making it active until that engine lands, with an honest message.
+    if (lyra::rig::capabilitiesFor(r.family).protocol == 2) {
+        QMessageBox::information(this, tr("Switch rig"),
+            tr("\"%1\" is a Protocol-2 radio — it's registered, but receive "
+               "support is still in progress, so it can't be made the active "
+               "rig yet.").arg(label));
+        return;
+    }
+
     QMessageBox box(this);
     box.setWindowTitle(tr("Switch rig"));
     box.setIcon(QMessageBox::Question);
@@ -2760,11 +2772,17 @@ void MainWindow::scanAndOpenFirst() {
         [this, st, disc, opened](const QString &fip, const QString &mac,
                                  const QString &board, int code, int beta,
                                  bool busy, int numRxs, int protocol) {
-            if (protocol != 1) return;   // keep listening for a P1 radio
+            // Auto-connect drives the P1 HL2Stream.  A P2 radio (Saturn /
+            // Brick) is reported by discovery but opening one is an
+            // EXPLICIT act (Settings double-click, or "Open at startup")
+            // — leave the one-shot armed so a subsequent P1 reply in the
+            // same sweep still auto-connects.
+            if (protocol != 1) return;
             QObject::disconnect(scanConn_);
             QObject::disconnect(scanDoneConn_);
             *opened = true;
-            disc->rememberRadio(fip, mac, board, code, beta, busy, numRxs);
+            disc->rememberRadio(fip, mac, board, code, beta, busy, numRxs,
+                                protocol);
             if (connStatus_)
                 connStatus_->setText(tr("Connecting to %1…").arg(fip));
             st->open(fip);

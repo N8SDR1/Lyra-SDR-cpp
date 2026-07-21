@@ -1767,6 +1767,24 @@ int main(int argc, char *argv[])
                     lyra::wire::SetTxRackBypass(txModeBypassesRack(m0) ? 1 : 0);
                 }
 
+                // Digital-mode TX-drive reduction — forward the operator
+                // Prefs (Settings → TX → Digital modes) to the wire layer,
+                // which applies the transient scale in applyTxPower_ only
+                // while keyed in DIGU/DIGL.  Mode-edge re-apply is already
+                // handled by setTxMode's applyTxPower_ call, so this only
+                // needs to track the two Prefs (+ the persisted startup value).
+                {
+                    auto pushDigitalDrive = [prefs, stream]() {
+                        stream->setDigitalDriveEnabled(prefs->digitalDriveEnabled());
+                        stream->setDigitalDrivePct(prefs->digitalDrivePct());
+                    };
+                    QObject::connect(prefs, &lyra::ui::Prefs::digitalDriveEnabledChanged,
+                                     stream, pushDigitalDrive);
+                    QObject::connect(prefs, &lyra::ui::Prefs::digitalDrivePctChanged,
+                                     stream, pushDigitalDrive);
+                    pushDigitalDrive();
+                }
+
                 // #175 — waterfall-ID arm/cadence orchestrator.  Owns the
                 // chip-armed "send once + every N min" behaviour: per burst it
                 // flattens TX (TCI source + whole-rack bypass + DIGU/DIGL +
