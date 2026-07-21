@@ -225,8 +225,20 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
         // bench-verified P2 model today).
         bool seeded = false;
         if (prof.hardwareModelKey.isEmpty()) {
-            const auto *dm = lyra::hardware::defaultModelForBoard(-1, true);
-            if (dm) { prof.hardwareModelKey = QLatin1String(dm->key); seeded = true; }
+            // Only seed Saturn/ANAN-G2 when this rig is actually known
+            // to be that family (or not yet classified).  HardwareCatalog
+            // has no Brick row — no bench-measured PA/telemetry constants
+            // for it exists yet — so writing "ANAN-G2" into a rig we
+            // already know is a Brick would silently persist Saturn's
+            // telemetry/audio-amp capability and front-end word table as
+            // if they were confirmed facts about different hardware
+            // (bench finding 2026-07-20).  Leave it unset for a Brick;
+            // the resolve-below falls back transiently instead.
+            if (prof.family == lyra::rig::RadioFamily::AnanP2 ||
+                prof.family == lyra::rig::RadioFamily::Unknown) {
+                const auto *dm = lyra::hardware::defaultModelForBoard(10, true);
+                if (dm) { prof.hardwareModelKey = QLatin1String(dm->key); seeded = true; }
+            }
         }
         if (prof.audioRoute.isEmpty()) {
             prof.audioRoute = QStringLiteral("pc");
@@ -238,8 +250,11 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     // Per-radio audio routing — applied TRANSIENTLY (globals stay as
     // the HL2 configured them; restored at close()).  P2 profiles are
     // seeded "pc" so a Saturn just plays out the PC without touching
-    // the HL2-jack setting.  No profile + globals on the HL2 jack →
-    // warn (that path rides the P1 EP2 writer, which isn't running).
+    // the HL2-jack setting.  route == "global" (the operator's explicit
+    // "Follow global" choice) or empty (not yet seeded) both fall
+    // through to the final branch below unchanged — no profile +
+    // globals on the HL2 jack → warn (that path rides the P1 EP2
+    // writer, which isn't running).
     if (engine_) {
         engine_->setRadioAudioSink({});   // clear any stale sink
         const QString route = prof.isValid() ? prof.audioRoute : QString();
@@ -276,6 +291,18 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
                                      QStringLiteral("ANAN-G2")).toString();
     const auto *hw = lyra::hardware::modelByKey(modelKey);
     if (!hw) hw = lyra::hardware::defaultModelForBoard(10, /*p2=*/true);
+    // Saturn is the ONLY bench-verified P2 model — if the rig's own
+    // recorded family says otherwise (a Brick, most likely) but we're
+    // still about to apply Saturn's constants, say so instead of
+    // silently treating a guess as fact (bench finding 2026-07-20).
+    if (hw && hw->expectedBoard == 10 && prof.isValid() &&
+        prof.family != lyra::rig::RadioFamily::AnanP2 &&
+        prof.family != lyra::rig::RadioFamily::Unknown)
+        emit logLine(QStringLiteral(
+            "P2: no bench-verified hardware profile for this %1 — using "
+            "Saturn (ANAN-G2) telemetry/front-end defaults as a "
+            "placeholder; set the correct model in Settings → Hardware.")
+            .arg(lyra::rig::capabilitiesFor(prof.family).familyName));
     // Telemetry conversion constants for this session's model.
     hasVoltsAmps_ = hw && hw->hasVolts && hw->hasAmps;
     ampVoff_ = hw ? hw->voltOff  : 360.f;
@@ -329,6 +356,7 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
 
     ip_   = ip;
     open_ = true;
+    emit openChanged();
     emit logLine(QStringLiteral(
         "P2: opening %1 (DDC0 @ %2 kHz, %3 Hz)").arg(ip).arg(rateKhz_).arg(hz));
     // isRunning() stays false — and runningChanged() does NOT fire —
@@ -360,6 +388,7 @@ void P2RxBridge::close() {
     // configured output comes back exactly as saved).
     if (engine_) engine_->restoreAudioRouteFromSettings();
     emit runningChanged();
+    emit openChanged();
 }
 
 } // namespace lyra::wire

@@ -48,10 +48,15 @@ struct RigProfile {
     // board-derived default (hardware::defaultModelForBoard).
     // trxAntenna/audioRoute are P2-only per-rig config (harmless
     // unused fields on a P1 rig): TRX antenna port 1..3, and RX audio
-    // routing — "" = follow the global Settings → Audio choice,
-    // "hl2"/"pc"/"radio" (radio = the unit's own on-board speaker,
-    // gated on the selected model's hasAudioAmplifierP2 capability —
-    // never a free-form operator choice on hardware that lacks one).
+    // routing — "" = not yet seeded (P2RxBridge::open() seeds it "pc"
+    // on first open), "global" = explicit operator choice to follow
+    // the global Settings → Audio choice, "hl2"/"pc"/"radio" (radio =
+    // the unit's own on-board speaker, gated on the selected model's
+    // hasAudioAmplifierP2 capability — never a free-form operator
+    // choice on hardware that lacks one).  "global" is a REAL string,
+    // not "", specifically so it survives round-tripping through the
+    // "" = unseeded check instead of being silently rewritten to "pc"
+    // (bench finding 2026-07-20).
     QString     hardwareModelKey;
     int         trxAntenna = 1;
     QString     audioRoute;
@@ -117,6 +122,16 @@ QString ensureRig(const QString &mac, RadioFamily family,
 // keys are relocated under `rig/<rigId>/…` in Stage 3, snapshot-gated,
 // together with the read-routing.
 QString seedFromLegacyRadio();
+
+// One-shot migration of the retired JSON RadioProfileStore
+// (<AppData>/profiles/radios/<MAC>.json — see the 2026-07-20 identity
+// fold) into RigRegistry.  ADDITIVE ONLY: for each saved MAC,
+// find-or-creates the rig identity and fills only the folded fields
+// that are still empty on the registry side — never overwrites a
+// value the registry already has, so a fresher discovery/Settings
+// edit always wins.  Idempotent (a rig with every field already
+// filled is left untouched).  Returns the number of JSON files found.
+int migrateLegacyRadioProfiles();
 
 } // namespace registry
 } // namespace lyra::rig

@@ -62,6 +62,15 @@ public:
     ~P2RxBridge() override;
 
     bool    isRunning() const { return running_; }
+    // True from open() until close() completes — a superset of
+    // isRunning() that also covers a pending (unconfirmed) attempt.
+    // UI/mutual-exclusion/shutdown code that needs "is this bridge
+    // doing anything with the radio right now" should use this, not
+    // isRunning() — isRunning() alone lets an offline radio's
+    // unconfirmed open_ sit invisible: Close stays disabled, a
+    // concurrent P1 open isn't blocked, and the shutdown handler skips
+    // its early close (bench finding 2026-07-20).
+    bool    isOpen()    const { return open_; }
     QString targetIp()  const { return ip_; }
 
     // Live telemetry in real units, converted from the radio's HP
@@ -86,6 +95,9 @@ public slots:
 
 signals:
     void runningChanged();
+    // Fires whenever isOpen() changes — on both open() and close(),
+    // independent of whether the radio ever confirmed.
+    void openChanged();
     void logLine(QString line);
 
 private:

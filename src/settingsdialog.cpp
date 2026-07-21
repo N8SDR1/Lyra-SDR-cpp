@@ -2867,7 +2867,13 @@ QWidget *SettingsDialog::buildHardwareTab() {
             auto *audCombo = new QComboBox(radioBox);
             audCombo->addItem(tr("PC output"),     QStringLiteral("pc"));
             audCombo->addItem(tr("Radio speaker"), QStringLiteral("radio"));
-            audCombo->addItem(tr("Follow global"), QString());
+            // A real sentinel, not "" — P2RxBridge::open() treats an
+            // EMPTY audioRoute as "never seeded" and overwrites it with
+            // "pc" on every open, which silently clobbered a deliberate
+            // "Follow global" choice back to PC output (bench finding
+            // 2026-07-20).  "global" round-trips through that check
+            // untouched.
+            audCombo->addItem(tr("Follow global"), QStringLiteral("global"));
             auto updateAudioCapability = [modelCombo, audCombo]() {
                 const auto *hw = lyra::hardware::modelByKey(
                     modelCombo->currentData().toString());
@@ -2953,8 +2959,15 @@ QWidget *SettingsDialog::buildHardwareTab() {
         auto refresh = [this, scanBtn, openBtn, closeBtn, removeBtn,
                         list, status, markConnected]() {
             const bool p1Running = stream_ && stream_->isRunning();
+            // isOpen(), not isRunning(): a P2 open() in flight but not
+            // yet confirmed by the radio must still block a concurrent
+            // P1 open and keep Close enabled — otherwise an offline/
+            // slow-to-answer radio leaves a stuck, unabortable attempt
+            // that a delayed reply could turn into two router-0 feeders
+            // (bench finding 2026-07-20).
+            const bool p2Open    = p2_ && p2_->isOpen();
             const bool p2Running = p2_ && p2_->isRunning();
-            const bool running   = p1Running || p2Running;
+            const bool running   = p1Running || p2Open;
             // Discover stays enabled while connected: scanning is
             // passive (its own sockets; radios answer even when busy)
             // and the operator needs the list populated to SEE the
@@ -2970,6 +2983,9 @@ QWidget *SettingsDialog::buildHardwareTab() {
             else if (p2Running)
                 status->setText(tr("Connected to %1 (Saturn / ANAN G2, "
                                    "Protocol 2 — RX)").arg(p2_->targetIp()));
+            else if (p2Open)
+                status->setText(tr("Opening %1 (Protocol 2)… click Close "
+                                   "to abort.").arg(p2_->targetIp()));
             markConnected();
         };
         refresh();
@@ -3005,7 +3021,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 // ignoring the click (operator-reported: with a radio
                 // auto-connected, double-clicking another looked like
                 // "can't connect" because nothing happened at all).
-                if (stream_->isRunning() || (p2_ && p2_->isRunning())) {
+                if (stream_->isRunning() || (p2_ && p2_->isOpen())) {
                     status->setText(tr(
                         "A radio is already open — click Close first, "
                         "then Open (or double-click) the other radio."));
@@ -3062,15 +3078,20 @@ QWidget *SettingsDialog::buildHardwareTab() {
             connect(list, &QListWidget::itemDoubleClicked, radioBox,
                     [openItem](QListWidgetItem *it) { openItem(it); });
             connect(closeBtn, &QPushButton::clicked, radioBox, [this]() {
-                // Close whichever wire path is live.
+                // Close whichever wire path is live OR pending — isOpen()
+                // so an unconfirmed P2 attempt can be aborted, not just
+                // a confirmed one.
                 if (stream_ && stream_->isRunning()) stream_->close();
-                if (p2_ && p2_->isRunning())         p2_->close();
+                if (p2_ && p2_->isOpen())            p2_->close();
             });
             connect(stream_, &lyra::ipc::HL2Stream::runningChanged, radioBox,
                     [refresh]() { refresh(); });
-            if (p2_)
+            if (p2_) {
                 connect(p2_, &lyra::wire::P2RxBridge::runningChanged, radioBox,
                         [refresh]() { refresh(); });
+                connect(p2_, &lyra::wire::P2RxBridge::openChanged, radioBox,
+                        [refresh]() { refresh(); });
+            }
         } else {
             openBtn->setEnabled(false);
             closeBtn->setEnabled(false);
@@ -3121,25 +3142,22 @@ QWidget *SettingsDialog::buildHardwareTab() {
             const QString ip  = it->data(Qt::UserRole).toString();
             const QString mac = it->data(Qt::UserRole + 1).toString();
             if (discovery_) discovery_->forgetRadio(ip);
-            // Also delete the rig-registry entry (otherwise the saved-
-            // radios seed re-adds the row on the next dialog open) and
-            // clear a startup-radio choice pointing at it.
-            if (!mac.isEmpty()) {
-                lyra::rig::registry::removeRig(
-                    lyra::rig::registry::rigIdForMac(mac));
+            // Delete the rig-registry entry (otherwise the saved-radios
+            // seed re-adds the row on the next dialog open) and clear a
+            // startup-radio choice pointing at it.  Never removes the
+            // ACTIVE rig from under the running config — that would
+            // orphan the live namespace (bench finding 2026-07-20: an
+            // earlier unconditional removeRig() ran before this guard
+            // could apply, deleting the active rig anyway).
+            const QString rigId = lyra::rig::registry::rigIdForMac(mac);
+            if (!rigId.isEmpty()
+                    && rigId != lyra::rig::registry::activeRigId()) {
+                lyra::rig::registry::removeRig(rigId);
                 QSettings s;
                 if (s.value(QStringLiteral("radio/startupMac")).toString()
                         .compare(mac, Qt::CaseInsensitive) == 0)
                     s.remove(QStringLiteral("radio/startupMac"));
             }
-            // Multi-rig: also drop this radio's rig profile (by MAC) so it
-            // leaves the Rig menu.  Never removes the ACTIVE rig from under
-            // the running config — that would orphan the live namespace.
-            const QString rigId = lyra::rig::registry::rigIdForMac(
-                it->data(Qt::UserRole + 1).toString());
-            if (!rigId.isEmpty()
-                    && rigId != lyra::rig::registry::activeRigId())
-                lyra::rig::registry::removeRig(rigId);
             delete list->takeItem(list->row(it));
             status->setText(tr("Removed %1.").arg(ip));
             refresh();

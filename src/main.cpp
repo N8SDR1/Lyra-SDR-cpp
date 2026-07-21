@@ -228,6 +228,14 @@ int main(int argc, char *argv[])
     // shared UI prefs) via the exact-key migration.
     {
         lyra::rig::registry::seedFromLegacyRadio();
+        // Fold the retired JSON RadioProfileStore (per-MAC saved model/
+        // antenna/audio-route/nickname/timestamps) into the registry —
+        // additive/idempotent, safe to run every launch.  Without this,
+        // upgrading from the pre-fold build silently dropped every
+        // saved P2 radio's config and could strand a startupMac that no
+        // longer resolves (bench finding 2026-07-20).
+        if (const int n = lyra::rig::registry::migrateLegacyRadioProfiles(); n > 0)
+            qInfo("[rig] migrated %d legacy radio profile(s) into the registry", n);
         lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("cal/"));
         lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("band_mem/"));
         lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("oc/"));
@@ -669,7 +677,10 @@ int main(int argc, char *argv[])
         // through freed state.  P2RxBridge::close() is synchronous
         // (BlockingQueuedConnection into the session thread) and
         // idempotent, so this is safe even when no P2 radio is open.
-        if (winRef && winRef->p2Bridge() && winRef->p2Bridge()->isRunning()) {
+        // isOpen(), not isRunning(): a pending (unconfirmed) attempt must
+        // also be closed before destroy_cmaster() frees the router slot,
+        // or a belated HP reply could dispatch IQ through freed state.
+        if (winRef && winRef->p2Bridge() && winRef->p2Bridge()->isOpen()) {
             qWarning("[shutdown] handler-1 step p2: closing P2 bridge - start");
             winRef->p2Bridge()->close();
             qWarning("[shutdown] handler-1 step p2: done");
