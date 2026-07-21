@@ -119,6 +119,11 @@ void PanelRack::addMember(QDockWidget *dock, QAction *toggleAction) {
 }
 
 void PanelRack::store() const {
+    // Safe boot (--safe / LYRA_SAFE) treats the whole layout store as READ-ONLY,
+    // same as MainWindow::saveLayout(): the session comes up in the factory
+    // arrangement and must NOT overwrite the operator's real rack layout on
+    // close (this runs from closeEvent + the rack-chip toggle, both automatic).
+    if (qEnvironmentVariableIsSet("LYRA_SAFE")) return;
     QSettings s;
     const QString b = keyBase(objName_);
     s.setValue(b + QStringLiteral("geometry"), saveGeometry());

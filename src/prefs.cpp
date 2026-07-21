@@ -4,6 +4,8 @@
 
 #include "palettes.h"
 #include "grid.h"
+#include "rig/RigScope.h"   // multi-rig Stage 4d — per-rig panadapter dB-scale keys
+#include "win_perf.h"       // process-priority apply (Settings → Hardware → Performance)
 
 #include <QSettings>
 
@@ -14,6 +16,14 @@
 namespace lyra::ui {
 
 namespace {
+// Multi-rig Stage 4d: per-rig scope for the panadapter dB-SCALE keys only
+// (RX+TX spectrum & waterfall floor/ceiling).  The rest of panadapter/ is
+// UI prefs (palette, peak, glow, zoom…) that stay shared, so we wrap the
+// specific scaling keys at their read/write sites, not the whole group.
+// Returns rig/<activeId>/<flatKey> (or the flat key when no rig active).
+QString scaledKey(const char *flatKey) {
+    return lyra::rig::scope::rigKey(QLatin1String(flatKey));
+}
 constexpr auto kGrid   = "panadapter/gridLevel";
 constexpr auto kFps    = "panadapter/targetFps";
 constexpr auto kDbMin  = "panadapter/dbMin";
@@ -105,6 +115,9 @@ constexpr auto kHwPttEnabled = "tx/hw_ptt_enabled";
 // Task #157 — space-bar PTT opt-out (default ON / historical behaviour).
 constexpr auto kSpaceBarPttEnabled = "tx/space_bar_ptt_enabled";
 constexpr auto kAutoStartOnLaunch  = "hw/autoStartOnLaunch";
+constexpr auto kProcessPriority    = "hw/processPriority";
+constexpr auto kDigitalDriveEnabled = "tx/digitalDriveEnabled";
+constexpr auto kDigitalDrivePct     = "tx/digitalDrivePct";
 constexpr auto kMicSource    = "tx/mic_source";
 constexpr auto kTooltipsEnabled = "ui/tooltips_enabled";
 // Task #74 — TUN separate-drive toggle + value.  Operator-tuned in
@@ -154,10 +167,10 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     QSettings s;
     gridLevel_  = std::clamp(s.value(kGrid, 35).toInt(), 0, 100);
     targetFps_  = std::clamp(s.value(kFps, 60).toInt(), 1, 240);
-    rxDbMin_      = s.value(kDbMin, -130.0).toDouble();
-    rxDbMax_      = s.value(kDbMax, -20.0).toDouble();
-    txDbMin_    = s.value(kTxDbMin, -80.0).toDouble();
-    txDbMax_    = s.value(kTxDbMax, 20.0).toDouble();
+    rxDbMin_      = s.value(scaledKey(kDbMin), -130.0).toDouble();
+    rxDbMax_      = s.value(scaledKey(kDbMax), -20.0).toDouble();
+    txDbMin_    = s.value(scaledKey(kTxDbMin), -80.0).toDouble();
+    txDbMax_    = s.value(scaledKey(kTxDbMax), 20.0).toDouble();
     // #95 TUN drive mode.  Migrate the legacy #74 bool when the new
     // key is absent: useTuneDrive ON → TuneDriveTune(1), OFF → slider(0).
     if (s.contains(kTuneDriveMode)) {
@@ -219,10 +232,10 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     // (their tuned RX waterfall) on the SAME keys for byte-identical
     // upgrade; the new TX pair lives on kTxWfDbMin/kTxWfDbMax with
     // reference-faithful defaults +30 / -70 dBFS.
-    rxWaterfallDbMin_ = s.value(kWfDbMin, -120.0).toDouble();
-    rxWaterfallDbMax_ = s.value(kWfDbMax,  -20.0).toDouble();
-    txWaterfallDbMin_ = s.value(kTxWfDbMin, -70.0).toDouble();
-    txWaterfallDbMax_ = s.value(kTxWfDbMax,  30.0).toDouble();
+    rxWaterfallDbMin_ = s.value(scaledKey(kWfDbMin), -120.0).toDouble();
+    rxWaterfallDbMax_ = s.value(scaledKey(kWfDbMax),  -20.0).toDouble();
+    txWaterfallDbMin_ = s.value(scaledKey(kTxWfDbMin), -70.0).toDouble();
+    txWaterfallDbMax_ = s.value(scaledKey(kTxWfDbMax),  30.0).toDouble();
     waterfallDbAuto_  = s.value(kWfDbAuto, false).toBool();
     panadapterSplit_  = s.value(kPanSplit);   // invalid (= QML undefined) if unset
     cursorReadout_    = s.value(kCursorRdt, true).toBool();
@@ -294,6 +307,17 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     spaceBarPttEnabled_ = s.value(kSpaceBarPttEnabled, true).toBool();
     tooltipsEnabled_    = s.value(kTooltipsEnabled, true).toBool();
     autoStartOnLaunch_  = s.value(kAutoStartOnLaunch, true).toBool();
+    // Process priority (per-PC).  Clamp to the valid 0..2 range, then apply
+    // to the running process so the persisted choice takes effect at launch.
+    processPriority_ = s.value(kProcessPriority, 0).toInt();
+    if (processPriority_ < 0 || processPriority_ > 2) processPriority_ = 0;
+    lyra::perf::applyProcessPriority(processPriority_);
+    // Digital-mode TX-drive reduction (opt-in, default off; the pct is the
+    // fraction of the band's set drive to run in DIGU/DIGL).  The wire-side
+    // apply is pushed to HL2Stream by main.cpp on startup + on change.
+    digitalDriveEnabled_ = s.value(kDigitalDriveEnabled, false).toBool();
+    digitalDrivePct_ = s.value(kDigitalDrivePct, 100).toInt();
+    if (digitalDrivePct_ < 10 || digitalDrivePct_ > 100) digitalDrivePct_ = 100;
     // Task #33 — TX mic source token.  Validate against the known
     // token list; an unknown value (older Lyra, mistyped QSettings)
     // falls back to "mic1" so we never autoload into an inactive
@@ -366,14 +390,14 @@ void Prefs::setDbMin(double v) {
     if (moxActive_) {
         if (v != txDbMin_) {
             txDbMin_ = v;
-            QSettings().setValue(kTxDbMin, v);
+            QSettings().setValue(scaledKey(kTxDbMin), v);
             emit txDbMinChanged();
             emit dbMinChanged();
         }
     } else {
         if (v != rxDbMin_) {
             rxDbMin_ = v;
-            QSettings().setValue(kDbMin, v);
+            QSettings().setValue(scaledKey(kDbMin), v);
             emit dbMinChanged();
         }
     }
@@ -383,14 +407,14 @@ void Prefs::setDbMax(double v) {
     if (moxActive_) {
         if (v != txDbMax_) {
             txDbMax_ = v;
-            QSettings().setValue(kTxDbMax, v);
+            QSettings().setValue(scaledKey(kTxDbMax), v);
             emit txDbMaxChanged();
             emit dbMaxChanged();
         }
     } else {
         if (v != rxDbMax_) {
             rxDbMax_ = v;
-            QSettings().setValue(kDbMax, v);
+            QSettings().setValue(scaledKey(kDbMax), v);
             emit dbMaxChanged();
         }
     }
@@ -402,7 +426,7 @@ void Prefs::setRxDbMin(double v) {
     // MOX-off) rather than the live TX pair.
     if (v != rxDbMin_) {
         rxDbMin_ = v;
-        QSettings().setValue(kDbMin, v);
+        QSettings().setValue(scaledKey(kDbMin), v);
         if (!moxActive_) emit dbMinChanged();
     }
 }
@@ -410,7 +434,7 @@ void Prefs::setRxDbMin(double v) {
 void Prefs::setRxDbMax(double v) {
     if (v != rxDbMax_) {
         rxDbMax_ = v;
-        QSettings().setValue(kDbMax, v);
+        QSettings().setValue(scaledKey(kDbMax), v);
         if (!moxActive_) emit dbMaxChanged();
     }
 }
@@ -507,7 +531,7 @@ void Prefs::setMoxActive(bool on) {
 void Prefs::setTxDbMin(double v) {
     if (v != txDbMin_) {
         txDbMin_ = v;
-        QSettings().setValue(kTxDbMin, v);
+        QSettings().setValue(scaledKey(kTxDbMin), v);
         emit txDbMinChanged();
         if (moxActive_) emit dbMinChanged();
     }
@@ -516,7 +540,7 @@ void Prefs::setTxDbMin(double v) {
 void Prefs::setTxDbMax(double v) {
     if (v != txDbMax_) {
         txDbMax_ = v;
-        QSettings().setValue(kTxDbMax, v);
+        QSettings().setValue(scaledKey(kTxDbMax), v);
         emit txDbMaxChanged();
         if (moxActive_) emit dbMaxChanged();
     }
@@ -826,14 +850,14 @@ void Prefs::setWaterfallDbMin(double v) {
     if (moxActive_) {
         if (v != txWaterfallDbMin_) {
             txWaterfallDbMin_ = v;
-            QSettings().setValue(kTxWfDbMin, v);
+            QSettings().setValue(scaledKey(kTxWfDbMin), v);
             emit txWaterfallDbMinChanged();
             emit waterfallDbMinChanged();
         }
     } else {
         if (v != rxWaterfallDbMin_) {
             rxWaterfallDbMin_ = v;
-            QSettings().setValue(kWfDbMin, v);
+            QSettings().setValue(scaledKey(kWfDbMin), v);
             emit waterfallDbMinChanged();
         }
     }
@@ -843,14 +867,14 @@ void Prefs::setWaterfallDbMax(double v) {
     if (moxActive_) {
         if (v != txWaterfallDbMax_) {
             txWaterfallDbMax_ = v;
-            QSettings().setValue(kTxWfDbMax, v);
+            QSettings().setValue(scaledKey(kTxWfDbMax), v);
             emit txWaterfallDbMaxChanged();
             emit waterfallDbMaxChanged();
         }
     } else {
         if (v != rxWaterfallDbMax_) {
             rxWaterfallDbMax_ = v;
-            QSettings().setValue(kWfDbMax, v);
+            QSettings().setValue(scaledKey(kWfDbMax), v);
             emit waterfallDbMaxChanged();
         }
     }
@@ -862,7 +886,7 @@ void Prefs::setRxWaterfallDbMin(double v) {
     // MOX-off) rather than the live TX pair.
     if (v != rxWaterfallDbMin_) {
         rxWaterfallDbMin_ = v;
-        QSettings().setValue(kWfDbMin, v);
+        QSettings().setValue(scaledKey(kWfDbMin), v);
         if (!moxActive_) emit waterfallDbMinChanged();
     }
 }
@@ -870,7 +894,7 @@ void Prefs::setRxWaterfallDbMin(double v) {
 void Prefs::setRxWaterfallDbMax(double v) {
     if (v != rxWaterfallDbMax_) {
         rxWaterfallDbMax_ = v;
-        QSettings().setValue(kWfDbMax, v);
+        QSettings().setValue(scaledKey(kWfDbMax), v);
         if (!moxActive_) emit waterfallDbMaxChanged();
     }
 }
@@ -878,7 +902,7 @@ void Prefs::setRxWaterfallDbMax(double v) {
 void Prefs::setTxWaterfallDbMin(double v) {
     if (v != txWaterfallDbMin_) {
         txWaterfallDbMin_ = v;
-        QSettings().setValue(kTxWfDbMin, v);
+        QSettings().setValue(scaledKey(kTxWfDbMin), v);
         emit txWaterfallDbMinChanged();
         if (moxActive_) emit waterfallDbMinChanged();
     }
@@ -887,7 +911,7 @@ void Prefs::setTxWaterfallDbMin(double v) {
 void Prefs::setTxWaterfallDbMax(double v) {
     if (v != txWaterfallDbMax_) {
         txWaterfallDbMax_ = v;
-        QSettings().setValue(kTxWfDbMax, v);
+        QSettings().setValue(scaledKey(kTxWfDbMax), v);
         emit txWaterfallDbMaxChanged();
         if (moxActive_) emit waterfallDbMaxChanged();
     }
@@ -1268,6 +1292,33 @@ void Prefs::setAutoStartOnLaunch(bool on) {
         autoStartOnLaunch_ = on;
         QSettings().setValue(kAutoStartOnLaunch, on);
         emit autoStartOnLaunchChanged();
+    }
+}
+
+void Prefs::setProcessPriority(int level) {
+    if (level < 0 || level > 2) level = 0;
+    if (level != processPriority_) {
+        processPriority_ = level;
+        QSettings().setValue(kProcessPriority, level);
+        lyra::perf::applyProcessPriority(level);   // live-apply, no restart
+        emit processPriorityChanged();
+    }
+}
+
+void Prefs::setDigitalDriveEnabled(bool on) {
+    if (on != digitalDriveEnabled_) {
+        digitalDriveEnabled_ = on;
+        QSettings().setValue(kDigitalDriveEnabled, on);
+        emit digitalDriveEnabledChanged();   // main.cpp forwards to HL2Stream
+    }
+}
+
+void Prefs::setDigitalDrivePct(int pct) {
+    if (pct < 10 || pct > 100) pct = std::clamp(pct, 10, 100);
+    if (pct != digitalDrivePct_) {
+        digitalDrivePct_ = pct;
+        QSettings().setValue(kDigitalDrivePct, pct);
+        emit digitalDrivePctChanged();
     }
 }
 

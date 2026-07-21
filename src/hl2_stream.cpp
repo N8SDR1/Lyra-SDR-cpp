@@ -20,6 +20,8 @@
 #include "wire/FrameComposer.h" // §5 control-plane mapping: set_rx_freq / set_tx_freq / set_rx_step_attn_db (P4.b RX side)
 #include "wire/TxGain.h"        // SetTXFixedGain/Run — TX power model Stage 2 fine drive
 #include "bands.h"              // amateurBands / bandIndexForFreq — TX power model Stage 3
+#include "rig/RigScope.h"       // multi-rig Stage 3 — per-rig key routing (cal/)
+#include "rig/RigRegistry.h"    // multi-rig — keep the active rig's lastIp current
 
 // WinSock2 MUST be included before windows.h to avoid winsock 1.x
 // being pulled in via windows.h transitively.  NOMINMAX keeps the
@@ -236,7 +238,9 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     // tune already lands corrected.  Default 1.0 = exact no-op.
     {
         const double f =
-            QSettings().value(QStringLiteral("cal/freqCorrection"), 1.0).toDouble();
+            QSettings().value(
+                lyra::rig::scope::rigKey(QStringLiteral("cal/freqCorrection")),
+                1.0).toDouble();
         freqCorrection_.store(f, std::memory_order_relaxed);
         lyra::wire::set_freq_correction(f);
     }
@@ -376,13 +380,13 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     // that the original PA defensive clear was over-conservatively
     // also guarding against).
     paOn_.store(
-        QSettings().value(QStringLiteral("tx/paEnabled"), false).toBool(),
+        QSettings().value(lyra::rig::scope::rigKey(QStringLiteral("tx/paEnabled")), false).toBool(),
         std::memory_order_relaxed);
     // Task #39 — HL2 +20 dB hardware Mic Boost (codec analog PGA).
     // Persisted across launches; NOT defensively cleared on
     // open/close (it's voice-chain calibration, not a safety gate).
     micBoost_.store(
-        QSettings().value(QStringLiteral("tx/micBoost"), false).toBool(),
+        QSettings().value(lyra::rig::scope::rigKey(QStringLiteral("tx/micBoost")), false).toBool(),
         std::memory_order_relaxed);
     // HL2 "Band Volts" output (MI0BOT / Ramdor gateware): persisted
     // across launches, seeded into the C0=0x00 frame's dither bit now so
@@ -403,7 +407,7 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     // to emit a carrier).
     txDriveLevel_.store(
         std::min(maxDriveRaw(),
-                 std::clamp(QSettings().value(QStringLiteral("tx/driveLevel"),
+                 std::clamp(QSettings().value(lyra::rig::scope::rigKey(QStringLiteral("tx/driveLevel")),
                                               0).toInt(), 0, 255)),
         std::memory_order_relaxed);
     // TX power model Stage 3 — load the per-band PA Gain table (Thetis
@@ -454,7 +458,7 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         }
         // Stage 3b — the single watts Max cap (0 = off).
         maxOutputW_.store(
-            s.value(QStringLiteral("tx/maxOutputW"), 0.0).toDouble(),
+            s.value(lyra::rig::scope::rigKey(QStringLiteral("tx/maxOutputW")), 0.0).toDouble(),
             std::memory_order_relaxed);
         // Cap arm gate (2026-07-03) — persisted; only meaningful with a value.
         // MIGRATION (safety): a cap set by a pre-arm-gate version has no
@@ -931,6 +935,16 @@ void HL2Stream::open(const QString &ip) {
     // Radio memory: remember this radio so the next launch can
     // auto-connect without a Discover (read in main()).
     QSettings().setValue(QStringLiteral("radio/lastIp"), ip);
+    // Multi-rig: keep the ACTIVE rig's lastIp current so a rig switch — and
+    // the next launch's auto-connect — targets the radio this rig was last on.
+    if (const QString activeRig = lyra::rig::registry::activeRigId();
+            !activeRig.isEmpty()) {
+        auto r = lyra::rig::registry::rig(activeRig);
+        if (r.isValid() && r.lastIp != ip) {
+            r.lastIp = ip;
+            lyra::rig::registry::upsertRig(r);
+        }
+    }
 
     // Step 14 Stage 1 — wire-layer init.  Reference-faithful per
     // the 2026-06-06 operator audit that caught the prior
@@ -1676,8 +1690,8 @@ void HL2Stream::setFreqCorrection(double factor) {
     lyra::wire::set_freq_correction(factor);
     QSettings s;
     // Snapshot the prior value for one-level "Restore previous" undo.
-    s.setValue(QStringLiteral("cal/freqCorrectionPrev"), old);
-    s.setValue(QStringLiteral("cal/freqCorrection"), factor);
+    s.setValue(lyra::rig::scope::rigKey(QStringLiteral("cal/freqCorrectionPrev")), old);
+    s.setValue(lyra::rig::scope::rigKey(QStringLiteral("cal/freqCorrection")), factor);
     // Re-tune so the change takes effect immediately — mirror of the
     // reference's FreqCorrectionChanged re-applying to every VFO.
     pushEffectiveRxFreq();
@@ -2110,8 +2124,23 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
     // Stage 3b — apply the per-band watts ceiling here (NOT at the stored
     // setpoint), so the operator's drive is preserved + moving to a
     // less-restrictive band restores power.
+    // Digital-mode transient drive reduction — applied HERE (emit path),
+    // NOT at the stored setpoint, so the operator's per-band set drive +
+    // dial stay pristine (same posture as ATT-on-TX).  Only bites when the
+    // operator enabled it AND the TX mode is a digital data mode (WDSP
+    // DIGU=7 / DIGL=9).  100 % = no change.  This only ever reduces, so it
+    // composes safely with the Max-Drive cap (already applied to the stored
+    // setpoint) and the per-band watts ceiling below — the emitted drive is
+    // always <= both.
+    int effRaw = requestedRaw;
+    if (digitalDriveEnabled_.load(std::memory_order_relaxed)) {
+        const int m = txMode_.load(std::memory_order_relaxed);
+        if (m == 7 || m == 9)
+            effRaw = requestedRaw
+                   * digitalDrivePct_.load(std::memory_order_relaxed) / 100;
+    }
     const int    ceiling = wattsDriveCeilingRaw_();
-    const int    capped = std::min(requestedRaw, ceiling);
+    const int    capped = std::min(effRaw, ceiling);
     const double rv  = radioVolumeFor_(capped);
     // #170c — CW watts-cap fold.  On CW key-down the gateware SUBSTITUTES a
     // full-scale carrier for the WDSP TX-I/Q path (hl2_rtl_radio.v:1145,
@@ -2210,7 +2239,7 @@ void HL2Stream::setMaxOutputW(double watts) {
     if (watts < 0.0) watts = 0.0;
     if (watts == maxOutputW_.load(std::memory_order_relaxed)) return;
     maxOutputW_.store(watts, std::memory_order_relaxed);
-    QSettings().setValue(QStringLiteral("tx/maxOutputW"), watts);
+    QSettings().setValue(lyra::rig::scope::rigKey(QStringLiteral("tx/maxOutputW")), watts);
     emit maxOutputWChanged(watts);
     // Clearing the cap value disarms it — an "armed but no value" state is
     // meaningless, and re-arming after re-setting a value is one explicit
@@ -2283,7 +2312,7 @@ void HL2Stream::setTxDriveLevel(int level) {
     if (prev == clamped) return;
     // §5 (TX): prn->tx[0].drive_level (compose_case_10 C1).
     applyTxPower_(clamped);   // Stage 3 — RadioVolume drives the byte + fixed gain
-    QSettings().setValue(QStringLiteral("tx/driveLevel"), clamped);
+    QSettings().setValue(lyra::rig::scope::rigKey(QStringLiteral("tx/driveLevel")), clamped);
     emit txDriveLevelChanged(clamped);
     // Operator-facing percent for the log line (gateware actually
     // resolves to 16 coarse steps, but the percent is the operator's
@@ -2335,7 +2364,7 @@ void HL2Stream::setPaEnabled(bool on) {
     // §5 (TX): ApolloTuner/ApolloFilt globals + prn->tx[0].pa
     // (compose_case_10 C2 bit3 active-high PA-enable + C3 legacy bit).
     if (lyra::wire::prn != nullptr) lyra::wire::set_pa_on(on);
-    QSettings().setValue(QStringLiteral("tx/paEnabled"), on);
+    QSettings().setValue(lyra::rig::scope::rigKey(QStringLiteral("tx/paEnabled")), on);
     emit paEnabledChanged(on);
     safetyLog(QStringLiteral("TX: PA enable -> %1")
               .arg(on ? QStringLiteral("ON  (RF possible on next key)")
@@ -2358,7 +2387,7 @@ void HL2Stream::setMicBoost(bool on) {
     // Persisted to QSettings; recalled on stream open.
     const bool prev = micBoost_.exchange(on, std::memory_order_relaxed);
     if (prev == on) return;
-    QSettings().setValue(QStringLiteral("tx/micBoost"), on);
+    QSettings().setValue(lyra::rig::scope::rigKey(QStringLiteral("tx/micBoost")), on);
     emit micBoostChanged(on);
     safetyLog(QStringLiteral("TX: Mic Boost -> %1")
               .arg(on ? QStringLiteral("ON  (+20 dB HW)")
@@ -2458,7 +2487,20 @@ int HL2Stream::txAnalyzerOffsetHz() const {
     // TX carrier paints at (VFO B − VFO A) from centre — on the red VFO-B
     // marker — instead of stuck at centre (the operator-caught split bug).
     const int nco = txDdsHzForTune(txFreqHz_.load(std::memory_order_relaxed));
-    return nco - static_cast<int>(rx1FreqHz_.load(std::memory_order_relaxed));
+    // Paint offset = NCO − the DISPLAY centre.  The panadapter is centred on
+    // rx1FreqHz_ (VFO A) ONLY when CTUN is off; under CTUN the display is
+    // LOCKED at ctuneCenterHz_ and the VFO marker slides to (rx1 − centre).
+    // Subtracting rx1 (the pre-CTUN assumption) painted the TX carrier at the
+    // frozen display centre instead of on the VFO marker whenever CTUN shifted
+    // the dial off the locked centre — the tester/operator "TX stuck on the
+    // CTUN-engage freq" report.  It is a DISPLAY offset only: the RF NCO
+    // (set_tx_freq) tracks the dial correctly regardless.  Use the locked
+    // centre as the display reference when CTUN is engaged.
+    const quint32 ctr = ctuneCenterHz_.load(std::memory_order_relaxed);
+    const int displayCenter =
+        (ctr != 0) ? static_cast<int>(ctr)
+                   : static_cast<int>(rx1FreqHz_.load(std::memory_order_relaxed));
+    return nco - displayCenter;
 }
 
 void HL2Stream::setTuneEnabled(bool on) {
@@ -3632,6 +3674,19 @@ void HL2Stream::setMaxDrivePct(int pct) {
     safetyLog(QStringLiteral("TX max drive cap -> %1 %%").arg(clamped));
 }
 
+void HL2Stream::setDigitalDriveEnabled(bool on) {
+    digitalDriveEnabled_.store(on, std::memory_order_relaxed);
+    // Live-apply: re-emit the current set drive so the scale takes effect
+    // now (only changes the wire if we're keyed in a digital mode; inert
+    // otherwise).  Does NOT persist or touch txDriveLevel_ — transient.
+    applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+}
+
+void HL2Stream::setDigitalDrivePct(int pct) {
+    digitalDrivePct_.store(std::clamp(pct, 10, 100), std::memory_order_relaxed);
+    applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+}
+
 // =========================================================================
 // #105 CW-1a — CW keyer config setters + the prn->cw push.
 //
@@ -4539,7 +4594,7 @@ void HL2Stream::applyOcEdit() {
 
 void HL2Stream::saveOcSettings() const {
     QSettings s;
-    s.beginGroup(QStringLiteral("oc"));
+    s.beginGroup(lyra::rig::scope::rigKey(QStringLiteral("oc")));
     s.setValue(QStringLiteral("present"), true);
     const int n = oc_.nBands();
     for (int b = 0; b < n; ++b) {
@@ -4566,7 +4621,7 @@ void HL2Stream::saveOcSettings() const {
 
 void HL2Stream::loadOcSettings() {
     QSettings s;
-    s.beginGroup(QStringLiteral("oc"));
+    s.beginGroup(lyra::rig::scope::rigKey(QStringLiteral("oc")));
     if (!s.value(QStringLiteral("present"), false).toBool()) {
         s.endGroup();
         return;   // never edited -> keep the N2ADR seed (byte-identical)

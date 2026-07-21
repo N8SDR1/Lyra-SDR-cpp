@@ -1,4 +1,4 @@
-// Lyra — HPSDR Protocol 1 discovery (Hermes Lite 2 / 2+).
+// Lyra — HPSDR discovery (Protocol 1 + Protocol 2).
 //
 // Mirrors the verified byte layout from the existing Python
 // implementation at ../lyra/protocol/discovery.py (which has been
@@ -6,7 +6,11 @@
 // native C++ + QtNetwork.  Runs on its OWN worker QThread — the
 // wire path NEVER touches the Qt main thread.
 //
-// Protocol summary:
+// One sweep probes BOTH protocols so a mixed bench (an HL2 on P1 and a
+// BrickSDR2 / ANAN G2 on P2) answers in a single pass: each radio
+// ignores the other protocol's probe.  The reply SHAPE disambiguates.
+//
+// Protocol 1 (Metis) — Hermes Lite 2 / 2+, older ANAN:
 //   Send: 63-byte UDP packet
 //     bytes [0..2] = 0xEF 0xFE 0x02
 //     bytes [3..62] = zero padding
@@ -26,6 +30,24 @@
 //     bytes [13..16] = fixed_ip (stored REVERSED on the wire)
 //     byte  [19]   = num_rxs
 //     byte  [21]   = beta_version
+//
+// Protocol 2 (openHPSDR) — Saturn / ANAN G2, BrickSDR2:
+//   Send: 60-byte UDP packet, all zero except byte [4] = 0x02
+//     (command).  P1 radios reject the size-60 packet; P2 radios only
+//     act on a size-60 packet arriving on port 1024.
+//
+//   Reply (>= 24 bytes):
+//     bytes [0..3] = 0x00 (zero sequence — distinguishes from the P1
+//                          0xEFFE magic and from stray traffic)
+//     byte  [4]    = status (0x02 = idle, 0x03 = in use)
+//     bytes [5..10] = MAC (6 bytes)
+//     byte  [11]   = board_id  (P2 numbering, NOT the P1 table:
+//                               1 = Hermes-class — the BrickSDR2's
+//                               reply, bench-captured on N8SDR's unit;
+//                               10 = Saturn / ANAN G2)
+//     byte  [13]   = fpga firmware version
+//     byte  [20]   = DDC count (num rxs)
+//     byte  [23]   = software (p2app) version
 //
 // Multi-NIC: walks every local IPv4 interface, binds a socket per
 // interface, broadcasts from each.  Without this, a host with both
@@ -59,6 +81,12 @@ struct RadioInfo {
     bool    isBusy       = false;
     int     eeConfig     = 0;
     QString fixedIpHl2;
+    // HPSDR protocol the radio answered on: 1 = Metis/P1 (Hermes Lite 2/2+,
+    // older ANAN), 2 = openHPSDR Protocol 2 (Saturn/ANAN G2, BrickSDR2).
+    // Set by parseReply from the reply shape; carried on radioFound so the
+    // connect path can refuse to open a P2 rig on the P1 HL2Stream (the P2
+    // receive engine is separate, deferred work).
+    int     protocol     = 1;
 };
 
 class HL2Discovery : public QObject {
@@ -81,7 +109,7 @@ public:
     Q_INVOKABLE void rememberRadio(const QString &ip, const QString &mac,
                                    const QString &boardName,
                                    int codeVersion, int betaVersion,
-                                   bool busy, int numRxs);
+                                   bool busy, int numRxs, int protocol = 1);
     Q_INVOKABLE QVariantMap savedRadio() const;
 
     // Remove a radio from persistence: clears the remembered record
@@ -107,10 +135,12 @@ public slots:
     void probe(const QString &ip, double timeoutSeconds = 1.0);
 
 signals:
-    // Emitted once per UNIQUE radio found (de-duped by MAC).
+    // Emitted once per UNIQUE radio found (de-duped by MAC).  `protocol`
+    // is 1 (Metis/P1) or 2 (openHPSDR P2) — the connect path uses it to
+    // avoid opening a P2 rig on the P1 HL2Stream.
     void radioFound(QString ip, QString mac, QString boardName,
                     int codeVersion, int betaVersion,
-                    bool busy, int numRxs);
+                    bool busy, int numRxs, int protocol);
     // Emitted when the sweep finishes (timeout reached, all
     // attempts done).  `count` = unique radios found.
     void scanFinished(int count);
@@ -138,7 +168,8 @@ private:
         QHostAddress broadcast;   // may be null if the OS didn't supply one
     };
     QList<LocalIf> localIPv4Interfaces() const;
-    static QByteArray buildDiscoveryPacket();
+    static QByteArray buildDiscoveryPacket();     // P1 (Metis) — 63 B
+    static QByteArray buildDiscoveryPacketP2();   // P2 (openHPSDR) — 60 B
     bool parseReply(const QByteArray &data,
                     const QHostAddress &sender,
                     RadioInfo &out) const;
@@ -163,7 +194,8 @@ private:
     bool                                probeResolved_ = false;  // probeFinished emitted?
 
     static constexpr quint16 kDiscoveryPort = 1024;
-    static constexpr int     kPacketLen     = 63;
+    static constexpr int     kPacketLen     = 63;   // P1 probe size
+    static constexpr int     kPacketLenP2   = 60;   // P2 probe size (exact)
     static constexpr int     kBoardHL2      = 6;
 };
 

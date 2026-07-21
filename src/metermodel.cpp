@@ -11,6 +11,7 @@
 #include "metermodel.h"
 
 #include "hl2_stream.h"
+#include "rig/RigScope.h"   // multi-rig Stage 4c — per-rig key routing (meter cal)
 // TX-rip Phase 1 (Q2): tx_dsp_worker.h removed — TX DSP worker is being
 // rebuilt from empty files per docs/TX_ARCHITECTURAL_MAPPING.md §10.3.
 // TX meter taps (MIC / LVL / ALC cases below) return their "—"
@@ -56,6 +57,16 @@ constexpr auto kKeyMaxHold   = "meter/maxHoldMs";
 constexpr auto kKeyRxSource  = "meter/rxSource"; // operator's RX-state preference
 constexpr auto kKeyTxSource  = "meter/txSource"; // operator's TX-state preference
 constexpr auto kKeyPwrRated  = "meter/pwrRatedMaxW";  // rated max (red zone start)
+
+// Per-rig scoped forms of the two HARDWARE-cal keys (the rest of meter/ is
+// UI prefs and stays shared).  rig/<activeId>/meter/{calDb,pwrRatedMaxW}
+// (or the legacy flat key when no rig is active).
+QString calKeyScoped() {
+    return lyra::rig::scope::rigKey(QLatin1String(kKeyCal));
+}
+QString pwrKeyScoped() {
+    return lyra::rig::scope::rigKey(QLatin1String(kKeyPwrRated));
+}
 constexpr auto kKeyTxSecond  = "meter/txSecondary";   // TX secondary readout source
 constexpr auto kKeyTxSecond2 = "meter/txSecondary2";  // TX second secondary readout source
 
@@ -111,7 +122,7 @@ MeterModel::MeterModel(lyra::ipc::HL2Stream *stream,
     txStyle_ = std::clamp(s.value(QString::fromLatin1(kKeyTxStyle), 0).toInt(),
                           0, 2);
     separateStyle_ = s.value(QString::fromLatin1(kKeySepStyle), false).toBool();
-    calDb_ = s.value(QString::fromLatin1(kKeyCal), 0.0).toDouble();
+    calDb_ = s.value(calKeyScoped(), 0.0).toDouble();
     peakHoldMs_ = std::clamp(
         s.value(QString::fromLatin1(kKeyPeakHold), 800).toInt(), 100, 5000);
     peakHoldTicks_ = std::max(1, peakHoldMs_ / kTickMs);
@@ -185,7 +196,7 @@ MeterModel::MeterModel(lyra::ipc::HL2Stream *stream,
     source_ = (stream_ && (stream_->moxActive() || stream_->cwKeyingActive()))
                   ? txSource_ : rxSource_;
     pwrRatedMaxW_ = std::clamp(
-        s.value(QString::fromLatin1(kKeyPwrRated), 5.0).toDouble(), 0.5, 200.0);
+        s.value(pwrKeyScoped(), 5.0).toDouble(), 0.5, 200.0);
     pwrScaleMaxW_ = pwrRatedMaxW_ * 2.0;
     // TX secondary digital readout default = -1 (none).  Clamp to the
     // valid Source enum range (or -1) so a stale value can't surface
@@ -360,7 +371,7 @@ void MeterModel::setCalDb(double d) {
     d = std::clamp(d, -60.0, 60.0);
     if (std::abs(d - calDb_) < 1e-9) return;
     calDb_ = d;
-    QSettings().setValue(QString::fromLatin1(kKeyCal), calDb_);
+    QSettings().setValue(calKeyScoped(), calDb_);
     emit calChanged();
 }
 
@@ -543,7 +554,7 @@ void MeterModel::setPwrRatedMaxW(double w) {
     if (std::abs(w - pwrRatedMaxW_) < 1e-6) return;
     pwrRatedMaxW_ = w;
     pwrScaleMaxW_ = w * 2.0;
-    QSettings().setValue(QString::fromLatin1(kKeyPwrRated), pwrRatedMaxW_);
+    QSettings().setValue(pwrKeyScoped(), pwrRatedMaxW_);
     emit pwrCalChanged();
     // Force a re-emit so the renderer redraws the scale ticks +
     // danger-zone position with the new rated max even before the

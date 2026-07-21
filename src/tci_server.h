@@ -118,6 +118,7 @@ private slots:
     void onClientDisconnected();
     void onSmeterTick();
     void onMaintenanceTick();   // ping clients + prune dead sockets
+    void onRlFlush();           // trailing-edge flush of rate-limited broadcasts
     // Task #33: TCI v2 §3.4 TX_CHRONO outbound pump — periodic when a
     // TX-audio listener is active AND wire MOX is on; emits a type=3
     // frame asking the client to deliver N samples next.
@@ -170,6 +171,7 @@ private:
     void recomputeStreaming();                     // enable engine taps iff a client wants them
     // Radio-signal handlers → broadcasts.
     void onFreqChanged();
+    void onVfoBChanged();      // echo vfo:0,1 (VFO B) to clients — TCI §3.1 sync
     void onModeChanged();
     void onRunningChanged();
     void onVolumeChanged();
@@ -187,7 +189,7 @@ private:
     QString softGet(const QString &key, const QString &def) const;
     void    softSet(const QString &key, const QString &val);
     // Mode mapping between Lyra modes and TCI tokens.
-    static QString toTciMode(const QString &lyraMode);
+    QString        toTciMode(const QString &lyraMode) const;
     QString        fromTciMode(const QString &tciMode, qint64 freqHz) const;
     QString        modulationsList() const;
     static int     parseChannel(const QString &s, bool *ok);
@@ -357,6 +359,11 @@ private:
     bool     emulateExpertSdr3_= false;
     bool     emulateSunSdr2_   = false;
     bool     cwluBecomesCw_    = true;
+    // Set true while a TCI `tune:` command holds the key, so the wire-edge
+    // onMoxActiveChanged mirrors the edge on the `tune:` channel (Thetis emits
+    // tune: from its TuneChange event on the real edge, never a pre-edge reply).
+    // Cleared on the falling edge.
+    bool     tciTuneActive_    = false;
     // Task #75 — TCI RX-out linear-gain multiplier.  Cached from
     // Prefs.tciRxGainDb on every tciRxGainDbChanged emit so the
     // hot path in onTciAudioBlock is one std::atomic load (or a
@@ -372,6 +379,12 @@ private:
 
     // Per-key broadcast rate limiter + soft DSP-parameter store.
     QHash<QString, qint64> lastSent_;
+    // Rate-limit trailing-edge: when a broadcast is dropped inside the window,
+    // stash the LATEST line per key and a one-shot timer delivers it after the
+    // window elapses — so the final value of a burst is never lost (mirror of
+    // Thetis's per-type trailing System.Threading.Timer, TCIServer.cs:6016-6075).
+    QHash<QString, QString> pendingLine_;
+    QTimer                *rlFlushTimer_ = nullptr;
     QHash<QString, QString> soft_;
     QElapsedTimer          rateClock_;
 };

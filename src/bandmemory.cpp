@@ -5,13 +5,18 @@
 #include "bands.h"
 #include "hl2_stream.h"
 #include "prefs.h"
+#include "rig/RigScope.h"   // multi-rig Stage 4 — per-rig key routing (band_mem/)
 
 #include <QSettings>
 
 namespace lyra::ui {
 
 namespace {
-constexpr auto kPfx = "band_mem/";   // band_mem/<band>/<field>
+// Per-rig scoped prefix: rig/<activeId>/band_mem/ (or legacy flat
+// "band_mem/" when no rig is active).  Keys: band_mem/<band>/<field>.
+QString bandMemPfx() {
+    return lyra::rig::scope::rigKey(QStringLiteral("band_mem/"));
+}
 }
 
 BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
@@ -27,7 +32,7 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                 [this](int db) {
                     if (applying_ || currentBand_.isEmpty()) return;
                     QSettings().setValue(
-                        QString::fromLatin1(kPfx) + currentBand_ +
+                        bandMemPfx() + currentBand_ +
                         QStringLiteral("/lna"), db);
                 });
         // Task #27 — per-band TX drive memory.  Save the current band's
@@ -40,7 +45,7 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                 [this](int level) {
                     if (applying_ || currentBand_.isEmpty()) return;
                     QSettings().setValue(
-                        QString::fromLatin1(kPfx) + currentBand_ +
+                        bandMemPfx() + currentBand_ +
                         QStringLiteral("/txDrive"), level);
                 });
     }
@@ -65,7 +70,7 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                 [this]() {
                     if (applying_ || currentBand_.isEmpty()) return;
                     QSettings().setValue(
-                        QString::fromLatin1(kPfx) + currentBand_ +
+                        bandMemPfx() + currentBand_ +
                         QStringLiteral("/tuneDrive"),
                         prefs_->tuneDrivePct());
                 });
@@ -125,19 +130,19 @@ void BandMemory::onFreqChanged() {
     // Remember this band's last frequency so the Band buttons can return
     // to where you were (see freqFor()).
     if (!name.isEmpty())
-        QSettings().setValue(QString::fromLatin1(kPfx) + name +
+        QSettings().setValue(bandMemPfx() + name +
                              QStringLiteral("/freq"), hz);
 }
 
 int BandMemory::freqFor(const QString &band) const {
-    return QSettings().value(QString::fromLatin1(kPfx) + band +
+    return QSettings().value(bandMemPfx() + band +
                              QStringLiteral("/freq"), 0).toInt();
 }
 
 void BandMemory::saveCurrent() {
     if (applying_ || !prefs_ || currentBand_.isEmpty()) return;
     QSettings s;
-    const QString p = QString::fromLatin1(kPfx) + currentBand_ + QLatin1Char('/');
+    const QString p = bandMemPfx() + currentBand_ + QLatin1Char('/');
     s.setValue(p + QStringLiteral("mode"),  prefs_->mode());
     // Task #44 Phase 1 — always persist the RX pair as the band's
     // panadapter range.  Prefs::dbMin/dbMax return the LIVE pair
@@ -152,7 +157,7 @@ void BandMemory::saveCurrent() {
 void BandMemory::applyBand(const QString &band) {
     if (!prefs_) return;
     QSettings s;
-    const QString p = QString::fromLatin1(kPfx) + band + QLatin1Char('/');
+    const QString p = bandMemPfx() + band + QLatin1Char('/');
     // Per-band manual LNA — restored independently of the mode/dB block
     // below (a band may have an LNA set point but no stored mode).  The
     // applying_ guard keeps the resulting lnaSetByOperator from re-saving.

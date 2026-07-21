@@ -648,7 +648,9 @@ while the dial marker slides to where you're listening — ideal for watching a
 fixed slice of spectrum (a pile-up, a net, an FT8 window) and clicking
 signals across it. Tune past the edge of the span and it re-centres on the
 new dial automatically. Click again to release and return to normal
-scroll-tuning. RX1; works in any receive mode.
+scroll-tuning. RX1; works in any receive mode. When you **transmit** with
+CTUN engaged, your transmit signal shows on the VFO marker where you're
+tuned — not the frozen display centre.
 
 ---
 
@@ -2797,20 +2799,33 @@ audio device** — most often a virtual audio cable (VoiceMeeter, VB-Cable)
 that Windows has left in a bad state. Lyra enumerates audio devices
 *before* the window appears, and a stuck device can fault right there, so
 you never see anything. Lyra now guards that step and leaves a breadcrumb
-in the log, but if you're locked out, **Safe Boot** gets you back in:
+in the log. There are two layers to get you back in — the first is automatic:
 
+- **Automatic recovery (no action needed).** If a launch doesn't finish, the
+  next one steps the graphics backend down to a safer one; and if startup
+  *still* fails once it's reached the software renderer — meaning the fault
+  isn't graphics at all — Lyra **resets just your panel layout to the
+  default** and tries again. Every other setting (callsign, radio, DSP,
+  profiles) is kept, and you'll see a one-time notice explaining what
+  happened. This clears the most common "won't launch after an upgrade"
+  case on its own; your real graphics backend is restored on the next launch.
 - **Launch with `--safe`** (or set the environment variable `LYRA_SAFE=1`).
   Safe Boot uses **software graphics**, **skips audio-device enumeration**,
-  and **doesn't auto-connect** — so a wedged audio device or GPU driver
-  can't block startup. You'll come up in a plain, working window where you
-  can change the offending setting, then restart normally.
+  **doesn't auto-connect**, and comes up in the **default panel layout** — so
+  a wedged audio device, GPU driver, or a bad remembered layout can't block
+  startup. It's fully non-destructive: your saved layout is left untouched
+  and returns on your next normal launch. Change the offending setting, then
+  restart normally.
 - If it *still* won't start, the log at
-  `…/N8SDR/Lyra-cpp/logs/lyra-log.txt` now shows how far startup got —
-  attach it to a bug report (see below).
-- **Last resort — clear Lyra's saved settings** (this forgets your
-  layout/preferences but always un-sticks a bad remembered state). In a
-  Command Prompt: `reg delete "HKCU\Software\N8SDR\Lyra-cpp" /f`, then
-  launch Lyra again for a clean first-run.
+  `…/N8SDR/Lyra-cpp/logs/lyra-log.txt` shows how far startup got — attach it
+  to a bug report (see below).
+- **Last resort — clear Lyra's saved settings** (rarely needed now that
+  recovery is automatic; this forgets your layout/preferences but always
+  un-sticks a bad remembered state). In a Command Prompt:
+  `reg delete "HKCU\Software\N8SDR\Lyra-cpp" /f`, then launch Lyra again for a
+  clean first-run. Your backup snapshots survive this — restore one afterward
+  to get your settings back (the layout section stays off, so the bad layout
+  won't come back with them).
 
 The most common real fix once you're in: change your default audio device,
 or restart/reset the virtual audio cable, then launch Lyra normally.
@@ -3774,6 +3789,14 @@ no host-side sound card needed.
   chain (with your **TX mic gain**, **ALC**, **leveler**, **TX bandpass**,
   and any EQ active), and onto the HL2 wire. At keyup the client sends
   TRX-off; Lyra returns to RX.
+
+> Lyra's TCI keying follows the Expert TCI protocol exactly: the
+> transmit/receive state is confirmed to the client on the **real key
+> edge** (not before it). A client therefore cycles cleanly between
+> transmit and receive on every over — no getting stuck in transmit and
+> no lag returning to receive, even for clients that gate their own
+> keying tightly on the reported state (MSHV, etc.). Tune buttons in the
+> client key and release the same way.
 * The **Mic gain** slider on the TX panel still applies to TCI audio —
   the same chain handles voice and digital. [Profiles](#profiles-txrx-chain-presets)
   now save mic gain (and the TCI gains), so you can keep an SSB-voice
@@ -4225,8 +4248,12 @@ launch automatically drops to **OpenGL** so Lyra opens instead of crashing
 again — you'll see a one-time notice, and no registry editing is needed. It
 stays in safe mode until you pick a backend here (which clears it). If OpenGL
 still crashes at startup, it steps down again to the **software** renderer
-(slow, but it always works — enough to get in and change settings). If a
-backend keeps crashing, the real fix is usually a **GPU-driver update**.
+(slow, but it always works — enough to get in and change settings). And if
+startup *still* fails in the software renderer, the fault isn't the graphics
+backend at all — so Lyra **resets just your panel layout to the default**
+(keeping every other setting), shows a one-time notice, and restores your
+real graphics backend on the next launch. If a backend keeps crashing, the
+real fix is usually a **GPU-driver update**.
 
 ---
 

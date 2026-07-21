@@ -124,17 +124,33 @@ bool isMachineSpecificKey(const QString &k) {
     // The next-launch factory-reset sentinel is transient control state — a
     // backup that carried it true would wipe itself on the next start.
     if (k == QStringLiteral("app/factoryResetPending")) return true;
+    // Same class: the one-shot "reset the layout after a repeated startup
+    // crash" sentinel.  A restored backup carrying it true would purge the
+    // layout on the next launch for no reason.
+    if (k == QStringLiteral("ui/uiSafeReset")) return true;
     if (k == QStringLiteral("radio/lastIp"))       return true;
     if (k.startsWith(QStringLiteral("lastRadio/"))) return true;
     if (k.startsWith(QStringLiteral("profileLaunch/"))) return true;
     return false;
 }
 
+// Strip a leading per-rig scope ("rig/<id>/") so a rig-scoped config key
+// maps to the SAME backup section as its legacy flat form (e.g.
+// "rig/rig_aabb.../cal/freqCorrection" → "cal/freqCorrection" → calmeter).
+// The rig identity registry ("rigs/…") is a separate namespace, untouched.
+static QString stripRigScope(const QString &key) {
+    if (!key.startsWith(QStringLiteral("rig/"))) return key;
+    const int slash = key.indexOf(QLatin1Char('/'), 4);   // '/' after "rig/"
+    if (slash < 0) return key;
+    return key.mid(slash + 1);
+}
+
 QString sectionForKey(const QString &key) {
-    if (isMachineSpecificKey(key)) return QString();
+    const QString logical = stripRigScope(key);
+    if (isMachineSpecificKey(logical)) return QString();
     for (const Section &s : catalogue())
         for (const QString &p : s.prefixes)
-            if (key.startsWith(p)) return s.id;
+            if (logical.startsWith(p)) return s.id;
     return advancedId();
 }
 
