@@ -8,7 +8,6 @@
 #include "hl2_stream.h"
 #include "wire/P2RxBridge.h"
 #include "hardware/HardwareCatalog.h"
-#include "radioprofile/RadioProfileStore.h"
 #include "palettes.h"
 #include "prefs.h"
 #include "win_perf.h"   // Performance group — network-throttle read/set
@@ -2670,8 +2669,8 @@ QWidget *SettingsDialog::buildHardwareTab() {
         auto addRadio = [list](const QString &ip, const QString &mac,
                                const QString &board, int codeVer, int betaVer,
                                bool busy, int numRxs, int protocol) {
-            // Match by MAC first — the stable identity (RadioProfile
-            // is keyed by it too).  Matching by IP alone meant a DHCP
+            // Match by MAC first — the stable identity (RigProfile is
+            // keyed by it too).  Matching by IP alone meant a DHCP
             // address change created a SECOND row for the same radio
             // (one retaining the stale IP) instead of updating the
             // existing one; IP reuse could also silently update the
@@ -2718,20 +2717,23 @@ QWidget *SettingsDialog::buildHardwareTab() {
             it->setData(Qt::UserRole + 7, protocol);
         };
 
-        // Layer-2 saved radios: seed the list from the profile store
-        // so the station's known radios appear WITHOUT a Discover
-        // sweep (each row refreshes in place when discovery answers;
-        // lastKnownIp is the open target until then).
-        for (const auto &p :
-             lyra::radioprofile::RadioProfileStore::instance().all()) {
-            if (p.lastKnownIp.isEmpty()) continue;
-            const auto *d = lyra::hardware::modelByKey(p.hardwareModelKey);
-            addRadio(p.lastKnownIp, p.mac,
-                     p.nickname.isEmpty()
-                         ? (d ? QString::fromLatin1(d->displayName)
-                              : tr("saved radio"))
-                         : p.nickname,
-                     0, 0, false, 0, p.protocol);
+        // Saved radios: seed the list from the rig registry so the
+        // station's known radios appear WITHOUT a Discover sweep (each
+        // row refreshes in place when discovery answers; lastIp is the
+        // open target until then).
+        for (const auto &rp : lyra::rig::registry::rigs()) {
+            if (rp.lastIp.isEmpty()) continue;
+            const auto *d = lyra::hardware::modelByKey(rp.hardwareModelKey);
+            const int protocol =
+                lyra::rig::capabilitiesFor(rp.family).protocol;
+            // Prefer the specific catalog model name ("ANAN-G2
+            // (Saturn)") over the coarse family label ("ANAN (Protocol
+            // 2)") when one's been selected — ensureRig() always fills
+            // rp.label with SOMETHING, so it can't be the fallback test.
+            addRadio(rp.lastIp, rp.mac,
+                     d ? QString::fromLatin1(d->displayName)
+                       : (rp.label.isEmpty() ? tr("saved radio") : rp.label),
+                     0, 0, false, 0, protocol);
         }
 
         // Show the remembered radio on open so the operator sees what
@@ -2804,7 +2806,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             const int mi = modelCombo->findData(savedKey);
             if (mi >= 0) modelCombo->setCurrentIndex(mi);
             // Writes the GLOBAL default and, when a P2 radio row is
-            // selected, that radio's Layer-2 profile (per-MAC).
+            // selected, that radio's rig-registry entry (per-MAC).
             connect(modelCombo,
                     QOverload<int>::of(&QComboBox::currentIndexChanged),
                     radioBox, [modelCombo, status, list](int) {
@@ -2814,13 +2816,12 @@ QWidget *SettingsDialog::buildHardwareTab() {
                             QStringLiteral("radio/hardwareModel"), key);
                         if (auto *it = list->currentItem();
                             it && it->data(Qt::UserRole + 7).toInt() == 2) {
-                            auto &store = lyra::radioprofile::
-                                RadioProfileStore::instance();
-                            auto p = store.forMac(
-                                it->data(Qt::UserRole + 1).toString());
+                            auto p = lyra::rig::registry::rig(
+                                lyra::rig::registry::rigIdForMac(
+                                    it->data(Qt::UserRole + 1).toString()));
                             if (p.isValid()) {
                                 p.hardwareModelKey = key;
-                                store.save(p);
+                                lyra::rig::registry::upsertRig(p);
                             }
                         }
                         status->setText(tr("Hardware model saved — applied "
@@ -2841,13 +2842,12 @@ QWidget *SettingsDialog::buildHardwareTab() {
                             QStringLiteral("p2/trxAntenna"), idx + 1);
                         if (auto *it = list->currentItem();
                             it && it->data(Qt::UserRole + 7).toInt() == 2) {
-                            auto &store = lyra::radioprofile::
-                                RadioProfileStore::instance();
-                            auto p = store.forMac(
-                                it->data(Qt::UserRole + 1).toString());
+                            auto p = lyra::rig::registry::rig(
+                                lyra::rig::registry::rigIdForMac(
+                                    it->data(Qt::UserRole + 1).toString()));
                             if (p.isValid()) {
                                 p.trxAntenna = idx + 1;
-                                store.save(p);
+                                lyra::rig::registry::upsertRig(p);
                             }
                         }
                         status->setText(tr("Antenna saved — applied at the "
@@ -2855,15 +2855,35 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     });
             hwRow->addWidget(antCombo);
 
-            // Per-radio audio route (RadioProfile.audioRoute) for the
-            // selected P2 row: PC output, the RADIO's own speaker (G2
-            // on-board amp via the P2 speaker stream), or follow the
-            // global Settings → Audio choice.
+            // Per-rig audio route for the selected P2 row: PC output,
+            // the RADIO's own speaker (on-board amp via the P2 speaker
+            // stream), or follow the global Settings → Audio choice.
+            // "Radio speaker" is a CAPABILITY, not a free operator
+            // choice (agreed with N8SDR 2026-07-20) — HardwareCatalog's
+            // hasAudioAmplifierP2 gates it per the currently-selected
+            // model, disabled rather than offered on hardware that has
+            // no on-board amp (a Brick almost certainly reads false).
             hwRow->addWidget(new QLabel(tr("Audio:"), radioBox));
             auto *audCombo = new QComboBox(radioBox);
             audCombo->addItem(tr("PC output"),     QStringLiteral("pc"));
             audCombo->addItem(tr("Radio speaker"), QStringLiteral("radio"));
             audCombo->addItem(tr("Follow global"), QString());
+            auto updateAudioCapability = [modelCombo, audCombo]() {
+                const auto *hw = lyra::hardware::modelByKey(
+                    modelCombo->currentData().toString());
+                const bool hasAmp = hw && hw->hasAudioAmplifierP2;
+                auto *m = qobject_cast<QStandardItemModel *>(audCombo->model());
+                QStandardItem *radioItem = m ? m->item(1) : nullptr;
+                if (radioItem) radioItem->setEnabled(hasAmp);
+                if (!hasAmp && audCombo->currentIndex() == 1)
+                    audCombo->setCurrentIndex(0);   // fall back to PC output
+            };
+            updateAudioCapability();
+            connect(modelCombo,
+                    QOverload<int>::of(&QComboBox::currentIndexChanged),
+                    radioBox, [updateAudioCapability](int) {
+                        updateAudioCapability();
+                    });
             connect(audCombo,
                     QOverload<int>::of(&QComboBox::currentIndexChanged),
                     radioBox, [audCombo, status, list](int) {
@@ -2873,14 +2893,13 @@ QWidget *SettingsDialog::buildHardwareTab() {
                                                "row first."));
                             return;
                         }
-                        auto &store = lyra::radioprofile::
-                            RadioProfileStore::instance();
-                        auto p = store.forMac(
-                            it->data(Qt::UserRole + 1).toString());
+                        auto p = lyra::rig::registry::rig(
+                            lyra::rig::registry::rigIdForMac(
+                                it->data(Qt::UserRole + 1).toString()));
                         if (p.isValid()) {
                             p.audioRoute =
                                 audCombo->currentData().toString();
-                            store.save(p);
+                            lyra::rig::registry::upsertRig(p);
                             status->setText(tr("Audio route saved — applied "
                                                "at the next Open."));
                         }
@@ -3102,11 +3121,12 @@ QWidget *SettingsDialog::buildHardwareTab() {
             const QString ip  = it->data(Qt::UserRole).toString();
             const QString mac = it->data(Qt::UserRole + 1).toString();
             if (discovery_) discovery_->forgetRadio(ip);
-            // Layer-2: also delete the saved RadioProfile (otherwise the
-            // profile store re-seeds the row on the next dialog open) and
+            // Also delete the rig-registry entry (otherwise the saved-
+            // radios seed re-adds the row on the next dialog open) and
             // clear a startup-radio choice pointing at it.
             if (!mac.isEmpty()) {
-                lyra::radioprofile::RadioProfileStore::instance().remove(mac);
+                lyra::rig::registry::removeRig(
+                    lyra::rig::registry::rigIdForMac(mac));
                 QSettings s;
                 if (s.value(QStringLiteral("radio/startupMac")).toString()
                         .compare(mac, Qt::CaseInsensitive) == 0)

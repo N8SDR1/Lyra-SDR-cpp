@@ -6,7 +6,7 @@
 #include "Router.h"
 #include "hardware/HardwareCatalog.h"
 #include "hl2_stream.h"
-#include "radioprofile/RadioProfileStore.h"
+#include "rig/RigRegistry.h"
 #include "wdsp_engine.h"
 
 #include <QMetaObject>
@@ -205,12 +205,35 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     quint32 hz = stream_ ? stream_->rx1FreqHz() : 0;
     if (hz == 0) hz = 14'100'000u;
 
-    // Layer-2 radio profile (per-MAC): its model + antenna win over
-    // the global Settings defaults when the MAC is known.
-    lyra::radioprofile::RadioProfile prof;
-    if (!mac.isEmpty())
-        prof = lyra::radioprofile::RadioProfileStore::instance()
-                   .touch(mac, /*protocol=*/2, ip);
+    // Rig identity (folded into RigRegistry — was a parallel
+    // RadioProfileStore, docs/architecture/p2_identity_reconciliation.md
+    // Part 1): its model + antenna win over the global Settings
+    // defaults when the MAC is known.  ensureRig() is idempotent — the
+    // caller (Settings openItem) has usually already registered this
+    // rig, but the "Open at startup" path calls straight in here, so
+    // this stays self-sufficient.  RadioFamily::Unknown preserves
+    // whatever family is already on record rather than overwriting it
+    // with a guess (this call site has no board name to derive one).
+    lyra::rig::RigProfile prof;
+    if (!mac.isEmpty()) {
+        const QString rigId = lyra::rig::registry::ensureRig(
+            mac, lyra::rig::RadioFamily::Unknown, QString(), ip);
+        prof = lyra::rig::registry::rig(rigId);
+        // Seed sane P2 defaults the first time this rig is opened —
+        // mirrors the old RadioProfileStore::touch() seeding (a P2
+        // radio can't use the HL2-jack path, and Saturn is the only
+        // bench-verified P2 model today).
+        bool seeded = false;
+        if (prof.hardwareModelKey.isEmpty()) {
+            const auto *dm = lyra::hardware::defaultModelForBoard(-1, true);
+            if (dm) { prof.hardwareModelKey = QLatin1String(dm->key); seeded = true; }
+        }
+        if (prof.audioRoute.isEmpty()) {
+            prof.audioRoute = QStringLiteral("pc");
+            seeded = true;
+        }
+        if (seeded) lyra::rig::registry::upsertRig(prof);
+    }
 
     // Per-radio audio routing — applied TRANSIENTLY (globals stay as
     // the HL2 configured them; restored at close()).  P2 profiles are

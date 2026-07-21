@@ -7,6 +7,7 @@
 
 #include "RigRegistry.h"
 
+#include <QDateTime>
 #include <QSettings>
 
 namespace lyra::rig {
@@ -104,6 +105,11 @@ RigProfile rig(const QString &rigId) {
         p.mac    = s.value(QStringLiteral("mac")).toString();
         p.family = familyFromToken(s.value(QStringLiteral("family")).toString());
         p.lastIp = s.value(QStringLiteral("lastIp")).toString();
+        p.hardwareModelKey = s.value(QStringLiteral("hardwareModelKey")).toString();
+        p.trxAntenna = qBound(1, s.value(QStringLiteral("trxAntenna"), 1).toInt(), 3);
+        p.audioRoute = s.value(QStringLiteral("audioRoute")).toString();
+        p.firstSeen  = s.value(QStringLiteral("firstSeen")).toString();
+        p.lastSeen   = s.value(QStringLiteral("lastSeen")).toString();
     }
     s.endGroup();
     return p;
@@ -129,6 +135,11 @@ void upsertRig(const RigProfile &p) {
     s.setValue(QStringLiteral("mac"),    p.mac);
     s.setValue(QStringLiteral("family"), familyToken(p.family));
     s.setValue(QStringLiteral("lastIp"), p.lastIp);
+    s.setValue(QStringLiteral("hardwareModelKey"), p.hardwareModelKey);
+    s.setValue(QStringLiteral("trxAntenna"), qBound(1, p.trxAntenna, 3));
+    s.setValue(QStringLiteral("audioRoute"), p.audioRoute);
+    s.setValue(QStringLiteral("firstSeen"), p.firstSeen);
+    s.setValue(QStringLiteral("lastSeen"),  p.lastSeen);
     s.endGroup();
 }
 
@@ -148,6 +159,7 @@ QString ensureRig(const QString &mac, RadioFamily family,
     if (rigId.isEmpty()) return QString();
 
     RigProfile p = rig(rigId);           // existing record if any
+    const bool isNew = p.rigId.isEmpty();
     p.rigId = rigId;
     p.mac   = mac;
     if (family != RadioFamily::Unknown) p.family = family;
@@ -156,6 +168,9 @@ QString ensureRig(const QString &mac, RadioFamily family,
     // Fill a friendly default label the first time we meet this rig.
     if (p.label.isEmpty())
         p.label = capabilitiesFor(p.family).familyName;
+    const QString now = QDateTime::currentDateTime().toString(Qt::ISODate);
+    if (isNew || p.firstSeen.isEmpty()) p.firstSeen = now;
+    p.lastSeen = now;
     upsertRig(p);
     return rigId;
 }

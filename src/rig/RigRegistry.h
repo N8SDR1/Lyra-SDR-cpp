@@ -39,6 +39,27 @@ struct RigProfile {
     RadioFamily family = RadioFamily::Unknown;
     QString     lastIp;                      // last-connected IP (machine-local)
 
+    // Folded in from KD4YAL's HardwareCatalog/RadioProfile identity
+    // layer (docs/architecture/p2_identity_reconciliation.md Part 1;
+    // agreed shape 2026-07-20).  hardwareModelKey is the Layer-1
+    // src/hardware/HardwareCatalog key ("ANAN-G2", "HERMES-LITE", …;
+    // Thetis's comboRadioModel equivalent) — "" means unset, callers
+    // fall back to the family baseline (capabilitiesFor(family)) or a
+    // board-derived default (hardware::defaultModelForBoard).
+    // trxAntenna/audioRoute are P2-only per-rig config (harmless
+    // unused fields on a P1 rig): TRX antenna port 1..3, and RX audio
+    // routing — "" = follow the global Settings → Audio choice,
+    // "hl2"/"pc"/"radio" (radio = the unit's own on-board speaker,
+    // gated on the selected model's hasAudioAmplifierP2 capability —
+    // never a free-form operator choice on hardware that lacks one).
+    QString     hardwareModelKey;
+    int         trxAntenna = 1;
+    QString     audioRoute;
+    // Bookkeeping — cheap, kept for a future "known radios" UI.
+    // ISO-8601; "" on a rig created before these fields existed.
+    QString     firstSeen;
+    QString     lastSeen;
+
     bool isValid() const { return !rigId.isEmpty(); }
 };
 

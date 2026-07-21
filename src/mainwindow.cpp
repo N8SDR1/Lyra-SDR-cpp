@@ -50,7 +50,6 @@
 #include "tx/VoiceKeyer.h"
 #include "wire/Ep6RecvThread.h"       // #89 B1 — ep6Thread().set_tx_clip_source(...)
 #include "wire/P2RxBridge.h"          // Saturn / ANAN G2 Protocol 2 RX path
-#include "radioprofile/RadioProfileStore.h" // Layer-2 per-MAC radio profiles
 #include "settingsdialog.h"
 #include "dockdragcontroller.h"
 #include "panelrack.h"
@@ -392,17 +391,20 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     connect(p2Bridge_, &lyra::wire::P2RxBridge::logLine,
             this, [](const QString &l) { qInfo().noquote() << l; });
 
-    // Layer-2 radio profiles: every discovery reply finds-or-creates
-    // the per-MAC RadioProfile (first sight seeds the catalog's
-    // protocol-default model) and refreshes lastKnownIp — MAC is the
-    // stable identity, so DHCP moves update, never fork, a profile.
-    // Metadata-only for the HL2 (retention rules, plan doc).
+    // Rig identity: every discovery reply finds-or-creates the per-MAC
+    // RigRegistry entry (family from protocol + board name) and
+    // refreshes lastIp — MAC is the stable identity, so DHCP moves
+    // update, never fork, a rig.  Model/antenna/audio-route defaults
+    // are seeded lazily on first P2 open (P2RxBridge::open), not here.
     if (auto *disc = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_)) {
         connect(disc, &lyra::ipc::HL2Discovery::radioFound, this,
-                [](const QString &ip, const QString &mac, const QString &,
-                   int, int, bool, int, int protocol) {
-                    lyra::radioprofile::RadioProfileStore::instance()
-                        .touch(mac, protocol, ip);
+                [](const QString &ip, const QString &mac,
+                   const QString &board, int, int, bool, int,
+                   int protocol) {
+                    lyra::rig::registry::ensureRig(
+                        mac,
+                        lyra::rig::registry::familyForDiscovery(protocol, board),
+                        QString(), ip);
                 });
     }
 
@@ -2698,15 +2700,15 @@ void MainWindow::beginConnect(const QString &preferIp) {
         const QString startupMac = QSettings()
             .value(QStringLiteral("radio/startupMac")).toString();
         if (!startupMac.isEmpty() && p2Bridge_) {
-            const auto prof = lyra::radioprofile::RadioProfileStore::
-                instance().forMac(startupMac);
-            if (prof.isValid() && prof.protocol == 2 &&
-                !prof.lastKnownIp.isEmpty()) {
+            const auto rp = lyra::rig::registry::rig(
+                lyra::rig::registry::rigIdForMac(startupMac));
+            const bool isP2 =
+                lyra::rig::capabilitiesFor(rp.family).protocol == 2;
+            if (rp.isValid() && isP2 && !rp.lastIp.isEmpty()) {
                 if (connStatus_)
                     connStatus_->setText(tr("Opening %1…").arg(
-                        prof.nickname.isEmpty() ? prof.lastKnownIp
-                                                : prof.nickname));
-                p2Bridge_->open(prof.lastKnownIp, prof.mac);
+                        rp.label.isEmpty() ? rp.lastIp : rp.label));
+                p2Bridge_->open(rp.lastIp, rp.mac);
                 return;
             }
         }

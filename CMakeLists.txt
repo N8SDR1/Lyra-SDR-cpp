@@ -197,13 +197,12 @@ qt_add_executable(lyra
     # the Thetis model strings.  See docs/P2_HARDWARE_PROFILES_PLAN.md.
     src/hardware/HardwareCatalog.h
     src/hardware/HardwareCatalog.cpp
-    # Layer-2 radio profiles: one JSON per physical radio, keyed by
-    # MAC (profiles/radios/<mac>.json under AppData).  Created/
-    # refreshed on every discovery reply; P2 open consumes model +
-    # antenna from it.  Metadata-only for the HL2 (retention rules).
-    src/radioprofile/RadioProfile.h
-    src/radioprofile/RadioProfileStore.h
-    src/radioprofile/RadioProfileStore.cpp
+    # (src/radioprofile/{RadioProfile.h,RadioProfileStore.{h,cpp}}
+    # RETIRED 2026-07-20 — the identity-layer fold agreed with N8SDR:
+    # hardwareModelKey/trxAntenna/audioRoute/firstSeen/lastSeen moved
+    # onto rig::RigProfile (src/rig/RigRegistry.h), the shared multi-
+    # rig identity store, retiring this JSON-backed parallel one.
+    # See docs/architecture/p2_identity_reconciliation.md Part 1.
     # TX-rip Phase 1 step 1c-b — wdsp/ empty skeletons.  Populated
     # in Phase 2 per docs/TX_ARCHITECTURAL_MAPPING.md §6.
     # (src/wdsp/TxChannel.{h,cpp} RETIRED 2026-06-12 — the P0.d
