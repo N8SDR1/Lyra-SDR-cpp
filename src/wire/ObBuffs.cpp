@@ -15,11 +15,17 @@
 // Every function body is the reference obbuffs.c VERBATIM,
 // including the file-scope `_obpointers obp` four-alias bank and
 // the reference's own 2014-era idioms where they differ from the
-// cmbuffs sibling: calloc/free (NOT malloc0/_aligned_free), the
-// destroy-time `obp.pcbuff[0] == NULL` guard, obdata WITHOUT the
-// MW0LGE critical-section wrap, and the csOUT enter/leave pair at
-// the top of the ob_main loop.  Do NOT "harmonize" these toward
-// cmbuffs.c — they are what the reference ships in this TU.
+// cmbuffs sibling: calloc/free (NOT malloc0/_aligned_free), obdata
+// WITHOUT the MW0LGE critical-section wrap, and the csOUT enter/leave
+// pair at the top of the ob_main loop.  Do NOT "harmonize" these
+// toward cmbuffs.c — they are what the reference ships in this TU.
+// EXCEPTION: the reference's destroy-time `obp.pcbuff[0] == NULL`
+// guard is REMOVED (not kept verbatim) — see destroy_obbuffs's own
+// comment.  It was harmless on the reference (which never nulls the
+// slot, so the check never fires) but became live-breaking once
+// Lyra's slot-nulling deviation (also documented in destroy_obbuffs)
+// was added: after ring 0 is destroyed, it silently skips destroying
+// every other ring (bench/review finding 2026-07-21, N8SDR).
 //
 // Only Lyra-cpp packaging differences (NOT code changes):
 //   * `lyra::wire` namespace (reference is global C).
@@ -106,10 +112,11 @@ void create_obbuffs (int id, int accept, int max_insize, int outsize)
 void destroy_obbuffs (int id)
 {
 	OBB a = obp.pcbuff[id];
-	if (obp.pcbuff[0] == NULL) return;
-	// Lyra deviation (documented): per-id guard — the reference's
-	// [0]-only check leaves destroy of a never-created id deref'ing
-	// null.  Paired with the slot-nulling below.
+	// Lyra deviation (documented): the reference's [0]-only guard is
+	// incompatible with the slot-nulling below — after ring 0 is
+	// destroyed it early-returns on every subsequent id, leaking that
+	// ring's semaphore, critical sections and thread.  The per-id
+	// check above is the correct gate.  Do NOT restore the [0] check.
 	if (a == NULL) return;
 	InterlockedBitTestAndReset(&a->accept, 0);
 	EnterCriticalSection (&a->csIN);
