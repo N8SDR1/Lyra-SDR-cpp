@@ -156,6 +156,11 @@ void BandMemory::saveCurrent() {
 
 void BandMemory::applyBand(const QString &band) {
     if (!prefs_) return;
+    // Arm Auto-LNA's fast acquire.  The reference sets `_band_change` in
+    // its band-select handler (console.cs:43776) so the auto-attenuator
+    // climbs quickly to the new band's overload edge instead of waiting
+    // out a hold interval per dB.
+    if (stream_) stream_->noteBandChange();
     QSettings s;
     const QString p = bandMemPfx() + band + QLatin1Char('/');
     // Per-band manual LNA — restored independently of the mode/dB block

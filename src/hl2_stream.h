@@ -165,6 +165,9 @@ class HL2Stream : public QObject {
     // Live ADC-overload indicator — true when the HL2 gateware reported
     // ADC clipping in the last ~400 ms window (EP6 status C1 bit 0).
     Q_PROPERTY(bool adcOverload   READ adcOverload    NOTIFY adcOverloadChanged)
+    // 0 = silent, 1 = overload seen recently (decaying), 2 = confirmed and
+    // the auto-attenuator is acting.  See onAutoLnaTick().
+    Q_PROPERTY(int  adcOverloadTier READ adcOverloadTier NOTIFY adcOverloadChanged)
     // External filter board (N2ADR): when enabled, the per-band OC
     // pattern is driven on frame-0 C2 so the board's RX band-pass +
     // 3 MHz HPF relays follow the band (front-end protection).  ocBits
@@ -728,10 +731,13 @@ public:
     bool    ctuneEnabled()      const { return ctuneCenterHz_.load(std::memory_order_relaxed) != 0; }
     quint32 ctuneCenterHz()     const { return ctuneCenterHz_.load(std::memory_order_relaxed); }
     int     lnaGainDb()         const { return lnaGainDb_.load(std::memory_order_relaxed); }
+    // Band changed — arm Auto-LNA's fast acquire (see onAutoLnaTick).
+    void    noteBandChange()          { bandChange_ = true; }
     bool    autoLna()           const { return autoLnaEnabled_; }
     bool    autoLnaUndo()       const { return autoLnaUndo_; }
     int     autoLnaHoldSec()    const { return autoLnaHoldSec_; }
-    bool    adcOverload()       const { return adcOverload_; }
+    bool    adcOverload()       const { return adcOverloadTier_ >= 2; }
+    int     adcOverloadTier()   const { return adcOverloadTier_; }
     // Operator gain bounds = the AD9866 LNA hardware range in full-range
     // mode (HL2 wiki: code 0…60 → −12…+48 dB; frame-11 C4 bit 6 = the
     // full-range enable, which Lyra sets).  +48 is the true ceiling
@@ -1573,6 +1579,7 @@ private:
     // unchanged — this only adds a second sink.
     void safetyLog(const QString& msg);
     void fatalLog(const QString& msg);
+    void lnaLog(const QString& msg);   // Auto-LNA / overload diagnostics
 
     // (§7) txWorkerLoop retired — EP2 writer is the verbatim
     // sendProtocol1Samples thread (prn->hWriteThreadMain).
@@ -1637,9 +1644,11 @@ private:
     void foldSwrProtect(double swr);   // Fold action — x0.5 drive step-down
     void foldWattsProtect(double fwdW, double capW);  // Stage 3b-2 reactive cap
     // #169 Phase 1b — apply a TX drive level to the wire WITHOUT
-    // persisting it (mirrors applyLnaGainNoPersist): used by Fold so its
-    // transient step-downs never overwrite the operator's stored drive
-    // set point; the operator's drive is restored on the next key-down.
+    // persisting it: used by Fold so its transient step-downs never
+    // overwrite the operator's stored drive set point; the operator's
+    // drive is restored on the next key-down.  (Deliberately unlike the
+    // Auto-LNA writer, which DOES persist — see applyLnaGainAuto.  Fold
+    // is a transient protection action; Auto-LNA owns the band's gain.)
     void applyDriveLevelNoPersist(int level);
     // #109 — push the EFFECTIVE PHROT run (operator intent AND not-digital)
     // to the WDSP TX channel.  Called from the operator toggle, every TX
@@ -1711,7 +1720,7 @@ private:
     // used by Auto-LNA so its transient adjustments never overwrite the
     // operator's manual set point in QSettings.  Emits lnaGainChanged
     // so the slider / dB readout / S-meter compensation all track.
-    void applyLnaGainNoPersist(int db);
+    void applyLnaGainAuto(int db);
 
     SocketHandle         socket_ = kInvalidSocket;
     // Step 14 Stage 1 — sockaddr_in storage for lyra::wire::metis_wire_bind().
@@ -1775,7 +1784,13 @@ private:
     // strong starting gain that's still below the +48 hardware ceiling,
     // with Auto-LNA (default on) backing it off on overload.  Overridden
     // from QSettings in the ctor once the operator sets it.
-    std::atomic<int>     lnaGainDb_{31};
+    // Fresh-install RX LNA gain.  The reference starts at attenuation 0
+    // (`console.cs:11022`, `_rx1_attenuator_data = 0`), and att = 19 - gain,
+    // so its default is +19 dB.  Ours was 31 — which is the reference's
+    // WIRE value for att 0 (31 - 0), not its gain — leaving us 12 dB hotter
+    // than the reference on a fresh install.  Keep this in step with the
+    // QSettings fallback in the constructor.
+    std::atomic<int>     lnaGainDb_{19};
     // ADC-overload telemetry + Auto-LNA (standard HF SDR pattern, gain-sense).
     // adcOverloadNow_ holds the ADC0 overload bit from the MOST RECENT
     // EP6 address-0 status frame (direct overwrite — NOT a window-OR
@@ -1826,14 +1841,29 @@ private:
     // posture: int=0 at startup until the first telemetry frame
     // arrives (no -1 sentinel; the formulas natively cope with
     // raw=0 → quiet temp/voltage rather than NaN).
-    bool                 adcOverload_    = false;
+    int                  adcOverloadTier_ = 0;
     int                  overloadLevel_  = 0;      // 0..5 confirm accumulator
     bool                 autoLnaEnabled_ = false;
+    // Reference `_band_change`: set on band select and on auto-enable,
+    // cleared by the first confirmed overload.  While set, the creep
+    // ignores both the undo flag and the hold timer — a fast acquire up
+    // to the overload edge after landing on a new band.
+    bool                 bandChange_     = false;
     bool                 autoLnaUndo_    = true;
     int                  autoLnaHoldSec_ = 4;      // "Undo N s" creep interval
     QTimer               autoLnaTimer_;
     QElapsedTimer        holdClock_;               // since last auto gain change
-    bool                 recovering_     = false;  // creeping gain back up
+    // LYRA_LNA_DEBUG counters — main-thread only, same owner as the
+    // tick that reads them; no synchronisation needed.
+    int                  lnaDbgPolls_    = 0;
+    int                  lnaDbgOvPolls_  = 0;
+    // Creep / back-off steps taken inside the current debug window.
+    // Measured rather than inferred: with a 1 s hold and a 100 ms poll
+    // the creep should fire ~2x per 20-poll window, and a bench capture
+    // showed ~1.  Counting the actual steps settles that without
+    // guessing at the cause.
+    int                  lnaDbgCreeps_   = 0;
+    int                  lnaDbgBackoffs_ = 0;
     // External filter board (N2ADR).  ocC2_ is the frame-0 C2 byte the
     // EP2 writer reads each send (= 7-bit OC pattern << 1; C2[0] stays 0).
     // filterBoardEnabled_ / ocPattern_ are main-thread state (the
@@ -2086,13 +2116,47 @@ private:
     // → 2.6316 ms period.  Same cadence the verified HL2 wire-
     // protocol references all fire.
     static constexpr int     kEp2RateHz    = 380;
-    // Auto-LNA overload-poll cadence (matches the reference ~400 ms loop).
-    static constexpr int     kAutoLnaPeriodMs = 400;
-    // Once recovery begins (after the hold time confirms the band is
-    // clear), creep gain back up at this brisker fixed cadence so the
-    // operator isn't left deaf for minutes — pull-DOWNs still honor the
-    // operator's hold-time setting; only the pull-UP is sped up.
-    static constexpr int     kAutoLnaRecoverMs = 1000;
+    // Auto-LNA overload-poll cadence.
+    //
+    // The reference polls at 100 ms (`console.cs:21921`, `await
+    // Task.Delay(100)`), and `checkOverloadsAndSync()` runs on EVERY
+    // iteration — only the sequence-error check sits on a 1-in-5 divisor.
+    // Combined with the `level > 3` trigger (which needs the counter to
+    // reach 4) that gives the confirmation window the author documents in
+    // `ReleaseNotes.txt:119`:
+    //
+    //   "auto rx step attenuation will only happen when there has been at
+    //    least 400ms of adc overload and it moves from a yellow to red
+    //    warning"
+    //
+    // i.e. 4 cycles x 100 ms = 400 ms CUMULATIVE.  The in-code comment at
+    // `console.cs:21502` garbles this into "3 cycles ... around 400ms"
+    // per-cycle; that stale comment is what this constant was originally
+    // built from, which stretched our confirmation window to 1.6 s.
+    //
+    // The hold/creep timing is clock-based (QElapsedTimer against
+    // autoLnaHoldSec_), not poll-counted, so it is unaffected by this.
+    static constexpr int     kAutoLnaPeriodMs = 100;
+    // Auto-LNA travel limits, ported exactly from the reference's
+    // HL2 auto-attenuator guards.
+    //
+    // The reference works in ATTENUATION dB (HL2 range -28..32, where
+    // negative attenuation is gain) and writes `wire = 31 - att`.  Lyra's
+    // operator axis is GAIN dB and writes `wire = gain + 12`.  Equating
+    // the two wire expressions gives the exact correspondence:
+    //
+    //     gain + 12 = 31 - att   =>   att = 19 - gain
+    //
+    // so the reference's two guards translate as:
+    //     `if (att < 28)  att += 3`  (may still back off)  -> gain > -9
+    //     `if (att > -28) att--`     (may still creep up)  -> gain < +47
+    //
+    // Note +47, NOT the kLnaMaxDb +48 ceiling the manual slider allows:
+    // the reference's auto loop stops one step short of the hardware
+    // ceiling, and the whole point of this port is to travel exactly as
+    // far as the reference travels and no further.
+    static constexpr int     kAutoLnaBackoffMinDb = -9;   // att 28
+    static constexpr int     kAutoLnaCreepMaxDb   = 47;   // att -28
     // ---- TX-0c-fsm: TR-sequencing delays (ms) -----------------------
     // Defaults pulled from the operator's working-station DB export
     // (HL2+/AK4951 bench-validated, hot-switch-safe for typical 1 kW
@@ -2351,6 +2415,19 @@ private:
     // turns into wire (31-31)&0x3F | 0x40 = 0x40 = min-LNA on the
     // FAST_LNA arbiter = max RX-ADC protection during TX coupling.
     static constexpr int     kAttOnTxDb       = 31;
+    // Axis value used when ATT-on-TX is DISABLED.
+    //
+    // The reference's disabled branch calls SetTxAttenData(0) WITHOUT
+    // the `31 - x` inversion its enabled branch uses
+    // (`console.cs:19173`, `:10670`, and both MOX edges `:30325` /
+    // `:30411`), so tx_step_attn reaches the wire as raw 0 -> C4 0x40
+    // -> PGA code 0 -> -12 dB -> MAXIMUM attenuation.  Disabling
+    // ATT-on-TX does not leave the front end open in the reference; it
+    // lands on the same byte as ATT-on-TX at its 31 dB maximum.
+    //
+    // Our axis is attenuation-sense with the inversion in the composer,
+    // so the equivalent value is 31, not 0.
+    static constexpr int     kAttOnTxDisabledDb = 31;
     // TX safety timeout range — see public section above (canonical
     // bounds exposed for the Settings UI).
 
