@@ -197,6 +197,8 @@ qt_add_executable(lyra
     # the Thetis model strings.  See docs/P2_HARDWARE_PROFILES_PLAN.md.
     src/hardware/HardwareCatalog.h
     src/hardware/HardwareCatalog.cpp
+    src/hardware/ActiveFrontEndModel.h
+    src/hardware/ActiveFrontEndModel.cpp
     # (src/radioprofile/{RadioProfile.h,RadioProfileStore.{h,cpp}}
     # RETIRED 2026-07-20 — the identity-layer fold agreed with N8SDR:
     # hardwareModelKey/trxAntenna/audioRoute/firstSeen/lastSeen moved
@@ -688,6 +690,19 @@ target_include_directories(test_p2_session PRIVATE src)
 target_link_libraries(test_p2_session PRIVATE Qt6::Core Qt6::Network)
 if(MSVC)
     target_compile_options(test_p2_session PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# G2 hardware-profile golden packets: model selection, Alex input/filter/
+# antenna words, DDC ADC source and HP ADC attenuation bytes.
+add_executable(test_p2_g2_profile EXCLUDE_FROM_ALL
+    scratch/test_p2_g2_profile.cpp
+    src/wire/P2Session.h
+    src/wire/P2Session.cpp
+)
+target_include_directories(test_p2_g2_profile PRIVATE src)
+target_link_libraries(test_p2_g2_profile PRIVATE Qt6::Core Qt6::Network)
+if(MSVC)
+    target_compile_options(test_p2_g2_profile PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # #199 OC Control Stage 1 — pure compute() + change-gate unit test.

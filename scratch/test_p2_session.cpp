@@ -47,6 +47,11 @@ int main(int argc, char **argv) {
     const int     toneHz  = (argc > 5) ? std::atoi(argv[5]) : 0;
 
     lyra::wire::P2Session session;
+    // This bench executable targets the Saturn/G2.  Production selects
+    // the profile from the saved marketed model; do the same explicitly
+    // here now that unknown boards no longer inherit Saturn/Alex words.
+    session.setProfile(
+        lyra::wire::p2ProfileForModel(QStringLiteral("ANAN-G2")));
     session.setTrxAntenna(trxAnt);
     session.setDdcFrequencyHz(0, freqHz);
     session.setDucFrequencyHz(freqHz);

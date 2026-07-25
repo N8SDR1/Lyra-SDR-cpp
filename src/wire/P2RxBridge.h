@@ -43,6 +43,7 @@
 #include <QObject>
 #include <QString>
 #include <QThread>
+#include <QVariant>
 #include <limits>
 
 namespace lyra::ipc { class HL2Stream; }
@@ -54,6 +55,19 @@ class P2Session;
 
 class P2RxBridge : public QObject {
     Q_OBJECT
+    Q_PROPERTY(bool running READ isRunning NOTIFY runningChanged)
+    Q_PROPERTY(int rxAttenuationDb READ rxAttenuationDb WRITE setRxAttenuationDb
+               NOTIFY frontEndChanged)
+    Q_PROPERTY(int ddcAdc READ ddcAdc WRITE setDdcAdc NOTIFY frontEndChanged)
+    Q_PROPERTY(int rxInput READ rxInput WRITE setRxInput NOTIFY frontEndChanged)
+    Q_PROPERTY(bool hpfBypass READ hpfBypass WRITE setHpfBypass
+               NOTIFY frontEndChanged)
+    Q_PROPERTY(int trxAntenna READ trxAntenna WRITE setTrxAntenna
+               NOTIFY frontEndChanged)
+    Q_PROPERTY(int adcOverloadTier READ adcOverloadTier NOTIFY telemetryChanged)
+    Q_PROPERTY(int adcOverloadMask READ adcOverloadMask NOTIFY telemetryChanged)
+    Q_PROPERTY(int adc1Peak READ adc1Peak NOTIFY telemetryChanged)
+    Q_PROPERTY(int adc2Peak READ adc2Peak NOTIFY telemetryChanged)
 
 public:
     explicit P2RxBridge(lyra::ipc::HL2Stream *stream,
@@ -81,6 +95,17 @@ public:
     // whichever wire path is live.
     double supplyVolts() const { return supplyV_; }
     double paCurrentA() const { return paA_; }
+    int rxAttenuationDb() const { return rxAttenuationDb_; }
+    int ddcAdc() const { return ddcAdc_; }
+    int rxInput() const { return rxInput_; }
+    bool hpfBypass() const { return hpfBypass_; }
+    int trxAntenna() const { return trxAntenna_; }
+    int adcOverloadTier() const { return adcOverloadTier_; }
+    int adcOverloadMask() const { return adcOverloadMask_; }
+    int adc1Peak() const { return adc1Peak_; }
+    int adc2Peak() const { return adc2Peak_; }
+    double meterCalibrationOffset() const { return meterCalOffset_; }
+    double displayCalibrationOffset() const { return displayCalOffset_; }
 
 public slots:
     // Open a P2 session to <ip>: seed DDC0 from the current VFO,
@@ -92,12 +117,19 @@ public slots:
     void open(const QString &ip, const QString &mac = QString());
     // Tear down (HP run=0) and release the radio's controller lease.
     void close();
+    void setRxAttenuationDb(int db);
+    void setDdcAdc(int adc);
+    void setRxInput(int input);
+    void setHpfBypass(bool on);
+    void setTrxAntenna(int ant);
 
 signals:
     void runningChanged();
     // Fires whenever isOpen() changes — on both open() and close(),
     // independent of whether the radio ever confirmed.
     void openChanged();
+    void frontEndChanged();
+    void telemetryChanged();
     void logLine(QString line);
 
 private:
@@ -106,6 +138,9 @@ private:
     // (matching the HL2 path's pushEffectiveRxFreq semantics), DUC =
     // dial.  Called on every rx1FreqChanged AND ritChanged.
     void pushDialToSession();
+    void restoreFrontEndForBand(const QString &band);
+    void persistFrontEndValue(const QString &name, const QVariant &value);
+    void pushFrontEndToSession();
 
     lyra::ipc::HL2Stream  *stream_  = nullptr;
     lyra::dsp::WdspEngine *engine_  = nullptr;
@@ -132,6 +167,20 @@ private:
     float      ampSens_  = 120.f;
     double     supplyV_  = std::numeric_limits<double>::quiet_NaN();
     double     paA_      = std::numeric_limits<double>::quiet_NaN();
+    QString    currentBand_;
+    int        defaultTrxAntenna_ = 1;
+    int        rxAttenuationDb_ = 0;
+    int        ddcAdc_ = 0;
+    int        rxInput_ = 0;
+    bool       hpfBypass_ = false;
+    int        trxAntenna_ = 1;
+    int        adcOverloadTier_ = 0;
+    int        adcOverloadMask_ = 0;
+    int        adc1Peak_ = 0;
+    int        adc2Peak_ = 0;
+    int        overloadDecayPackets_ = 0;
+    double     meterCalOffset_ = 0.0;
+    double     displayCalOffset_ = 0.0;
 };
 
 } // namespace lyra::wire

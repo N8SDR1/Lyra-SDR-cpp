@@ -4,6 +4,7 @@
 #include "P2Session.h"
 
 #include <QtEndian>
+#include <algorithm>
 
 namespace lyra::wire {
 
@@ -43,14 +44,21 @@ inline quint32 phaseWord(quint32 hz) {
 //   (8/9/10 = XVTR/EXT1/EXT2 inputs, 11 = RX bypass out, 13/14 =
 //   Alex attens — all 0: RX comes from the TRX antenna via the TR
 //   relay, no ext routing.)
-quint16 saturnAlexRxWord(quint32 hz) {
-    if (hz <  1'500'000u) return 1u << 12;   // below BPF range → bypass
-    if (hz <  6'500'000u) return 1u << 6;
-    if (hz <  9'500'000u) return 1u << 5;
-    if (hz < 13'000'000u) return 1u << 4;
-    if (hz < 20'000'000u) return 1u << 1;
-    if (hz < 50'000'000u) return 1u << 2;
-    return 1u << 3;                          // 6 m BPF/preamp
+quint16 saturnAlexRxWord(quint32 hz, P2RxInput input, bool hpfBypass) {
+    quint16 w = 0;
+    switch (input) {
+        case P2RxInput::Bypass: w |= 1u << 10; break;
+        case P2RxInput::Ext1:   w |= 1u << 9;  break;
+        case P2RxInput::Xvtr:   w |= 1u << 8;  break;
+        case P2RxInput::Trx:                         break;
+    }
+    if (hpfBypass || hz < 1'500'000u) return w | (1u << 12);
+    if (hz <  6'500'000u) return w | (1u << 6);
+    if (hz <  9'500'000u) return w | (1u << 5);
+    if (hz < 13'000'000u) return w | (1u << 4);
+    if (hz < 20'000'000u) return w | (1u << 1);
+    if (hz < 50'000'000u) return w | (1u << 2);
+    return w | (1u << 3);
 }
 
 // TX halfword bits (32-bit word bits 16..31 → u16 0..15):
@@ -78,34 +86,16 @@ quint16 saturnAlexTxWord(quint32 hz, int trxAnt) {
 }
 
 const P2HardwareProfile kSaturnProfile = {
-    "Saturn (ANAN G2)", 10, 10, 2,
+    "ANAN-G2", "Saturn (ANAN G2)", 10, 10, 2,
     &saturnAlexRxWord, &saturnAlexTxWord,
 };
 } // namespace
 
-const P2HardwareProfile *p2ProfileForBoard(int boardId) {
-    // Saturn (board 10/11) is the only family bench-verified against
-    // real hardware.  It is ALSO the correct table for the rest of
-    // the classic-Alex-board family (Hermes/HermesII/Angelia/Orion/
-    // OrionMKII) — Thetis's own console.cs draws the Saturn/OrionMKII
-    // split only on WHICH UI Setup-form fields supply the band-edge
-    // thresholds (setBPF1ForOrionIISaturn vs setAlexHPF); the actual
-    // bits written (NetworkIO.SetAlexHPFBits/SetAlexLPFBits) are
-    // IDENTICAL either way.  So this covers every Alex-equipped P2
-    // board with the correct BIT ENCODING; only the hardcoded band-
-    // edge THRESHOLDS in saturnAlexRxWord/TxWord are Saturn-typical
-    // approximations on non-Saturn hardware, not independently
-    // bench-verified there.  Atlas (no Alex board) and anything
-    // unrecognized get nullptr rather than a silently-possibly-wrong
-    // guess; the caller (P2RxBridge::open) logs a warning when this
-    // happens instead of defaulting quietly.
-    switch (boardId) {
-        case 1: case 2: case 3: case 4: case 5:   // Hermes..OrionMKII
-        case 10: case 11:                          // Saturn, SaturnMKII
-            return &kSaturnProfile;
-        default:
-            return nullptr;
-    }
+const P2HardwareProfile *p2ProfileForModel(const QString &modelKey) {
+    if (modelKey.compare(QLatin1String("ANAN-G2"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ANAN-G2-1K"), Qt::CaseInsensitive) == 0)
+        return &kSaturnProfile;
+    return nullptr;
 }
 
 P2Session::P2Session(QObject *parent)
@@ -117,7 +107,6 @@ P2Session::P2Session(QObject *parent)
     // thread — cross-thread QUdpSocket/QTimer use, which crashed the
     // app on the first P2 open (bench 2026-07-18, AV in lyra.exe).
     : QObject(parent), sock_(this), hpTimer_(this) {
-    profile_ = p2ProfileForBoard(10);   // Saturn default
     // Bench-sane default: every DDC parked on 20 m until told otherwise
     // (the radio requires a plausible frequency word even for DDCs that
     // will never be enabled — zeros are legal but this keeps DDC0 useful
@@ -156,6 +145,13 @@ void P2Session::disableDdc(int ddc) {
         sock_.writeDatagram(buildDdcSpecificPacket(), radioAddr_, kPortDdcConfig);
 }
 
+void P2Session::setDdcAdc(int ddc, int adc) {
+    if (ddc < 0 || ddc >= kNumDdc || adc < 0 || adc > 1) return;
+    ddcAdc_[static_cast<std::size_t>(ddc)] = static_cast<quint8>(adc);
+    if (open_)
+        sock_.writeDatagram(buildDdcSpecificPacket(), radioAddr_, kPortDdcConfig);
+}
+
 QByteArray P2Session::buildGeneralPacket() const {
     QByteArray pkt(kGeneralLen, char{0});
     // [0..3] sequence stays 0 (control packets never increment — see
@@ -187,14 +183,14 @@ QByteArray P2Session::buildDdcSpecificPacket() const {
     // Interleave sync words [1363+2p] stay zero.  Disabled DDCs may
     // leave rate/size zero (unvalidated while off).
     QByteArray pkt(kDdcSpecificLen, char{0});
-    pkt[4] = char{0x02};
+    pkt[4] = static_cast<char>(profile_ ? profile_->adcCount : 1);
     quint16 mask = 0;
     for (int i = 0; i < kNumDdc; ++i) {
         const auto n = static_cast<std::size_t>(i);
         if (!ddcEnabled_[n]) continue;
         mask |= static_cast<quint16>(1u << i);
         const int off = 17 + 6 * i;
-        pkt[off]     = char{0x00};                     // source: ADC1
+        pkt[off]     = static_cast<char>(ddcAdc_[n]); // source: ADC1/ADC2
         pkt[off + 1] = static_cast<char>(ddcRateKhz_[n] >> 8);
         pkt[off + 2] = static_cast<char>(ddcRateKhz_[n] & 0xFF);
         pkt[off + 5] = char{24};                       // 24-bit samples
@@ -226,19 +222,27 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     if (profile_) {
         const quint32 f = ddcFreqHz_[0];
         const quint16 txw = profile_->alexTxWord(f, trxAntenna_);
-        const quint16 rxw = profile_->alexRxWord(f);
+        const quint16 rxw =
+            profile_->alexRxWord(f, rxInput_, hpfBypass_);
         pkt[1432] = static_cast<char>(txw >> 8);
         pkt[1433] = static_cast<char>(txw & 0xFF);
         pkt[1434] = static_cast<char>(rxw >> 8);
         pkt[1435] = static_cast<char>(rxw & 0xFF);
     }
-    // [1442..43] ADC2/ADC1 step attenuation 0 dB (max legal 31).
+    pkt[1442] = static_cast<char>(adcAttenuation_[1]); // ADC2 ATT
+    pkt[1443] = static_cast<char>(adcAttenuation_[0]); // ADC1 ATT
     return pkt;
 }
 
 void P2Session::setTrxAntenna(int ant) {
     if (ant < 1 || ant > 3) return;
     trxAntenna_ = ant;
+}
+
+void P2Session::setAdcAttenuation(int adc, int db) {
+    if (adc < 0 || adc >= static_cast<int>(adcAttenuation_.size())) return;
+    adcAttenuation_[static_cast<std::size_t>(adc)] =
+        static_cast<quint8>(std::clamp(db, 0, 31));
 }
 
 void P2Session::sendSpeakerAudio(const qint16 *lr, int nframes) {

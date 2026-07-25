@@ -70,6 +70,37 @@ HL2 · Saturn→ANAN-G2/ANAN-G2-1K · (HermesC10→ANAN-G2E, later).
 Marketed model ≠ discovered board — same FPGA family, different PA
 tables / calibration / mic wiring / relays / PureSignal setup.
 
+### G2 runtime profile parity (implemented 2026-07-25)
+
+The G2 profile now consumes the same model-specific facts as Thetis:
+
+- selected marketed model (`ANAN-G2` / `ANAN-G2-1K`) chooses the
+  Saturn front-end encoder; discovery board id alone never enables Alex
+  behavior on another product;
+- two ADCs, MkII BPF behavior, supply/current conversion, RX meter
+  offset `-4.476 dB`, RX display offset `-4.4005 dB`, P2 PureSignal
+  peak metadata `0.6121`, and the G2 PA table remain sourced from
+  `HardwareCatalog`;
+- DDC0 can select ADC1 or ADC2, and HP bytes 1442/1443 carry the
+  selected ADC's manual `0..31 dB` step attenuation;
+- status overload bits and both ADC peaks feed the protocol-neutral
+  `ActiveFrontEndModel`; the Audio panel shows ATT/ADC/overload for P2
+  and preserves the original LNA/Auto behavior for P1;
+- ATT, ADC, TRX antenna, RX input (`TRX`, `BYPS`, `EXT1`, `XVTR`) and
+  HPF bypass are persisted per rig and per band under
+  `rig/<id>/band_mem/<band>/p2/`;
+- the S-meter references P2 readings back to the antenna with the
+  actual attenuation plus the G2 meter offset, while the spectrum and
+  waterfall use the G2 display offset;
+- `test_p2_g2_profile` locks the 1444-byte HP and DDC-specific packet
+  images, including phase words, Alex routing, attenuation, and ADC
+  source. The live G2 transport test remains the hardware gate.
+
+Deliberately not added: automatic P2 attenuation. The first G2 profile
+is manual and observable; automation belongs after overload/level
+behavior is characterized across bands. TX and PureSignal remain
+separate later phases.
+
 ## Phase sequence
 1. **Freeze reference + golden tests** — pin the Thetis fork; byte
    golden tests for discovery, the four control packets, audio/TX-IQ

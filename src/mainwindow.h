@@ -31,6 +31,7 @@ class QSystemTrayIcon;
 namespace lyra::wx { class WxService; }
 namespace lyra::solar { class SolarService; }
 namespace lyra::wire { class P2RxBridge; }
+namespace lyra::hardware { class ActiveFrontEndModel; }
 namespace lyra::profile { class ProfileManager; class CompanionLauncher; }
 namespace lyra::cat { class SerialPtt; class SerialCwKey; class CatServer; }
 namespace lyra::tx { class ClipBank; class VoiceKeyer; }
@@ -267,6 +268,7 @@ private:
     // Protocol 2 (Saturn / ANAN G2) RX bridge — the P2 counterpart of
     // the HL2 wire path; mutually exclusive with it (see P2RxBridge.h).
     lyra::wire::P2RxBridge *p2Bridge_ = nullptr;
+    lyra::hardware::ActiveFrontEndModel *frontEnd_ = nullptr;
     // Session recorder (#201): engine + the always-visible status-bar "● REC"
     // chip (shown only while recording; click-to-stop).
     lyra::recorder::RecorderEngine *recorder_ = nullptr;

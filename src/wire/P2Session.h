@@ -72,6 +72,15 @@
 
 namespace lyra::wire {
 
+// G2/Saturn RX input routing.  The G2's BYPS connector is the former
+// Alex EXT2 input (bit 10); it is distinct from HPF bypass (bit 12).
+enum class P2RxInput : quint8 {
+    Trx    = 0,
+    Bypass = 1,
+    Ext1   = 2,
+    Xvtr   = 3,
+};
+
 // ---- P2 hardware profile (Thetis "HardwareSpecific.Hardware" analogue) ----
 // Thetis branches per radio model at every hardware-behavior site
 // (console.cs: HPSDRHW.Saturn → setBPF1ForOrionIISaturn, MkII BPF
@@ -87,19 +96,21 @@ namespace lyra::wire {
 // = the "connects but only hears its own noise floor" trap (bench
 // 2026-07-19).  Bit layout per Thetis network.h:263-302 rbpfilter.
 struct P2HardwareProfile {
+    const char *modelKey;     // selected marketed model, not board id alone
     const char *name;
     int         boardId;      // P2 discovery reply byte [11]
     int         ddcCount;
     int         adcCount;
     // Alex0 RX halfword (BPF/HPF select, ext-in routing) for a dial
     // frequency, and TX halfword (ANT select + LPF) — trxAnt 1..3.
-    quint16 (*alexRxWord)(quint32 hz);
+    quint16 (*alexRxWord)(quint32 hz, P2RxInput input, bool hpfBypass);
     quint16 (*alexTxWord)(quint32 hz, int trxAnt);
 };
 
-// Profile lookup by discovery board type; unknown ids fall back to
-// the Saturn profile (the only P2 family bench-verified so far).
-const P2HardwareProfile *p2ProfileForBoard(int boardId);
+// The selected/saved marketed model chooses runtime front-end policy.
+// Discovery board id remains validation metadata; it cannot distinguish
+// every product variant that shares a wire-compatible board.
+const P2HardwareProfile *p2ProfileForModel(const QString &modelKey);
 
 class P2Session : public QObject {
     Q_OBJECT
@@ -119,18 +130,27 @@ public:
     // Protocol 2 legal rates (48/96/192/384/768/1536; p2app validates
     // and rejects the whole packet otherwise).  Sample size is always
     // 24 bit.  Takes effect on the next DDC-specific send (immediate
-    // if the session is open).  Source is ADC1 for all DDCs (multi-ADC
-    // routing is later work).
+    // if the session is open).  Source defaults to ADC1 and is selectable.
     void enableDdc(int ddc, quint16 rateKhz);
     void disableDdc(int ddc);
+    void setDdcAdc(int ddc, int adc);
     quint32 iqFrameCount() const { return iqFrameCount_; }
     quint32 iqSeqErrors()  const { return iqSeqErrors_;  }
 
-    // Hardware profile + TRX antenna port (1..3).  Applied on the next
-    // HP tick; the front-end words re-derive from DDC0's frequency on
-    // every HP build, so band changes re-filter automatically.
-    void setProfile(const P2HardwareProfile *p) { if (p) profile_ = p; }
+    // nullptr is an explicit no/unverified-front-end state.
+    void setProfile(const P2HardwareProfile *p) { profile_ = p; }
     void setTrxAntenna(int ant);
+    void setRxInput(P2RxInput input) { rxInput_ = input; }
+    void setHpfBypass(bool on) { hpfBypass_ = on; }
+    void setAdcAttenuation(int adc, int db);
+
+    // Golden-packet test seam: exact production encoders, no I/O.
+    QByteArray diagnosticHighPriorityPacket(bool run) const {
+        return buildHighPriorityPacket(run);
+    }
+    QByteArray diagnosticDdcSpecificPacket() const {
+        return buildDdcSpecificPacket();
+    }
 
     // RX-audio return to the RADIO's speaker (G2 on-board amp):
     // 48 kHz stereo int16 → 260 B packets (4 B incrementing seq +
@@ -205,12 +225,16 @@ private:
     // Phase C receive-stream config + per-DDC sequence tracking.
     std::array<bool,    10> ddcEnabled_{};
     std::array<quint16, 10> ddcRateKhz_{};
+    std::array<quint8,  10> ddcAdc_{};
     std::array<quint32, 10> ddcSeqNext_{};
     std::array<bool,    10> ddcSeqStarted_{};
     quint32      iqFrameCount_ = 0;
     quint32      iqSeqErrors_  = 0;
-    const P2HardwareProfile *profile_ = nullptr;  // ctor sets Saturn default
+    const P2HardwareProfile *profile_ = nullptr;
     int          trxAntenna_   = 1;               // ANT1..3
+    P2RxInput    rxInput_      = P2RxInput::Trx;
+    bool         hpfBypass_    = false;
+    std::array<quint8, 2> adcAttenuation_{};
     quint32      spkrSeq_      = 0;               // speaker stream sequence
     QByteArray   spkrStage_;                      // partial-packet staging
 

@@ -374,6 +374,12 @@ public:
     // internally, as standard SDR apps rely on).  Plain C++ (not Q_INVOKABLE):
     // the panadapter is a C++ QQuickPaintedItem, not QML JS.
     int  spectrumPixelCount() const;
+    void setRxDisplayCalibrationDb(double db) {
+        rxDisplayCalibrationDb_.store(db, std::memory_order_relaxed);
+    }
+    double rxDisplayCalibrationDb() const {
+        return rxDisplayCalibrationDb_.load(std::memory_order_relaxed);
+    }
     int  copySpectrum(float *dst, int maxN);
     // §15.29 C1 — waterfall-specific spectrum read.  During TX state,
     // the analyzer is configured with n_pixout=2 (configureAnalyzerForTx)
@@ -1138,6 +1144,7 @@ private:
     // garbage feeding the zoom crop).  GUI-thread only (the QQuickWidget
     // panadapter + waterfall reads are serialised).
     std::vector<float> specCache_;
+    std::atomic<double> rxDisplayCalibrationDb_{0.0};
     // §15.29 C1 — pixout=1 waterfall cache, mirrors specCache_ but
     // populated by copyWaterfallSpectrum's GetPixels(pixout=1) during
     // TX state.  Separate cache because pixout=0 and pixout=1 have

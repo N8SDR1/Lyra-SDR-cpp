@@ -50,6 +50,7 @@
 #include "tx/VoiceKeyer.h"
 #include "wire/Ep6RecvThread.h"       // #89 B1 — ep6Thread().set_tx_clip_source(...)
 #include "wire/P2RxBridge.h"          // Saturn / ANAN G2 Protocol 2 RX path
+#include "hardware/ActiveFrontEndModel.h"
 #include "settingsdialog.h"
 #include "dockdragcontroller.h"
 #include "panelrack.h"
@@ -381,6 +382,8 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     p2Bridge_ = new lyra::wire::P2RxBridge(
         qobject_cast<lyra::ipc::HL2Stream *>(stream_),
         qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_), this);
+    frontEnd_ = new lyra::hardware::ActiveFrontEndModel(
+        qobject_cast<lyra::ipc::HL2Stream *>(stream_), p2Bridge_, this);
     connect(p2Bridge_, &lyra::wire::P2RxBridge::runningChanged,
             this, [this]() { updateConnState(); });
     // The bridge's OWN diagnostics (hardware-profile resolution, the
@@ -1093,6 +1096,10 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
         QStringLiteral("Discovery"), discovery_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("Stream"), stream_);
+    qw->rootContext()->setContextProperty(
+        QStringLiteral("FrontEnd"), frontEnd_);
+    qw->rootContext()->setContextProperty(
+        QStringLiteral("P2Bridge"), p2Bridge_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("Wdsp"), wdsp_);
     qw->rootContext()->setContextProperty(

@@ -1135,11 +1135,15 @@ double MeterModel::calibratedSMeterDbm(double raw) const {
     // current LNA gain on P1 to stay true-to-source across LNA changes.
     // P2 does not drive that HL2-only PGA control; subtracting its inert UI
     // value made the P2 S-meter move while the ADC level stayed unchanged.
-    // A future P2 step-attenuator control must supply its own compensation.
+    // P2 uses loss rather than gain: add the selected ADC's actual step
+    // attenuation to reference the reading back to the antenna, and apply
+    // the selected hardware model's Thetis-derived meter offset.
     const bool onP2 = p2_ && p2_->isRunning();
     const double lna = (!onP2 && stream_)
         ? static_cast<double>(stream_->lnaGainDb()) : 0.0;
-    return raw + calDb_ - lna;
+    const double p2Comp = onP2
+        ? p2_->rxAttenuationDb() + p2_->meterCalibrationOffset() : 0.0;
+    return raw + calDb_ - lna + p2Comp;
 }
 
 double MeterModel::rxSMeterDbm() const {

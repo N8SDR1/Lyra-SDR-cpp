@@ -2832,14 +2832,19 @@ QWidget *SettingsDialog::buildHardwareTab() {
             hwRow->addWidget(new QLabel(tr("Antenna:"), radioBox));
             auto *antCombo = new QComboBox(radioBox);
             antCombo->addItems({tr("ANT 1"), tr("ANT 2"), tr("ANT 3")});
-            antCombo->setCurrentIndex(qBound(
-                1, QSettings().value(QStringLiteral("p2/trxAntenna"), 1)
-                       .toInt(), 3) - 1);
+            antCombo->setCurrentIndex(
+                p2_ && p2_->isRunning()
+                    ? p2_->trxAntenna() - 1
+                    : qBound(1,
+                        QSettings().value(QStringLiteral("p2/trxAntenna"), 1)
+                            .toInt(), 3) - 1);
             connect(antCombo,
                     QOverload<int>::of(&QComboBox::currentIndexChanged),
-                    radioBox, [status, list](int idx) {
+                    radioBox, [this, status, list](int idx) {
                         QSettings().setValue(
                             QStringLiteral("p2/trxAntenna"), idx + 1);
+                        if (p2_ && p2_->isRunning())
+                            p2_->setTrxAntenna(idx + 1);
                         if (auto *it = list->currentItem();
                             it && it->data(Qt::UserRole + 7).toInt() == 2) {
                             auto p = lyra::rig::registry::rig(
@@ -2954,6 +2959,50 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     });
             hwRow->addWidget(startupChk);
             rv->addLayout(hwRow);
+
+            // Live G2 front-end state.  These settings are rig- and
+            // band-scoped by P2RxBridge; they are intentionally disabled
+            // unless a P2 session is active, so editing an undiscovered
+            // radio can never write state under the wrong rig.
+            auto *feRow = new QHBoxLayout();
+            auto *feLabel = new QLabel(tr("Active G2 band:"), radioBox);
+            auto *adcCombo = new QComboBox(radioBox);
+            adcCombo->addItems({tr("ADC 1"), tr("ADC 2")});
+            auto *inputCombo = new QComboBox(radioBox);
+            inputCombo->addItems({tr("TRX antenna"), tr("BYPS"),
+                                  tr("EXT 1"), tr("XVTR")});
+            auto *hpfBypass = new QCheckBox(tr("HPF bypass"), radioBox);
+            const bool p2Active = p2_ && p2_->isRunning();
+            feLabel->setEnabled(p2Active);
+            adcCombo->setEnabled(p2Active);
+            inputCombo->setEnabled(p2Active);
+            hpfBypass->setEnabled(p2Active);
+            if (p2Active) {
+                adcCombo->setCurrentIndex(p2_->ddcAdc());
+                inputCombo->setCurrentIndex(p2_->rxInput());
+                hpfBypass->setChecked(p2_->hpfBypass());
+            }
+            connect(adcCombo,
+                    QOverload<int>::of(&QComboBox::currentIndexChanged),
+                    radioBox, [this](int idx) {
+                        if (p2_ && p2_->isRunning()) p2_->setDdcAdc(idx);
+                    });
+            connect(inputCombo,
+                    QOverload<int>::of(&QComboBox::currentIndexChanged),
+                    radioBox, [this](int idx) {
+                        if (p2_ && p2_->isRunning()) p2_->setRxInput(idx);
+                    });
+            connect(hpfBypass, &QCheckBox::toggled, radioBox,
+                    [this](bool on) {
+                        if (p2_ && p2_->isRunning()) p2_->setHpfBypass(on);
+                    });
+            feRow->addWidget(feLabel);
+            feRow->addWidget(adcCombo);
+            feRow->addWidget(new QLabel(tr("RX input:"), radioBox));
+            feRow->addWidget(inputCombo);
+            feRow->addWidget(hpfBypass);
+            feRow->addStretch(1);
+            rv->addLayout(feRow);
         }
 
         auto refresh = [this, scanBtn, openBtn, closeBtn, removeBtn,

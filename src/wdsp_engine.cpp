@@ -2166,9 +2166,13 @@ int WdspEngine::copySpectrum(float *dst, int maxN)
 
     const double z = zoom_.load(std::memory_order_relaxed);
     const double offBins = txAnalyzerOffBins();   // 0 unless TUN active
+    const float cal =
+        static_cast<float>(rxDisplayCalibrationDb_.load(std::memory_order_relaxed));
     if (z <= 1.0 && offBins == 0.0) {
         // Full span, no TUN shift — hand the cached spectrum straight back.
         std::memcpy(dst, full, static_cast<size_t>(n) * sizeof(float));
+        if (cal != 0.0f)
+            for (int i = 0; i < n; ++i) dst[i] += cal;
         return n;
     }
 
@@ -2178,6 +2182,8 @@ int WdspEngine::copySpectrum(float *dst, int maxN)
     // the analyzer is never reconfigured, so the trace can't be corrupted
     // by a live re-setup.
     cropSpectrum(full, dst, n, offBins);
+    if (cal != 0.0f)
+        for (int i = 0; i < n; ++i) dst[i] += cal;
     return n;
 }
 

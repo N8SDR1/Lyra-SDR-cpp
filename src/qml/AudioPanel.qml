@@ -86,7 +86,7 @@ Rectangle {
             spacing: 8
             Layout.fillWidth: true
 
-            Label { text: qsTr("LNA"); color: root.cMuted }
+            Label { text: FrontEnd.label; color: root.cMuted }
             LyraSlider {
                 id: lnaSlider
                 // 120 -> 100: the A-ATT state cue is wider than the 10 px
@@ -94,28 +94,35 @@ Rectangle {
                 // the right edge of row 1.  Trimmed here and on Vol rather
                 // than shrinking the readouts.
                 Layout.preferredWidth: 100
-                from: -12; to: 48; stepSize: 1; snapMode: Slider.SnapAlways
-                value: Stream.lnaGainDb
-                onMoved: Stream.setLnaGainDb(value)
-                ToolTip.text: qsTr("LNA — RF input gain on the HL2's AD9866 PGA, −12…+48 dB.\n"
-                    + "Higher = more sensitivity; back off on strong bands to avoid ADC overload.\n"
-                    + "The S-meter compensates automatically, so changing LNA won't shift the reading.")
+                from: FrontEnd.minimum; to: FrontEnd.maximum
+                stepSize: 1; snapMode: Slider.SnapAlways
+                value: FrontEnd.value
+                onMoved: FrontEnd.setValue(value)
+                ToolTip.text: FrontEnd.p2Active
+                    ? qsTr("ATT — G2 ADC step attenuation, 0…31 dB, remembered per band.\n"
+                        + "Increase attenuation when the ADC overload indicator lights.")
+                    : qsTr("LNA — RF input gain on the HL2's AD9866 PGA, −12…+48 dB.\n"
+                        + "Higher = more sensitivity; back off on strong bands to avoid ADC overload.\n"
+                        + "The S-meter compensates automatically, so changing LNA won't shift the reading.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
                 WheelHandler {
-                    onWheel: (ev) => Stream.setLnaGainDb(
-                        Stream.lnaGainDb + (ev.angleDelta.y > 0 ? 1 : -1))
+                    onWheel: (ev) => FrontEnd.setValue(
+                        FrontEnd.value + (ev.angleDelta.y > 0 ? 1 : -1))
                 }
             }
             Label {
-                text: (Stream.lnaGainDb > 0 ? "+" : "") + Stream.lnaGainDb + qsTr(" dB")
+                text: (!FrontEnd.p2Active && FrontEnd.value > 0 ? "+" : "")
+                      + FrontEnd.value + qsTr(" dB")
                 color: root.cText; font.family: "Consolas"; Layout.preferredWidth: 48
             }
             Button {
                 id: autoBtn
                 text: qsTr("Auto")
                 checkable: true
-                checked: Stream.autoLna
-                onToggled: Stream.setAutoLna(checked)
+                checked: FrontEnd.autoEnabled
+                enabled: FrontEnd.autoAvailable
+                visible: !FrontEnd.p2Active
+                onToggled: FrontEnd.setAutoEnabled(checked)
                 implicitWidth: 46; implicitHeight: 24
                 background: Rectangle {
                     radius: 3
@@ -137,6 +144,17 @@ Rectangle {
                     + "Auto roams freely; your manual setting is restored when you turn it off.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
+            LyraComboBox {
+                id: adcCombo
+                visible: FrontEnd.p2Active
+                Layout.preferredWidth: 58
+                model: [qsTr("ADC1"), qsTr("ADC2")]
+                currentIndex: FrontEnd.adcIndex
+                onActivated: FrontEnd.setAdcIndex(currentIndex)
+                ToolTip.text: qsTr("ADC feeding DDC0. The attenuation and overload "
+                    + "indicator follow the selected ADC.")
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+            }
             // ADC-overload ladder, or the auto-attenuator state cue.
             //
             // Three rungs (silent / amber "seen recently" / red "confirmed
@@ -149,7 +167,7 @@ Rectangle {
             // handled is noise.  What the operator wants there is "the
             // automation is engaged", which is what A-ATT says.
             Item {
-                implicitWidth: Stream.autoLna ? aattLabel.implicitWidth : 10
+                implicitWidth: FrontEnd.autoEnabled ? aattLabel.implicitWidth : 10
                 implicitHeight: 14
                 Layout.alignment: Qt.AlignVCenter
 
@@ -157,7 +175,7 @@ Rectangle {
                 Label {
                     id: aattLabel
                     anchors.centerIn: parent
-                    visible: Stream.autoLna
+                    visible: FrontEnd.autoEnabled
                     text: qsTr("A-ATT")
                     color: root.cOn
                     font.family: "Consolas"
@@ -167,25 +185,29 @@ Rectangle {
                 // Auto off — the operator owns the gain, so show the ladder.
                 Rectangle {
                     anchors.centerIn: parent
-                    visible: !Stream.autoLna
+                    visible: !FrontEnd.autoEnabled
                     width: 10; height: 10; radius: 5
-                    color: Stream.adcOverloadTier === 2 ? "#ff4040"
-                         : Stream.adcOverloadTier === 1 ? "#e0a828"
+                    color: FrontEnd.overloadTier === 2 ? "#ff4040"
+                         : FrontEnd.overloadTier === 1 ? "#e0a828"
                                                         : "#26323c"
                     border.width: 1
-                    border.color: Stream.adcOverloadTier === 2 ? "#ff8080"
-                                : Stream.adcOverloadTier === 1 ? "#f5c860"
+                    border.color: FrontEnd.overloadTier === 2 ? "#ff8080"
+                                : FrontEnd.overloadTier === 1 ? "#f5c860"
                                                                : "#33424e"
                 }
 
-                ToolTip.text: Stream.autoLna
+                ToolTip.text: FrontEnd.autoEnabled
                     ? qsTr("A-ATT — the auto-attenuator is managing the front "
                         + "end. It backs the LNA off on confirmed overload and "
                         + "creeps it back as the band clears, so the overload "
                         + "alarm is not shown while it is engaged.")
-                    : qsTr("ADC overload — amber: the front end clipped "
+                    : (FrontEnd.p2Active
+                       ? qsTr("G2 ADC overload — amber: clipped recently; red: "
+                           + "sustained clipping. Selected ADC peak: %1 / 32768.")
+                           .arg(FrontEnd.adcPeak)
+                       : qsTr("ADC overload — amber: the front end clipped "
                         + "recently and is settling. Red: sustained clipping. "
-                        + "Reduce LNA or enable Auto.")
+                        + "Reduce LNA or enable Auto."))
                 ToolTip.visible: (ovLampMa.containsMouse) && Prefs.tooltipsEnabled
                 MouseArea { id: ovLampMa; anchors.fill: parent; hoverEnabled: true }
             }
