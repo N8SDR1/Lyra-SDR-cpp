@@ -1132,9 +1132,13 @@ void MeterModel::computeSMeter() {
 double MeterModel::calibratedSMeterDbm(double raw) const {
     // SINGLE source of truth for the RX S-meter calibration (see the header
     // decl).  RXA_S_PK is measured after the hardware PGA, so subtract the
-    // current LNA gain to stay true-to-source across LNA changes; calDb_
-    // then trims the absolute level once.
-    const double lna = stream_ ? static_cast<double>(stream_->lnaGainDb()) : 0.0;
+    // current LNA gain on P1 to stay true-to-source across LNA changes.
+    // P2 does not drive that HL2-only PGA control; subtracting its inert UI
+    // value made the P2 S-meter move while the ADC level stayed unchanged.
+    // A future P2 step-attenuator control must supply its own compensation.
+    const bool onP2 = p2_ && p2_->isRunning();
+    const double lna = (!onP2 && stream_)
+        ? static_cast<double>(stream_->lnaGainDb()) : 0.0;
     return raw + calDb_ - lna;
 }
 

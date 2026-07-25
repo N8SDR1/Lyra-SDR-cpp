@@ -2,6 +2,7 @@
 
 #include "P2RxBridge.h"
 
+#include "FrameComposer.h"
 #include "P2Session.h"
 #include "Router.h"
 #include "hardware/HardwareCatalog.h"
@@ -168,10 +169,15 @@ void P2RxBridge::pushDialToSession() {
         rx = static_cast<quint32>(
             std::max<qint64>(0, qint64(rx) + stream_->ritOffsetHz()));
     const quint32 tx = stream_->rx1FreqHz();
+    // Match P1's final wire-frequency choke point: calibration applies
+    // after RIT for RX and to the unshifted dial for the DUC.
+    rx = static_cast<quint32>(corrected_freq(static_cast<int>(rx)));
+    const quint32 correctedTx =
+        static_cast<quint32>(corrected_freq(static_cast<int>(tx)));
     auto *s = session_;
-    QMetaObject::invokeMethod(s, [s, rx, tx]() {
+    QMetaObject::invokeMethod(s, [s, rx, correctedTx]() {
         s->setDdcFrequencyHz(0, rx);
-        s->setDucFrequencyHz(tx);
+        s->setDucFrequencyHz(correctedTx);
     });
 }
 
@@ -204,6 +210,8 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     // only on a truly fresh install → park on 20 m).
     quint32 hz = stream_ ? stream_->rx1FreqHz() : 0;
     if (hz == 0) hz = 14'100'000u;
+    const quint32 correctedHz =
+        static_cast<quint32>(corrected_freq(static_cast<int>(hz)));
 
     // Rig identity (folded into RigRegistry — was a parallel
     // RadioProfileStore, docs/architecture/p2_identity_reconciliation.md
@@ -345,11 +353,11 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
 
     auto *s = session_;
     const quint16 rate = rateKhz_;
-    QMetaObject::invokeMethod(s, [s, ip, hz, rate, ant, p2hw]() {
+    QMetaObject::invokeMethod(s, [s, ip, correctedHz, rate, ant, p2hw]() {
         if (p2hw) s->setProfile(p2hw);
         s->setTrxAntenna(ant);
-        s->setDdcFrequencyHz(0, hz);
-        s->setDucFrequencyHz(hz);
+        s->setDdcFrequencyHz(0, correctedHz);
+        s->setDucFrequencyHz(correctedHz);
         s->enableDdc(0, rate);
         s->open(ip);
     });
@@ -358,12 +366,13 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     open_ = true;
     emit openChanged();
     emit logLine(QStringLiteral(
-        "P2: opening %1 (DDC0 @ %2 kHz, %3 Hz)").arg(ip).arg(rateKhz_).arg(hz));
+        "P2: opening %1 (DDC0 @ %2 kHz, %3 Hz)")
+            .arg(ip).arg(rateKhz_).arg(correctedHz));
     // isRunning() stays false — and runningChanged() does NOT fire —
     // until P2Session::started() confirms the radio actually answered
     // (connected in the constructor).  See the open_/running_ split
     // in the header.
-    pushDialToSession();   // refresh with RIT applied (seed was raw dial)
+    pushDialToSession();   // refresh with RIT applied
 }
 
 void P2RxBridge::close() {

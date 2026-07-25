@@ -113,15 +113,16 @@ void set_tx_freq(int freq_hz);
 void set_band_volts_output(bool on);
 
 // Frequency-calibration factor — a crystal/TCXO ppm trim applied to
-// EVERY RX/TX frequency inside set_rx_freq / set_tx_freq, i.e. the one
-// choke point every tune path (RIT/XIT/CTUN/PS-feedback/waterfall-ID)
-// funnels through, the instant before the value is written to `prn`.
+// EVERY RX/TX wire frequency.  corrected_freq() is the shared P1/P2
+// choke point; the P1 setters below and P2RxBridge both call it
+// immediately before handing a frequency to their protocol encoder.
 // Faithful mirror of the reference's `NetworkIO._freq_correction_factor`,
 // which multiplies the requested freq in `VFOfreq()` (NetworkIO.cs:219)
 // before it reaches the wire — so `prn->..[].frequency` holds the
 // corrected value exactly as the reference's command struct does.
 // Default 1.0 = no correction (exact fast-path, byte-identical output).
 // Thread-safe (atomic); see freq_calibration_design.md.
+int corrected_freq(int freq_hz);
 void set_freq_correction(double factor);
 double freq_correction();
 
