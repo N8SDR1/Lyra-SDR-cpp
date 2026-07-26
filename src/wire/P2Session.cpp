@@ -106,7 +106,7 @@ P2Session::P2Session(QObject *parent)
     // main-thread affinity while open()/onHpTick() ran on the session
     // thread — cross-thread QUdpSocket/QTimer use, which crashed the
     // app on the first P2 open (bench 2026-07-18, AV in lyra.exe).
-    : QObject(parent), sock_(this), hpTimer_(this) {
+    : QObject(parent), sock_(this), hpTimer_(this), txWriter_(this) {
     // Bench-sane default: every DDC parked on 20 m until told otherwise
     // (the radio requires a plausible frequency word even for DDCs that
     // will never be enabled — zeros are legal but this keeps DDC0 useful
@@ -116,6 +116,16 @@ P2Session::P2Session(QObject *parent)
     hpTimer_.setInterval(kHpPeriodMs);
     connect(&hpTimer_, &QTimer::timeout, this, &P2Session::onHpTick);
     connect(&sock_, &QUdpSocket::readyRead, this, &P2Session::onReadyRead);
+    txWriter_.setPacketSink([this](const QByteArray &packet) {
+        if (open_)
+            sock_.writeDatagram(packet, radioAddr_, kPortDucIqToSdr);
+    });
+    txWriter_.setFaultSink([this]() {
+        txSafety_.faultLatched = true;
+        txSafety_.iqPrimed = false;
+        emit logLine(QStringLiteral(
+            "P2 TX: pacing deadline missed; writer stopped and TX faulted"));
+    });
 }
 
 P2Session::~P2Session() {
@@ -305,15 +315,21 @@ void P2Session::open(const QString &ip) {
     ddcSeqStarted_.fill(false);
     spkrSeq_       = 0;
     spkrStage_.clear();
+    txWriter_.stop();
+    txIntent_ = {};
+    txSafety_ = {};
 
     // Handshake per p2app: general packet (claims the controller lease
-    // for our source IP + registers the reply address), DDC-specific
+    // for our source IP + registers the reply address), safe DUC-specific
+    // config (CW off, 192 kHz, maximum ADC attenuation), DDC-specific
     // config (all-disabled for Phase B — also opens the firewall UDP
     // flow toward radio:1025, see kDdcRefreshTicks), then the HP
     // run=1 cadence (StartBitReceived) → radio goes active and its
     // status stream starts.  First HP goes immediately; the timer
     // refreshes it every 100 ms which doubles as the keepalive.
     sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
+    sock_.writeDatagram(P2TxPackets::encodeDucSpecific(ducConfig_),
+                        radioAddr_, kPortDucConfig);
     sock_.writeDatagram(buildDdcSpecificPacket(), radioAddr_, kPortDdcConfig);
     sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_, kPortHpToSdr);
     hpTickCount_ = 0;
@@ -328,6 +344,9 @@ void P2Session::open(const QString &ip) {
 void P2Session::close() {
     if (!open_) return;
     hpTimer_.stop();
+    txWriter_.stop();
+    txIntent_ = {};
+    txSafety_ = {};
     // run=0 unkeys, releases the controller lease, and stops the
     // radio's outgoing streams.  Sent three times — it's UDP and this
     // is the packet we most want to arrive.
@@ -416,6 +435,8 @@ void P2Session::parseStatus(const QByteArray &d) {
     if (!running_) {
         // First status packet = handshake complete, radio active.
         running_ = true;
+        txSafety_.sessionRunning = true;
+        txSafety_.telemetryHealthy = true;
         emit logLine(QStringLiteral(
             "P2: radio ACTIVE — status stream up from %1:%2")
             .arg(radioIp_).arg(kPortHpFromSdr));

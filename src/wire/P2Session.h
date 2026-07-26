@@ -63,6 +63,8 @@
 #pragma once
 
 #include "P2TxSafety.h"
+#include "P2TxPackets.h"
+#include "P2TxWriter.h"
 
 #include <QObject>
 #include <QString>
@@ -218,6 +220,7 @@ private:
 
     QUdpSocket   sock_;
     QTimer       hpTimer_;
+    P2TxWriter   txWriter_;
     QHostAddress radioAddr_;
     QString      radioIp_;
     bool         open_        = false;   // socket up, session being held
@@ -247,12 +250,15 @@ private:
     // packet builders makes later TX integration fail closed by default.
     P2TxIntent       txIntent_;
     P2TxSafetyInputs txSafety_;
+    P2DucConfig      ducConfig_;
 
     static constexpr quint16 kPortCommand    = 1024;  // general/discovery
     static constexpr quint16 kPortDdcConfig  = 1025;  // DDC-specific -> radio
+    static constexpr quint16 kPortDucConfig  = 1026;  // DUC-specific -> radio
     static constexpr quint16 kPortHpToSdr    = 1027;
     static constexpr quint16 kPortHpFromSdr  = 1025;  // radio SOURCE port
     static constexpr quint16 kPortSpkrToSdr  = 1028;  // speaker audio -> radio
+    static constexpr quint16 kPortDucIqToSdr = 1029;  // TX IQ -> radio
     static constexpr quint16 kPortDdcIq0     = 1035;  // radio SOURCE, +ddc
     static constexpr int     kNumDdc         = 10;
     static constexpr int     kSpkrFrames     = 64;    // frames per packet

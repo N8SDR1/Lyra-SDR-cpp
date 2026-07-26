@@ -1,6 +1,7 @@
 #include "wire/P2Session.h"
 #include "wire/P2TxPackets.h"
 #include "wire/P2TxSafety.h"
+#include "wire/P2TxWriter.h"
 
 #include <QCoreApplication>
 #include <QtEndian>
@@ -135,6 +136,35 @@ int main(int argc, char **argv) {
                      QByteArray(iqPacket.size() - expectedPrefix.size(),
                                 char{0}),
                  "unused TX IQ samples remain zero");
+
+    QList<QByteArray> pacedPackets;
+    bool pacingFault = false;
+    P2TxWriter writer;
+    writer.setPacketSink(
+        [&pacedPackets](const QByteArray &packet) {
+            pacedPackets.append(packet);
+        });
+    writer.setFaultSink([&pacingFault]() { pacingFault = true; });
+    writer.startZeroPriming();
+    ok &= expect(pacedPackets.size() == 1 && writer.nextSequence() == 1,
+                 "writer primes sequence zero immediately");
+    ok &= expect(writer.produceDueForElapsedNs(1'249'999) == 0,
+                 "writer waits for the 1.25 ms frame boundary");
+    ok &= expect(writer.produceDueForElapsedNs(1'250'000) == 1 &&
+                     pacedPackets.size() == 2 &&
+                     qFromBigEndian<quint32>(
+                         reinterpret_cast<const uchar *>(
+                             pacedPackets[1].constData())) == 1,
+                 "writer emits sequence one at the next frame boundary");
+    writer.stop();
+
+    pacedPackets.clear();
+    pacingFault = false;
+    writer.startZeroPriming();
+    ok &= expect(writer.produceDueForElapsedNs(20'000'000) == 0 &&
+                     pacingFault && !writer.isRunning() &&
+                     writer.droppedPackets() > 0,
+                 "writer stops and faults instead of flooding after a stall");
 
     P2Session session;
     const QByteArray general = session.diagnosticGeneralPacket();

@@ -114,6 +114,12 @@ separate later phases.
 - The encoders have no socket access. No public API can arm TX, send
   DUC/TX-IQ packets, set the HP transmit bit, enable the PA, or raise
   drive. The application remains RX-only by construction.
+- `P2TxWriter` now owns deterministic 800-packet/s pacing for the
+  192 kHz, 240-sample TX-IQ stream. It uses the session socket, bounds
+  catch-up, and stops/faults rather than flooding stale samples after a
+  missed deadline. No public session or UI API starts the writer.
+- Session open sends the safe 60-byte DUC configuration (CW off,
+  192 kHz, maximum TX ADC attenuation) before asserting the RX run bit.
 
 ## Phase sequence
 1. **Freeze reference + golden tests** — pin the Thetis fork; byte
@@ -128,10 +134,11 @@ separate later phases.
 4. **More receivers + telemetry** — RX2/DDCs, ADC select, diversity,
    wideband, full overload/telemetry decode (status bytes are already
    parsed; surface them via the catalog's conversion constants).
-5. **P2 TX** — Phase A safety + packet encoders done (RF-inert).
+5. **P2 TX** — Phase A safety, packet encoders, safe DUC send and
+   internal zero-IQ pacer done (RF-inert).
    RX-audio return (base+4) is done. Remaining: paced TX-IQ writer
-   (base+5), DUC-control send (base+2), WDSP TX sink/producer, PTT/MOX,
-   CW/keyer, live drive + PA gates, TX meters and staged RF bench.
+   activation (base+5), WDSP TX sink/producer, PTT/MOX, CW/keyer,
+   live drive + PA gates, TX meters and staged RF bench.
 6. **PureSignal** — feedback DDC config, model defaults (Saturn PS
    peak 0.6121 vs 0.2899), atten safety, two-tone validation.
 7. **Profile management** — create/rename/duplicate/import/export,

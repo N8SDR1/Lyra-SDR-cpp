@@ -182,6 +182,8 @@ qt_add_executable(lyra
     src/wire/P2TxSafety.cpp
     src/wire/P2TxPackets.h
     src/wire/P2TxPackets.cpp
+    src/wire/P2TxWriter.h
+    src/wire/P2TxWriter.cpp
     # Protocol 2 (Saturn / ANAN G2) Phase B — control-plane session
     # (general packet + HP run-bit keepalive + status stream parse).
     # WIRE-INERT in the app today: compiled so it tracks the tree, but
@@ -693,6 +695,10 @@ add_executable(test_p2_session EXCLUDE_FROM_ALL
     src/wire/P2Session.cpp
     src/wire/P2TxSafety.h
     src/wire/P2TxSafety.cpp
+    src/wire/P2TxPackets.h
+    src/wire/P2TxPackets.cpp
+    src/wire/P2TxWriter.h
+    src/wire/P2TxWriter.cpp
 )
 target_include_directories(test_p2_session PRIVATE src)
 target_link_libraries(test_p2_session PRIVATE Qt6::Core Qt6::Network)
@@ -708,6 +714,10 @@ add_executable(test_p2_g2_profile EXCLUDE_FROM_ALL
     src/wire/P2Session.cpp
     src/wire/P2TxSafety.h
     src/wire/P2TxSafety.cpp
+    src/wire/P2TxPackets.h
+    src/wire/P2TxPackets.cpp
+    src/wire/P2TxWriter.h
+    src/wire/P2TxWriter.cpp
 )
 target_include_directories(test_p2_g2_profile PRIVATE src)
 target_link_libraries(test_p2_g2_profile PRIVATE Qt6::Core Qt6::Network)
@@ -725,6 +735,8 @@ add_executable(test_p2_tx_packets EXCLUDE_FROM_ALL
     src/wire/P2TxSafety.cpp
     src/wire/P2TxPackets.h
     src/wire/P2TxPackets.cpp
+    src/wire/P2TxWriter.h
+    src/wire/P2TxWriter.cpp
 )
 target_include_directories(test_p2_tx_packets PRIVATE src)
 target_link_libraries(test_p2_tx_packets PRIVATE Qt6::Core Qt6::Network)
