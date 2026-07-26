@@ -77,6 +77,9 @@ constexpr auto kTxWfDbMax = "panadapter/txWaterfallDbMax";
 constexpr auto kWfDbAuto = "panadapter/waterfallDbAuto";
 constexpr auto kPanSplit = "ui/panadapterSplit";
 constexpr auto kCursorRdt = "panadapter/cursorReadout";
+constexpr auto kXhair    = "panadapter/crosshair";
+constexpr auto kXhairCol = "panadapter/crosshairColor";
+constexpr auto kXhairSty = "panadapter/crosshairStyle";
 constexpr auto kZeroBeat = "visuals/zeroBeatMarkers";
 constexpr auto kDspGrouped = "visuals/dspPanelsGrouped";
 constexpr auto kOptGrouped = "visuals/optionsPanelsGrouped";
@@ -235,6 +238,9 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     waterfallDbAuto_  = s.value(kWfDbAuto, false).toBool();
     panadapterSplit_  = s.value(kPanSplit);   // invalid (= QML undefined) if unset
     cursorReadout_    = s.value(kCursorRdt, true).toBool();
+    panafallCrosshair_ = s.value(kXhair, false).toBool();
+    crosshairColor_    = s.value(kXhairCol, QStringLiteral("#9fd4ff")).toString();
+    crosshairStyle_    = std::clamp(s.value(kXhairSty, 0).toInt(), 0, 3);
     zeroBeatMarkers_  = s.value(kZeroBeat, false).toBool();
     dspPanelsGrouped_     = s.value(kDspGrouped, false).toBool();
     optionsPanelsGrouped_ = s.value(kOptGrouped, false).toBool();
@@ -900,6 +906,31 @@ void Prefs::setWaterfallDbAuto(bool v) {
         waterfallDbAuto_ = v;
         QSettings().setValue(kWfDbAuto, v);
         emit waterfallDbAutoChanged();
+    }
+}
+
+void Prefs::setPanafallCrosshair(bool v) {
+    if (v != panafallCrosshair_) {
+        panafallCrosshair_ = v;
+        QSettings().setValue(kXhair, v);
+        emit panafallCrosshairChanged();
+    }
+}
+
+void Prefs::setCrosshairColor(const QString &hex) {
+    if (hex != crosshairColor_ && !hex.isEmpty()) {
+        crosshairColor_ = hex;
+        QSettings().setValue(kXhairCol, hex);
+        emit crosshairColorChanged();
+    }
+}
+
+void Prefs::setCrosshairStyle(int v) {
+    v = std::clamp(v, 0, 3);
+    if (v != crosshairStyle_) {
+        crosshairStyle_ = v;
+        QSettings().setValue(kXhairSty, v);
+        emit crosshairStyleChanged();
     }
 }
 

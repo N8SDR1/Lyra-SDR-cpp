@@ -7933,6 +7933,61 @@ QWidget *SettingsDialog::buildVisualsTab() {
     });
     form->addRow(tr("Cursor readout"), curRdt);
 
+    // --- Panafall cursor crosshair (opt-in vertical line through both panes) ---
+    {
+        auto *xbox = new QWidget(page);
+        auto *xh = new QHBoxLayout(xbox);
+        xh->setContentsMargins(0, 0, 0, 0);
+        xh->setSpacing(8);
+
+        auto *xEn = new QCheckBox(tr("Enable"), xbox);
+        xEn->setChecked(prefs_->panafallCrosshair());
+        xEn->setToolTip(tr("A thin vertical line at the pointer that runs "
+                           "through both the panadapter and the waterfall."));
+        connect(xEn, &QCheckBox::toggled, prefs_, &Prefs::setPanafallCrosshair);
+        connect(prefs_, &Prefs::panafallCrosshairChanged, xbox, [this, xEn]() {
+            if (xEn->isChecked() != prefs_->panafallCrosshair())
+                xEn->setChecked(prefs_->panafallCrosshair());
+        });
+        xh->addWidget(xEn);
+
+        xh->addWidget(new QLabel(tr("Style:"), xbox));
+        auto *xSty = new QComboBox(xbox);
+        xSty->addItems({ tr("Hairline"), tr("Dashed"),
+                         tr("Double rail"), tr("Crosshair") });
+        xSty->setCurrentIndex(prefs_->crosshairStyle());
+        xSty->setToolTip(tr("Look of the crosshair line."));
+        connect(xSty, &QComboBox::currentIndexChanged,
+                prefs_, &Prefs::setCrosshairStyle);
+        connect(prefs_, &Prefs::crosshairStyleChanged, xbox, [this, xSty]() {
+            if (xSty->currentIndex() != prefs_->crosshairStyle())
+                xSty->setCurrentIndex(prefs_->crosshairStyle());
+        });
+        xh->addWidget(xSty);
+
+        xh->addWidget(new QLabel(tr("Colour:"), xbox));
+        auto *xSwatch = new QPushButton(xbox);
+        xSwatch->setFixedSize(44, 22);
+        xSwatch->setToolTip(tr("Crosshair colour"));
+        auto xSet = [xSwatch](const QString &hex) {
+            xSwatch->setStyleSheet(QStringLiteral(
+                "QPushButton{background:%1;border:1px solid #2a3a4a;"
+                "border-radius:3px;}").arg(hex));
+        };
+        xSet(prefs_->crosshairColor());
+        connect(xSwatch, &QPushButton::clicked, xbox, [this, xbox]() {
+            const QColor c = QColorDialog::getColor(
+                QColor(prefs_->crosshairColor()), xbox, tr("Crosshair colour"));
+            if (c.isValid()) prefs_->setCrosshairColor(c.name());
+        });
+        connect(prefs_, &Prefs::crosshairColorChanged, xbox,
+                [this, xSet]() { xSet(prefs_->crosshairColor()); });
+        xh->addWidget(xSwatch);
+        xh->addStretch(1);
+
+        form->addRow(tr("Cursor crosshair"), xbox);
+    }
+
     // --- Zero-beat markers (± needle under the freq readout, CW/AM/SAM/FM) ---
     auto *zbeat = new QCheckBox(tr("Show Zero-beat markers"), page);
     zbeat->setChecked(prefs_->zeroBeatMarkers());
