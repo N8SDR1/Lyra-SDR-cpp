@@ -176,6 +176,12 @@ qt_add_executable(lyra
     src/wire/MetisFrame.cpp
     src/wire/ForceCandC.h
     src/wire/ForceCandC.cpp
+    # P2 TX Phase A: fail-closed safety evaluator and pure packet encoders.
+    # No socket path consumes the TX encoders yet, so this remains RF-inert.
+    src/wire/P2TxSafety.h
+    src/wire/P2TxSafety.cpp
+    src/wire/P2TxPackets.h
+    src/wire/P2TxPackets.cpp
     # Protocol 2 (Saturn / ANAN G2) Phase B — control-plane session
     # (general packet + HP run-bit keepalive + status stream parse).
     # WIRE-INERT in the app today: compiled so it tracks the tree, but
@@ -685,6 +691,8 @@ add_executable(test_p2_session EXCLUDE_FROM_ALL
     scratch/test_p2_session.cpp
     src/wire/P2Session.h
     src/wire/P2Session.cpp
+    src/wire/P2TxSafety.h
+    src/wire/P2TxSafety.cpp
 )
 target_include_directories(test_p2_session PRIVATE src)
 target_link_libraries(test_p2_session PRIVATE Qt6::Core Qt6::Network)
@@ -698,11 +706,30 @@ add_executable(test_p2_g2_profile EXCLUDE_FROM_ALL
     scratch/test_p2_g2_profile.cpp
     src/wire/P2Session.h
     src/wire/P2Session.cpp
+    src/wire/P2TxSafety.h
+    src/wire/P2TxSafety.cpp
 )
 target_include_directories(test_p2_g2_profile PRIVATE src)
 target_link_libraries(test_p2_g2_profile PRIVATE Qt6::Core Qt6::Network)
 if(MSVC)
     target_compile_options(test_p2_g2_profile PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# P2 TX Phase A: safety prerequisites plus byte-for-byte DUC-specific and
+# 240-sample TX-IQ packet encoders. Pure/inert: no UDP send or radio keying.
+add_executable(test_p2_tx_packets EXCLUDE_FROM_ALL
+    scratch/test_p2_tx_packets.cpp
+    src/wire/P2Session.h
+    src/wire/P2Session.cpp
+    src/wire/P2TxSafety.h
+    src/wire/P2TxSafety.cpp
+    src/wire/P2TxPackets.h
+    src/wire/P2TxPackets.cpp
+)
+target_include_directories(test_p2_tx_packets PRIVATE src)
+target_link_libraries(test_p2_tx_packets PRIVATE Qt6::Core Qt6::Network)
+if(MSVC)
+    target_compile_options(test_p2_tx_packets PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # #199 OC Control Stage 1 — pure compute() + change-gate unit test.

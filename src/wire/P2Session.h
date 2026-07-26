@@ -62,6 +62,8 @@
 
 #pragma once
 
+#include "P2TxSafety.h"
+
 #include <QObject>
 #include <QString>
 #include <QHostAddress>
@@ -151,6 +153,9 @@ public:
     QByteArray diagnosticDdcSpecificPacket() const {
         return buildDdcSpecificPacket();
     }
+    QByteArray diagnosticGeneralPacket() const {
+        return buildGeneralPacket();
+    }
 
     // RX-audio return to the RADIO's speaker (G2 on-board amp):
     // 48 kHz stereo int16 → 260 B packets (4 B incrementing seq +
@@ -237,6 +242,11 @@ private:
     std::array<quint8, 2> adcAttenuation_{};
     quint32      spkrSeq_      = 0;               // speaker stream sequence
     QByteArray   spkrStage_;                      // partial-packet staging
+    // TX remains wire-inert in this phase: no public API can raise any of
+    // these prerequisites or intents. Keeping the gate in the production
+    // packet builders makes later TX integration fail closed by default.
+    P2TxIntent       txIntent_;
+    P2TxSafetyInputs txSafety_;
 
     static constexpr quint16 kPortCommand    = 1024;  // general/discovery
     static constexpr quint16 kPortDdcConfig  = 1025;  // DDC-specific -> radio

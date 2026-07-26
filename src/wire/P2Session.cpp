@@ -154,6 +154,7 @@ void P2Session::setDdcAdc(int ddc, int adc) {
 
 QByteArray P2Session::buildGeneralPacket() const {
     QByteArray pkt(kGeneralLen, char{0});
+    const auto tx = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
     // [0..3] sequence stays 0 (control packets never increment — see
     // header).  [4] = 0x00 general command.  Stream port fields [5..22]
     // stay 0 = "use HPSDR default ports" (1025/1026/1027/1028/1029/
@@ -167,8 +168,10 @@ QByteArray P2Session::buildGeneralPacket() const {
     // radio unkeys and idles ~1 s later instead of holding a dead
     // session — the RF-safe failure mode.
     pkt[38] = char{0x01};
-    // [58] radio options = 0: PA DISABLED (Phase B never transmits),
-    // no Apollo.  [59] Alex enable = 0.
+    // [58] bit0 is PA enable. The safety gate returns false unless every
+    // live prerequisite is healthy; no public TX API exists in this phase.
+    pkt[58] = tx.paEnabled ? char{0x01} : char{0x00};
+    // No Apollo. [59] Alex enable remains 0.
     return pkt;
 }
 
@@ -202,16 +205,19 @@ QByteArray P2Session::buildDdcSpecificPacket() const {
 
 QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     QByteArray pkt(kHpLen, char{0});
+    const auto tx = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
     // [0..3] sequence 0 (control).  [4]: bit0 run; transmit bit1 and
     // PureSignal bit7 stay 0 in Phase B — this session cannot key RF.
-    pkt[4] = run ? char{0x01} : char{0x00};
+    pkt[4] = static_cast<char>((run ? 0x01 : 0x00) |
+                               (tx.transmit ? 0x02 : 0x00));
     // [5] CWX off; [6..8] must be zero (hardened p2app rejects the
     // packet otherwise — protocol2_command.c validation).
     for (std::size_t i = 0; i < ddcFreqHz_.size(); ++i)
         wrBeU32(pkt.data() + 9 + i * 4,
                 phaseWord(ddcFreqHz_[i]));      // DDC freq, phase word (BE)
     wrBeU32(pkt.data() + 329, phaseWord(ducFreqHz_));  // DUC (TX) phase word
-    // [345] drive level 0.  [1396..99] client control word + CAT port 0.
+    pkt[345] = static_cast<char>(tx.drive);
+    // [1396..99] client control word + CAT port 0.
     // [1400..03] xvtr/mute/OC/user outputs 0.
     // [1428..31] Alex1 words 0 (no second Alex; the fw>=12 TXANT
     // branch in p2app then applies Alex0 to both filter registers).
