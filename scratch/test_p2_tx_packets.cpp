@@ -1,4 +1,5 @@
 #include "wire/P2Session.h"
+#include "wire/P2TxFifo.h"
 #include "wire/P2TxPackets.h"
 #include "wire/P2TxSafety.h"
 #include "wire/P2TxWriter.h"
@@ -8,6 +9,8 @@
 
 #include <array>
 #include <cstdio>
+#include <limits>
+#include <vector>
 
 namespace {
 
@@ -165,6 +168,105 @@ int main(int argc, char **argv) {
                      pacingFault && !writer.isRunning() &&
                      writer.droppedPackets() > 0,
                  "writer stops and faults instead of flooding after a stall");
+
+    static_assert(P2TxWriter::kSampleRateHz ==
+                  P2TxFifo::kSampleRateHz);
+    ok &= expect(P2TxFifo::kPacketSamples * 800 ==
+                     P2TxFifo::kSampleRateHz,
+                 "192 kHz / 240 samples establishes 800 packets/s");
+
+    P2TxFifo fifo;
+    std::vector<double> twoPackets(
+        2 * 2 * P2TxFifo::kPacketSamples);
+    for (std::size_t n = 0; n < 2 * P2TxFifo::kPacketSamples; ++n) {
+        twoPackets[2 * n] = static_cast<double>(n + 1) / 1000.0;
+        twoPackets[2 * n + 1] = -static_cast<double>(n + 1) / 1000.0;
+    }
+    ok &= expect(fifo.pushInterleaved(
+                     twoPackets.data(), 2 * P2TxFifo::kPacketSamples),
+                 "FIFO accepts two complete CMaster IQ packets");
+
+    pacedPackets.clear();
+    pacingFault = false;
+    writer.setInputFifo(&fifo);
+    writer.startFromInput();
+    std::array<P2TxIqSample, P2TxFifo::kPacketSamples> first{};
+    std::array<P2TxIqSample, P2TxFifo::kPacketSamples> second{};
+    for (std::size_t n = 0; n < P2TxFifo::kPacketSamples; ++n) {
+        first[n] = {twoPackets[2 * n], twoPackets[2 * n + 1]};
+        const std::size_t m = P2TxFifo::kPacketSamples + n;
+        second[n] = {twoPackets[2 * m], twoPackets[2 * m + 1]};
+    }
+    ok &= expect(writer.isRunning() && pacedPackets.size() == 1 &&
+                     pacedPackets[0] == P2TxPackets::encodeIq(0, first) &&
+                     fifo.size() == P2TxFifo::kPacketSamples,
+                 "writer consumes sequence zero with logical I/Q ordering");
+    ok &= expect(writer.produceDueForElapsedNs(1'250'000) == 1 &&
+                     pacedPackets.size() == 2 &&
+                     pacedPackets[1] == P2TxPackets::encodeIq(1, second) &&
+                     fifo.size() == 0,
+                 "writer consumes sequence one at the 800 Hz cadence");
+    writer.stop();
+
+    fifo.reset();
+    std::vector<double> shortBlock(
+        2 * (P2TxFifo::kPacketSamples - 1), 0.125);
+    ok &= expect(fifo.pushInterleaved(
+                     shortBlock.data(), P2TxFifo::kPacketSamples - 1),
+                 "FIFO accepts a short producer block");
+    pacedPackets.clear();
+    pacingFault = false;
+    writer.startFromInput();
+    ok &= expect(pacingFault && !writer.isRunning() &&
+                     pacedPackets.isEmpty() &&
+                     fifo.underflowEvents() == 1,
+                 "writer faults without emitting a packet on underrun");
+
+    fifo.reset();
+    std::vector<double> fullBlock(
+        2 * P2TxFifo::kCapacitySamples, 0.25);
+    const double extra[2] = {0.5, -0.5};
+    ok &= expect(fifo.pushInterleaved(
+                     fullBlock.data(), P2TxFifo::kCapacitySamples) &&
+                     !fifo.pushInterleaved(extra, 1) &&
+                     fifo.size() == P2TxFifo::kCapacitySamples &&
+                     fifo.overflowEvents() == 1 &&
+                     fifo.droppedSamples() == 1,
+                 "FIFO rejects overflow atomically and records the drop");
+
+    // Exercise the exact raw callback shape installed into CMaster's ILV.
+    auto &producerFifo = p2TxInputFifo();
+    producerFifo.reset();
+    setP2TxInputEnabled(false);
+    p2TxOutbound(1, static_cast<int>(P2TxFifo::kPacketSamples),
+                 twoPackets.data());
+    setP2TxInputEnabled(true);
+    p2TxOutbound(0, static_cast<int>(P2TxFifo::kPacketSamples),
+                 twoPackets.data());
+    p2TxOutbound(1, static_cast<int>(P2TxFifo::kPacketSamples),
+                 twoPackets.data());
+    std::array<P2TxIqSample, P2TxFifo::kPacketSamples> routed{};
+    ok &= expect(producerFifo.size() == P2TxFifo::kPacketSamples &&
+                     producerFifo.popPacket(routed) &&
+                     routed[0].i == twoPackets[0] &&
+                     routed[0].q == twoPackets[1],
+                 "CMaster seam accepts only enabled transmitter id 1");
+    setP2TxInputEnabled(false);
+    producerFifo.reset();
+
+    fifo.reset();
+    const double nonFinite[2] = {
+        std::numeric_limits<double>::quiet_NaN(),
+        std::numeric_limits<double>::infinity(),
+    };
+    std::vector<double> sanitized(
+        2 * P2TxFifo::kPacketSamples, 0.0);
+    sanitized[0] = nonFinite[0];
+    sanitized[1] = nonFinite[1];
+    fifo.pushInterleaved(sanitized.data(), P2TxFifo::kPacketSamples);
+    ok &= expect(fifo.popPacket(routed) &&
+                     routed[0].i == 0.0 && routed[0].q == 0.0,
+                 "FIFO sanitizes non-finite DSP samples to zero");
 
     P2Session session;
     const QByteArray general = session.diagnosticGeneralPacket();

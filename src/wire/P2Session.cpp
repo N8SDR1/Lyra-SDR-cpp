@@ -116,6 +116,10 @@ P2Session::P2Session(QObject *parent)
     hpTimer_.setInterval(kHpPeriodMs);
     connect(&hpTimer_, &QTimer::timeout, this, &P2Session::onHpTick);
     connect(&sock_, &QUdpSocket::readyRead, this, &P2Session::onReadyRead);
+    // The CMaster producer is routed into this process-lifetime FIFO by
+    // P2RxBridge while a P2 radio is open. The writer remains stopped:
+    // no public session/UI API can consume or transmit these samples yet.
+    txWriter_.setInputFifo(&p2TxInputFifo());
     txWriter_.setPacketSink([this](const QByteArray &packet) {
         if (open_)
             sock_.writeDatagram(packet, radioAddr_, kPortDucIqToSdr);

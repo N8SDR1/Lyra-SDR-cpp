@@ -15,6 +15,7 @@ P2TxWriter::P2TxWriter(QObject *parent)
 
 void P2TxWriter::startZeroPriming() {
     stop();
+    zeroPriming_ = true;
     sequence_ = 0;
     scheduledPackets_ = 0;
     droppedPackets_ = 0;
@@ -22,6 +23,19 @@ void P2TxWriter::startZeroPriming() {
     elapsed_.start();
     produceDueForElapsedNs(0); // Prime one frame immediately.
     timer_.start();
+}
+
+void P2TxWriter::startFromInput() {
+    stop();
+    zeroPriming_ = false;
+    sequence_ = 0;
+    scheduledPackets_ = 0;
+    droppedPackets_ = 0;
+    running_ = true;
+    elapsed_.start();
+    produceDueForElapsedNs(0);
+    if (running_)
+        timer_.start();
 }
 
 void P2TxWriter::stop() {
@@ -57,8 +71,21 @@ int P2TxWriter::produceDueForElapsedNs(qint64 elapsedNs) {
 
     int produced = 0;
     while (due-- > 0) {
+        std::array<P2TxIqSample,
+                   P2TxPackets::kIqSamplesPerPacket> samples;
+        const auto *packetSamples = &zeros_;
+        if (!zeroPriming_) {
+            if (!inputFifo_ || inputFifo_->overflowed() ||
+                !inputFifo_->popPacket(samples)) {
+                if (faultSink_)
+                    faultSink_();
+                stop();
+                return produced;
+            }
+            packetSamples = &samples;
+        }
         if (packetSink_)
-            packetSink_(P2TxPackets::encodeIq(sequence_, zeros_));
+            packetSink_(P2TxPackets::encodeIq(sequence_, *packetSamples));
         ++sequence_;
         ++scheduledPackets_;
         ++produced;

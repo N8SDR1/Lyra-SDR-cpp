@@ -118,6 +118,21 @@ separate later phases.
   192 kHz, 240-sample TX-IQ stream. It uses the session socket, bounds
   catch-up, and stops/faults rather than flooding stale samples after a
   missed deadline. No public session or UI API starts the writer.
+- `P2TxFifo` is the bounded SPSC seam between ChannelMaster and the
+  session writer. It stores logical I/Q samples, rejects whole producer
+  blocks on overflow, faults the writer on underrun, and sanitizes
+  non-finite DSP output.
+- `P2TxCmaster` redirects the existing post-WDSP TX callback only while
+  a P2 radio is open. The established P1 TXA channel remains at 48 kHz;
+  WDSP's complex polyphase resampler converts it to the P2 DUC's fixed
+  192 kHz rate before the FIFO. This avoids the unsafe live
+  `SetOutputSamplerate` path in WDSP (bench crash at wdsp.dll+0x3b9f9).
+- Tests lock the 800-packet/s rate, sequence progression, logical I/Q to
+  Saturn Q/I wire order, underrun fail-stop, atomic overflow handling,
+  disabled/wrong-ID callback rejection, and non-finite sanitization.
+- Production remains RF-inert: the FIFO seam is armed on P2 open, but
+  the TX writer and TXA producer are not started; the HP transmit bit,
+  PA enable and drive remain forced off.
 - Session open sends the safe 60-byte DUC configuration (CW off,
   192 kHz, maximum TX ADC attenuation) before asserting the RX run bit.
 
@@ -134,11 +149,12 @@ separate later phases.
 4. **More receivers + telemetry** — RX2/DDCs, ADC select, diversity,
    wideband, full overload/telemetry decode (status bytes are already
    parsed; surface them via the catalog's conversion constants).
-5. **P2 TX** — Phase A safety, packet encoders, safe DUC send and
-   internal zero-IQ pacer done (RF-inert).
-   RX-audio return (base+4) is done. Remaining: paced TX-IQ writer
-   activation (base+5), WDSP TX sink/producer, PTT/MOX, CW/keyer,
-   live drive + PA gates, TX meters and staged RF bench.
+5. **P2 TX** — Phase A safety, packet encoders, safe DUC send,
+   deterministic TX-IQ writer, bounded FIFO, and RF-inert WDSP producer
+   seam done. RX-audio return (base+4) is done. Remaining, in order:
+   controlled writer priming/activation (base+5), PTT/MOX routing and
+   TXA start/stop ordering, live drive + PA gates, TX telemetry/meters,
+   staged dummy-load RF bench, then CW/keyer.
 6. **PureSignal** — feedback DDC config, model defaults (Saturn PS
    peak 0.6121 vs 0.2899), atten safety, two-tone validation.
 7. **Profile management** — create/rename/duplicate/import/export,

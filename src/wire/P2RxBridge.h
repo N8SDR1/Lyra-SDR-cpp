@@ -141,6 +141,8 @@ private:
     void restoreFrontEndForBand(const QString &band);
     void persistFrontEndValue(const QString &name, const QVariant &value);
     void pushFrontEndToSession();
+    void activateTxProducerSeam();
+    void deactivateTxProducerSeam();
 
     lyra::ipc::HL2Stream  *stream_  = nullptr;
     lyra::dsp::WdspEngine *engine_  = nullptr;
@@ -158,6 +160,7 @@ private:
     //          forever (bench finding 2026-07-20).
     bool       open_    = false;
     bool       running_ = false;
+    bool       txProducerSeamActive_ = false;
     QString    ip_;
     quint16    rateKhz_ = 192;
     // Telemetry conversion state (main thread only — the status

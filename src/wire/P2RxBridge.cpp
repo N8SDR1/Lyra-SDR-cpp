@@ -4,6 +4,7 @@
 
 #include "FrameComposer.h"
 #include "P2Session.h"
+#include "P2TxCmaster.h"
 #include "Router.h"
 #include "bandmemory.h"
 #include "hardware/HardwareCatalog.h"
@@ -178,8 +179,36 @@ P2RxBridge::~P2RxBridge() {
         QMetaObject::invokeMethod(s, &P2Session::close,
                                   Qt::BlockingQueuedConnection);
     }
+    deactivateTxProducerSeam();
     thread_.quit();
     thread_.wait(2000);
+}
+
+void P2RxBridge::activateTxProducerSeam() {
+    if (txProducerSeamActive_)
+        return;
+
+    txProducerSeamActive_ = activateP2TxCmasterProducer();
+    if (txProducerSeamActive_) {
+        emit logLine(QStringLiteral(
+            "P2 TX: WDSP producer seam armed RF-inert (48 -> 192 kHz "
+            "resampler -> bounded FIFO; writer stopped, transmit/drive/PA "
+            "disabled)"));
+    } else {
+        emit logLine(QStringLiteral(
+            "P2 TX: CMaster producer seam unavailable; TX remains disabled"));
+    }
+}
+
+void P2RxBridge::deactivateTxProducerSeam() {
+    if (!txProducerSeamActive_)
+        return;
+
+    // Disable acceptance before restoring the P1 callback. No TX producer
+    // is currently exposed for P2, but this ordering is also the required
+    // future shutdown discipline once the dedicated producer is live.
+    deactivateP2TxCmasterProducer();
+    txProducerSeamActive_ = false;
 }
 
 void P2RxBridge::pushDialToSession() {
@@ -321,6 +350,7 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
         return;
     }
 
+    activateTxProducerSeam();
     rateKhz_ = chooseRateKhz();
     // Seed DDC0 from the dial (rx/freqHz persists across launches; 0
     // only on a truly fresh install → park on 20 m).
@@ -507,6 +537,7 @@ void P2RxBridge::close() {
     // deadlock if ever called on the session thread itself).
     QMetaObject::invokeMethod(s, &P2Session::close,
                               Qt::BlockingQueuedConnection);
+    deactivateTxProducerSeam();
     open_    = false;
     running_ = false;
     ip_.clear();

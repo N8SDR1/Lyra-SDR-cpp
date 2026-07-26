@@ -176,12 +176,17 @@ qt_add_executable(lyra
     src/wire/MetisFrame.cpp
     src/wire/ForceCandC.h
     src/wire/ForceCandC.cpp
-    # P2 TX Phase A: fail-closed safety evaluator and pure packet encoders.
-    # No socket path consumes the TX encoders yet, so this remains RF-inert.
+    # P2 TX: fail-closed safety, packet encoders, paced writer and bounded
+    # CMaster-to-session IQ FIFO. The writer is not started by production
+    # code, so MOX/drive/PA/transmit remain RF-inert.
     src/wire/P2TxSafety.h
     src/wire/P2TxSafety.cpp
     src/wire/P2TxPackets.h
     src/wire/P2TxPackets.cpp
+    src/wire/P2TxFifo.h
+    src/wire/P2TxFifo.cpp
+    src/wire/P2TxCmaster.h
+    src/wire/P2TxCmaster.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
     # Protocol 2 (Saturn / ANAN G2) Phase B — control-plane session
@@ -697,6 +702,8 @@ add_executable(test_p2_session EXCLUDE_FROM_ALL
     src/wire/P2TxSafety.cpp
     src/wire/P2TxPackets.h
     src/wire/P2TxPackets.cpp
+    src/wire/P2TxFifo.h
+    src/wire/P2TxFifo.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
 )
@@ -716,6 +723,8 @@ add_executable(test_p2_g2_profile EXCLUDE_FROM_ALL
     src/wire/P2TxSafety.cpp
     src/wire/P2TxPackets.h
     src/wire/P2TxPackets.cpp
+    src/wire/P2TxFifo.h
+    src/wire/P2TxFifo.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
 )
@@ -735,6 +744,8 @@ add_executable(test_p2_tx_packets EXCLUDE_FROM_ALL
     src/wire/P2TxSafety.cpp
     src/wire/P2TxPackets.h
     src/wire/P2TxPackets.cpp
+    src/wire/P2TxFifo.h
+    src/wire/P2TxFifo.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
 )

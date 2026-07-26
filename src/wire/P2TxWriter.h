@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "P2TxFifo.h"
 #include "P2TxPackets.h"
 
 #include <QElapsedTimer>
@@ -28,8 +29,10 @@ public:
 
     void setPacketSink(PacketSink sink) { packetSink_ = std::move(sink); }
     void setFaultSink(FaultSink sink) { faultSink_ = std::move(sink); }
+    void setInputFifo(P2TxFifo *fifo) { inputFifo_ = fifo; }
 
     void startZeroPriming();
+    void startFromInput();
     void stop();
     bool isRunning() const { return running_; }
     quint32 nextSequence() const { return sequence_; }
@@ -38,7 +41,7 @@ public:
     // Deterministic test seam used by the real timer path too.
     int produceDueForElapsedNs(qint64 elapsedNs);
 
-    static constexpr int kSampleRateHz = 192'000;
+    static constexpr int kSampleRateHz = P2TxFifo::kSampleRateHz;
     static constexpr int kTimerPeriodMs = 1;
     static constexpr std::uint64_t kMaxCatchupPackets = 4;
 
@@ -49,7 +52,9 @@ private:
     QElapsedTimer elapsed_;
     PacketSink packetSink_;
     FaultSink faultSink_;
+    P2TxFifo *inputFifo_ = nullptr;
     std::array<P2TxIqSample, P2TxPackets::kIqSamplesPerPacket> zeros_{};
+    bool zeroPriming_ = true;
     bool running_ = false;
     quint32 sequence_ = 0;
     std::uint64_t scheduledPackets_ = 0;
