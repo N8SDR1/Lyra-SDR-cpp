@@ -11,5 +11,6 @@ namespace lyra::wire {
 
 bool activateP2TxCmasterProducer();
 void deactivateP2TxCmasterProducer();
+bool feedP2TxCmasterInput(const double *iq, int samples);
 
 } // namespace lyra::wire

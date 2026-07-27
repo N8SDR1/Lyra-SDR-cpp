@@ -1,10 +1,9 @@
 // Lyra — HPSDR Protocol 2 control-plane session (Saturn / ANAN G2).
 //
-// Phase B of the P2 bring-up: establishes and holds a P2 session with
-// the radio — general packet, high-priority run-bit keepalive, and the
-// radio's 60-byte high-priority status stream back.  NO IQ / audio
-// streams yet (those are Phase C/D); this class proves the handshake,
-// the controller lease, and two-way traffic on the bench.
+// Protocol 2 session for the Saturn/ANAN G2: control packets, RX DDC IQ,
+// speaker audio return, continuous TX-IQ transport, telemetry, and the
+// fail-closed TX safety gate. P2RxBridge supplies the app-facing state
+// and owns the transient operator bench interlock.
 //
 // References (both verified against KD4YAL's live Saturn G2 bench):
 //   * Radio side: KD4YAL Saturn fork, sw_projects/P2_app —
@@ -55,20 +54,23 @@
 //     [39..42]=ADC1/ADC2 peak (Saturn fw >= 27)  [49..50]=supply
 //     volts (raw ADC)  [55..58]=user analog  [59]=user I/O bits
 //
-// Bench safety: Phase B keys NOTHING — transmit bit never set, drive
-// level 0, PA enable 0 in the general packet.  The session is RX-only
-// control traffic; the hardware watchdog bit is set so the radio
-// drops to idle ~1 s after this client dies for any reason.
+// Bench safety: opening a session keys NOTHING. Port 1029 is primed and
+// streamed continuously in RX state, but transmit/PA/drive remain zero
+// until every safety prerequisite is healthy, the connection-scoped
+// bench interlock is explicitly armed, and MOX/PTT requests TX. The
+// hardware watchdog remains enabled so a dead client returns to RX.
 
 #pragma once
 
 #include "P2TxSafety.h"
 #include "P2TxPackets.h"
 #include "P2TxWriter.h"
+#include "P2TxPump.h"
 
 #include <QObject>
 #include <QString>
 #include <QHostAddress>
+#include <QElapsedTimer>
 #include <QUdpSocket>
 #include <QTimer>
 #include <array>
@@ -147,6 +149,16 @@ public:
     void setRxInput(P2RxInput input) { rxInput_ = input; }
     void setHpfBypass(bool on) { hpfBypass_ = on; }
     void setAdcAttenuation(int adc, int db);
+    void setTxProducerSink(P2TxPump::InputSink sink) {
+        txPump_.setInputSink(std::move(sink));
+    }
+    // P2 TX control is intentionally split into two calls. The bridge
+    // owns the transient operator interlock; MOX/PTT only supplies intent.
+    // Every transition is re-evaluated through P2TxSafetyGate and pushed
+    // immediately to the radio. Disarm always wins and forces RF off.
+    void setTxOperatorArmed(bool armed);
+    void setTransmitIntent(bool on, bool paRequested, int drive);
+    void restartTxTransportRxState();
 
     // Golden-packet test seam: exact production encoders, no I/O.
     QByteArray diagnosticHighPriorityPacket(bool run) const {
@@ -197,7 +209,8 @@ signals:
                         quint16 revPowerRaw, quint16 supplyRaw,
                         quint16 adc1Peak, quint16 adc2Peak,
                         quint16 ain3Raw, quint16 ain4Raw,
-                        quint16 spkrFifoSamples);
+                        quint16 spkrFifoSamples, quint8 fifoFlags,
+                        quint16 ducFifoSamples);
     // One per DDC IQ frame (radio source port 1035+ddc).  `iqBytes` is
     // the 1428-byte payload: 238 samples x 6 bytes, I then Q, each a
     // big-endian signed 24-bit value (Thetis scales as (b0<<24 | b1<<16
@@ -205,11 +218,17 @@ signals:
     // ~201.7x/s per DDC — fine on the event loop for the control/bench
     // phase; the Phase D audio path moves consumption to a wire thread.
     void iqFrameReceived(int ddc, quint32 seq, QByteArray iqBytes);
+    // Session-thread TX truth for UI/bridge safety. transportReady means
+    // the 192 kHz FIFO is primed and the port-1029 writer is running.
+    void txStateChanged(bool transportReady, bool operatorArmed,
+                        bool transmitting, bool paEnabled, int drive,
+                        bool faultLatched, QString detail);
     void logLine(QString line);
 
 private slots:
     void onReadyRead();
     void onHpTick();
+    void onTxPrimeTick();
 
 private:
     QByteArray buildGeneralPacket() const;
@@ -217,16 +236,24 @@ private:
     QByteArray buildDdcSpecificPacket() const;
     void parseStatus(const QByteArray &d);
     void parseIqFrame(int ddc, const QByteArray &d);
+    void startTxTransportRxState();
+    void stopTxTransport();
+    void latchTxFault(const QString &reason);
+    void applyTxControlNow();
+    void emitTxState(const QString &detail = QString());
 
     QUdpSocket   sock_;
     QTimer       hpTimer_;
+    QTimer       txPrimeTimer_;
     P2TxWriter   txWriter_;
+    P2TxPump     txPump_;
     QHostAddress radioAddr_;
     QString      radioIp_;
     bool         open_        = false;   // socket up, session being held
     bool         running_     = false;   // radio confirmed via status stream
     quint32      lastStatusSeq_ = 0;
     quint32      statusCount_   = 0;
+    QElapsedTimer statusAge_;
     int          hpTickCount_   = 0;     // paces the DDC-specific refresh
     std::array<quint32, 10> ddcFreqHz_{};
     quint32      ducFreqHz_  = 14'100'000;
@@ -245,12 +272,12 @@ private:
     std::array<quint8, 2> adcAttenuation_{};
     quint32      spkrSeq_      = 0;               // speaker stream sequence
     QByteArray   spkrStage_;                      // partial-packet staging
-    // TX remains wire-inert in this phase: no public API can raise any of
-    // these prerequisites or intents. Keeping the gate in the production
-    // packet builders makes later TX integration fail closed by default.
+    // Every RF-bearing packet field is derived from these values through
+    // P2TxSafetyGate. Session open/reset leaves them fail-closed.
     P2TxIntent       txIntent_;
     P2TxSafetyInputs txSafety_;
     P2DucConfig      ducConfig_;
+    QString          txStateDetail_;
 
     static constexpr quint16 kPortCommand    = 1024;  // general/discovery
     static constexpr quint16 kPortDdcConfig  = 1025;  // DDC-specific -> radio
@@ -270,6 +297,13 @@ private:
     static constexpr int     kIqFrameLen     = 1444;
     static constexpr int     kIqHeaderLen    = 16;    // seq4 + ts8 + bits2 + count2
     static constexpr int     kIqSamplesPerFrame = 238;
+    // Prime 30 ms of TX IQ before starting the 800 Hz writer. This
+    // absorbs normal Windows timer coalescing and session-thread UDP
+    // bursts while still leaving FIFO headroom. HP transmit/PA/drive
+    // remain gated off throughout this RX-state transport phase.
+    static constexpr std::size_t kTxPrimeSamples =
+        24 * P2TxFifo::kPacketSamples;
+    static constexpr int     kTxPrimePollMs = 1;
     // HP cadence: Thetis-like periodic refresh.  Must stay well under
     // p2app's 1 s activity timeout; 100 ms gives 10x margin.
     static constexpr int     kHpPeriodMs     = 100;

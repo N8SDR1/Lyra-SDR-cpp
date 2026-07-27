@@ -3395,6 +3395,86 @@ QWidget *SettingsDialog::buildHardwareTab() {
         paWarn->setStyleSheet(QStringLiteral("QLabel{color:#cccccc;}"));
         g->addWidget(paWarn, 4, 0, 1, 2);
 
+        // Protocol 2 has an additional transient bench interlock. It is
+        // connection-scoped and defaults OFF even when the per-rig PA
+        // preference is enabled, so opening a G2 can never make RF by
+        // itself. The separate low drive ceiling protects the first
+        // dummy-load sessions from a previously saved 100% Drive value.
+        if (p2_) {
+            auto *p2Wrap = new QWidget(grp);
+            auto *p2Grid = new QGridLayout(p2Wrap);
+            p2Grid->setContentsMargins(0, 4, 0, 4);
+            p2Grid->setColumnStretch(1, 1);
+
+            auto *p2Arm = new QCheckBox(
+                tr("Arm Protocol 2 TX (dummy load bench only)"), p2Wrap);
+            p2Arm->setToolTip(tr(
+                "A transient, connection-scoped G2/Saturn TX interlock. "
+                "It resets OFF on every Open, Close, and app launch. "
+                "RF still also requires Enable PA, MOX/PTT, healthy TX-IQ "
+                "transport, and non-zero Drive. Use a dummy load and "
+                "watt-meter; leave this OFF for receive-only operation."));
+            p2Grid->addWidget(p2Arm, 0, 0, 1, 2);
+
+            auto *limitLabel = new QLabel(tr("P2 bench drive ceiling"), p2Wrap);
+            auto *limit = new QSpinBox(p2Wrap);
+            limit->setRange(1, 25);
+            limit->setSuffix(tr(" %"));
+            limit->setToolTip(tr(
+                "Independent ceiling over the front-panel Drive slider. "
+                "Defaults to 5% and is hard-limited to 25% until G2 TX "
+                "completes dummy-load validation."));
+            p2Grid->addWidget(limitLabel, 1, 0);
+            p2Grid->addWidget(limit, 1, 1, Qt::AlignLeft);
+
+            auto *p2Status = new QLabel(p2Wrap);
+            p2Status->setWordWrap(true);
+            p2Status->setStyleSheet(
+                QStringLiteral("QLabel{color:#67d3e8;font-weight:bold;}"));
+            p2Grid->addWidget(p2Status, 2, 0, 1, 2);
+
+            auto refreshP2Tx = [this, p2Wrap, p2Arm, limit, p2Status]() {
+                const bool visible = p2_ && p2_->isOpen();
+                p2Wrap->setVisible(visible);
+                if (!visible) return;
+                {
+                    QSignalBlocker b(p2Arm);
+                    p2Arm->setChecked(p2_->txBenchArmed());
+                }
+                {
+                    QSignalBlocker b(limit);
+                    limit->setValue(p2_->txDriveLimitPercent());
+                }
+                p2Arm->setEnabled(
+                    p2_->txHardwareSupported() && p2_->isRunning() &&
+                    p2_->txTransportReady() &&
+                    !p2_->txFaultLatched());
+                limit->setEnabled(!p2_->txTransmitting());
+                p2Status->setText(
+                    tr("P2 TX: %1 | DUC FIFO %2 samples")
+                        .arg(p2_->txStatus())
+                        .arg(p2_->ducFifoSamples()));
+            };
+            connect(p2Arm, &QCheckBox::toggled, p2Wrap,
+                    [this](bool on) {
+                        if (p2_) p2_->setTxBenchArmed(on);
+                    });
+            connect(limit, qOverload<int>(&QSpinBox::valueChanged), p2Wrap,
+                    [this](int value) {
+                        if (p2_) p2_->setTxDriveLimitPercent(value);
+                    });
+            connect(p2_, &lyra::wire::P2RxBridge::txStateChanged,
+                    p2Wrap, refreshP2Tx);
+            connect(p2_, &lyra::wire::P2RxBridge::telemetryChanged,
+                    p2Wrap, refreshP2Tx);
+            connect(p2_, &lyra::wire::P2RxBridge::openChanged,
+                    p2Wrap, refreshP2Tx);
+            connect(p2_, &lyra::wire::P2RxBridge::runningChanged,
+                    p2Wrap, refreshP2Tx);
+            refreshP2Tx();
+            g->addWidget(p2Wrap, 5, 0, 1, 2);
+        }
+
         // --- Auto-mute RX while transmitting (task #26) ---
         // Default ON.  When the wire MOX bit settles true (post TR-delay),
         // the WdspEngine drops RX audio to silence so the operator
@@ -3422,7 +3502,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 const bool on = engine_->autoMuteOnTx();
                 if (amBox->isChecked() != on) amBox->setChecked(on);
             });
-            g->addWidget(amBox, 5, 0, 1, 2);
+            g->addWidget(amBox, 6, 0, 1, 2);
         }
 
         // --- RX-on-unkey delay (queued thud/echo fix) ---
@@ -3465,7 +3545,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     rxdSpin->setValue(v);
                 }
             });
-            g->addWidget(rxdWrap, 6, 0, 1, 2);
+            g->addWidget(rxdWrap, 7, 0, 1, 2);
         }
 
         // --- Task #36: Hardware PTT input forwarder (default OFF) ---
@@ -3514,7 +3594,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     hwBox->setChecked(on);
                 }
             });
-            g->addWidget(hwBox, 7, 0, 1, 2);
+            g->addWidget(hwBox, 8, 0, 1, 2);
         }
 
         // --- Task #157: Space-bar PTT enable/disable ---
@@ -3549,7 +3629,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     sbBox->setChecked(on);
                 }
             });
-            g->addWidget(sbBox, 8, 0, 1, 2);
+            g->addWidget(sbBox, 9, 0, 1, 2);
         }
 
         // --- Auto-start on launch (opt-out) ---
@@ -3578,7 +3658,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     asBox->setChecked(on);
                 }
             });
-            g->addWidget(asBox, 9, 0, 1, 2);
+            g->addWidget(asBox, 10, 0, 1, 2);
         }
 
         // Mic source picker + Mic Boost checkbox MOVED to the TX

@@ -83,7 +83,8 @@ int main(int argc, char **argv) {
         [&statusCount](quint32 seq, quint8 ptt, quint8 adcOvf,
                        quint16 exciter, quint16 fwd, quint16 rev,
                        quint16 supply, quint16 adc1Peak, quint16 adc2Peak,
-                       quint16 ain3, quint16 ain4, quint16 spkrFifo) {
+                       quint16 ain3, quint16 ain4, quint16 spkrFifo,
+                       quint8 fifoFlags, quint16 ducFifo) {
             ++statusCount;
             // Status is ~5/s — print 1 in 5 to keep the IQ stats readable.
             if (statusCount % 5 == 1) {
@@ -96,9 +97,10 @@ int main(int argc, char **argv) {
                 std::printf(
                     "  status seq=%u  ptt=0x%02X  adcOvf=0x%02X  exciter=%u  "
                     "fwd=%u  rev=%u  supplyRaw=%u  adcPeak=%u/%u  "
-                    "PA %.1f V / %.2f A  spkrFifo=%u\n",
+                    "PA %.1f V / %.2f A  fifo=0x%02X duc=%u spkr=%u\n",
                     seq, ptt, adcOvf, exciter, fwd, rev, supply,
-                    adc1Peak, adc2Peak, volts, amps, spkrFifo);
+                    adc1Peak, adc2Peak, volts, amps,
+                    fifoFlags, ducFifo, spkrFifo);
                 std::fflush(stdout);
             }
         });

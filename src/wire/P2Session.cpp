@@ -106,7 +106,8 @@ P2Session::P2Session(QObject *parent)
     // main-thread affinity while open()/onHpTick() ran on the session
     // thread — cross-thread QUdpSocket/QTimer use, which crashed the
     // app on the first P2 open (bench 2026-07-18, AV in lyra.exe).
-    : QObject(parent), sock_(this), hpTimer_(this), txWriter_(this) {
+    : QObject(parent), sock_(this), hpTimer_(this), txPrimeTimer_(this),
+      txWriter_(this), txPump_(this) {
     // Bench-sane default: every DDC parked on 20 m until told otherwise
     // (the radio requires a plausible frequency word even for DDCs that
     // will never be enabled — zeros are legal but this keeps DDC0 useful
@@ -115,20 +116,26 @@ P2Session::P2Session(QObject *parent)
 
     hpTimer_.setInterval(kHpPeriodMs);
     connect(&hpTimer_, &QTimer::timeout, this, &P2Session::onHpTick);
+    txPrimeTimer_.setInterval(kTxPrimePollMs);
+    txPrimeTimer_.setTimerType(Qt::PreciseTimer);
+    connect(&txPrimeTimer_, &QTimer::timeout,
+            this, &P2Session::onTxPrimeTick);
     connect(&sock_, &QUdpSocket::readyRead, this, &P2Session::onReadyRead);
     // The CMaster producer is routed into this process-lifetime FIFO by
-    // P2RxBridge while a P2 radio is open. The writer remains stopped:
-    // no public session/UI API can consume or transmit these samples yet.
+    // P2RxBridge while a P2 radio is open. The writer starts only after
+    // radio status and FIFO priming; RF fields remain independently gated.
     txWriter_.setInputFifo(&p2TxInputFifo());
     txWriter_.setPacketSink([this](const QByteArray &packet) {
         if (open_)
             sock_.writeDatagram(packet, radioAddr_, kPortDucIqToSdr);
     });
     txWriter_.setFaultSink([this]() {
-        txSafety_.faultLatched = true;
-        txSafety_.iqPrimed = false;
-        emit logLine(QStringLiteral(
-            "P2 TX: pacing deadline missed; writer stopped and TX faulted"));
+        latchTxFault(QStringLiteral(
+            "TX-IQ pacing deadline/FIFO fault"));
+    });
+    txPump_.setFaultSink([this]() {
+        latchTxFault(QStringLiteral(
+            "CMaster producer deadline/input fault"));
     });
 }
 
@@ -183,7 +190,7 @@ QByteArray P2Session::buildGeneralPacket() const {
     // session — the RF-safe failure mode.
     pkt[38] = char{0x01};
     // [58] bit0 is PA enable. The safety gate returns false unless every
-    // live prerequisite is healthy; no public TX API exists in this phase.
+    // live prerequisite is healthy and the operator bench arm is set.
     pkt[58] = tx.paEnabled ? char{0x01} : char{0x00};
     // No Apollo. [59] Alex enable remains 0.
     return pkt;
@@ -220,8 +227,8 @@ QByteArray P2Session::buildDdcSpecificPacket() const {
 QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     QByteArray pkt(kHpLen, char{0});
     const auto tx = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
-    // [0..3] sequence 0 (control).  [4]: bit0 run; transmit bit1 and
-    // PureSignal bit7 stay 0 in Phase B — this session cannot key RF.
+    // [0..3] sequence 0 (control). [4]: bit0 run, bit1 gated transmit;
+    // PureSignal bit7 remains off until its separate validation phase.
     pkt[4] = static_cast<char>((run ? 0x01 : 0x00) |
                                (tx.transmit ? 0x02 : 0x00));
     // [5] CWX off; [6..8] must be zero (hardened p2app rejects the
@@ -263,6 +270,93 @@ void P2Session::setAdcAttenuation(int adc, int db) {
     if (adc < 0 || adc >= static_cast<int>(adcAttenuation_.size())) return;
     adcAttenuation_[static_cast<std::size_t>(adc)] =
         static_cast<quint8>(std::clamp(db, 0, 31));
+}
+
+void P2Session::setTxOperatorArmed(bool armed) {
+    if (!armed)
+        txIntent_ = {};
+    txSafety_.operatorArmed = armed;
+    if (open_)
+        applyTxControlNow();
+    emitTxState(armed
+        ? QStringLiteral("Bench interlock armed")
+        : QStringLiteral("Bench interlock disarmed"));
+    emit logLine(armed
+        ? QStringLiteral(
+              "P2 TX: bench interlock ARMED; PA enable + MOX/PTT + "
+              "non-zero limited drive can now request RF")
+        : QStringLiteral(
+              "P2 TX: bench interlock disarmed; transmit/PA/drive forced off"));
+}
+
+void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
+    // RX status is only ~5 Hz and can pause during harmless Windows/Qt
+    // scheduling stalls. Do not strand the receive-only transport for
+    // that. A key request, however, requires fresh telemetry at the
+    // instant RF is requested; stale status becomes a latched TX fault.
+    if (on && (!statusAge_.isValid() || statusAge_.elapsed() > 1000)) {
+        txSafety_.telemetryHealthy = false;
+        latchTxFault(QStringLiteral(
+            "MOX/PTT rejected because status telemetry is stale"));
+        return;
+    }
+    if (on) {
+        txIntent_.transmitRequested = true;
+        txIntent_.paRequested = paRequested;
+        txIntent_.drive = std::clamp(drive, 0, 255);
+    } else {
+        txIntent_ = {};
+    }
+
+    const auto effective = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
+    if (open_)
+        applyTxControlNow();
+    if (on && !effective.transmit) {
+        emit logLine(QStringLiteral(
+            "P2 TX: MOX/PTT blocked by safety gate "
+            "(arm=%1 session=%2 IQ=%3 telemetry=%4 watchdog=%5 fault=%6)")
+            .arg(txSafety_.operatorArmed)
+            .arg(txSafety_.sessionRunning)
+            .arg(txSafety_.iqPrimed)
+            .arg(txSafety_.telemetryHealthy)
+            .arg(txSafety_.watchdogEnabled)
+            .arg(txSafety_.faultLatched));
+    }
+    emitTxState(on && !effective.transmit
+                    ? QStringLiteral("MOX/PTT blocked by safety gate")
+                    : (on ? QStringLiteral("Transmit active")
+                          : QStringLiteral("Receive")));
+}
+
+void P2Session::applyTxControlNow() {
+    if (!open_)
+        return;
+    const bool transmitting =
+        P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit;
+
+    // Keydown: authorize the PA in General before raising HP transmit.
+    // Keyup/fault: clear HP transmit first, then remove PA authorization.
+    // The 100 ms HP cadence reinforces the resulting state afterward.
+    if (transmitting) {
+        sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
+        sock_.writeDatagram(buildHighPriorityPacket(true),
+                            radioAddr_, kPortHpToSdr);
+    } else {
+        sock_.writeDatagram(buildHighPriorityPacket(true),
+                            radioAddr_, kPortHpToSdr);
+        sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
+    }
+}
+
+void P2Session::emitTxState(const QString &detail) {
+    if (!detail.isEmpty())
+        txStateDetail_ = detail;
+    const auto effective = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
+    emit txStateChanged(
+        txWriter_.isRunning() && txSafety_.iqPrimed &&
+            !txSafety_.faultLatched,
+        txSafety_.operatorArmed, effective.transmit, effective.paEnabled,
+        effective.drive, txSafety_.faultLatched, txStateDetail_);
 }
 
 void P2Session::sendSpeakerAudio(const qint16 *lr, int nframes) {
@@ -319,14 +413,17 @@ void P2Session::open(const QString &ip) {
     ddcSeqStarted_.fill(false);
     spkrSeq_       = 0;
     spkrStage_.clear();
-    txWriter_.stop();
+    stopTxTransport();
     txIntent_ = {};
     txSafety_ = {};
+    txStateDetail_ = QStringLiteral("Waiting for radio status");
+    statusAge_.invalidate();
+    emitTxState();
 
     // Handshake per p2app: general packet (claims the controller lease
     // for our source IP + registers the reply address), safe DUC-specific
     // config (CW off, 192 kHz, maximum ADC attenuation), DDC-specific
-    // config (all-disabled for Phase B — also opens the firewall UDP
+    // config (also opens the firewall UDP
     // flow toward radio:1025, see kDdcRefreshTicks), then the HP
     // run=1 cadence (StartBitReceived) → radio goes active and its
     // status stream starts.  First HP goes immediately; the timer
@@ -348,9 +445,11 @@ void P2Session::open(const QString &ip) {
 void P2Session::close() {
     if (!open_) return;
     hpTimer_.stop();
-    txWriter_.stop();
+    stopTxTransport();
     txIntent_ = {};
     txSafety_ = {};
+    txStateDetail_ = QStringLiteral("Disconnected");
+    emitTxState();
     // run=0 unkeys, releases the controller lease, and stops the
     // radio's outgoing streams.  Sent three times — it's UDP and this
     // is the packet we most want to arrive.
@@ -367,12 +466,111 @@ void P2Session::close() {
 
 void P2Session::onHpTick() {
     if (!open_) return;
+    // Once keying is requested the radio reports status at ~1 kHz, and
+    // losing it is a real TX safety failure. In RX, status is ~5 Hz and
+    // an event-loop/firewall pause must not permanently fault an otherwise
+    // healthy continuous port-1029 transport.
+    if (txIntent_.transmitRequested && statusAge_.isValid() &&
+        statusAge_.elapsed() > 1000 && !txSafety_.faultLatched) {
+        txSafety_.telemetryHealthy = false;
+        latchTxFault(QStringLiteral("status telemetry timeout"));
+    }
     sock_.writeDatagram(buildHighPriorityPacket(true),
                         radioAddr_, kPortHpToSdr);
     // Periodic DDC-specific refresh (see kDdcRefreshTicks rationale).
     if (++hpTickCount_ % kDdcRefreshTicks == 0)
         sock_.writeDatagram(buildDdcSpecificPacket(),
                             radioAddr_, kPortDdcConfig);
+}
+
+void P2Session::startTxTransportRxState() {
+    if (!open_ || !running_ || txSafety_.faultLatched ||
+        txPump_.isRunning() || txWriter_.isRunning())
+        return;
+    if (!txPump_.hasInputSink()) {
+        emit logLine(QStringLiteral(
+            "P2 TX: no CMaster producer attached; port 1029 remains stopped "
+            "and RF controls remain safe"));
+        return;
+    }
+
+    auto &fifo = p2TxInputFifo();
+    fifo.reset();
+    txSafety_.iqPrimed = false;
+    emitTxState(QStringLiteral("TX transport stopped"));
+    txPump_.start();
+    if (!txPump_.isRunning()) {
+        latchTxFault(QStringLiteral("CMaster producer failed to start"));
+        return;
+    }
+    txPrimeTimer_.start();
+    onTxPrimeTick();
+    emit logLine(QStringLiteral(
+        "P2 TX: priming port 1029 in RX state (transmit=0, PA=off, "
+        "drive=0)"));
+}
+
+void P2Session::stopTxTransport() {
+    txPrimeTimer_.stop();
+    txPump_.stop();
+    txWriter_.stop();
+    txSafety_.iqPrimed = false;
+}
+
+void P2Session::restartTxTransportRxState() {
+    // A controlled RX sample-rate rebuild can stall the event loop longer
+    // than the TX transport's deadline. It is safe to clear/re-prime only
+    // while no transmit intent exists; real TX faults stay latched.
+    if (!open_ || !running_ || txIntent_.transmitRequested)
+        return;
+    stopTxTransport();
+    txSafety_.faultLatched = false;
+    txStateDetail_ = QStringLiteral("Re-priming TX transport");
+    startTxTransportRxState();
+}
+
+void P2Session::latchTxFault(const QString &reason) {
+    stopTxTransport();
+    txIntent_ = {};
+    txSafety_.faultLatched = true;
+    txStateDetail_ = reason;
+    // Push an immediate fail-closed HP command when a live session faults;
+    // the periodic HP timer continues to reinforce the same safe state.
+    if (open_)
+        applyTxControlNow();
+    emitTxState();
+    emit logLine(QStringLiteral(
+        "P2 TX: %1; transport stopped and RF controls forced safe")
+        .arg(reason));
+}
+
+void P2Session::onTxPrimeTick() {
+    if (!open_ || !running_ || txSafety_.faultLatched) {
+        txPrimeTimer_.stop();
+        return;
+    }
+
+    auto &fifo = p2TxInputFifo();
+    if (fifo.overflowed()) {
+        latchTxFault(QStringLiteral("producer FIFO overflow during priming"));
+        return;
+    }
+    if (fifo.size() < kTxPrimeSamples)
+        return;
+
+    txPrimeTimer_.stop();
+    txWriter_.startFromInput();
+    if (!txWriter_.isRunning()) {
+        latchTxFault(QStringLiteral("TX-IQ writer failed to start"));
+        return;
+    }
+    txSafety_.iqPrimed = true;
+    emitTxState(QStringLiteral("TX transport ready (RF disarmed)"));
+    emit logLine(QStringLiteral(
+        "P2 TX: port 1029 streaming in RX state (seq=%1, FIFO=%2 "
+        "samples; transmit=0, PA=off, drive=0)")
+        .arg(txWriter_.nextSequence())
+        .arg(p2TxInputFifo().size()));
 }
 
 void P2Session::onReadyRead() {
@@ -435,17 +633,25 @@ void P2Session::parseStatus(const QByteArray &d) {
 
     ++statusCount_;
     lastStatusSeq_ = seq;
+    statusAge_.restart();
+    txSafety_.telemetryHealthy = true;
 
     if (!running_) {
         // First status packet = handshake complete, radio active.
         running_ = true;
         txSafety_.sessionRunning = true;
-        txSafety_.telemetryHealthy = true;
         emit logLine(QStringLiteral(
             "P2: radio ACTIVE — status stream up from %1:%2")
             .arg(radioIp_).arg(kPortHpFromSdr));
         emit started(radioIp_);
+        startTxTransportRxState();
     }
+
+    // Saturn status bit 2 reports the TX DUC FIFO underflow. Once the
+    // writer is primed/running this is hardware confirmation that our
+    // stream failed to maintain cadence, so fail closed immediately.
+    if (txWriter_.isRunning() && (u[30] & 0x04u) != 0)
+        latchTxFault(QStringLiteral("radio reported DUC FIFO underflow"));
 
     emit statusReceived(seq,
                         u[4],                 // PTT / key bits
@@ -458,7 +664,9 @@ void P2Session::parseStatus(const QByteArray &d) {
                         rdBeU16(p + 41),      // ADC2 peak
                         rdBeU16(p + 57),      // AIN3 — PA volts sense
                         rdBeU16(p + 55),      // AIN4 — PA current sense
-                        rdBeU16(p + 37));     // speaker FIFO depth
+                        rdBeU16(p + 37),      // speaker FIFO depth
+                        u[30],                // FIFO status flags
+                        rdBeU16(p + 35));     // TX DUC FIFO depth
 }
 
 } // namespace lyra::wire

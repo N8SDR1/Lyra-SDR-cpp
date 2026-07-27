@@ -1,6 +1,7 @@
 #include "wire/P2Session.h"
 #include "wire/P2TxFifo.h"
 #include "wire/P2TxPackets.h"
+#include "wire/P2TxPump.h"
 #include "wire/P2TxSafety.h"
 #include "wire/P2TxWriter.h"
 
@@ -161,10 +162,47 @@ int main(int argc, char **argv) {
                  "writer emits sequence one at the next frame boundary");
     writer.stop();
 
+    P2TxPump pump;
+    int pumpCalls = 0;
+    bool pumpFault = false;
+    pump.setInputSink([&pumpCalls](const double *iq, int samples) {
+        if (!iq || samples != P2TxPump::kBlockSamples)
+            return false;
+        for (int i = 0; i < 2 * samples; ++i)
+            if (iq[i] != 0.0)
+                return false;
+        ++pumpCalls;
+        return true;
+    });
+    pump.setFaultSink([&pumpFault]() { pumpFault = true; });
+    pump.start();
+    ok &= expect(pumpCalls == 1 && pump.producedBlocks() == 1,
+                 "CMaster pump seeds one zero block immediately");
+    ok &= expect(pump.produceDueForElapsedNs(1'333'332) == 0,
+                 "CMaster pump waits for the 48k/64 block boundary");
+    ok &= expect(pump.produceDueForElapsedNs(1'333'334) == 1 &&
+                     pumpCalls == 2 && pump.producedBlocks() == 2,
+                 "CMaster pump maintains the 750 Hz producer cadence");
+    pump.stop();
+
+    pumpCalls = 0;
+    pumpFault = false;
+    pump.start();
+    ok &= expect(pump.produceDueForElapsedNs(50'000'000) == 0 &&
+                     pumpFault && !pump.isRunning() &&
+                     pump.missedBlocks() > 0,
+                 "CMaster pump faults instead of flooding after a stall");
+
+    pumpFault = false;
+    pump.setInputSink({});
+    pump.start();
+    ok &= expect(pumpFault && !pump.isRunning(),
+                 "CMaster pump fails closed when its input sink is absent");
+
     pacedPackets.clear();
     pacingFault = false;
     writer.startZeroPriming();
-    ok &= expect(writer.produceDueForElapsedNs(20'000'000) == 0 &&
+    ok &= expect(writer.produceDueForElapsedNs(50'000'000) == 0 &&
                      pacingFault && !writer.isRunning() &&
                      writer.droppedPackets() > 0,
                  "writer stops and faults instead of flooding after a stall");

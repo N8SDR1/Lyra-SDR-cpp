@@ -1,12 +1,12 @@
-// Lyra — Protocol 2 RX bridge (Saturn / ANAN G2, Phase D).
+// Lyra — Protocol 2 application bridge (Saturn / ANAN G2).
 //
 // App-side owner of a P2Session: runs it on its OWN QThread and feeds
 // the radio's DDC0 IQ frames into router 0 — the SAME sink the P1 EP6
 // path dispatches to (main.cpp registers router_instance(0) port 0 →
 // WdspEngine::feedIq at boot).  Everything downstream of that seam —
 // WDSP filters / AGC / NR / demod, the panadapter analyzer, S-meter,
-// and the audio output — runs UNCHANGED: this bridge is the P2
-// equivalent of the EP6 receive thread, nothing more.
+// and the audio output — runs UNCHANGED.  The TX side clocks the same
+// CMaster/TXA chain used by P1 into a bounded P2 DUC-IQ transport.
 //
 // This mirrors Thetis's own architecture: its P2 read loop hands DDC
 // IQ to the identical xrouter(0, 0, …) call (network.c:608) that
@@ -28,9 +28,10 @@
 // are); the panadapter span therefore tracks exactly as it does on
 // the HL2.  A rate change while running re-sends the DDC config live.
 //
-// RX-only: P2Session never sets the transmit bit, sends drive 0 and
-// PA-disabled (see P2Session.h bench-safety note) — this bridge
-// cannot key the Saturn.  TX is later work.
+// TX: a dedicated 48 kHz CMaster/TXA pump feeds the session's bounded
+// 192 kHz FIFO and continuous port-1029 writer. RF remains fail-closed
+// on every open; the operator must explicitly arm the transient P2 bench
+// interlock before the normal Lyra MOX/PTT FSM can raise transmit/PA/drive.
 //
 // Threading: P2Session (QUdpSocket + timers) lives on thread_; every
 // session mutation is marshalled onto that thread via
@@ -68,6 +69,20 @@ class P2RxBridge : public QObject {
     Q_PROPERTY(int adcOverloadMask READ adcOverloadMask NOTIFY telemetryChanged)
     Q_PROPERTY(int adc1Peak READ adc1Peak NOTIFY telemetryChanged)
     Q_PROPERTY(int adc2Peak READ adc2Peak NOTIFY telemetryChanged)
+    Q_PROPERTY(double forwardPowerW READ forwardPowerW NOTIFY telemetryChanged)
+    Q_PROPERTY(double reversePowerW READ reversePowerW NOTIFY telemetryChanged)
+    Q_PROPERTY(int ducFifoSamples READ ducFifoSamples NOTIFY telemetryChanged)
+    Q_PROPERTY(bool txBenchArmed READ txBenchArmed WRITE setTxBenchArmed
+               NOTIFY txStateChanged)
+    Q_PROPERTY(bool txHardwareSupported READ txHardwareSupported
+               NOTIFY txStateChanged)
+    Q_PROPERTY(int txDriveLimitPercent READ txDriveLimitPercent
+               WRITE setTxDriveLimitPercent NOTIFY txStateChanged)
+    Q_PROPERTY(bool txTransportReady READ txTransportReady
+               NOTIFY txStateChanged)
+    Q_PROPERTY(bool txTransmitting READ txTransmitting NOTIFY txStateChanged)
+    Q_PROPERTY(bool txFaultLatched READ txFaultLatched NOTIFY txStateChanged)
+    Q_PROPERTY(QString txStatus READ txStatus NOTIFY txStateChanged)
 
 public:
     explicit P2RxBridge(lyra::ipc::HL2Stream *stream,
@@ -104,6 +119,16 @@ public:
     int adcOverloadMask() const { return adcOverloadMask_; }
     int adc1Peak() const { return adc1Peak_; }
     int adc2Peak() const { return adc2Peak_; }
+    double forwardPowerW() const { return fwdPowerW_; }
+    double reversePowerW() const { return revPowerW_; }
+    int ducFifoSamples() const { return ducFifoSamples_; }
+    bool txBenchArmed() const { return txBenchArmed_; }
+    bool txHardwareSupported() const { return txHardwareSupported_; }
+    int txDriveLimitPercent() const { return txDriveLimitPercent_; }
+    bool txTransportReady() const { return txTransportReady_; }
+    bool txTransmitting() const { return txTransmitting_; }
+    bool txFaultLatched() const { return txFaultLatched_; }
+    QString txStatus() const;
     double meterCalibrationOffset() const { return meterCalOffset_; }
     double displayCalibrationOffset() const { return displayCalOffset_; }
 
@@ -122,6 +147,13 @@ public slots:
     void setRxInput(int input);
     void setHpfBypass(bool on);
     void setTrxAntenna(int ant);
+    // Transient, connection-scoped interlock. It deliberately never
+    // persists: every launch/open requires a fresh dummy-load decision.
+    void setTxBenchArmed(bool on);
+    // A second independent ceiling over the normal per-rig Drive slider.
+    // Persisted per rig; first-use default is 5%, range is capped at 25%
+    // until the G2 TX path completes its dummy-load validation.
+    void setTxDriveLimitPercent(int percent);
 
 signals:
     void runningChanged();
@@ -130,6 +162,7 @@ signals:
     void openChanged();
     void frontEndChanged();
     void telemetryChanged();
+    void txStateChanged();
     void logLine(QString line);
 
 private:
@@ -143,6 +176,8 @@ private:
     void pushFrontEndToSession();
     void activateTxProducerSeam();
     void deactivateTxProducerSeam();
+    void syncTxIntentToSession(bool on);
+    void resetTxUiState();
 
     lyra::ipc::HL2Stream  *stream_  = nullptr;
     lyra::dsp::WdspEngine *engine_  = nullptr;
@@ -161,6 +196,15 @@ private:
     bool       open_    = false;
     bool       running_ = false;
     bool       txProducerSeamActive_ = false;
+    bool       txBenchArmed_ = false;
+    bool       txHardwareSupported_ = false;
+    bool       txTransportReady_ = false;
+    bool       txTransmitting_ = false;
+    bool       txPaEnabled_ = false;
+    bool       txFaultLatched_ = false;
+    int        txEffectiveDrive_ = 0;
+    int        txDriveLimitPercent_ = 5;
+    QString    txStateDetail_ = QStringLiteral("Disconnected");
     QString    ip_;
     quint16    rateKhz_ = 192;
     // Telemetry conversion state (main thread only — the status
@@ -170,6 +214,11 @@ private:
     float      ampSens_  = 120.f;
     double     supplyV_  = std::numeric_limits<double>::quiet_NaN();
     double     paA_      = std::numeric_limits<double>::quiet_NaN();
+    double     fwdPowerW_ = std::numeric_limits<double>::quiet_NaN();
+    double     revPowerW_ = std::numeric_limits<double>::quiet_NaN();
+    int        ducFifoSamples_ = 0;
+    bool       g2PowerTelemetry_ = false;
+    bool       lastHardwarePtt_ = false;
     QString    currentBand_;
     int        defaultTrxAntenna_ = 1;
     int        rxAttenuationDb_ = 0;

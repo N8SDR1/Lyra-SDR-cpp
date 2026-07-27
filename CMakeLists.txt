@@ -187,6 +187,8 @@ qt_add_executable(lyra
     src/wire/P2TxFifo.cpp
     src/wire/P2TxCmaster.h
     src/wire/P2TxCmaster.cpp
+    src/wire/P2TxPump.h
+    src/wire/P2TxPump.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
     # Protocol 2 (Saturn / ANAN G2) Phase B — control-plane session
@@ -704,6 +706,8 @@ add_executable(test_p2_session EXCLUDE_FROM_ALL
     src/wire/P2TxPackets.cpp
     src/wire/P2TxFifo.h
     src/wire/P2TxFifo.cpp
+    src/wire/P2TxPump.h
+    src/wire/P2TxPump.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
 )
@@ -725,6 +729,8 @@ add_executable(test_p2_g2_profile EXCLUDE_FROM_ALL
     src/wire/P2TxPackets.cpp
     src/wire/P2TxFifo.h
     src/wire/P2TxFifo.cpp
+    src/wire/P2TxPump.h
+    src/wire/P2TxPump.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
 )
@@ -746,6 +752,8 @@ add_executable(test_p2_tx_packets EXCLUDE_FROM_ALL
     src/wire/P2TxPackets.cpp
     src/wire/P2TxFifo.h
     src/wire/P2TxFifo.cpp
+    src/wire/P2TxPump.h
+    src/wire/P2TxPump.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
 )

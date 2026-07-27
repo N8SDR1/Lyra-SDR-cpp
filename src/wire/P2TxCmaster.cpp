@@ -2,16 +2,19 @@
 
 #include "P2TxFifo.h"
 #include "wire/CMaster.h"
+#include "wire/CmBuffs.h"
 #include "wire/ObBuffs.h"
+#include "wire/cmsetup.h"
 #include "wire/wdspcalls.h"
 
 #include <array>
+#include <atomic>
 #include <mutex>
 
 namespace lyra::wire {
 
 namespace {
-bool active = false;
+std::atomic_bool active{false};
 RESAMPLE resampler = nullptr;
 std::mutex resamplerMutex;
 std::array<double, 2 * P2TxFifo::kCapacitySamples> resampledIq{};
@@ -30,7 +33,7 @@ void p2TxCmasterOutbound(int id, int nsamples, double *iq) noexcept {
         return;
 
     std::lock_guard<std::mutex> lock(resamplerMutex);
-    if (!active || !resampler || !xresample)
+    if (!active.load(std::memory_order_acquire) || !resampler || !xresample)
         return;
     resampler->in = iq;
     resampler->size = nsamples;
@@ -42,7 +45,7 @@ void p2TxCmasterOutbound(int id, int nsamples, double *iq) noexcept {
 }
 
 bool activateP2TxCmasterProducer() {
-    if (active)
+    if (active.load(std::memory_order_acquire))
         return true;
     if (!pcm || !pcm->xmtr[0].pilv || !create_resample ||
         !destroy_resample || !flush_resample || !xresample)
@@ -56,7 +59,7 @@ bool activateP2TxCmasterProducer() {
         if (!resampler)
             return false;
         p2TxInputFifo().reset();
-        active = true;
+        active.store(true, std::memory_order_release);
         setP2TxInputEnabled(true);
     }
     SendpOutboundTx(&p2TxCmasterOutbound);
@@ -64,7 +67,7 @@ bool activateP2TxCmasterProducer() {
 }
 
 void deactivateP2TxCmasterProducer() {
-    if (!active)
+    if (!active.load(std::memory_order_acquire))
         return;
 
     // Stop accepting and restore P1 before releasing resampler state.
@@ -73,12 +76,23 @@ void deactivateP2TxCmasterProducer() {
         SendpOutboundTx(&OutBound);
     {
         std::lock_guard<std::mutex> lock(resamplerMutex);
-        active = false;
+        active.store(false, std::memory_order_release);
         if (resampler && destroy_resample)
             destroy_resample(resampler);
         resampler = nullptr;
     }
     p2TxInputFifo().reset();
+}
+
+bool feedP2TxCmasterInput(const double *iq, int samples) {
+    if (!active.load(std::memory_order_acquire) || !pcm || !iq ||
+        samples <= 0)
+        return false;
+
+    // Inbound's historical API predates const-correctness. It copies the
+    // block into stream 1's CMB ring and does not modify caller storage.
+    Inbound(inid(1, 0), samples, const_cast<double *>(iq));
+    return true;
 }
 
 } // namespace lyra::wire

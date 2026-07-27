@@ -1461,15 +1461,15 @@ int main(int argc, char *argv[])
             // #158 DL-1 — PortAudio process init, once per process,
             // adjacent to create_rnet (the reference brings PortAudio up
             // in netInterface alongside the radio).  The VAC device layer
-            // (StartAudioIVAC) is not wired to wdsp_engine until DL-2;
-            // this only spins up PortAudio so DL-2 has a live PA context.
+            // (StartAudioIVAC) is owned by WdspEngine::rebuildVac1; this
+            // spins up PortAudio so the configured VAC stream can open.
             // The matching Pa_Terminate is the aboutToQuit handler-PA
             // connected in main scope (after handler-4 / destroy_cmaster).
             {
                 int paErr = lyra::wire::ivacInitPortAudio();
                 if (paErr == 0)
                     qInfo("[wire] DL-1: PortAudio initialized — VAC host "
-                          "audio context ready (not yet wired to wdsp_engine)");
+                          "audio context ready");
                 else
                     qWarning("[wire] DL-1: Pa_Initialize failed (err=%d) — "
                              "VAC host audio unavailable", paErr);

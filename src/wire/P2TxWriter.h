@@ -43,7 +43,10 @@ public:
 
     static constexpr int kSampleRateHz = P2TxFifo::kSampleRateHz;
     static constexpr int kTimerPeriodMs = 1;
-    static constexpr std::uint64_t kMaxCatchupPackets = 4;
+    // Windows commonly coalesces 1 ms timers for several milliseconds.
+    // A 20 ms bounded recovery window tolerates normal scheduler jitter;
+    // anything longer is treated as a transport fault, not replayed.
+    static constexpr std::uint64_t kMaxCatchupPackets = 16;
 
 private:
     void onTimer();

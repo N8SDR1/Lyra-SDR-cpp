@@ -602,7 +602,9 @@ QString MeterModel::formatSecondaryText(int src) const {
     if (!stream_) return QString();
     switch (src) {
     case PWR: {
-        const double raw = stream_->fwdPowerCalW();   // per-band-calibrated
+        const double raw = (p2_ && p2_->isRunning())
+            ? p2_->forwardPowerW()
+            : stream_->fwdPowerCalW();   // per-band-calibrated
         if (std::isnan(raw) || raw < 0.0) return QStringLiteral("PWR —");
         const double w = raw;                          // per-band trim is the cal
         return (w < 10.0)
@@ -610,8 +612,11 @@ QString MeterModel::formatSecondaryText(int src) const {
                    : QStringLiteral("PWR %1 W").arg(std::lround(w));
     }
     case SWR: {
-        const double fwd = stream_->fwdPowerW();
-        const double rev = stream_->revPowerW();
+        const bool onP2 = p2_ && p2_->isRunning();
+        const double fwd = onP2 ? p2_->forwardPowerW()
+                                : stream_->fwdPowerW();
+        const double rev = onP2 ? p2_->reversePowerW()
+                                : stream_->revPowerW();
         if (std::isnan(fwd) || std::isnan(rev) || fwd < kSwrGuardW)
             return QStringLiteral("SWR —");
         const double r = std::clamp(rev / std::max(fwd, 1e-9), 0.0, 0.999);
@@ -834,7 +839,8 @@ void MeterModel::ladderRowFor(int src, double *level, double *danger) const {
     if (!stream_) return;
     switch (src) {
     case PWR: {
-        const double raw = stream_->fwdPowerCalW();
+        const double raw = (p2_ && p2_->isRunning())
+            ? p2_->forwardPowerW() : stream_->fwdPowerCalW();
         const double w = (std::isnan(raw) || raw < 0.0) ? 0.0 : raw;
         *level = std::clamp(w / std::max(pwrScaleMaxW_, 1e-9), 0.0, 1.0);
         *danger = std::clamp(pwrRatedMaxW_ / std::max(pwrScaleMaxW_, 1e-9),
@@ -842,8 +848,11 @@ void MeterModel::ladderRowFor(int src, double *level, double *danger) const {
         return;
     }
     case SWR: {
-        const double fwd = stream_->fwdPowerW();
-        const double rev = stream_->revPowerW();
+        const bool onP2 = p2_ && p2_->isRunning();
+        const double fwd = onP2 ? p2_->forwardPowerW()
+                                : stream_->fwdPowerW();
+        const double rev = onP2 ? p2_->reversePowerW()
+                                : stream_->revPowerW();
         if (std::isnan(fwd) || std::isnan(rev) || fwd < kSwrGuardW) return;
         const double r = std::clamp(rev / std::max(fwd, 1e-9), 0.0, 0.999);
         const double rho = std::sqrt(r);
@@ -1169,8 +1178,10 @@ void MeterModel::computePwr() {
     // No noise floor / SNR concept — those are RX-specific.  The text
     // readouts are "X.X W" / "X.XX W peak" so the operator can read
     // the watt-meter without crunching the scale.
-    const double raw = stream_ ? stream_->fwdPowerCalW()
-                                : std::numeric_limits<double>::quiet_NaN();
+    const double raw = (p2_ && p2_->isRunning())
+        ? p2_->forwardPowerW()
+        : (stream_ ? stream_->fwdPowerCalW()
+                   : std::numeric_limits<double>::quiet_NaN());
     // Telemetry sentinel: NaN means the slot hasn't arrived yet (stream
     // not running, or pre-first-statsChanged).  Display zero state so
     // the renderer doesn't show stale-bogus levels from a previous
@@ -1311,10 +1322,13 @@ void MeterModel::computeSwr() {
     //   * SWR above kSwrScaleMax pegs the meter; the text shows "≥N:1"
     //     so the operator knows it's off-scale rather than reading the
     //     pegged level as 3:1.
-    const double fwd = stream_ ? stream_->fwdPowerW()
-                                 : std::numeric_limits<double>::quiet_NaN();
-    const double rev = stream_ ? stream_->revPowerW()
-                                 : std::numeric_limits<double>::quiet_NaN();
+    const bool onP2 = p2_ && p2_->isRunning();
+    const double fwd = onP2 ? p2_->forwardPowerW()
+        : (stream_ ? stream_->fwdPowerW()
+                   : std::numeric_limits<double>::quiet_NaN());
+    const double rev = onP2 ? p2_->reversePowerW()
+        : (stream_ ? stream_->revPowerW()
+                   : std::numeric_limits<double>::quiet_NaN());
     const bool lowPwr = std::isnan(fwd) || std::isnan(rev) ||
                          fwd < kSwrGuardW;
 

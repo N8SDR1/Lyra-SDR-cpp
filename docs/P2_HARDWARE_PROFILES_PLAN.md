@@ -14,7 +14,8 @@ status telemetry, DDC0 IQ at the engine rate into the WDSP RX chain +
 panadapter + audio out, VFO follow, DDS phase-word frequency encoding,
 Saturn front-end control (BPF/LPF/antenna via Alex words — the client
 OWNS the G2 front end; zeros = disconnected antenna), hardware model
-catalog + Settings model/antenna pickers.  RX-only by construction.
+catalog + Settings model/antenna pickers. RX is bench-verified; the TX
+transport and safety path are implemented through the dummy-load gate.
 
 Hard-won wire facts live in the P2Session.h preamble; per-bug history
 in the session memory notes.  Bench tool: `test_p2_session <ip> [secs]
@@ -98,10 +99,10 @@ The G2 profile now consumes the same model-specific facts as Thetis:
 
 Deliberately not added: automatic P2 attenuation. The first G2 profile
 is manual and observable; automation belongs after overload/level
-behavior is characterized across bands. TX and PureSignal remain
-separate later phases.
+behavior is characterized across bands. PureSignal remains a separate
+later phase.
 
-### G2 TX Phase A (implemented 2026-07-25, RF-inert)
+### G2 TX transport + safety (implemented 2026-07-25/26)
 
 - `P2TxSafetyGate` derives transmit, PA-enable and drive from current
   operator-arm, session, IQ-prime, telemetry, watchdog and fault inputs.
@@ -111,13 +112,12 @@ separate later phases.
   240 complex 24-bit samples in Saturn's Q-then-I wire order).
 - `test_p2_tx_packets` locks down the safety matrix and byte-for-byte
   Thetis/Saturn packet layouts.
-- The encoders have no socket access. No public API can arm TX, send
-  DUC/TX-IQ packets, set the HP transmit bit, enable the PA, or raise
-  drive. The application remains RX-only by construction.
-- `P2TxWriter` now owns deterministic 800-packet/s pacing for the
+- The pure encoders have no socket access. `P2Session` is their only
+  production owner and derives every RF-bearing field through the gate.
+- `P2TxWriter` owns deterministic 800-packet/s pacing for the
   192 kHz, 240-sample TX-IQ stream. It uses the session socket, bounds
   catch-up, and stops/faults rather than flooding stale samples after a
-  missed deadline. No public session or UI API starts the writer.
+  missed deadline.
 - `P2TxFifo` is the bounded SPSC seam between ChannelMaster and the
   session writer. It stores logical I/Q samples, rejects whole producer
   blocks on overflow, faults the writer on underrun, and sanitizes
@@ -130,9 +130,24 @@ separate later phases.
 - Tests lock the 800-packet/s rate, sequence progression, logical I/Q to
   Saturn Q/I wire order, underrun fail-stop, atomic overflow handling,
   disabled/wrong-ID callback rejection, and non-finite sanitization.
-- Production remains RF-inert: the FIFO seam is armed on P2 open, but
-  the TX writer and TXA producer are not started; the HP transmit bit,
-  PA enable and drive remain forced off.
+- `P2TxPump` drives the existing CMaster/TXA input at 750 blocks/s
+  (64 complex samples at 48 kHz). VAC1/ASIO and TCI feed the same
+  existing mic-selection seam; WDSP output is resampled to 192 kHz.
+- After the first valid radio status, the session primes 30 ms of IQ and
+  starts port 1029 continuously with HP transmit=0, PA=off and drive=0.
+  FIFO overflow/underflow, pacing failure, stale telemetry during a key
+  request, and radio-reported DUC underflow all fail closed.
+- MOX/CAT/TCI/VOX/space-bar intent remains on HL2Stream's established
+  TR-delay/TXA ramp FSM. Its settled edges drive the P2 safety gate.
+  Saturn status PTT bit 0 feeds the same FSM through
+  `requestMoxFromHwPtt()` when hardware PTT forwarding is enabled.
+- Settings exposes a connection-scoped `Arm Protocol 2 TX` interlock
+  that always resets off. A second per-rig drive ceiling defaults to 5%
+  and is hard-capped at 25% pending dummy-load validation. The existing
+  per-rig PA enable and Drive remain additional required controls.
+- The TX panel reports P2 SAFE/ARMED/TX/FAULT and DUC FIFO depth.
+  G2 forward/reverse coupler telemetry uses Thetis's ANAN-G2 constants
+  and feeds Lyra's PWR/SWR meter selections.
 - Session open sends the safe 60-byte DUC configuration (CW off,
   192 kHz, maximum TX ADC attenuation) before asserting the RX run bit.
 
@@ -149,12 +164,12 @@ separate later phases.
 4. **More receivers + telemetry** — RX2/DDCs, ADC select, diversity,
    wideband, full overload/telemetry decode (status bytes are already
    parsed; surface them via the catalog's conversion constants).
-5. **P2 TX** — Phase A safety, packet encoders, safe DUC send,
-   deterministic TX-IQ writer, bounded FIFO, and RF-inert WDSP producer
-   seam done. RX-audio return (base+4) is done. Remaining, in order:
-   controlled writer priming/activation (base+5), PTT/MOX routing and
-   TXA start/stop ordering, live drive + PA gates, TX telemetry/meters,
-   staged dummy-load RF bench, then CW/keyer.
+5. **P2 TX** — packet encoders, safe DUC send, deterministic TX-IQ
+   writer, bounded FIFO, WDSP producer pump, controlled writer priming,
+   MOX/PTT routing, live drive/PA safety gates, G2 coupler telemetry,
+   and RX-audio return are done. Remaining, in order: staged
+   dummy-load RF validation and kill-test, calibrated full-power work,
+   CW/keyer, then production removal/raising of the temporary 25% cap.
 6. **PureSignal** — feedback DDC config, model defaults (Saturn PS
    peak 0.6121 vs 0.2899), atten safety, two-tone validation.
 7. **Profile management** — create/rename/duplicate/import/export,
