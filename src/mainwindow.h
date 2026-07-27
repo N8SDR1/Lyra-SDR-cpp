@@ -30,6 +30,7 @@ class QSystemTrayIcon;
 
 namespace lyra::wx { class WxService; }
 namespace lyra::solar { class SolarService; }
+namespace lyra::wire { class P2RxBridge; }
 namespace lyra::profile { class ProfileManager; class CompanionLauncher; }
 namespace lyra::cat { class SerialPtt; class SerialCwKey; class CatServer; }
 namespace lyra::tx { class ClipBank; class VoiceKeyer; }
@@ -94,6 +95,11 @@ public:
     // the blind open of a stale saved IP that left the UI stuck
     // "Connecting…" to a radio that moved / changed lease / is off.
     void beginConnect(const QString &preferIp);
+
+    // Exposed so main.cpp's early aboutToQuit teardown handler can
+    // close the P2 session before destroy_cmaster() tears down the
+    // router/DSP state the session's IQ callbacks dispatch into.
+    lyra::wire::P2RxBridge *p2Bridge() const { return p2Bridge_; }
 
     // Share JUST the panel layout as a small .lyralayout file (driven from
     // Settings → Backup & Restore → "Share a layout").  Arrangement only —
@@ -258,6 +264,9 @@ private:
 
     QObject *discovery_  = nullptr;
     QObject *stream_     = nullptr;
+    // Protocol 2 (Saturn / ANAN G2) RX bridge — the P2 counterpart of
+    // the HL2 wire path; mutually exclusive with it (see P2RxBridge.h).
+    lyra::wire::P2RxBridge *p2Bridge_ = nullptr;
     // Session recorder (#201): engine + the always-visible status-bar "● REC"
     // chip (shown only while recording; click-to-stop).
     lyra::recorder::RecorderEngine *recorder_ = nullptr;

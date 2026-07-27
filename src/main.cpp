@@ -105,6 +105,7 @@ std::atomic<bool> g_shutdown_complete{false};
 #include <QSurfaceFormat>
 
 #include "mainwindow.h"
+#include "wire/P2RxBridge.h"   // MainWindow::p2Bridge() complete type (aboutToQuit teardown)
 #include "wxservice.h"
 #include "prefs.h"
 #include "profile/ProfileManager.h"   // Stage-0 TX/RX profiles
@@ -227,6 +228,14 @@ int main(int argc, char *argv[])
     // shared UI prefs) via the exact-key migration.
     {
         lyra::rig::registry::seedFromLegacyRadio();
+        // Fold the retired JSON RadioProfileStore (per-MAC saved model/
+        // antenna/audio-route/nickname/timestamps) into the registry —
+        // additive/idempotent, safe to run every launch.  Without this,
+        // upgrading from the pre-fold build silently dropped every
+        // saved P2 radio's config and could strand a startupMac that no
+        // longer resolves (bench finding 2026-07-20).
+        if (const int n = lyra::rig::registry::migrateLegacyRadioProfiles(); n > 0)
+            qInfo("[rig] migrated %d legacy radio profile(s) into the registry", n);
         lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("cal/"));
         lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("band_mem/"));
         lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("oc/"));
@@ -646,7 +655,7 @@ int main(int argc, char *argv[])
     // pattern as &txWorker/&micSource above.
     lyra::ui::MainWindow *winRef = nullptr;
     QObject::connect(&app, &QCoreApplication::aboutToQuit,
-                     [stream]() {
+                     [stream, &winRef]() {
         // TX-rip Phase 1 (Q2): teardown collapses to the RX-only
         // surface (HL2Stream TX callbacks unregister + Hl2Ep6MicSource
         // delete).  TxDspWorker / TciMicSource teardown returns with
@@ -659,6 +668,23 @@ int main(int argc, char *argv[])
         // ~Hl2Ep6MicSource requires ep6Thread NOT running, so the
         // dtor must run AFTER stream->close() has joined it.
         qWarning("[shutdown] handler-1 ENTRY");
+        // P2 (Saturn / ANAN) bridge: close FIRST, before anything
+        // else.  Its session lives on its own QThread and dispatches
+        // IQ into router 0 (xrouter/router_instance(0)) independently
+        // of the main thread's teardown sequence — if it's still
+        // alive when handler-4 runs destroy_cmaster() (which frees
+        // that router slot), an in-flight IQ callback can dispatch
+        // through freed state.  P2RxBridge::close() is synchronous
+        // (BlockingQueuedConnection into the session thread) and
+        // idempotent, so this is safe even when no P2 radio is open.
+        // isOpen(), not isRunning(): a pending (unconfirmed) attempt must
+        // also be closed before destroy_cmaster() frees the router slot,
+        // or a belated HP reply could dispatch IQ through freed state.
+        if (winRef && winRef->p2Bridge() && winRef->p2Bridge()->isOpen()) {
+            qWarning("[shutdown] handler-1 step p2: closing P2 bridge - start");
+            winRef->p2Bridge()->close();
+            qWarning("[shutdown] handler-1 step p2: done");
+        }
         if (stream) {
             qWarning("[shutdown] handler-1 step a: registerTxIqSource({}) - start");
             stream->registerTxIqSource({});
@@ -1899,10 +1925,18 @@ int main(int argc, char *argv[])
             lyra::rig::registry::rig(lyra::rig::registry::activeRigId()).lastIp;
         if (lastIp.isEmpty())
             lastIp = QSettings().value(QStringLiteral("radio/lastIp")).toString();
+        // Layer-2 startup radio (P2): an explicit "Open at startup"
+        // choice (radio/startupMac) also arms the launch connect — its
+        // P2 branch is handled inside beginConnect.  A box that has
+        // only ever run a P2 radio has no rig/legacy lastIp, so lastIp
+        // alone would never fire.
+        const bool haveStartupRadio = !QSettings()
+            .value(QStringLiteral("radio/startupMac")).toString().isEmpty();
         // Auto-start-on-launch opt-out (Settings → Hardware).  Default ON
         // (historical behaviour).  When the operator unticks it Lyra loads
         // but waits for an explicit Start instead of opening the radio.
-        if (!lastIp.isEmpty() && prefs->autoStartOnLaunch()
+        if ((!lastIp.isEmpty() || haveStartupRadio)
+            && prefs->autoStartOnLaunch()
             && !qEnvironmentVariableIsSet("LYRA_SAFE")) {
             // Resilient connect: probe the remembered IP and open it only
             // if the radio answers; otherwise scan and self-heal to its

@@ -16,6 +16,7 @@ class QListWidget;
 
 namespace lyra::ipc { class HL2Stream; class HL2Discovery; }
 namespace lyra::dsp { class WdspEngine; }
+namespace lyra::wire { class P2RxBridge; }
 namespace lyra::wx  { class WxService; }
 namespace lyra::profile { class ProfileManager; class CompanionLauncher; }
 namespace lyra::cat { class SerialPtt; class SerialCwKey; class CatServer; }
@@ -57,6 +58,7 @@ public:
                    lyra::cat::SerialPtt *serialPtt,
                    lyra::cat::SerialCwKey *serialCwKey,
                    const QList<lyra::cat::CatServer *> &catServers,
+                   lyra::wire::P2RxBridge *p2 = nullptr,
                    QWidget *parent = nullptr);
 
     // Raise the tab that owns <topic> (from a panel's "?" → Settings).
@@ -97,6 +99,7 @@ private:
     Prefs                  *prefs_     = nullptr;
     lyra::ipc::HL2Stream   *stream_    = nullptr;
     lyra::ipc::HL2Discovery *discovery_ = nullptr;
+    lyra::wire::P2RxBridge *p2_        = nullptr;   // Saturn / ANAN G2 P2 path
     UsbBcd                 *bcd_       = nullptr;
     lyra::dsp::WdspEngine  *engine_    = nullptr;
     lyra::wx::WxService    *wx_        = nullptr;

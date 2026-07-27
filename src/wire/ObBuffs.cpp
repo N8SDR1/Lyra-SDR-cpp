@@ -15,11 +15,17 @@
 // Every function body is the reference obbuffs.c VERBATIM,
 // including the file-scope `_obpointers obp` four-alias bank and
 // the reference's own 2014-era idioms where they differ from the
-// cmbuffs sibling: calloc/free (NOT malloc0/_aligned_free), the
-// destroy-time `obp.pcbuff[0] == NULL` guard, obdata WITHOUT the
-// MW0LGE critical-section wrap, and the csOUT enter/leave pair at
-// the top of the ob_main loop.  Do NOT "harmonize" these toward
-// cmbuffs.c — they are what the reference ships in this TU.
+// cmbuffs sibling: calloc/free (NOT malloc0/_aligned_free), obdata
+// WITHOUT the MW0LGE critical-section wrap, and the csOUT enter/leave
+// pair at the top of the ob_main loop.  Do NOT "harmonize" these
+// toward cmbuffs.c — they are what the reference ships in this TU.
+// EXCEPTION: the reference's destroy-time `obp.pcbuff[0] == NULL`
+// guard is REMOVED (not kept verbatim) — see destroy_obbuffs's own
+// comment.  It was harmless on the reference (which never nulls the
+// slot, so the check never fires) but became live-breaking once
+// Lyra's slot-nulling deviation (also documented in destroy_obbuffs)
+// was added: after ring 0 is destroyed, it silently skips destroying
+// every other ring (bench/review finding 2026-07-21, N8SDR).
 //
 // Only Lyra-cpp packaging differences (NOT code changes):
 //   * `lyra::wire` namespace (reference is global C).
@@ -106,7 +112,12 @@ void create_obbuffs (int id, int accept, int max_insize, int outsize)
 void destroy_obbuffs (int id)
 {
 	OBB a = obp.pcbuff[id];
-	if (obp.pcbuff[0] == NULL) return;
+	// Lyra deviation (documented): the reference's [0]-only guard is
+	// incompatible with the slot-nulling below — after ring 0 is
+	// destroyed it early-returns on every subsequent id, leaking that
+	// ring's semaphore, critical sections and thread.  The per-id
+	// check above is the correct gate.  Do NOT restore the [0] check.
+	if (a == NULL) return;
 	InterlockedBitTestAndReset(&a->accept, 0);
 	EnterCriticalSection (&a->csIN);
 	EnterCriticalSection (&a->csOUT);
@@ -121,6 +132,15 @@ void destroy_obbuffs (int id)
 	free (a->out);
 	free (a->r1_baseptr);
 	free (a);
+	// Lyra deviation (documented): null the slot aliases after free.
+	// The reference never destroys rings mid-process so its OutBound
+	// can't see a stale pointer — but Lyra destroys them at
+	// HL2Stream::close(), and the Protocol 2 RX path then drives
+	// dispatchAudioFrame → OutBound with NO P1 session: without this,
+	// OutBound's null-guard passed a DANGLING pointer to freed memory
+	// (use-after-free on every P2 audio frame after an HL2 open→close
+	// in the same app run — bench 2026-07-19).
+	obp.pcbuff[id] = obp.pdbuff[id] = obp.pebuff[id] = obp.pfbuff[id] = NULL;
 }
 
 // Reference obbuffs.c:88-96 (verbatim):
@@ -143,6 +163,16 @@ void OutBound (int id, int nsamples, double* in)
 	int n;
 	int first, second;
 	OBB a = obp.pebuff[id];
+	// Lyra deviation (documented): null-guard on an uncreated ring.
+	// The reference creates rings 0/1 unconditionally at boot
+	// (netInterface.c:1856-1857) so this deref can't fault there —
+	// but Lyra creates them at P1 stream open, and the Protocol 2
+	// RX path (P2RxBridge → feedIq → dispatchAudioFrame) produces
+	// audio frames with NO P1 session, which AV'd here on the first
+	// P2 open (bench 2026-07-18, WER fault lyra.exe+0x6c590).  With
+	// no ring there is no EP2 wire to feed — dropping is correct.
+	if (a == NULL)
+		return;
 	if (_InterlockedAnd (&a->accept, 1))
 	{
 		EnterCriticalSection (&a->csIN);

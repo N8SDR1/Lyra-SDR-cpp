@@ -49,6 +49,7 @@
 #include <QImage>                    // #201 — panadapter snapshot grab
 #include "tx/VoiceKeyer.h"
 #include "wire/Ep6RecvThread.h"       // #89 B1 — ep6Thread().set_tx_clip_source(...)
+#include "wire/P2RxBridge.h"          // Saturn / ANAN G2 Protocol 2 RX path
 #include "settingsdialog.h"
 #include "dockdragcontroller.h"
 #include "panelrack.h"
@@ -118,6 +119,7 @@
 #include <QDialog>
 #include <QSystemTrayIcon>
 
+#include <memory>
 #include <utility>
 
 namespace lyra::ui {
@@ -372,6 +374,41 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     // HS0ZRT: space sometimes popped the Mode dropdown instead of keying).
     qApp->installEventFilter(this);
 
+    // Protocol 2 (Saturn / ANAN G2) RX bridge — session thread + IQ →
+    // router-0 feed.  Constructed up front (cheap: one idle thread)
+    // so the Settings Hardware tab can offer Open on P2 rows; the
+    // wire only comes up when the operator opens a P2 radio.
+    p2Bridge_ = new lyra::wire::P2RxBridge(
+        qobject_cast<lyra::ipc::HL2Stream *>(stream_),
+        qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_), this);
+    connect(p2Bridge_, &lyra::wire::P2RxBridge::runningChanged,
+            this, [this]() { updateConnState(); });
+    // The bridge's OWN diagnostics (hardware-profile resolution, the
+    // audio-route choice, refusals, ...) were never connected to
+    // anything — unlike P2Session's logLine (relayed through qInfo()
+    // inside P2RxBridge's own constructor), these silently went
+    // nowhere, including out of the in-app diagnostic log viewer.
+    // Same relay pattern as the session's.
+    connect(p2Bridge_, &lyra::wire::P2RxBridge::logLine,
+            this, [](const QString &l) { qInfo().noquote() << l; });
+
+    // Rig identity: every discovery reply finds-or-creates the per-MAC
+    // RigRegistry entry (family from protocol + board name) and
+    // refreshes lastIp — MAC is the stable identity, so DHCP moves
+    // update, never fork, a rig.  Model/antenna/audio-route defaults
+    // are seeded lazily on first P2 open (P2RxBridge::open), not here.
+    if (auto *disc = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_)) {
+        connect(disc, &lyra::ipc::HL2Discovery::radioFound, this,
+                [](const QString &ip, const QString &mac,
+                   const QString &board, int, int, bool, int,
+                   int protocol) {
+                    lyra::rig::registry::ensureRig(
+                        mac,
+                        lyra::rig::registry::familyForDiscovery(protocol, board),
+                        QString(), ip);
+                });
+    }
+
     // Full QDockWidget feature set: nested + tabbed docks, animated,
     // grouped-drag handle — the panel-arranging UX the operator wants.
     setDockOptions(QMainWindow::AnimatedDocks |
@@ -544,6 +581,9 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     meter_ = new MeterModel(qobject_cast<lyra::ipc::HL2Stream *>(stream_),
                             qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_),
                             this);
+    // P2 telemetry: PA volts/current read from the Saturn bridge
+    // (hardware-profile-converted) whenever it is the live wire path.
+    meter_->setP2Bridge(p2Bridge_);
 
     // Tuner panel — manual-ATU tuning memory (tracks the dial vs stored
     // Input/Output/Inductor points per antenna).  Pure UI + QSettings.
@@ -1751,7 +1791,8 @@ void MainWindow::ensureSettingsDialog() {
             usbBcd_, qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_),
             wx_, memory_, eibi_, tci_, spots_, spotHole_, dxCluster_, meter_, tuner_,
             voiceKeyer_, recorder_, converter_,
-            profiles_, companion_, serialPtt_, serialCwKey_, catServers_, this);
+            profiles_, companion_, serialPtt_, serialCwKey_, catServers_,
+            p2Bridge_, this);
     }
 }
 
@@ -2641,6 +2682,15 @@ void MainWindow::onStartStop() {
     if (!st) {
         return;
     }
+    // A P2 (Saturn) session counts as "running" for Start/Stop too —
+    // otherwise the button (which only checked the P1 stream) showed
+    // "Start" while connected, and pressing it fell through to
+    // beginConnect(), which closed the P2 session only to reopen it
+    // (or a P1 radio) instead of actually stopping.
+    if (p2Bridge_ && p2Bridge_->isRunning()) {
+        p2Bridge_->close();
+        return;
+    }
     if (st->isRunning()) {
         st->close();
         return;
@@ -2656,6 +2706,34 @@ void MainWindow::onStartStop() {
 void MainWindow::beginConnect(const QString &preferIp) {
     auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
     if (!st || st->isRunning()) return;
+    // Start pressed while a Saturn (P2) session is live: the operator
+    // is switching radios.  Close the P2 bridge FIRST — the two wire
+    // paths share the router-0 → feedIq seam and must never feed it
+    // concurrently (single-feeder-thread contract, P2RxBridge.h).
+    if (p2Bridge_ && p2Bridge_->isRunning()) p2Bridge_->close();
+
+    // Layer-2 startup radio (Settings → Radio → "Open at startup"):
+    // an explicit saved P2 choice opens through the bridge.  Unset —
+    // or pointing at a P1 radio — falls through to the legacy HL2
+    // auto-connect exactly as before (retention rules; a P1 radio is
+    // already served by the radio/lastIp remember mechanism).
+    {
+        const QString startupMac = QSettings()
+            .value(QStringLiteral("radio/startupMac")).toString();
+        if (!startupMac.isEmpty() && p2Bridge_) {
+            const auto rp = lyra::rig::registry::rig(
+                lyra::rig::registry::rigIdForMac(startupMac));
+            const bool isP2 =
+                lyra::rig::capabilitiesFor(rp.family).protocol == 2;
+            if (rp.isValid() && isP2 && !rp.lastIp.isEmpty()) {
+                if (connStatus_)
+                    connStatus_->setText(tr("Opening %1…").arg(
+                        rp.label.isEmpty() ? rp.lastIp : rp.label));
+                p2Bridge_->open(rp.lastIp, rp.mac);
+                return;
+            }
+        }
+    }
     // Leaving Disconnected — show the connect attempt in amber (not the
     // resting red); once the stream is up, updateConnState() flips it green.
     if (connStatus_)
@@ -2704,31 +2782,41 @@ void MainWindow::scanAndOpenFirst() {
     if (connStatus_) connStatus_->setText(tr("Scanning…"));
     QObject::disconnect(scanConn_);
     QObject::disconnect(scanDoneConn_);
-    // One-shot: open the first radio the sweep reports, then disarm both.
+    // One-shot: open the first P1 radio the sweep reports, then disarm
+    // both.  P2 radios are skipped here by design — opening a Saturn
+    // is an EXPLICIT act (Settings double-click, or the "Open at
+    // startup" choice handled in beginConnect) so a Saturn on the LAN
+    // can't hijack the legacy HL2 auto-connect.  `opened` (not the
+    // sweep's found-count) drives the no-radio fallback, because a
+    // sweep can find only P2 radios: count > 0 yet nothing was opened.
+    auto opened = std::make_shared<bool>(false);
     scanConn_ = connect(
         disc, &lyra::ipc::HL2Discovery::radioFound, this,
-        [this, st, disc](const QString &fip, const QString &mac,
-                         const QString &board, int code, int beta,
-                         bool busy, int numRxs, int proto) {
-            // Auto-connect drives the P1 HL2Stream.  A P2 radio (Brick /
-            // ANAN G2) is reported by discovery but can't be opened here
-            // yet — the P2 receive engine is separate, deferred work.
-            // Leave the one-shot armed so a subsequent P1 reply in the
+        [this, st, disc, opened](const QString &fip, const QString &mac,
+                                 const QString &board, int code, int beta,
+                                 bool busy, int numRxs, int protocol) {
+            // Auto-connect drives the P1 HL2Stream.  A P2 radio (Saturn /
+            // Brick) is reported by discovery but opening one is an
+            // EXPLICIT act (Settings double-click, or "Open at startup")
+            // — leave the one-shot armed so a subsequent P1 reply in the
             // same sweep still auto-connects.
-            if (proto != 1) return;
+            if (protocol != 1) return;
             QObject::disconnect(scanConn_);
             QObject::disconnect(scanDoneConn_);
-            disc->rememberRadio(fip, mac, board, code, beta, busy, numRxs, proto);
+            *opened = true;
+            disc->rememberRadio(fip, mac, board, code, beta, busy, numRxs,
+                                protocol);
             if (connStatus_)
                 connStatus_->setText(tr("Connecting to %1…").arg(fip));
             st->open(fip);
         });
-    // No radio found → reset the connecting state so the UI doesn't sit on
-    // "Scanning…" forever (it flips back to the resting red "No radio found").
+    // No openable radio found → reset the connecting state so the UI
+    // doesn't sit on "Scanning…" forever (it flips back to the resting
+    // red "No radio found").
     scanDoneConn_ = connect(
         disc, &lyra::ipc::HL2Discovery::scanFinished, this,
-        [this, st](int count) {
-            if (count > 0 || st->isRunning()) return;  // radioFound handled it
+        [this, st, opened](int) {
+            if (*opened || st->isRunning()) return;  // radioFound handled it
             QObject::disconnect(scanConn_);
             QObject::disconnect(scanDoneConn_);
             if (connStatus_) {
@@ -2742,26 +2830,37 @@ void MainWindow::scanAndOpenFirst() {
 
 void MainWindow::updateConnState() {
     auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-    const bool running = st && st->isRunning();
+    const bool running   = st && st->isRunning();
+    const bool p2Running = p2Bridge_ && p2Bridge_->isRunning();
+    // The button reflects EITHER wire path — a live P2 session is
+    // just as "running" as a live P1 stream (see onStartStop).
+    const bool anyRunning = running || p2Running;
     if (startStopAction_) {
-        startStopAction_->setText(running ? tr("■  Stop")
-                                          : tr("▶  Start"));
+        startStopAction_->setText(anyRunning ? tr("■  Stop")
+                                             : tr("▶  Start"));
     }
     if (startStopBtn_) {
         // Green when stopped (the button says "Start"); red when running
         // (it says "Stop") — the colour signals the ACTION the click does.
         startStopBtn_->setStyleSheet(
-            running
+            anyRunning
                 ? QStringLiteral("QToolButton{color:#e53935;font-weight:bold;}")
                 : QStringLiteral("QToolButton{color:#4caf50;font-weight:bold;}"));
     }
     if (connStatus_) {
-        connStatus_->setText(running && st
-                                 ? tr("Connected to %1").arg(st->targetIp())
-                                 : tr("Disconnected"));
+        // The P1 stream and the P2 bridge are mutually exclusive; show
+        // whichever is live (Saturn sessions are tagged so the operator
+        // knows which wire path is up).
+        if (running && st)
+            connStatus_->setText(tr("Connected to %1").arg(st->targetIp()));
+        else if (p2Running)
+            connStatus_->setText(tr("Connected to %1 (Saturn P2)")
+                                     .arg(p2Bridge_->targetIp()));
+        else
+            connStatus_->setText(tr("Disconnected"));
         // Green = connected, red = disconnected.
         connStatus_->setStyleSheet(
-            running
+            (running || p2Running)
                 ? QStringLiteral("QLabel{color:#4caf50;font-weight:bold;}")
                 : QStringLiteral("QLabel{color:#e53935;font-weight:bold;}"));
     }
