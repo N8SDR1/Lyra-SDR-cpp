@@ -960,6 +960,9 @@ void Ep6RecvThread::decode_status_header(const uint8_t cc[5]) {
         case 0x00:  // C0 0000 0xxx
             // adc_overload + user_dig_in.
             p->adc[0].adc_overload = static_cast<int>(cc[1] & 0x01);
+            if ((cc[1] & 0x01) != 0) {
+                p->adc[0].adc_overload_seen.store(1, std::memory_order_relaxed);
+            }
             p->user_dig_in = static_cast<int>((cc[1] >> 1) & 0x0f);
             break;
         case 0x08:  // C0 0000 1xxx
@@ -1007,6 +1010,14 @@ void Ep6RecvThread::decode_status_header(const uint8_t cc[5]) {
             p->adc[0].adc_overload = static_cast<int>(cc[1] & 0x01);
             p->adc[1].adc_overload = static_cast<int>((cc[2] & 0x01) << 1);
             p->adc[2].adc_overload = static_cast<int>((cc[3] & 0x01) << 2);
+            // Latch each ADC's clip independently of the shift idiom
+            // above (which yields 0/2 and 0/4, not 0/1).
+            for (int a = 0; a < 3; ++a) {
+                if ((cc[1 + a] & 0x01) != 0) {
+                    p->adc[a].adc_overload_seen.store(
+                        1, std::memory_order_relaxed);
+                }
+            }
             break;
         default:
             // Reference switch has no default body — other

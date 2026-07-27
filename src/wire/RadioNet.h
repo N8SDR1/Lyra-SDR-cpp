@@ -288,6 +288,19 @@ struct AdcState {
     int tx_step_attn{0};
     int previous_adc_overload{0};
     int adc_overload{0};
+
+    // Sticky overload accumulator, set by the receive path and cleared
+    // by whoever consumes it.  adc_overload above is a faithful
+    // per-frame overwrite — that is the wire semantic and must stay
+    // that way — but real overload is INTERMITTENT: the converter
+    // clips on peaks, not on every frame.  A consumer polling at
+    // control-loop rate (hundreds of ms) against a field rewritten
+    // thousands of times a second therefore samples a clean frame
+    // almost every time and concludes the band is quiet while the
+    // front end is actually clipping.  This latch answers the question
+    // a gain-control loop actually needs — "did the ADC clip AT ALL
+    // since I last looked" — and survives between polls.
+    std::atomic<int> adc_overload_seen{0};
     int dither{0};
     int random{0};
 

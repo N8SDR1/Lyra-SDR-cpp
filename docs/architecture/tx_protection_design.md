@@ -410,3 +410,67 @@ SWR Cut + guards; Phase 1b = Fold option; Phase 2 = #170a drive cap; Phase 3 =
 2. #170a drive cap (clamp in `setTxDriveLevel`, TUN + BandMemory aware) + UI.
 3. #170b over-power trip as the 2nd rule (cal-gated, opt-in).
 4. (future) foldback mode for #169 + soft power-limit.
+
+---
+
+## ATT-on-TX — which implementation is live (resolved 2026-07-21)
+
+Operator-flagged during a UI pass: **there are two ATT-on-TX implementations
+in tree, and only one of them runs.** Recording the answer here because the
+v0.3 PureSignal work has to hook the *live* one, and picking the wrong one
+would produce a PS-A auto-attenuator that silently never reaches the wire.
+
+**LIVE (authoritative):** inline in the MOX FSM on `HL2Stream` —
+`fsmAdvance()` (`src/hl2_stream.cpp`) saves the operator's value into
+`savedTxStepAttn_` and forces `setTxStepAttnDb(attOnTxEnabled_ ? attOnTxDb_ : 0)`
+on the keydown edge, before the `mox_delay` window; the restore happens at the
+keyup and keydown-cancel sites (three `setTxStepAttnDb(savedTxStepAttn_)` call
+sites). Operator surface `attOnTxEnabled` / `attOnTxDb` (Q_PROPERTY + QSettings
+`tx/attOnTx*`), Settings → TX group, TxPanel ATT lamp. This is the path that is
+bench-validated — it is what drops the RX front end on key-down.
+
+**DEAD:** `src/tx/AttOnTxPolicy.{h,cpp}`. Compiled (it is in `CMakeLists.txt`)
+but **never constructed and never called** — the only references to the name
+outside its own two files are `CMakeLists.txt` and two comments in
+`hl2_stream.cpp` citing it as a style "precedent". Its own header still says
+"Wire-inert at this stage: nothing constructs AttOnTxPolicy yet."
+
+**Why the standalone class lost:** the same architectural decision recorded at
+the top of this document for SWR protection — TX-safety features live ON
+`HL2Stream` (same QSettings persistence, same `Stream.*` Q_PROPERTY exposure,
+same mox-edge self-wire), "NOT the standalone QObject the pre-build summary
+sketched," because consolidating onto the stream matches the established
+TX-safety pattern and satisfies the off-GUI-loop requirement automatically.
+`AttOnTxPolicy` is that superseded sketch, left behind when ATT-on-TX was built
+the consolidated way.
+
+**Action owed (per the no-patching rule — pick one, delete the other, do not
+shim):** delete `src/tx/AttOnTxPolicy.{h,cpp}` and its two `CMakeLists.txt`
+lines, first migrating the genuinely useful content out of its header into the
+FSM call sites — specifically its docstring on the keyup no-op rationale
+(off-MOX `compose_case_11` reads `rx_step_attn`, so a leftover `tx_step_attn`
+has no RX-time effect) and its enumeration of what is deferred. Not done at the
+time of writing: the operator was mid-way through a different thread and this
+is a separate change with its own bench.
+
+### What PureSignal must hook
+
+`tx_step_attn` is the **shared actuator** — the same register carries the
+operator's ATT-on-TX value and the PS-A auto-attenuator's dynamic value. Keep
+`HL2Stream::setTxStepAttnDb()` as the single writer and have PS-A swap the
+*source*, never the encoding (`set_tx_step_attn_db` owns the HL2 `31 - x`
+inversion; no inline attenuator arithmetic anywhere else).
+
+Deferred pieces that land with PS-A, none of which exist today:
+* the PS-A auto-attenuator FSM dynamic value (the keyup restore is the hook
+  point — today it is a plain restore of `savedTxStepAttn_`);
+* per-band TX-att memory (the reference's per-band step-attenuator lookup);
+* the reference's PS-conditional clauses (force-31 when PS-A is off / when
+  drive or tune rises with PS-A on) — today it is a single global value.
+
+Note for anyone reading a Thetis comparison: on the reference the displayed ATT
+value **moves** while PureSignal runs, because PS-A is driving it. In Lyra it is
+static, because `src/ps/` (`PsFsm`, `PsCalcThread`, `IqcLifecycle`) are empty
+skeletons and nothing ever writes `puresignal_run`. A front-panel ATT readout
+therefore shows a constant until PS lands — the existing TxPanel lamp already
+reads `attOnTxDb` live and will show the movement for free once it does.

@@ -88,6 +88,7 @@
 #include <QQuickWidget>
 #include <QQuickItem>
 #include <QSettings>
+#include <QVariant>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
@@ -1803,8 +1804,28 @@ void MainWindow::switchRig(const QString &rigId) {
         return;   // already active — nothing to do
 
     // Mid-TX guard — never yank the config or restart while keyed.
-    if (auto *s = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
-        if (s->moxActive() || s->cwKeyingActive()) {
+    //
+    // Read the transmit state through the meta-object rather than casting
+    // to a concrete stream class.  The rig registry now admits families
+    // whose stream is not HL2Stream, and a cast-based guard FAILS OPEN on
+    // every one of them: the cast returns null, the check is skipped, and
+    // the switch (and its restart) is permitted mid-transmit.  A TX safety
+    // interlock must fail CLOSED — if we cannot read a transmit state, we
+    // refuse rather than assume the radio is receiving.
+    //
+    // txDisplayActive is (moxActive || cwKeyingActive), so this is exactly
+    // the condition the cast-based guard tested — unchanged for HL2, and
+    // now correct for any stream that publishes the property.
+    if (stream_) {
+        const QVariant tx = stream_->property("txDisplayActive");
+        if (!tx.isValid()) {
+            QMessageBox::warning(this, tr("Switch rig"),
+                tr("Can't switch rigs — this radio doesn't report its "
+                   "transmit state, so Lyra can't confirm it's safe to "
+                   "restart."));
+            return;
+        }
+        if (tx.toBool()) {
             QMessageBox::warning(this, tr("Switch rig"),
                 tr("Can't switch rigs while transmitting — unkey first."));
             return;

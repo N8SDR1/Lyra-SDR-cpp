@@ -294,7 +294,9 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     updateOcPattern();
     // RX1 LNA gain (AD9866 PGA) — restore the operator's last setting.
     lnaGainDb_.store(
-        std::clamp(QSettings().value(QStringLiteral("rx/lnaGainDb"), 31).toInt(),
+        // Fallback = the reference's fresh-install gain, +19 dB (its
+        // att 0; att = 19 - gain).  Mirrors lnaGainDb_'s initialiser.
+        std::clamp(QSettings().value(QStringLiteral("rx/lnaGainDb"), 19).toInt(),
                    kLnaMinDb, kLnaMaxDb),
         std::memory_order_relaxed);
     // Auto-LNA: restore enable + undo + hold time.  Fresh-install
@@ -668,10 +670,23 @@ void HL2Stream::setLnaGainDb(int db)
     QSettings().setValue(QStringLiteral("rx/lnaGainDb"), db);
     emit lnaGainChanged();
     emit lnaSetByOperator(db);   // manual change → BandMemory saves per-band
-    emit logLine(QStringLiteral("[hl2] LNA gain %1 dB").arg(db));
+    lnaLog(QStringLiteral("set %1 dB (manual / band restore)").arg(db));
 }
 
-void HL2Stream::applyLnaGainNoPersist(int db)
+// Auto-LNA's gain write.  Persists exactly as a manual set does.
+//
+// The reference has ONE setter — auto's `RX1AttenuatorData += 3` / `--`
+// go through the same property a manual change does, and its tail runs
+// `if (!_mox) setRX1stepAttenuatorForBand(rx1_band, _rx1_attenuator_data)`
+// (`console.cs:11112-11113`) on EVERY write, auto's steps included.  So
+// where auto leaves the gain becomes the band's stored value.
+//
+// That is the half that makes the rest coherent: auto owns the per-band
+// number, turning auto off leaves it alone (see setAutoLna), and a band
+// change restores whatever auto last settled on for that band.  We used
+// to bypass persistence here and restore a separate "manual" value on
+// disable — internally consistent, but a different radio.
+void HL2Stream::applyLnaGainAuto(int db)
 {
     db = std::clamp(db, kLnaMinDb, kLnaMaxDb);
     if (db == lnaGainDb_.load(std::memory_order_relaxed)) {
@@ -683,7 +698,9 @@ void HL2Stream::applyLnaGainNoPersist(int db)
     if (lyra::wire::prn != nullptr) {
         lyra::wire::set_rx_step_attn_db(db + 12, 0);
     }
+    QSettings().setValue(QStringLiteral("rx/lnaGainDb"), db);
     emit lnaGainChanged();   // slider / dB readout / S-meter comp all track
+    emit lnaSetByOperator(db);   // → BandMemory stores it for this band
 }
 
 void HL2Stream::setAutoLna(bool on)
@@ -694,18 +711,27 @@ void HL2Stream::setAutoLna(bool on)
     autoLnaEnabled_ = on;
     QSettings().setValue(QStringLiteral("rx/autoLna"), on);
     if (on) {
-        overloadLevel_ = 0;
-        recovering_ = false;
-        holdClock_.restart();
-        emit logLine(QStringLiteral("[hl2] Auto-LNA on"));
+        // The reference's auto-enable setter sets `_band_change = true`
+        // and swaps the preamp label to "A-ATT" — nothing else
+        // (`console.cs:21354-21363`).  It does NOT clear the overload
+        // counter or restart the hold clock, which we used to do; a
+        // counter carried across the enable is deliberate, so enabling
+        // Auto into an already-clipping band acts immediately.
+        bandChange_ = true;
+        lnaLog(QStringLiteral("Auto ON"));
     } else {
-        // Auto roamed the gain freely — hand the LNA back to the
-        // operator's stored manual set point.
-        const int manual = std::clamp(
-            QSettings().value(QStringLiteral("rx/lnaGainDb"), 31).toInt(),
-            kLnaMinDb, kLnaMaxDb);
-        applyLnaGainNoPersist(manual);
-        emit logLine(QStringLiteral("[hl2] Auto-LNA off, restored %1 dB").arg(manual));
+        // Leave the gain where auto left it.
+        //
+        // The reference's auto-disable path clears its history stack and
+        // does NOTHING to the attenuator (`console.cs:21643-21650`) — the
+        // value auto settled on IS the band's value from that point on,
+        // because every auto step persisted through the same setter a
+        // manual change uses (see applyLnaGainAuto).  Restoring a stored
+        // "manual" set point here was ours, not the reference's, and it
+        // fought the persistence model: it snapped the gain back to a
+        // number auto had already superseded.
+        lnaLog(QStringLiteral("Auto OFF, holding %1 dB")
+               .arg(lnaGainDb_.load(std::memory_order_relaxed)));
     }
     emit autoLnaChanged();
 }
@@ -731,80 +757,193 @@ void HL2Stream::setAutoLnaHoldSec(int sec)
     emit autoLnaChanged();
 }
 
-// 400 ms overload monitor + Auto-LNA loop (main thread).  Always runs
+// 100 ms overload monitor + Auto-LNA loop (main thread).  Always runs
 // while the stream is up so the overload lamp tracks regardless of
 // Auto; gain is only touched when Auto is enabled.  Gain-sense mirror
 // of the reference HERMESLITE auto-attenuator: confirm sustained
-// overload (>3 cycles), back off 3 dB; when clear, creep +1 dB per
-// hold interval up to the +48 ceiling (ride the overload edge).
+// overload (level > 3, i.e. 4 x 100 ms = the documented 400 ms
+// confirmation window), back off 3 dB; when clear, creep +1 dB per
+// hold interval up to the +47 travel limit (ride the overload edge).
 void HL2Stream::onAutoLnaTick()
 {
     if (!running_.load(std::memory_order_acquire)) {
         return;
     }
-    // Sample overload INSTANTANEOUSLY at poll time (most-recent
-    // address-0 frame), matching the reference HL2 poll — a window-OR
-    // over-triggered on a strong front end and pinned gain to the floor.
-    // Stage 2b2: read adc_overload direct from telemetry struct
-    // (Ep6RecvThread writes ControlBytesIn[1]&0x01 into adc[0]
-    // per HL2 single-frame assignment semantics, networkproto1.c:502).
+    // "Did the ADC clip at all since the last tick?"  Consume-and-clear
+    // the sticky latch the receive path sets, rather than sampling the
+    // per-frame overload field at poll time.
+    //
+    // Sampling instantaneously CANNOT work here: the radio rewrites
+    // that field on every EP6 frame (thousands per second) while this
+    // loop runs at 100 ms, and genuine overload is intermittent — the
+    // converter clips on peaks.  The poll therefore lands on a clean
+    // frame nearly every time, the level counter decays, and the loop
+    // concludes the band is quiet and creeps gain UP into hard
+    // clipping — the exact opposite of its job (bench-reported: gain
+    // walks to +48 in ~5 s with both overload lamps solid).
+    //
+    // The hysteresis below is what keeps this from over-triggering:
+    // a lone transient lifts the level by one and then decays, so a
+    // back-off still needs ~1.6 s of continuously clipping windows.
     const bool ov = (lyra::wire::prn != nullptr
-                  && lyra::wire::prn->adc[0].adc_overload != 0);
+                  && lyra::wire::prn->adc[0].adc_overload_seen.exchange(
+                         0, std::memory_order_relaxed) != 0);
     overloadLevel_ = ov ? std::min(overloadLevel_ + 1, 5)
                         : std::max(overloadLevel_ - 1, 0);
     // Lamp + back-off both key on SUSTAINED overload (level > 3 ≈ 1.6 s
     // of genuine clipping), matching the reference "red after 3 cycles".
+    // Diagnostic (LYRA_LNA_DEBUG=1): one line per ~2 s reporting how
+    // many polls in that span saw the clip flag, the level counter and
+    // the live gain.  This exists to answer one question the operator
+    // cannot see from the panel — whether the radio is reporting
+    // overload AT ALL — because the flag is far less sensitive than
+    // "the converter clipped": the gateware clears its clip counter on
+    // every response frame and only reports once that counter reaches
+    // three, and the bit rides only one response slot in four.  If
+    // ovPolls stays 0 while gain sits at the ceiling on a strong band,
+    // the control loop is fine and the flag is never arriving.
+    static const bool kLnaDebug = qEnvironmentVariableIsSet("LYRA_LNA_DEBUG");
+    if (kLnaDebug) {
+        if (ov) ++lnaDbgOvPolls_;
+        if (++lnaDbgPolls_ >= 20) {         // 20 x 100 ms = 2 s
+            lnaLog(QStringLiteral(
+                "ovPolls %1/20  up %2  dn %3  level %4  gain %5 dB  "
+                "hold %6 s  elapsed %7 ms  auto %8")
+                .arg(lnaDbgOvPolls_)
+                .arg(lnaDbgCreeps_).arg(lnaDbgBackoffs_)
+                .arg(overloadLevel_)
+                .arg(lnaGainDb_.load(std::memory_order_relaxed))
+                .arg(autoLnaHoldSec_)
+                .arg(holdClock_.elapsed())
+                .arg(autoLnaEnabled_ ? QStringLiteral("ON")
+                                     : QStringLiteral("OFF")));
+            lnaDbgPolls_   = 0;
+            lnaDbgOvPolls_ = 0;
+            lnaDbgCreeps_ = 0;
+            lnaDbgBackoffs_ = 0;
+        }
+    }
+
     const bool sustained = ov && overloadLevel_ > 3;
-    if (sustained != adcOverload_) {
-        adcOverload_ = sustained;
+
+    // Three-rung operator ladder, mirroring the reference exactly:
+    //
+    //   silent  counter at zero — nothing seen
+    //   yellow  counter > 0 — overload seen recently, now decaying
+    //           (`console.cs:21511-21513`, the sWarning text gate)
+    //   red     THIS poll is dirty AND counter > 3 — confirmed, and the
+    //           auto-attenuator acts on it this same tick
+    //           (`console.cs:21502`, which sits inside the
+    //            `if (_adc_overloaded[i])` block opened at :21496 —
+    //            hence the `ov &&`, and hence red and act are the same
+    //            condition, not two different ones)
+    //
+    // The yellow rung is what persists through the decay; red tracks the
+    // action.  Suppression when the auto-attenuator owns the front end is
+    // the operator-facing half and lives in the panel (see AudioPanel).
+    const int tier = sustained          ? 2
+                   : (overloadLevel_ > 0 ? 1
+                                         : 0);
+    if (tier != adcOverloadTier_) {
+        adcOverloadTier_ = tier;
         emit adcOverloadChanged();
     }
     if (!autoLnaEnabled_) {
         return;
     }
 
+    // Do not touch RX gain while transmitting.
+    //
+    // The reference wraps its ENTIRE RX auto-attenuator block in
+    // `if (!_mox)` (`console.cs:21641`).  Only the counter/step-shift
+    // update at the top of handleOverload (`:21572-21585`) and the
+    // poll itself run while keyed — which is why the gate belongs
+    // here, after the tier update, not at the top of the tick.
+    //
+    // Without it the loop is driven by TX coupling into the front end
+    // rather than by band conditions: the converter clips on our own
+    // transmit, the loop backs the LNA off, and the result lands on
+    // the wire at unkey — gain moved for a reason that has nothing to
+    // do with what we are receiving.
+    if (mox_.load(std::memory_order_acquire)) {
+        return;
+    }
+
     const int g = lnaGainDb_.load(std::memory_order_relaxed);
+
+    // Two branches, mirroring the reference's if / else-if exactly.
+    // There is deliberately NO third "transient overload — hold, don't
+    // recover" branch: the reference has none, and adding one stalls
+    // the creep every time a single window clips, which on a busy band
+    // is most of them.
     if (sustained) {
-        // Sustained overload — back off 3 dB to protect the ADC.  Reset
-        // recovery so the next pull-up waits the full hold time.
-        const int ng = std::max(g - 3, kLnaMinDb);
-        if (ng != g) {
-            applyLnaGainNoPersist(ng);
-            emit logLine(QStringLiteral("[hl2] Auto-LNA back-off → %1 dB").arg(ng));
+        // First confirmed overload ends the fast acquire — we have found
+        // the edge, so hand back to the hold-paced creep.  The reference
+        // clears the flag BEFORE its step guard (`console.cs:21694`), so
+        // it clears even when the guard blocks the step.
+        bandChange_ = false;
+        // Overload confirmed — one 3 dB step off, guarded so the loop
+        // stops where the reference stops rather than running to the
+        // slider's floor.
+        if (g > kAutoLnaBackoffMinDb) {
+            ++lnaDbgBackoffs_;
+            applyLnaGainAuto(g - 3);
+            lnaLog(QStringLiteral("back-off -> %1 dB").arg(g - 3));
         }
-        recovering_ = false;
+        // The clock restarts whether or not the step was taken — the
+        // reference resets it outside its own guard, so a pinned-at-the-
+        // floor loop still waits a full hold before creeping again.
         holdClock_.restart();
-    } else if (ov) {
-        // Transient overload (not yet sustained) — hold, don't recover.
-        recovering_ = false;
-    } else if (autoLnaUndo_) {
-        // Band clear.  The FIRST pull-up waits the operator's full hold
-        // time (so a brief lull doesn't yank gain back up); subsequent
-        // steps creep at the brisker recover cadence so we climb back
-        // quickly.  Pull-downs above are unaffected by this.
-        const qint64 need = recovering_
-            ? static_cast<qint64>(kAutoLnaRecoverMs)
-            : static_cast<qint64>(autoLnaHoldSec_) * 1000;
-        if (holdClock_.elapsed() >= need) {
-            if (g < kLnaMaxDb) {
-                applyLnaGainNoPersist(g + 1);
-            }
-            recovering_ = true;
-            holdClock_.restart();
+    } else if (bandChange_
+               || (autoLnaUndo_
+                   && holdClock_.elapsed()
+                          > static_cast<qint64>(autoLnaHoldSec_) * 1000)) {
+        // `bandChange_ ||` is the reference's fast acquire
+        // (`console.cs:21748-21749`): after a band change or an
+        // auto-enable it creeps 1 dB EVERY poll — bypassing both the
+        // undo flag and the hold timer — until the first confirmed
+        // overload clears the flag.  Land on a new band, climb quickly
+        // to the edge, then settle into the slow hold-paced creep.
+        // Note it ignores autoLnaUndo_ deliberately: even with Undo off
+        // the reference still performs the post-band-change acquire.
+        // Band clear — creep back 1 dB per HOLD interval.  Every step
+        // waits the operator's full hold time; there is no accelerated
+        // recovery cadence.  Lyra previously sped subsequent pull-ups up
+        // to 1 s "so the operator isn't left deaf for minutes", which
+        // recovers four times faster than the reference at the default
+        // 4 s hold and is why the gain kept re-pinning at the ceiling:
+        // it climbed back to maximum between bursts faster than
+        // intermittent clipping could pull it down.
+        if (g < kAutoLnaCreepMaxDb) {
+            ++lnaDbgCreeps_;
+            applyLnaGainAuto(g + 1);
         }
+        holdClock_.restart();
     }
 }
 
-// ── Safety-event log mirror ─────────────────────────────────────────
-// emit logLine() (UI log dock) AND qInfo() / qCritical() (stderr +
-// any installed file handler).  Used at the TX-safety surface so an
-// operator-visible "what happened, when?" record survives a crash or
-// a session where the in-app log dock was never opened.  The "[hl2]"
-// tag is kept distinct from the existing "[hl2]" prefix on LNA logs
-// (those stay logLine-only — not TX-safety).
+// ── Log mirrors ─────────────────────────────────────────────────────
+// emit logLine() AND qInfo() / qCritical().
+//
+// IMPORTANT: the logLine signal currently has NO consumer anywhere in
+// the tree — nothing connects it, and LogBuffer captures the Qt
+// message handler (qInfo / qWarning / qCritical), not Qt signals.  So
+// a logLine-ONLY message reaches neither lyra-log.txt nor Help → View
+// Log: it is invisible to the operator.  Anything an operator is meant
+// to read at the bench MUST go through one of these mirrors.
+//
+// (This corrects a comment that used to describe logLine as feeding a
+// "UI log dock" and deliberately left the Auto-LNA messages on it.
+// That is why the auto-attenuator has always looked silent — its
+// back-off and enable/disable lines were being emitted into nothing.)
 void HL2Stream::safetyLog(const QString& msg) {
     emit logLine(msg);
     qInfo().noquote() << "[hl2-safety]" << msg;
+}
+
+void HL2Stream::lnaLog(const QString& msg) {
+    emit logLine(msg);
+    qInfo().noquote() << "[lna]" << msg;
 }
 
 void HL2Stream::fatalLog(const QString& msg) {
@@ -919,9 +1058,11 @@ void HL2Stream::open(const QString &ip) {
     statsClock_.start();   // baseline for actual-elapsed dg/s
     // Auto-LNA / overload monitor: fresh accumulator + hold clock.
     overloadLevel_ = 0;
-    recovering_ = false;
-    // Stage 2b2: adcOverloadNow_ retired (Auto-LNA reads
-    // prn->adc[0].adc_overload direct in onAutoLnaTick).
+    // Stage 2b2: adcOverloadNow_ retired.  onAutoLnaTick does NOT read
+    // prn->adc[0].adc_overload — it consume-and-clears the sticky
+    // adc_overload_seen latch the receive path sets, which is what the
+    // reference's OR-accumulate + getAndReset pair does.  (An earlier
+    // revision of this comment named the wrong field.)
     holdClock_.start();
     // Stage 2b2-fix: statsTimer_/autoLnaTimer_ .start() MOVED to
     // the very END of open() (after create_rnet + ep6Thread_.start),
@@ -1397,7 +1538,7 @@ void HL2Stream::close() {
     statsTimer_.stop();
     autoLnaTimer_.stop();
     hwPttTimer_.stop();   // Stage 2b2-fix-v2 — HW-PTT poll
-    if (adcOverload_) { adcOverload_ = false; emit adcOverloadChanged(); }
+    if (adcOverloadTier_) { adcOverloadTier_ = 0; emit adcOverloadChanged(); }
     onStatsTick();  // flush the final window so the UI shows true totals
     running_.store(false, std::memory_order_release);
     emit runningChanged();
@@ -2961,9 +3102,18 @@ void HL2Stream::fsmAdvance() {
         savedTxStepAttn_ = txStepAttnDb_.load(std::memory_order_relaxed);
         // §15.31: operator-gated ATT-on-TX.  Enabled → force the
         // configured protective value (default 31 dB → wire min LNA
-        // gain); disabled → axis 0 (= the reference's SetTxAttenData(0)
-        // "no ATT on TX" posture, RX-ADC unprotected during TX).
-        setTxStepAttnDb(attOnTxEnabled_ ? attOnTxDb_ : 0);
+        // gain).
+        //
+        // Disabled → kAttOnTxDisabledDb, NOT 0.  We used to pass 0
+        // here with a comment claiming it matched the reference's
+        // SetTxAttenData(0) "unprotected" posture.  Both halves were
+        // wrong: the reference's disabled branch skips the `31 - x`
+        // inversion, so its 0 reaches the wire as 0 = PGA code 0 =
+        // -12 dB = MAXIMUM attenuation, while our 0 went through the
+        // composer's inversion to wire 31 = +19 dB.  That left the
+        // front end 31 dB hotter than the reference in the one state
+        // an operator would least expect it.  See kAttOnTxDisabledDb.
+        setTxStepAttnDb(attOnTxEnabled_ ? attOnTxDb_ : kAttOnTxDisabledDb);
         // Switch the OC pattern to the TX-side per-band bits FIRST so
         // the external filter board's relays have the mox_delay window
         // (~15 ms) to settle into TX configuration before the MOX bit
@@ -2975,8 +3125,11 @@ void HL2Stream::fsmAdvance() {
         updateOcPattern(/*transmitting=*/true);
         emit logLine(QStringLiteral(
             "TX: keydown — ATT-on-TX %1, mox_delay %2 ms")
-            .arg(attOnTxEnabled_ ? QStringLiteral("%1 dB").arg(attOnTxDb_)
-                                 : QStringLiteral("off"))
+            .arg(attOnTxEnabled_
+                     ? QStringLiteral("%1 dB").arg(attOnTxDb_)
+                     : QStringLiteral("off (%1 dB — the reference's "
+                                      "disabled branch is still max "
+                                      "attenuation)").arg(kAttOnTxDisabledDb))
             .arg(moxDelayMs_));
         QTimer::singleShot(moxDelayMs_, this,
                            [this]() { fsmKeydownPostMox(); });
@@ -3567,10 +3720,13 @@ void HL2Stream::setAttOnTxEnabled(bool on) {
     QSettings().setValue(QStringLiteral("tx/attOnTxEnabled"), on);
     emit attOnTxEnabledChanged(on);
     if (mox_.load(std::memory_order_relaxed))
-        setTxStepAttnDb(on ? attOnTxDb_ : 0);
+        setTxStepAttnDb(on ? attOnTxDb_ : kAttOnTxDisabledDb);
     safetyLog(QStringLiteral("TX: ATT-on-TX -> %1")
               .arg(on ? QStringLiteral("ON (%1 dB)").arg(attOnTxDb_)
-                      : QStringLiteral("off (RX-ADC unprotected on TX)")));
+                      : QStringLiteral("off (%1 dB — the reference's "
+                                       "disabled branch is still max "
+                                       "attenuation, not unprotected)")
+                            .arg(kAttOnTxDisabledDb)));
 }
 
 // #94 External TX Inhibit — hard operator lockout of all keying.  Gated at

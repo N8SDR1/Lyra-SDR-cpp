@@ -6509,9 +6509,11 @@ QWidget *SettingsDialog::buildTxTab() {
         attSpin->setToolTip(tr(
             "Step-attenuator value forced on the RX front end while "
             "transmitting.  31 dB = maximum attenuation (RX LNA driven to "
-            "minimum gain) = the reference default and the strongest "
-            "RX-ADC protection.  Range 0..31 matches the reference's spin "
-            "exactly.\n\n"
+            "minimum gain) = the strongest RX-ADC protection, and the "
+            "value the reference ships.\n\n"
+            "Range here is 0..31.  The reference allows -28..31 on this "
+            "hardware, where negative values add gain on transmit rather "
+            "than attenuation; Lyra does not expose that yet.\n\n"
             "Has effect only when Enabled above is ticked."));
         connect(attSpin, qOverload<int>(&QSpinBox::valueChanged),
                 this, [this](int v) {
