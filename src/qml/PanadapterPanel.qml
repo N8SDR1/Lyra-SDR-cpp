@@ -29,6 +29,77 @@ Item {
     readonly property int lyraMinWidth:  320
     readonly property int lyraMinHeight: 200
 
+    // ---- Panafall crosshair (opt-in; Settings → Visuals) ----
+    // Pointer X/Y published while hovering EITHER pane.  The spectrum and the
+    // waterfall share the exact frequency extent + pixel width, so a single X
+    // reads as one continuous vertical line through the pair.  -1 = the
+    // pointer is over neither pane (line hidden).  Y is only meaningful over
+    // the spectrum (it rides the reticle marker); the waterfall leaves it -1.
+    property real panafallCursorX: -1
+    property real panafallCursorY: -1
+    // Which pane the pointer is over: 0 none / 1 spectrum / 2 waterfall.
+    // The vertical rail spans both panes; the Crosshair style's horizontal
+    // arm is drawn only in the active pane (Y reads as dB in the spectrum and
+    // time in the waterfall, so a horizontal line only makes sense in the
+    // pane the pointer is actually in).
+    property int  panafallActivePane: 0
+    function panafallSetCursor(pane, x, y, inside) {
+        if (inside) { panafallCursorX = x; panafallCursorY = y
+                      panafallActivePane = pane }
+        else        { panafallCursorX = -1; panafallCursorY = -1
+                      panafallActivePane = 0 }
+    }
+
+    // One crosshair segment, instantiated once in the spectrum pane (paneId 1)
+    // and once in the waterfall (paneId 2).  The vertical rail is shared X so
+    // it reads as one line through both; the Crosshair style adds a horizontal
+    // arm in whichever pane the pointer is in.  Four styles.
+    component CrosshairSeg: Item {
+        id: seg
+        anchors.fill: parent
+        z: 60
+        visible: Prefs.panafallCrosshair && root.panafallCursorX >= 0
+        property int paneId: 0
+        readonly property color col: Prefs.crosshairColor
+        readonly property real  cx:  Math.round(root.panafallCursorX)
+        readonly property int   sty: Prefs.crosshairStyle
+
+        // 0 Hairline / 2 Double / 3 Crosshair — the base 1px vertical rail
+        Rectangle {
+            visible: seg.sty === 0 || seg.sty === 2 || seg.sty === 3
+            x: seg.cx; width: 1; height: seg.height
+            color: seg.col; opacity: 0.90; antialiasing: true
+        }
+        // 2 Double rail — a second hairline a few px to the right
+        Rectangle {
+            visible: seg.sty === 2
+            x: seg.cx + 5; width: 1; height: seg.height
+            color: seg.col; opacity: 0.90; antialiasing: true
+        }
+        // 1 Dashed — tiled vertical dashes (no solid rail under them)
+        Column {
+            visible: seg.sty === 1
+            x: seg.cx; spacing: 5
+            Repeater {
+                model: Math.max(1, Math.ceil(seg.height / 11))
+                delegate: Rectangle {
+                    width: 1; height: 6
+                    color: seg.col; opacity: 0.95; antialiasing: true
+                }
+            }
+        }
+        // 3 Crosshair — the horizontal arm, drawn only in the pane the pointer
+        // is over (a full + at the cursor).  Colour follows the picker.
+        Rectangle {
+            visible: seg.sty === 3
+                     && root.panafallActivePane === seg.paneId
+                     && root.panafallCursorY >= 0
+            x: 0; y: Math.round(root.panafallCursorY)
+            width: seg.width; height: 1
+            color: seg.col; opacity: 0.90; antialiasing: true
+        }
+    }
+
     // RX1 centre frequency.  The panadapter is always centred on the
     // tuned DDC freq, so this drives the frequency scale AND click-to-
     // tune.  Held in a LOCAL property updated via the rx1FreqChanged
@@ -658,6 +729,9 @@ Item {
                                         specMouse.mouseY - 18))
             }
 
+            // ---- Panafall crosshair — spectrum-pane segment (paneId 1) ----
+            CrosshairSeg { paneId: 1 }
+
             // ---- spectrum mouse: click / drag / wheel tune + dB-drag ----
             // Click the spectrum to tune RX1 there; drag to pan across
             // the band; wheel to step.  The right-edge strip (3 zones)
@@ -758,6 +832,16 @@ Item {
                 cursorShape: dbModeAt(mouseX, mouseY) !== "" ? Qt.SizeVerCursor
                              : (tuning && dragged ? Qt.ClosedHandCursor
                                                   : Qt.CrossCursor)
+
+                // Panafall crosshair: publish the pointer position so a thin
+                // line (and, in the reticle style, a diamond) can track it
+                // through both panes.  Separate notify signals, so the tune /
+                // drag / notch logic in onPositionChanged stays untouched.
+                onMouseXChanged: root.panafallSetCursor(1, mouseX, mouseY,
+                                                        containsMouse)
+                onMouseYChanged: root.panafallSetCursor(1, mouseX, mouseY,
+                                                        containsMouse)
+                onExited: root.panafallSetCursor(1, 0, 0, false)
 
                 onPressed: (mouse) => {
                     if (mouse.button === Qt.RightButton) {
@@ -1721,9 +1805,18 @@ Item {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton
                 cursorShape: Qt.CrossCursor
+                hoverEnabled: true
                 property bool dragged: false
                 property real downX: 0
                 onPressed: (m) => { dragged = false; downX = m.x }
+                // Panafall crosshair over the waterfall (pane 2): publish X + Y
+                // so the vertical rail tracks and the Crosshair style's
+                // horizontal arm can draw here too.
+                onMouseXChanged: root.panafallSetCursor(2, mouseX, mouseY,
+                                                        containsMouse)
+                onMouseYChanged: root.panafallSetCursor(2, mouseX, mouseY,
+                                                        containsMouse)
+                onExited: root.panafallSetCursor(2, 0, 0, false)
                 onPositionChanged: (m) => {
                     if (Math.abs(m.x - downX) > specMouse.dragThreshPx)
                         dragged = true
@@ -1748,6 +1841,11 @@ Item {
                     wheel.accepted = true
                 }
             }
+
+            // ---- Panafall crosshair — waterfall-pane segment (paneId 2) ----
+            // Same X as the spectrum segment; the shared frequency extent
+            // makes the line read as one continuous rail through both panes.
+            CrosshairSeg { paneId: 2 }
         }
     }
 }

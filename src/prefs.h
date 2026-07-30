@@ -189,6 +189,16 @@ class Prefs : public QObject {
     // panadapter (on by default; operator-toggleable).
     Q_PROPERTY(bool cursorReadout READ cursorReadout WRITE setCursorReadout
                NOTIFY cursorReadoutChanged)
+    // Panafall cursor crosshair: a thin vertical line at the pointer that
+    // runs through BOTH the panadapter and the waterfall (they share the
+    // exact frequency extent).  Opt-in, off by default.  crosshairStyle
+    // selects the look (0 hairline / 1 dashed / 2 double rail / 3 crosshair).
+    Q_PROPERTY(bool panafallCrosshair READ panafallCrosshair
+               WRITE setPanafallCrosshair NOTIFY panafallCrosshairChanged)
+    Q_PROPERTY(QString crosshairColor READ crosshairColor
+               WRITE setCrosshairColor NOTIFY crosshairColorChanged)
+    Q_PROPERTY(int crosshairStyle READ crosshairStyle
+               WRITE setCrosshairStyle NOTIFY crosshairStyleChanged)
     // Zero-beat tuning aid: a small ± needle under the freq readout (CW / AM /
     // SAM / FM).  Off by default; RX-only display.
     Q_PROPERTY(bool zeroBeatMarkers READ zeroBeatMarkers WRITE setZeroBeatMarkers
@@ -528,6 +538,12 @@ public:
     void     setPanadapterSplit(const QVariant &v);
     bool cursorReadout() const { return cursorReadout_; }
     void setCursorReadout(bool v);
+    bool panafallCrosshair() const { return panafallCrosshair_; }
+    void setPanafallCrosshair(bool v);
+    QString crosshairColor() const { return crosshairColor_; }
+    void    setCrosshairColor(const QString &hex);
+    int  crosshairStyle() const { return crosshairStyle_; }
+    void setCrosshairStyle(int v);
     bool zeroBeatMarkers() const { return zeroBeatMarkers_; }
     void setZeroBeatMarkers(bool v);
     bool dspPanelsGrouped() const { return dspPanelsGrouped_; }
@@ -688,6 +704,9 @@ signals:
     void waterfallDbAutoChanged();
     void panadapterSplitChanged();
     void cursorReadoutChanged();
+    void panafallCrosshairChanged();
+    void crosshairColorChanged();
+    void crosshairStyleChanged();
     void zeroBeatMarkersChanged();
     void dspPanelsGroupedChanged();
     void optionsPanelsGroupedChanged();
@@ -795,6 +814,9 @@ private:
     bool    waterfallDbAuto_;
     QVariant panadapterSplit_;
     bool    cursorReadout_;
+    bool    panafallCrosshair_ = false;
+    QString crosshairColor_ = QStringLiteral("#9fd4ff");
+    int     crosshairStyle_ = 0;
     bool    zeroBeatMarkers_ = false;
     int     processPriority_ = 0;   // 0 Normal / 1 Above Normal / 2 High
     bool    digitalDriveEnabled_ = false;
