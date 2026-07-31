@@ -32,6 +32,7 @@ int main(int argc, char **argv) {
     P2Session session;
     session.setProfile(g2);
     session.setDdcFrequencyHz(0, 7'100'000u);
+    session.setDucFrequencyHz(14'100'000u);
     session.setTrxAntenna(2);
     session.setRxInput(P2RxInput::Ext1);
     session.setAdcAttenuation(0, 12);
@@ -43,14 +44,52 @@ int main(int argc, char **argv) {
     for (int ddc = 1; ddc < 10; ++ddc)
         putBe32(expectedHp, 9 + 4 * ddc, 492'830'720u);
     putBe32(expectedHp, 329, 492'830'720u);
-    expectedHp[1432] = char{0x02}; // ANT2 + 60/40 LPF = 0x0220
-    expectedHp[1433] = char{0x20};
-    expectedHp[1434] = char{0x02}; // EXT1 + 6.5 MHz HPF = 0x0220
-    expectedHp[1435] = char{0x20};
+    expectedHp[1432] = char{0x02}; // TX uses DUC 14.1 MHz: ANT2 + 30/20 LPF
+    expectedHp[1433] = char{0x10};
+    expectedHp[1434] = char{0x02}; // EXT1 + 9.5 MHz HPF = 0x0210
+    expectedHp[1435] = char{0x10};
     expectedHp[1442] = char{7};
     expectedHp[1443] = char{12};
     ok &= expect(session.diagnosticHighPriorityPacket(true) == expectedHp,
                  "G2 high-priority packet matches golden bytes");
+
+    const auto rxWordAt = [&session](quint32 hz) {
+        session.setDdcFrequencyHz(0, hz);
+        const QByteArray packet = session.diagnosticHighPriorityPacket(true);
+        return static_cast<quint16>(
+            (static_cast<quint8>(packet[1434]) << 8) |
+            static_cast<quint8>(packet[1435]));
+    };
+    ok &= expect(rxWordAt(1'499'999u) == 0x1200,
+                 "G2 RX below 1.5 MHz uses EXT1 plus HPF bypass");
+    ok &= expect(rxWordAt(1'500'000u) == 0x0240,
+                 "G2 RX 1.5 MHz uses the 1.5 MHz HPF");
+    ok &= expect(rxWordAt(2'100'000u) == 0x0220,
+                 "G2 RX 2.1 MHz switches to the 6.5 MHz HPF");
+    ok &= expect(rxWordAt(5'500'000u) == 0x0210,
+                 "G2 RX 5.5 MHz switches to the 9.5 MHz HPF");
+    ok &= expect(rxWordAt(11'000'000u) == 0x0202,
+                 "G2 RX 11 MHz switches to the 13 MHz HPF");
+    ok &= expect(rxWordAt(22'000'000u) == 0x0204,
+                 "G2 RX 22 MHz switches to the 20 MHz HPF");
+    ok &= expect(rxWordAt(35'000'000u) == 0x0208,
+                 "G2 RX 35 MHz switches to the 6 m BPF");
+
+    const auto txWordAt = [&session](quint32 hz) {
+        session.setDucFrequencyHz(hz);
+        const QByteArray packet = session.diagnosticHighPriorityPacket(true);
+        return static_cast<quint16>(
+            (static_cast<quint8>(packet[1432]) << 8) |
+            static_cast<quint8>(packet[1433]));
+    };
+    ok &= expect(txWordAt(2'500'000u) == 0x0280,
+                 "G2 TX 2.5 MHz uses the 160 m LPF and ANT2");
+    ok &= expect(txWordAt(8'000'000u) == 0x0220,
+                 "G2 TX 8 MHz uses the 60/40 m LPF and ANT2");
+    ok &= expect(txWordAt(24'000'000u) == 0x8200,
+                 "G2 TX 24 MHz uses the 17/15 m LPF and ANT2");
+    ok &= expect(txWordAt(35'600'001u) == 0x2200,
+                 "G2 TX above 35.6 MHz uses the 6 m LPF and ANT2");
 
     session.setDdcAdc(0, 1);
     session.enableDdc(0, 192);

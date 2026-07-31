@@ -167,9 +167,9 @@ signals:
 
 private:
     quint16 chooseRateKhz();   // engine rate → legal P2 rate (may set engine rate)
-    // Mirror the tuning state onto the session: DDC0 = dial + RIT
-    // (matching the HL2 path's pushEffectiveRxFreq semantics), DUC =
-    // dial.  Called on every rx1FreqChanged AND ritChanged.
+    // Mirror the tuning state onto the session: DDC0 = effective RX carrier
+    // (dial + RIT), and DUC = effective TX carrier (VFO B/XIT when enabled).
+    // Called whenever the relevant tuning state changes.
     void pushDialToSession();
     void restoreFrontEndForBand(const QString &band);
     void persistFrontEndValue(const QString &name, const QVariant &value);
@@ -206,6 +206,10 @@ private:
     int        txDriveLimitPercent_ = 5;
     QString    txStateDetail_ = QStringLiteral("Disconnected");
     QString    ip_;
+    // P2 rigs are selectable identities but are not the active rig in the
+    // current multi-rig manager. Keep the selected identity here so P2
+    // hardware settings do not accidentally route through the active P1 rig.
+    QString    rigId_;
     quint16    rateKhz_ = 192;
     // Telemetry conversion state (main thread only — the status
     // signal is queued onto the bridge's thread).

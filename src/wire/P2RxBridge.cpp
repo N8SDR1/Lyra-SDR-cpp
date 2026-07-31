@@ -31,9 +31,15 @@ bool p2RateLegal(int khz) {
            khz == 384 || khz == 768 || khz == 1536;
 }
 
-QString frontEndBandPrefix(const QString &band) {
+QString rigScopedKey(const QString &rigId, const QString &logicalKey) {
+    if (!rigId.isEmpty())
+        return QStringLiteral("rig/%1/%2").arg(rigId, logicalKey);
+    return lyra::rig::scope::rigKey(logicalKey);
+}
+
+QString frontEndBandPrefix(const QString &rigId, const QString &band) {
     if (band.isEmpty()) return QString();
-    return lyra::rig::scope::rigKey(QStringLiteral("band_mem/")) +
+    return rigScopedKey(rigId, QStringLiteral("band_mem/")) +
            band + QStringLiteral("/p2/");
 }
 } // namespace
@@ -129,7 +135,7 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                         return v * v / bridge;
                     };
                     const bool sixMetres =
-                        stream_ && stream_->rx1FreqHz() >= 50'000'000u;
+                        stream_ && stream_->txFreqHz() >= 50'000'000u;
                     const double fwd = watts(fwdRaw, 32, 0.12);
                     const double rev =
                         watts(revRaw, 28, sixMetres ? 0.7 : 0.15);
@@ -197,6 +203,14 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 [this]() { pushDialToSession(); });
         connect(stream_, &lyra::ipc::HL2Stream::ritChanged, this,
                 [this]() { pushDialToSession(); });
+        connect(stream_, &lyra::ipc::HL2Stream::splitEnabledChanged, this,
+                [this]() { pushDialToSession(); });
+        connect(stream_, &lyra::ipc::HL2Stream::vfoBHzChanged, this,
+                [this]() { pushDialToSession(); });
+        connect(stream_, &lyra::ipc::HL2Stream::xitChanged, this,
+                [this]() { pushDialToSession(); });
+        connect(stream_, &lyra::ipc::HL2Stream::freqCorrectionChanged,
+                this, [this](double) { pushDialToSession(); });
         // This fires synchronously inside requestMox(true), before the
         // FSM advances. Cancelling here prevents even a transient TXA
         // start when the P2 connection has not been deliberately armed.
@@ -328,8 +342,7 @@ void P2RxBridge::setTxDriveLimitPercent(int percent) {
         return;
     txDriveLimitPercent_ = limited;
     QSettings().setValue(
-        lyra::rig::scope::rigKey(QStringLiteral("p2/txDriveLimitPct")),
-        limited);
+        rigScopedKey(rigId_, QStringLiteral("p2/txDriveLimitPct")), limited);
     if (open_ && stream_ && stream_->moxActive())
         syncTxIntentToSession(true);
     emit txStateChanged();
@@ -390,9 +403,10 @@ void P2RxBridge::pushDialToSession() {
     if (stream_->ritEnabled())
         rx = static_cast<quint32>(
             std::max<qint64>(0, qint64(rx) + stream_->ritOffsetHz()));
-    const quint32 tx = stream_->rx1FreqHz();
+    const quint32 tx = stream_->txFreqHz();
     // Match P1's final wire-frequency choke point: calibration applies
-    // after RIT for RX and to the unshifted dial for the DUC.
+    // after RIT for RX and to the effective TX carrier (VFO B/XIT when
+    // enabled) for the DUC.
     rx = static_cast<quint32>(corrected_freq(static_cast<int>(rx)));
     const quint32 correctedTx =
         static_cast<quint32>(corrected_freq(static_cast<int>(tx)));
@@ -404,7 +418,7 @@ void P2RxBridge::pushDialToSession() {
 }
 
 void P2RxBridge::restoreFrontEndForBand(const QString &band) {
-    const QString p = frontEndBandPrefix(band);
+    const QString p = frontEndBandPrefix(rigId_, band);
     QSettings s;
     rxAttenuationDb_ = p.isEmpty() ? 0
         : std::clamp(s.value(p + QStringLiteral("attenuationDb"), 0).toInt(),
@@ -424,7 +438,7 @@ void P2RxBridge::restoreFrontEndForBand(const QString &band) {
 
 void P2RxBridge::persistFrontEndValue(const QString &name,
                                       const QVariant &value) {
-    const QString p = frontEndBandPrefix(currentBand_);
+    const QString p = frontEndBandPrefix(rigId_, currentBand_);
     if (!p.isEmpty()) QSettings().setValue(p + name, value);
 }
 
@@ -515,10 +529,6 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
 
     activateTxProducerSeam();
     resetTxUiState();
-    txDriveLimitPercent_ = std::clamp(
-        QSettings().value(
-            lyra::rig::scope::rigKey(QStringLiteral("p2/txDriveLimitPct")),
-            5).toInt(), 1, 25);
     rateKhz_ = chooseRateKhz();
     // Seed DDC0 from the dial (rx/freqHz persists across launches; 0
     // only on a truly fresh install → park on 20 m).
@@ -526,6 +536,10 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     if (hz == 0) hz = 14'100'000u;
     const quint32 correctedHz =
         static_cast<quint32>(corrected_freq(static_cast<int>(hz)));
+    quint32 txHz = stream_ ? stream_->txFreqHz() : hz;
+    if (txHz == 0) txHz = hz;
+    const quint32 correctedTx =
+        static_cast<quint32>(corrected_freq(static_cast<int>(txHz)));
 
     // Rig identity (folded into RigRegistry — was a parallel
     // RadioProfileStore, docs/architecture/p2_identity_reconciliation.md
@@ -568,6 +582,14 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
         }
         if (seeded) lyra::rig::registry::upsertRig(prof);
     }
+    rigId_ = prof.isValid() ? prof.rigId : QString();
+    // Read the limit only after resolving this radio's identity. P2 rigs
+    // are not the active rig, so RigScope alone would load another radio's
+    // TX ceiling.
+    txDriveLimitPercent_ = std::clamp(
+        QSettings().value(
+            rigScopedKey(rigId_, QStringLiteral("p2/txDriveLimitPct")),
+            5).toInt(), 1, 25);
 
     // Per-radio audio routing — applied TRANSIENTLY (globals stay as
     // the HL2 configured them; restored at close()).  P2 profiles are
@@ -676,7 +698,8 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     const int input = rxInput_;
     const bool bypass = hpfBypass_;
     const int bandAnt = trxAntenna_;
-    QMetaObject::invokeMethod(s, [s, ip, correctedHz, rate, bandAnt, p2hw,
+    QMetaObject::invokeMethod(s, [s, ip, correctedHz, correctedTx, rate,
+                                  bandAnt, p2hw,
                                   att, adc, input, bypass]() {
         s->setTxProducerSink([](const double *iq, int samples) {
             return feedP2TxCmasterInput(iq, samples);
@@ -688,7 +711,10 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
         s->setRxInput(static_cast<P2RxInput>(input));
         s->setHpfBypass(bypass);
         s->setDdcFrequencyHz(0, correctedHz);
-        s->setDucFrequencyHz(correctedHz);
+        // Start the DUC on the effective TX carrier, not the RX dial.
+        // This matters immediately for split/VFO-B profiles; the normal
+        // dial-update path continues to track later changes.
+        s->setDucFrequencyHz(correctedTx);
         s->enableDdc(0, rate);
         s->open(ip);
     });
@@ -724,6 +750,7 @@ void P2RxBridge::close() {
     open_    = false;
     running_ = false;
     ip_.clear();
+    rigId_.clear();
     supplyV_ = std::numeric_limits<double>::quiet_NaN();
     paA_     = std::numeric_limits<double>::quiet_NaN();
     fwdPowerW_ = std::numeric_limits<double>::quiet_NaN();

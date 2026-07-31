@@ -81,6 +81,19 @@ constexpr double kPwrPeakDecay  = 0.10;
 constexpr double kPwrMaxDecay   = 0.012;       // same gentle drop as S-meter
 constexpr double kPwrGlowDecay  = 0.18;
 
+constexpr double kPaScaleMaxA = 3.0;
+constexpr double kPaDangerA   = 2.5;
+constexpr double kVScaleMaxV  = 16.0;
+constexpr double kVDangerV    = 14.0;
+
+// P2 telemetry uses a separate scale from the HL2 telemetry. These values
+// match the G2 conversion path and keep a normal ~14 V housekeeping rail out
+// of the HL2 over-voltage zone.
+constexpr double kP2PaScaleMaxA = 5.0;
+constexpr double kP2PaDangerA   = 4.0;
+constexpr double kP2VScaleMaxV  = 20.0;
+constexpr double kP2VDangerV    = 17.0;
+
 // SWR scale conventions.  Below this guard-band fwd power the
 // reflection-coefficient computation is dominated by ADC noise and
 // would render garbage SWR (e.g. 8:1 on a perfectly matched dummy
@@ -867,26 +880,25 @@ void MeterModel::ladderRowFor(int src, double *level, double *danger) const {
         return;
     }
     case PA_CURRENT: {
-        // HL2+ scale: idle ~0.2 A, full-tune anchor ~1.8 A.  Run the
-        // row out to 3 A (covers external-PA telemetry too); danger
-        // at 2.5 A (above operator's normal full-drive draw).
-        const double a = stream_->paCurrentA();
+        const bool onP2 = p2_ && p2_->isRunning();
+        const double a = onP2 ? p2_->paCurrentA()
+                              : stream_->paCurrentA();
         if (std::isnan(a)) return;
-        constexpr double kPAFullScale = 3.0;
-        constexpr double kPADanger    = 2.5;
-        *level = std::clamp(a / kPAFullScale, 0.0, 1.0);
-        *danger = kPADanger / kPAFullScale;
+        const double fullScale = onP2 ? kP2PaScaleMaxA : kPaScaleMaxA;
+        const double dangerLevel = onP2 ? kP2PaDangerA : kPaDangerA;
+        *level = std::clamp(a / fullScale, 0.0, 1.0);
+        *danger = dangerLevel / fullScale;
         return;
     }
     case PA_VOLTS: {
-        // Center the bar on the 12-13 V nominal HL2 supply; full scale
-        // 16 V leaves headroom for higher-VDD external supplies.
-        const double v = stream_->hl2SupplyV();
+        const bool onP2 = p2_ && p2_->isRunning();
+        const double v = onP2 ? p2_->supplyVolts()
+                              : stream_->hl2SupplyV();
         if (std::isnan(v)) return;
-        constexpr double kVFullScale = 16.0;
-        constexpr double kVDanger    = 14.0;
-        *level = std::clamp(v / kVFullScale, 0.0, 1.0);
-        *danger = kVDanger / kVFullScale;
+        const double fullScale = onP2 ? kP2VScaleMaxV : kVScaleMaxV;
+        const double dangerLevel = onP2 ? kP2VDangerV : kVDangerV;
+        *level = std::clamp(v / fullScale, 0.0, 1.0);
+        *danger = dangerLevel / fullScale;
         return;
     }
     case TEMP: {
@@ -1433,37 +1445,6 @@ void MeterModel::computeSwr() {
 // secondary readout when txSecondary_ is set.
 
 namespace {
-// PA current — HL2+ idle ~0.2 A, full-tune anchor ~1.8 A.  3 A
-// full-scale gives headroom for external-PA telemetry (some companion
-// boards route through here); 2.5 A danger threshold sits above the
-// operator's normal full-drive draw, so the red zone only lights up
-// when something's actually wrong.
-constexpr double kPaScaleMaxA = 3.0;
-constexpr double kPaDangerA   = 2.5;
-// PA supply / VDD — HL2 nominal supply is 12-13 V.  16 V full-scale
-// covers higher-VDD external supplies; 14 V danger flags an over-
-// voltage condition (the HL2's input regulator can take 12-15 V).
-constexpr double kVScaleMaxV  = 16.0;
-constexpr double kVDangerV    = 14.0;
-// P2 (Saturn / ANAN) telemetry — SEPARATE scale from the HL2's.
-// P2RxBridge reads AIN3/AIN4 through Thetis's fixed resistor-divider
-// conversion (console.cs convertToVolts, shared across the whole
-// MkII-BPF family, not just Saturn) and per-model amp offset/
-// sensitivity from the hardware catalog.  Bench-verified on a live
-// G2 (2026-07-19/20): idle supply read ~13.7-14.0 V, current ~0-0.2 A
-// — i.e. this ADC channel reads a 13.8 V-class housekeeping/bias
-// rail common to the family, NOT the RF PA's own (possibly higher)
-// supply.  That number sits right at/above the HL2's 14 V danger
-// threshold, so reusing the HL2 constants painted a healthy G2 red.
-// These constants give headroom around that verified idle reading;
-// they are NOT bench-confirmed under TX load or on non-Saturn P2
-// hardware — revisit per-model if the catalog ever needs to carry
-// its own scale (it already carries per-model amp conversion
-// constants, this could join them).
-constexpr double kP2PaScaleMaxA = 5.0;
-constexpr double kP2PaDangerA   = 4.0;
-constexpr double kP2VScaleMaxV  = 20.0;
-constexpr double kP2VDangerV    = 17.0;
 // HL2 board temperature.  Idle ~25 °C, full-tune climbs to ~31 °C;
 // 80 °C full-scale (well above the gateware thermal-cutoff floor);
 // 60 °C danger gives the operator a clear "back off" margin before

@@ -53,12 +53,13 @@ quint16 saturnAlexRxWord(quint32 hz, P2RxInput input, bool hpfBypass) {
         case P2RxInput::Trx:                         break;
     }
     if (hpfBypass || hz < 1'500'000u) return w | (1u << 12);
-    if (hz <  6'500'000u) return w | (1u << 6);
-    if (hz <  9'500'000u) return w | (1u << 5);
-    if (hz < 13'000'000u) return w | (1u << 4);
-    if (hz < 20'000'000u) return w | (1u << 1);
-    if (hz < 50'000'000u) return w | (1u << 2);
-    return w | (1u << 3);
+    if (hz <  2'100'000u) return w | (1u << 6); // 1.5 MHz HPF
+    if (hz <  5'500'000u) return w | (1u << 5); // 6.5 MHz HPF
+    if (hz < 11'000'000u) return w | (1u << 4); // 9.5 MHz HPF
+    if (hz < 22'000'000u) return w | (1u << 1); // 13 MHz HPF
+    if (hz < 35'000'000u) return w | (1u << 2); // 20 MHz HPF
+    if (hz <= 61'440'000u) return w | (1u << 3); // 6 m BPF/LNA
+    return w | (1u << 12); // outside Thetis's configured BPF1 table
 }
 
 // TX halfword bits (32-bit word bits 16..31 → u16 0..15):
@@ -69,12 +70,12 @@ quint16 saturnAlexRxWord(quint32 hz, P2RxInput input, bool hpfBypass) {
 // Thetis's Alex LPF defaults.
 quint16 saturnAlexTxWord(quint32 hz, int trxAnt) {
     quint16 w = 0;
-    if      (hz <  2'000'000u) w |= 1u << 7;    // 160 m LPF
-    else if (hz <  4'000'000u) w |= 1u << 6;    // 80 m
-    else if (hz <  7'300'000u) w |= 1u << 5;    // 60/40 m
-    else if (hz < 14'350'000u) w |= 1u << 4;    // 30/20 m
-    else if (hz < 21'450'000u) w |= 1u << 15;   // 17/15 m
-    else if (hz < 29'700'000u) w |= 1u << 14;   // 12/10 m
+    if      (hz <  2'500'001u) w |= 1u << 7;    // 160 m LPF
+    else if (hz <  5'000'001u) w |= 1u << 6;    // 80 m
+    else if (hz <  8'000'001u) w |= 1u << 5;    // 60/40 m
+    else if (hz < 16'500'001u) w |= 1u << 4;    // 30/20 m
+    else if (hz < 24'000'001u) w |= 1u << 15;   // 17/15 m
+    else if (hz < 35'600'001u) w |= 1u << 14;   // 12/10 m
     else                       w |= 1u << 13;   // 6 m
     switch (trxAnt) {
         default:
@@ -229,8 +230,9 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     const auto tx = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
     // [0..3] sequence 0 (control). [4]: bit0 run, bit1 gated transmit;
     // PureSignal bit7 remains off until its separate validation phase.
+    const bool transmit = run && tx.transmit;
     pkt[4] = static_cast<char>((run ? 0x01 : 0x00) |
-                               (tx.transmit ? 0x02 : 0x00));
+                               (transmit ? 0x02 : 0x00));
     // [5] CWX off; [6..8] must be zero (hardened p2app rejects the
     // packet otherwise — protocol2_command.c validation).
     for (std::size_t i = 0; i < ddcFreqHz_.size(); ++i)
@@ -244,13 +246,14 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     // branch in p2app then applies Alex0 to both filter registers).
     // [1432..35] Alex0 TX + RX halfwords from the hardware profile —
     // the RF front end (BPF/LPF select + TRX antenna route).  Derived
-    // from DDC0's dial every build, so band changes re-filter at the
-    // 100 ms cadence.  All-zero here = disconnected front end.
+    // from the independent DUC/DDC carriers every build, so band changes
+    // re-filter at the 100 ms cadence. All-zero here = disconnected front
+    // end.
     if (profile_) {
-        const quint32 f = ddcFreqHz_[0];
-        const quint16 txw = profile_->alexTxWord(f, trxAntenna_);
+        const quint16 txw =
+            profile_->alexTxWord(ducFreqHz_, trxAntenna_);
         const quint16 rxw =
-            profile_->alexRxWord(f, rxInput_, hpfBypass_);
+            profile_->alexRxWord(ddcFreqHz_[0], rxInput_, hpfBypass_);
         pkt[1432] = static_cast<char>(txw >> 8);
         pkt[1433] = static_cast<char>(txw & 0xFF);
         pkt[1434] = static_cast<char>(rxw >> 8);
@@ -456,6 +459,14 @@ void P2Session::close() {
     const QByteArray stop = buildHighPriorityPacket(false);
     for (int i = 0; i < 3; ++i)
         sock_.writeDatagram(stop, radioAddr_, kPortHpToSdr);
+    // PA authorization lives in the General packet, not in HP Run. Send
+    // an explicit safe General after HP Run=0 so a close cannot leave the
+    // radio's PA-enable bit latched from the previous keyed state. This is
+    // authoritative even when P2RxBridge closes before HL2Stream's delayed
+    // MOX-release signal reaches the session thread.
+    const QByteArray safeGeneral = buildGeneralPacket();
+    for (int i = 0; i < 3; ++i)
+        sock_.writeDatagram(safeGeneral, radioAddr_, kPortCommand);
     sock_.close();
     open_    = false;
     running_ = false;
