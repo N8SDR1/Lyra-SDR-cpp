@@ -656,6 +656,7 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     paA_     = std::numeric_limits<double>::quiet_NaN();
     fwdPowerW_ = std::numeric_limits<double>::quiet_NaN();
     revPowerW_ = std::numeric_limits<double>::quiet_NaN();
+    modelLabel_ = hw ? QString::fromLatin1(hw->displayName) : QString();
     if (hw)
         emit logLine(QStringLiteral(
             "P2: hardware profile %1 — %2 ADC%3, PS peak %4%5")

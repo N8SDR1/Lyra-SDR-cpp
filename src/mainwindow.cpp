@@ -2860,9 +2860,14 @@ void MainWindow::updateConnState() {
         // knows which wire path is up).
         if (running && st)
             connStatus_->setText(tr("Connected to %1").arg(st->targetIp()));
-        else if (p2Running)
-            connStatus_->setText(tr("Connected to %1 (Saturn P2)")
-                                     .arg(p2Bridge_->targetIp()));
+        else if (p2Running) {
+            // Show the resolved marketed model (BrickSDR, Saturn, …) rather
+            // than hardcoding "Saturn" — the P2 path serves the whole family.
+            const QString m = p2Bridge_->modelLabel();
+            connStatus_->setText(m.isEmpty()
+                ? tr("Connected to %1 (P2)").arg(p2Bridge_->targetIp())
+                : tr("Connected to %1 (%2, P2)").arg(p2Bridge_->targetIp(), m));
+        }
         else
             connStatus_->setText(tr("Disconnected"));
         // Green = connected, red = disconnected.

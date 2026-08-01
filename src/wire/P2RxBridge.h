@@ -101,6 +101,9 @@ public:
     // its early close (bench finding 2026-07-20).
     bool    isOpen()    const { return open_; }
     QString targetIp()  const { return ip_; }
+    // Resolved marketed-model display name for the connection banner
+    // (e.g. "BrickSDR", "Saturn (ANAN G2)"); empty until a session opens.
+    QString modelLabel() const { return modelLabel_; }
 
     // Live telemetry in real units, converted from the radio's HP
     // status stream with the ACTIVE hardware profile's constants
@@ -166,6 +169,7 @@ signals:
     void logLine(QString line);
 
 private:
+    QString modelLabel_;       // display name of the resolved marketed model
     quint16 chooseRateKhz();   // engine rate → legal P2 rate (may set engine rate)
     // Mirror the tuning state onto the session: DDC0 = effective RX carrier
     // (dial + RIT), and DUC = effective TX carrier (VFO B/XIT when enabled).
