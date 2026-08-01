@@ -65,6 +65,21 @@ const HardwareModelDescriptor kCatalog[] = {
      false, false, 360.f, 120.f, 0.2899, 0.98f,      -2.1f,    false, false, PA_NONE,    100.f},
     {"RED-PITAYA",   "Red Pitaya",      mREDPITAYA,   bOrionMKII, WireSupport::Both,   2, false, 50, false,
      true,  true,  340.f, 88.f,  0.2899, 4.841644f,  5.259f,   true,  true,  PA_7000_G2, 63.1f},
+    // BrickSDR — Hermes-class Protocol-2 transceiver (discovers as board
+    // "Hermes"; run as model HERMES in Thetis).  First-class Lyra key
+    // instead of the pretend-it's-a-Hermes workaround.  Wire behaviour is
+    // Hermes-class; filtering is the ONBOARD Apollo filter, so it emits
+    // NO per-band Alex/OC words (bench-confirmed 2026-08-01: RX all-zero
+    // across every band, TX a fixed band-independent assertion) — on this
+    // (Jerry) tree that falls out automatically because p2ProfileForModel()
+    // returns null for any non-G2 model, so setProfile(null) emits no Alex
+    // words and TX stays RX-only.  Telemetry/PA constants are Hermes-class
+    // placeholders pending Brick bench calibration.  Generic name: this ONE
+    // row covers the P2 Hermes-class Brick line (Brick2 bench-validated).
+    // Brick3 is Angelia/ANAN-100D-class (deskHPSDR ties it to ANAN-100D) --
+    // a Brick3 uses the ANAN-100D model, NOT this Hermes-class row.
+    {"BRICK-SDR",    "BrickSDR",        mHERMES,      bHermes,    WireSupport::P2Only, 1, false, 33, true,
+     false, false, 360.f, 120.f, 0.2899, 0.98f,      -2.1f,    false, false, PA_CLASSIC, 56.2f},
 };
 
 #undef PA_CLASSIC
@@ -87,6 +102,11 @@ const HardwareModelDescriptor *modelByKey(const QString &key) {
     for (const auto &m : kCatalog)
         if (key.compare(QLatin1String(m.key), Qt::CaseInsensitive) == 0)
             return &m;
+    // Back-compat: the P2 Brick model was briefly "BRICK-SDR2" before it
+    // was generalized to "BRICK-SDR" (Brick2 = one variant of the
+    // Hermes-class P2 Brick line).  Resolve saved profiles on the old key.
+    if (key.compare(QLatin1String("BRICK-SDR2"), Qt::CaseInsensitive) == 0)
+        return modelByKey(QStringLiteral("BRICK-SDR"));
     return nullptr;
 }
 
