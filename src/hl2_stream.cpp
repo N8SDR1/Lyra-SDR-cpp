@@ -631,6 +631,11 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
             setTuneEnabled(false);
         }
     });
+    connect(this, &HL2Stream::moxActiveChanged, this, [this](bool on) {
+        if (!on && twoToneEnabled_.load(std::memory_order_relaxed)) {
+            setTwoToneEnabled(false);
+        }
+    });
     // #169 — SWR-protection evaluator: a 50 ms repeating tick armed on
     // key-down, cancelled on key-up, beside the one-shot TX-safety timer
     // above.  Same QObject affinity, so requestMox(false) on a trip funnels
@@ -1024,7 +1029,10 @@ void HL2Stream::open(const QString &ip) {
     // TX-0c-tune — fresh stream always starts disarmed (tune is per-
     // session, not persisted).  DC-injection carrier means no NCO
     // state to reset beyond this flag.
+    if (twoToneEnabled_.load(std::memory_order_relaxed))
+        setTwoToneEnabled(false);
     tuneEnabled_.store(false, std::memory_order_relaxed);
+    twoToneEnabled_.store(false, std::memory_order_relaxed);
     requestedMox_  = false;
     fsmRunning_    = false;
     if (moxActive_) { moxActive_ = false; emit moxActiveChanged(false); }
@@ -1414,7 +1422,10 @@ void HL2Stream::close() {
     mox_.store(false, std::memory_order_release);
     // TX-0c-tune — force-disarm in lockstep with the MOX clear so the
     // final EP2 frames carry silent TX I/Q.
+    if (twoToneEnabled_.load(std::memory_order_relaxed))
+        setTwoToneEnabled(false);
     tuneEnabled_.store(false, std::memory_order_relaxed);
+    twoToneEnabled_.store(false, std::memory_order_relaxed);
     requestedMox_  = false;
     fsmRunning_    = false;
     if (moxActive_) {
@@ -2658,6 +2669,8 @@ void HL2Stream::setTuneEnabled(bool on) {
     // Drive % scales the on-air power.  NOT persisted (TUN is an explicit
     // gesture) and auto-cleared on every wire-MOX-off edge by the ctor's
     // self-wired safety.
+    if (on && twoToneEnabled_.load(std::memory_order_relaxed))
+        setTwoToneEnabled(false);
     const bool prev = tuneEnabled_.exchange(on, std::memory_order_relaxed);
     if (prev == on) return;
     // Forward to the registered postgen callback (no-op if TX control
@@ -2711,6 +2724,22 @@ void HL2Stream::setTuneEnabled(bool on) {
 // an operator cancel mid-keydown unwinds cleanly, a re-key during
 // the keyup space window collapses to stay TX (standard HF-rig
 // PTT-FSM pattern).
+
+void HL2Stream::setTwoToneEnabled(bool on) {
+    if (on && tuneEnabled_.load(std::memory_order_relaxed))
+        setTuneEnabled(false);
+
+    const bool prev = twoToneEnabled_.exchange(on, std::memory_order_relaxed);
+    if (prev == on) return;
+
+    std::function<void(bool)> fwd;
+    {
+        std::lock_guard<std::mutex> lk(txControlMtx_);
+        fwd = txControl_.setTwoTone;
+    }
+    if (fwd) fwd(on);
+    emit twoToneEnabledChanged(on);
+}
 
 void HL2Stream::requestMox(bool on) {
     requestMox(on, PttSource::Manual);

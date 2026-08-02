@@ -606,6 +606,43 @@ Rectangle {
         // settle), NOT the click checked-state, so the visual stays
         // honest through the ~65 ms keydown window.
         Button {
+            id: twoToneBtn
+            checkable: false
+            implicitWidth: 72
+            implicitHeight: 26
+            text: qsTr('2-Tone')
+            font.bold: true
+            font.pixelSize: 12
+            checked: Stream.twoToneEnabled
+            enabled: (!P2Bridge.running || P2Bridge.txBenchArmed)
+                     && (!Stream.tuneEnabled || Stream.twoToneEnabled)
+            onClicked: {
+                if (!Stream.twoToneEnabled) {
+                    Stream.setTwoToneEnabled(true)
+                    Stream.requestMox(true)
+                } else {
+                    Stream.requestMox(false)
+                    Stream.setTwoToneEnabled(false)
+                }
+            }
+            background: Rectangle {
+                radius: 4
+                color: Stream.twoToneEnabled ? '#302044' : '#1f2a35'
+                border.color: Stream.twoToneEnabled ? '#d68cff' : '#3a5060'
+                border.width: 2
+            }
+            contentItem: Text {
+                text: twoToneBtn.text
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                color: Stream.twoToneEnabled ? '#d68cff' : root.cText
+                font: twoToneBtn.font
+                elide: Text.ElideRight
+                clip: true
+            }
+        }
+
+        Button {
             id: moxBtn
             // NOT checkable: `checked` stays a pure one-way reflection of
             // Stream.moxActive (wire truth); the lamp already reads moxActive

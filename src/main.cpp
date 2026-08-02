@@ -1690,6 +1690,21 @@ int main(int argc, char *argv[])
                             qInfo("[tx] TUN postgen: run=0 (stopped)");
                         }
                     },
+                    .setTwoTone = [txch](bool on) {
+                        if (on) {
+                            lyra::wire::SetTXAPostGenMode(txch, 1);
+                            lyra::wire::SetTXAPostGenTTFreq(
+                                txch,
+                                static_cast<double>(
+                                    lyra::ipc::HL2Stream::kTwoToneFreq1Hz),
+                                static_cast<double>(
+                                    lyra::ipc::HL2Stream::kTwoToneFreq2Hz));
+                            lyra::wire::SetTXAPostGenTTMag(txch, 0.49999, 0.49999);
+                            lyra::wire::SetTXAPostGenRun(txch, 1);
+                        } else {
+                            lyra::wire::SetTXAPostGenRun(txch, 0);
+                        }
+                    },
                     .setPhrotRun = [txch](bool on) {   // #109 phase rotator
                         if (lyra::wire::SetTXAPHROTRun)
                             lyra::wire::SetTXAPHROTRun(txch, on ? 1 : 0);

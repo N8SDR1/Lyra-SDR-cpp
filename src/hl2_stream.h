@@ -300,6 +300,8 @@ class HL2Stream : public QObject {
     // explicit operator gesture, not a configured state).
     Q_PROPERTY(bool tuneEnabled READ tuneEnabled WRITE setTuneEnabled
                NOTIFY tuneEnabledChanged)
+    Q_PROPERTY(bool twoToneEnabled READ twoToneEnabled WRITE setTwoToneEnabled
+               NOTIFY twoToneEnabledChanged)
     // TX-1 component 6 — SSB modulator I/Q injection.  When TRUE
     // *and* the wire MOX bit is high, the EP2 writer pulls 126
     // complex<float> samples per datagram from the registered TX
@@ -677,6 +679,9 @@ public:
         // 30787-30801) — replaces the retired legacy DC-injection that
         // died with the EP2 packer.  Empty = no-op (pre-registration).
         std::function<void(bool)> setTune;
+        // Continuous two-tone post-generator control. Empty before TX
+        // channel registration.
+        std::function<void(bool)> setTwoTone;
         // #109 — PHROT (phase rotator) run.  Symmetrizes asymmetric
         // speech to lower peak-to-average ratio (more average talk power
         // for the same ALC ceiling).  Operator on/off, mirrors the
@@ -772,6 +777,8 @@ public:
     // and the DDS offset (txDdsHzForTune) MUST use this same value so
     // they cancel.  Public so the main.cpp postgen lambda shares it.
     static constexpr int kTuneCwPitchHz = 600;
+    static constexpr int kTwoToneFreq1Hz = 700;
+    static constexpr int kTwoToneFreq2Hz = 1900;
     bool    filterBoardEnabled() const { return filterBoardEnabled_; }
     int     ocBits()             const { return ocPattern_; }
     // #199 Stage 4 — the editable OC table for the Settings "Filters / BCD"
@@ -887,6 +894,7 @@ public:
     // wire atomic.  True means "emit a 1 kHz complex tone in TX I/Q
     // whenever MOX is active"; auto-clears on the next MOX-off edge.
     bool    tuneEnabled() const { return tuneEnabled_.load(std::memory_order_relaxed); }
+    bool    twoToneEnabled() const { return twoToneEnabled_.load(std::memory_order_relaxed); }
     // TX-1 component 6 — SSB modulator I/Q injection gate (Q_PROPERTY
     // getter).  See the Q_PROPERTY decl above for the full contract.
     bool    injectTxIq() const { return injectTxIq_.load(std::memory_order_relaxed); }
@@ -1134,6 +1142,9 @@ public slots:
     // safety so a stray MOX click after a tune session can't re-emit
     // the carrier.  Not persisted — operator must explicitly arm.
     void setTuneEnabled(bool on);
+    // Arm/disarm the Thetis-compatible continuous two-tone generator.
+    // Mutually exclusive with Tune and auto-cleared when MOX drops.
+    void setTwoToneEnabled(bool on);
 
     // ---- TX-0c-fsm: MOX/PTT sequencer (single funnel) ----------------
     // Operator/CAT/PTT/TUN intent gets funneled here.  Internally drives
@@ -1478,6 +1489,7 @@ signals:
     // TX-0c-tune — tune-tone armed state changed (via TX panel button,
     // operator unarm, or the moxActiveChanged(false) safety auto-clear).
     void tuneEnabledChanged(bool on);
+    void twoToneEnabledChanged(bool on);
     // P4.b TUN display-honesty — the TX-analyzer NCO−dial offset (Hz)
     // changed.  Wired to WdspEngine::setTxAnalyzerOffsetHz so the panadapter
     // crop renders the TUN carrier at its true RF (the dial) rather than
@@ -1963,6 +1975,7 @@ private:
     // phase below is owned single-thread by that writer (no atomic
     // needed since only that thread mutates it).
     std::atomic<bool>    tuneEnabled_{false};
+    std::atomic<bool>    twoToneEnabled_{false};
 
     // Task #36 — Hardware PTT input forwarder.
     //
