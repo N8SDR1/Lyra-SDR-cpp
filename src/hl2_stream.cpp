@@ -3932,6 +3932,17 @@ void HL2Stream::ensureCwKeyer() {
             // integration (actual wire keying) is still a CW-3 follow-on.
             QMetaObject::invokeMethod(this, [this, tx]{ setCwKeyingActive(tx); },
                                       Qt::QueuedConnection);
+        },
+        // #105 CW-3b — type-ahead display split (committed/pending). Fires
+        // from the caller's thread (a keystroke/backspace) OR the keyer
+        // pump thread (a commit / run end); marshal onto this QObject's
+        // thread so the signal matches the CW state threading contract.
+        [this](const std::string& committed, const std::string& pending) {
+            QString c = QString::fromStdString(committed);
+            QString p = QString::fromStdString(pending);
+            QMetaObject::invokeMethod(this, [this, c, p]{
+                emit cwTypeAheadTextChanged(c, p);
+            }, Qt::QueuedConnection);
         });
 }
 
@@ -3976,6 +3987,22 @@ void HL2Stream::sendCw(const QString& text) {
 
 void HL2Stream::abortCw() {
     if (cwKeyer_) cwKeyer_->abort();
+}
+
+void HL2Stream::cwTypeAhead(const QString& s) {
+    const int tm = txMode_.load(std::memory_order_relaxed);
+    if (!(tm == 3 || tm == 4)) return;      // CW mode only (cw_enable gate)
+    if (s.isEmpty()) return;
+    ensureCwKeyer();
+    for (const QChar qc : s) {
+        const char c = qc.toLatin1();
+        if (c < ' ') continue;              // skip control / non-Latin-1 keystrokes
+        cwKeyer_->pushChar(c, cwKeyerSpeedWpm_, cwKeyerWeight_);
+    }
+}
+
+bool HL2Stream::cwBackspaceTypeAhead() {
+    return cwKeyer_ ? cwKeyer_->backspacePending() : false;
 }
 
 void HL2Stream::setCwKeyerSpeedWpm(int wpm) {

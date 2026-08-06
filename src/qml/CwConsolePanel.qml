@@ -33,6 +33,15 @@ Rectangle {
     property bool collapsed: false
     property bool editMode: false
     property int  lastIdx: -1          // last macro fired (for Repeat)
+
+    // #105 CW-3b — type-ahead ("send as you type") state.  autoMode mirrors
+    // the persisted CwMacros.typeAhead (Manual vs Auto).  taCommitted =
+    // characters already keyed (locked / on the air), taPending = the still-
+    // editable tail; both are driven by Stream.cwTypeAheadTextChanged — the
+    // keyer is the source of truth (CWX kbufold/kbufnew), the console renders.
+    readonly property bool autoMode: CwMacros.typeAhead
+    property string taCommitted: ""
+    property string taPending:   ""
     property bool repeatOn: false
     property int  repeatSec: 4
     // The editable field a token-palette click inserts into (a macro's text
@@ -66,6 +75,26 @@ Rectangle {
         interval: Math.max(1, root.repeatSec) * 1000
         repeat: true
         onTriggered: if (root.lastIdx >= 0) CwMacros.sendIndex(root.lastIdx)
+    }
+
+    // Keyer → console: the authoritative committed/pending split for Auto
+    // mode (CWX show_keys equivalent).  The keyer owns the buffer; we render.
+    Connections {
+        target: Stream
+        function onCwTypeAheadTextChanged(committed, pending) {
+            root.taCommitted = committed
+            root.taPending   = pending
+        }
+    }
+
+    // Switching Manual↔Auto: abort any in-flight type-ahead run so a mode
+    // flip never leaves a half-keyed line dangling, and clear the display.
+    onAutoModeChanged: {
+        CwMacros.stop()
+        root.taCommitted = ""
+        root.taPending   = ""
+        if (autoMode && root.cwActive)
+            taField.forceActiveFocus()
     }
 
     // ── A reusable macro chip (shared by the defaults + My-macros grids) ──
@@ -553,7 +582,10 @@ Rectangle {
 
         // ── Keyboard send — PINNED (always visible; never scroll-buried) ──
         // Lives OUTSIDE the ScrollView so the free-hand type-and-send line
-        // stays on screen at any dock height (Enter sends, Esc/Stop aborts).
+        // stays on screen at any dock height.  Two modes (persisted via the
+        // toggle): Manual = compose then Enter/Send; Auto = "send as you
+        // type" (CWX type-ahead — each character keys the instant it's typed;
+        // the sent prefix locks, the unsent tail stays editable).
         ColumnLayout {
             id: sendBar
             visible: !root.collapsed
@@ -561,12 +593,39 @@ Rectangle {
             spacing: 3
             opacity: root.cwActive ? 1.0 : 0.5
 
-            Label {
-                text: qsTr("Free-hand text")
-                color: "#b5f36a"
-                font.pixelSize: 11; font.bold: true
-            }
+            // Header: label + Manual/Auto toggle (lit = Auto).
             RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Label {
+                    text: qsTr("Free-hand text")
+                    color: "#b5f36a"
+                    font.pixelSize: 11; font.bold: true
+                }
+                Item { Layout.fillWidth: true }
+                Button {
+                    implicitHeight: 22
+                    text: root.autoMode ? qsTr("Auto — send as you type") : qsTr("Manual")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    ToolTip.text: root.autoMode
+                        ? qsTr("Auto: each character keys the instant you type it. "
+                             + "Sent characters lock; Backspace edits the unsent tail; Esc stops.")
+                        : qsTr("Manual: compose the whole line, then Enter or Send transmits it.")
+                    onClicked: CwMacros.typeAhead = !CwMacros.typeAhead
+                    background: Rectangle { radius: 4
+                        color: root.autoMode ? "#2e7d9a" : "#1c252b"
+                        border.color: root.autoMode ? root.cAccent : "#3a4750" }
+                    contentItem: Text { text: parent.text
+                        color: root.autoMode ? "#fff" : root.cMuted
+                        font.pixelSize: 11; leftPadding: 8; rightPadding: 8
+                        verticalAlignment: Text.AlignVCenter }
+                }
+            }
+
+            // ── Manual mode: compose-then-send (unchanged) ──────────────
+            RowLayout {
+                visible: !root.autoMode
                 Layout.fillWidth: true
                 spacing: 6
                 TextField {
@@ -601,6 +660,92 @@ Rectangle {
                         color: parent.enabled ? root.cAccent : root.cMuted
                         font.bold: true; font.pixelSize: 12
                         horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                }
+            }
+
+            // ── Auto mode: send-as-you-type (CWX type-ahead) ────────────
+            // A focusable surface — keystrokes drive the keyer directly (the
+            // keyer owns the buffer; this renders its committed/pending split).
+            // Not a normal TextField: characters are consumed as sent, so the
+            // display is authoritative from the keyer, not locally editable.
+            Item {
+                id: taField
+                visible: root.autoMode
+                Layout.fillWidth: true
+                Layout.preferredHeight: 36
+                enabled: root.cwActive
+                activeFocusOnTab: true
+
+                Keys.onPressed: (event) => {
+                    if (!root.cwActive) return
+                    if (event.key === Qt.Key_Escape) {
+                        CwMacros.stop(); event.accepted = true; return
+                    }
+                    if (event.key === Qt.Key_Backspace) {
+                        Stream.cwBackspaceTypeAhead(); event.accepted = true; return
+                    }
+                    // Printable (letters, digits, punctuation, space) key as
+                    // typed. Enter/Return and control keys are ignored — there
+                    // is no "send" action in Auto; the space bar sends a space.
+                    if (event.text.length === 1 && event.text.charCodeAt(0) >= 32) {
+                        Stream.cwTypeAhead(event.text); event.accepted = true; return
+                    }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 4; color: "#17262f"
+                    border.width: 1
+                    border.color: taField.activeFocus ? "#c9f59a" : "#8fdc5a"
+
+                    // Placeholder when idle (nothing typed, not focused).
+                    Text {
+                        anchors.left: parent.left; anchors.leftMargin: 8
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: root.taCommitted.length === 0
+                                 && root.taPending.length === 0 && !taField.activeFocus
+                        text: qsTr("click, then type — each key sends · Backspace edits unsent · Esc stops")
+                        color: root.cMuted
+                        font.family: "Consolas"; font.pixelSize: 12
+                        elide: Text.ElideRight
+                        width: parent.width - 16
+                    }
+
+                    // Committed (locked, on the air) + pending (editable) + caret.
+                    Row {
+                        anchors.left: parent.left; anchors.leftMargin: 8
+                        anchors.right: parent.right; anchors.rightMargin: 8
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 0
+                        clip: true
+                        Text {
+                            text: root.taCommitted
+                            color: root.cMuted                 // sent = dimmed / locked
+                            font.family: "Consolas"; font.pixelSize: 15
+                        }
+                        Text {
+                            text: root.taPending
+                            color: "#c9f59a"                   // unsent tail = bright / editable
+                            font.family: "Consolas"; font.pixelSize: 15; font.bold: true
+                        }
+                        Rectangle {
+                            width: 2; height: 18
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: "#c9f59a"
+                            visible: taField.activeFocus
+                            SequentialAnimation on opacity {
+                                running: taField.activeFocus; loops: Animation.Infinite
+                                NumberAnimation { from: 1.0; to: 0.0; duration: 530 }
+                                NumberAnimation { from: 0.0; to: 1.0; duration: 530 }
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.IBeamCursor
+                        onClicked: taField.forceActiveFocus()
+                    }
                 }
             }
         }

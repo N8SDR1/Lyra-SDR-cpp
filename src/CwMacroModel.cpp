@@ -13,9 +13,10 @@
 #include <algorithm>
 
 namespace {
-constexpr auto kMacrosKey = "cw/macros";
-constexpr auto kSerialKey = "cw/serial";
-constexpr auto kTokensKey = "cw/tokens";
+constexpr auto kMacrosKey    = "cw/macros";
+constexpr auto kSerialKey    = "cw/serial";
+constexpr auto kTokensKey    = "cw/tokens";
+constexpr auto kTypeAheadKey = "cw/typeAhead";
 }
 
 namespace lyra::ui {
@@ -47,7 +48,8 @@ void CwMacroModel::seedDefaults() {
 
 void CwMacroModel::load() {
     QSettings s;
-    serial_ = std::max(1, s.value(kSerialKey, 1).toInt());
+    serial_    = std::max(1, s.value(kSerialKey, 1).toInt());
+    typeAhead_ = s.value(kTypeAheadKey, false).toBool();
     const QByteArray raw = s.value(kMacrosKey).toByteArray();
     macros_.clear();
     if (!raw.isEmpty()) {
@@ -216,6 +218,13 @@ void CwMacroModel::setSerial(int n) {
     QSettings().setValue(kSerialKey, serial_);
     emit serialChanged();
     emit macrosChanged();   // {#} previews update
+}
+
+void CwMacroModel::setTypeAhead(bool on) {
+    if (on == typeAhead_) return;
+    typeAhead_ = on;
+    QSettings().setValue(kTypeAheadKey, typeAhead_);
+    emit typeAheadChanged();
 }
 
 void CwMacroModel::setHisCall(const QString &s) {

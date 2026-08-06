@@ -1349,6 +1349,19 @@ public slots:
     // host stays RX, exactly like the paddle.  Thread-safe.
     Q_INVOKABLE void sendCw(const QString& text);
     Q_INVOKABLE void abortCw();
+
+    // #105 CW-3b — CWX "send as you type" (type-ahead).  cwTypeAhead
+    // appends each character of `s` to the keyer's editable staging tail;
+    // the keyer commits them to the wire one at a time as the previous
+    // drains (holding cwx_ptt across the run), so characters key as typed.
+    // A committed character is on the air and cannot be recalled —
+    // cwBackspaceTypeAhead only edits the not-yet-keyed tail (returns
+    // false when the whole line is already sent).  abortCw() clears the
+    // tail (CWX Esc).  The keyer reports the committed/pending split back
+    // via cwTypeAheadTextChanged so the console can lock the sent prefix.
+    // No-op outside CW mode (same cw_enable gate as sendCw).  Thread-safe.
+    Q_INVOKABLE void cwTypeAhead(const QString& s);
+    Q_INVOKABLE bool cwBackspaceTypeAhead();
     // #93/#106 — AM/SAM carrier level (0..100 %); persists, emits, forwards
     // the 0..1 fraction to SetTXAAMCarrierLevel.
     void setAmCarrierPct(double pct);
@@ -1448,6 +1461,10 @@ signals:
     void moxActiveChanged(bool on);
     // #105 — CW message-level keyed state changed (see cwKeyingActive()).
     void cwKeyingActiveChanged(bool on);
+    // #105 CW-3b — type-ahead display split: `committed` = characters
+    // already keyed / locked (on the air), `pending` = the still-editable
+    // tail.  Emitted on this QObject's thread whenever either changes.
+    void cwTypeAheadTextChanged(const QString& committed, const QString& pending);
     // #105 — display TX-state (moxActive || cwKeyingActive) changed.
     void txDisplayActiveChanged(bool on);
     // Fires ONCE per requestMox(true) call (MOX button click, TUN arm,
