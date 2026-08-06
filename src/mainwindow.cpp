@@ -359,7 +359,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
       wdsp_(wdsp), wdspEngine_(wdspEngine), prefs_(prefs), wx_(wx),
       profiles_(profiles) {
     setWindowTitle(QStringLiteral(
-        "Lyra — Hermes Lite 2 / 2+ — v" LYRA_VERSION " (C++23 / Qt 6)"));
+        "Lyra — v" LYRA_VERSION " (C++23 / Qt 6)"));
     setObjectName(QStringLiteral("LyraMainWindow"));
     resize(1100, 760);
 
