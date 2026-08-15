@@ -80,6 +80,8 @@
 #include <QPlainTextEdit>
 #include <QSpinBox>
 #include <QTextEdit>
+#include <QGuiApplication>
+#include <QInputMethodQueryEvent>
 #include <QMessageBox>
 #include <QInputDialog>
 #include <QUuid>
@@ -3763,17 +3765,31 @@ void MainWindow::refreshHl2TelemetryStrip() {
 // focus widget).  The only such surface is TuningPanel's freq-entry
 // overlay, hidden until an explicit click — operator-controlled.
 
+// A QML text-entry item (TextField / TextInput / TextEdit inside a
+// QQuickWidget) does NOT show up as the focus WIDGET — Qt reports the host
+// QQuickWidget there.  It IS the application focus OBJECT, though, so ask
+// it whether it accepts text input: a focused text editor answers
+// Qt::ImEnabled = true, non-text items (buttons, the panadapter) answer
+// false.  This is what lets space type into the CW-console macro editor /
+// free-hand field / freq-entry overlay instead of keying MOX (K4XD #13).
+static bool qmlTextInputHasFocus() {
+    QObject *fo = QGuiApplication::focusObject();
+    if (!fo) return false;
+    QInputMethodQueryEvent q(Qt::ImEnabled);
+    QCoreApplication::sendEvent(fo, &q);
+    return q.value(Qt::ImEnabled).toBool();
+}
+
 static bool isEditableFocus(QWidget *fw) {
-    if (!fw) return false;
-    if (qobject_cast<QLineEdit *>(fw))       return true;
-    if (qobject_cast<QSpinBox *>(fw))        return true;
-    if (qobject_cast<QPlainTextEdit *>(fw))  return true;
-    if (qobject_cast<QTextEdit *>(fw))       return true;
-    // QQuickWidget hosts QML; for TX-0c-fsm we route space through.
-    // The only QML focused text-entry today is the freq overlay (see
-    // commentary above); refine later if a tester reports keying MOX
-    // mid-typing.
-    return false;
+    if (fw) {
+        if (qobject_cast<QLineEdit *>(fw))       return true;
+        if (qobject_cast<QSpinBox *>(fw))        return true;
+        if (qobject_cast<QPlainTextEdit *>(fw))  return true;
+        if (qobject_cast<QTextEdit *>(fw))       return true;
+    }
+    // Catch QML text entry the widget-type checks above miss (the focus
+    // widget is the QQuickWidget, not the inner TextField).
+    return qmlTextInputHasFocus();
 }
 
 // App-wide key preview (installed on qApp).  The single home for space-bar
