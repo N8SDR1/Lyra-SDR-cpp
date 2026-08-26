@@ -294,6 +294,28 @@ void SpotStore::activate(const QString &call) {
     emit spotActivated(sp.call, sp.mode, sp.freqHz, sp.argb);
 }
 
+bool SpotStore::isSpotted(const QString &call) const {
+    const QString c = call.trimmed();
+    return c.size() >= 3 && indexOf(c) >= 0;
+}
+
+bool SpotStore::isSpottedHere(const QString &call) const {
+    const QString c = call.trimmed();
+    if (c.size() < 3) return false;
+    const int idx = indexOf(c);
+    if (idx < 0) return false;
+    if (!stream_) return true;      // no radio attached → bank-wide answer
+    // Spot freqs are the CARRIER; the tuned DDS sits pitch Hz off it (same
+    // convention as activate() above), so compare carrier to carrier.
+    qint64 carrier = qint64(stream_->rx1FreqHz());
+    if (engine_ && prefs_)
+        carrier += engine_->cwMarkerOffsetForMode(prefs_->mode());
+    // RBN skimmer freq error plus slightly-off tuning stay well inside this;
+    // a different real station this close would be inside the RX filter too.
+    constexpr qint64 kHereTolHz = 1500;
+    return qAbs(spots_[idx].freqHz - carrier) <= kHereTolHz;
+}
+
 QVariantList SpotStore::spotsInSpan(double centerHz, double spanHz) const {
     QVariantList out;
     if (!show_ || spanHz <= 0) return out;

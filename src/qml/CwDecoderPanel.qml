@@ -32,12 +32,110 @@ Rectangle {
     property int    rxWpm: 0
     property bool   matchTxSpeed: false
 
+    // DeepFist — active engine (0=Classic fldigi, 1=Neural).  Both engines now
+    // stream characters incrementally into the transcript: the classic engine
+    // per decoded element, the neural engine via frame-timed commit (~1.3 s
+    // latency).  So both just append to decodedText.
+    readonly property int cwEngine: WdspEngine.cwDecodeEngine
+
+    // Phase 3 "Learn calls" — the invariant is "if the operator SAW it green,
+    // it is learned": displayHtml() notes each call in the same pass that
+    // first renders it green (see there).  Every earlier scheme re-checked
+    // spotted-ness at some OTHER moment and lost calls to timing on air:
+    // tap-at-word-completion missed spots that arrived seconds later (W2DON),
+    // a rescan window missed calls still visibly green further back (KT4K),
+    // and rescan-on-spot-change missed spots evicted from the 200-cap bank
+    // before the next bank event (KA1ULN).  Render time is the ONLY moment
+    // green-ness is guaranteed observed.  On by default (WdspEngine.cwLearnEnabled;
+    // LYRA_CW_LEARN=0 opts out) — no UI chip.
+    property var greenSeen: ({})    // call -> ms epoch of the last learn note
+
     function appendDecoded(s) {
         var t = root.decodedText + s
         if (t.length > 6000) t = t.slice(-4500)
         root.decodedText = t
     }
-    function clearDecoded() { root.decodedText = "" }
+    function clearDecoded() { root.decodedText = ""; root.greenSeen = {} }
+
+    // Auto engine: fallback (Classic-during-fade) runs are wrapped in private
+    // control-char markers (U+0002 / U+0003) so displayHtml() can dim them.
+    // (Non-empty fallback text only — a bare gap space needs no marking.)
+    function appendAuto(s, fallback) {
+        if (fallback && s.trim().length > 0)
+            appendDecoded("\u0002" + s + "\u0003")
+        else
+            appendDecoded(s)
+    }
+
+    // Bumped whenever the spot bank changes, to re-highlight the transcript.
+    property int spotRev: 0
+
+    // Word (call) under the last right-click, for the grab menu.
+    property string grabWord: ""
+
+    // The call-shaped word at plain-text position `pos` in the transcript.
+    // Extracted straight from decodedText (not selectWord/selectedText) so it
+    // works with the RichText pane and while text is streaming in.
+    function wordAt(pos) {
+        var t = root.decodedText
+        if (pos < 0 || pos > t.length) return ""
+        function isCh(c) {
+            return (c >= "A" && c <= "Z") || (c >= "a" && c <= "z")
+                || (c >= "0" && c <= "9") || c === "/"
+        }
+        var a = pos, b = pos
+        while (a > 0 && isCh(t.charAt(a - 1))) a--
+        while (b < t.length && isCh(t.charAt(b))) b++
+        return t.substring(a, b).trim()
+    }
+
+    // True when a token has amateur-callsign shape (prefix, area digit, 1-3
+    // letter suffix, optional /P-style tail).  FALLBACK ONLY — used when the
+    // MASTER.SCP database isn't loaded yet (cwCallKnown is the real test);
+    // shape alone ambers run-together garbles like AA0TTDE ("AA0TT DE …").
+    function isCallShaped(w) {
+        return /^(?:[A-Z][A-Z0-9]?|[0-9][A-Z])[0-9][A-Z]{1,3}(?:\/[A-Z0-9]{1,4})?$/.test(w)
+    }
+
+    // Render the transcript as HTML: any callsign-shaped word is coloured amber
+    // so calls always pop out of the copy; one that is currently spotted on
+    // RBN/cluster near the tuned frequency (Spots.isSpottedHere) upgrades to
+    // bright green + bold — a real, active, verified station.  The green pass
+    // doubles as the Learn tap (greenSeen memo above).
+    function displayHtml(t) {
+        var rev = root.spotRev   // create a binding dependency on spot updates
+        var esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        var html = esc.replace(/[A-Z0-9\/]{3,}/g, function(w) {
+            // only bother the lookups with call-shaped tokens (contain a digit)
+            if (/[0-9]/.test(w)) {
+                if (Spots.isSpottedHere(w)) { // RBN/cluster-verified: live HERE
+                    // Learn what renders green, AS it renders (see greenSeen).
+                    // Memo keeps this one C++ call per call per 10 min — the
+                    // same window as the harvester's per-call gold dedupe.
+                    if (WdspEngine.cwLearnEnabled) {
+                        var tn = Date.now()
+                        if (!root.greenSeen[w] || tn - root.greenSeen[w] > 600000) {
+                            root.greenSeen[w] = tn
+                            WdspEngine.cwNoteConfirmedCall(w)
+                        }
+                    }
+                    return '<span style="color:#5fffa8; font-weight:bold">' + w + '</span>'
+                }
+                if (WdspEngine.cwCallKnown(w) // known-real (MASTER.SCP) —
+                        || (!WdspEngine.cwNeuralAvailable && root.isCallShaped(w)))
+                    return '<span style="color:#ffbe5a">' + w + '</span>'
+            }
+            return w
+        })
+        // Auto-engine fallback markers -> subtle dim (lower-confidence cue).
+        // Qt RichText's CSS subset has NO `opacity` (it parses, silently drops
+        // it) — dim by colour instead: a darker shade of the operator's decode
+        // colour, so the cue follows the colour preset.
+        var dim = Qt.darker(Prefs.cwDecodeColor, 1.5).toString()
+        html = html.replace(/\u0002/g, '<span style="color:' + dim + '">')
+                   .replace(/\u0003/g, '</span>')
+        return html
+    }
 
     // fldigi CW-receiver knob mirrors (persisted via Prefs; fldigi defaults:
     // BW 150 Hz, speed 18 wpm, tracking on, matched filter off, squelch off).
@@ -71,6 +169,16 @@ Rectangle {
         WdspEngine.setCwDecodeTracking(root.trackingOn)
         WdspEngine.setCwDecodeMatchedFilter(root.matchedFilter)
         pushSquelch()
+        WdspEngine.setCwBlankPenalty(Prefs.cwBlankPenalty)   // DeepFist blank penalty
+        // Restore the persisted engine (DeepFist or Auto); if the neural model
+        // can't load, WdspEngine stays on Classic (cwDecodeEngine reflects the
+        // truth, and the chips light accordingly).
+        if (Prefs.cwDecodeEngine === 1 || Prefs.cwDecodeEngine === 2)
+            WdspEngine.cwDecodeEngine = Prefs.cwDecodeEngine
+        // Harvest is a developer capture tool with no UI chip: start it only
+        // when armed by LYRA_CW_HARVEST (WdspEngine.cwHarvestEnabled).
+        if (WdspEngine.cwHarvestEnabled)
+            WdspEngine.setCwCaptureEnabled(true)
     }
 
     function applyWpmToKeyer(w) {
@@ -86,6 +194,27 @@ Rectangle {
             root.rxWpm = w
             if (root.matchTxSpeed) root.applyWpmToKeyer(w)
         }
+        // Neural engine: append the newly-committed characters (frame-timed).
+        function onCwNeuralText(newText) { root.appendDecoded(newText) }
+        // Auto engine: arbiter output; fallback runs are source-marked (dimmed).
+        function onCwAutoText(text, fallback) { root.appendAuto(text, fallback) }
+        // Engine switch: KEEP the transcript (the operator A/Bs engines on the
+        // same signal and tunes each; the Clear chip empties it manually) —
+        // just drop a seam glyph so the eye can see where the engine changed.
+        function onCwDecodeEngineChanged() {
+            if (root.decodedText.length > 0) root.appendDecoded(" • ")
+        }
+        // MASTER.SCP arrives with the neural model (first switch to
+        // DeepFist/Auto) — re-render so already-copied calls gain their amber.
+        function onCwNeuralAvailableChanged() { root.spotRev++ }
+    }
+
+    // Re-highlight the transcript when the spot bank changes.  The bumped
+    // spotRev re-runs displayHtml, whose green pass is also the learner — so a
+    // late-arriving spot both greens AND learns the call in the same render.
+    Connections {
+        target: Spots
+        function onChanged() { root.spotRev++ }
     }
 
     // Poll the live squelch metric (~10 Hz) only while the decoder is running
@@ -182,6 +311,80 @@ Rectangle {
             }
         }
 
+        // ── Engine selector: Classic (fldigi) vs DeepFist (neural) ──
+        RowLayout {
+            visible: !root.collapsed
+            Layout.fillWidth: true
+            spacing: 8
+            Label { text: qsTr("Engine"); color: root.cText; font.pixelSize: 12 }
+            ChipButton {
+                label: qsTr("Classic")
+                lit: root.cwEngine === 0
+                onClicked: { WdspEngine.cwDecodeEngine = 0
+                             Prefs.cwDecodeEngine = 0 }
+            }
+            ChipButton {
+                label: qsTr("DeepFist")
+                lit: root.cwEngine === 1
+                onClicked: { WdspEngine.cwDecodeEngine = 1
+                             // Persist only if it actually engaged (model loaded).
+                             if (WdspEngine.cwDecodeEngine === 1)
+                                 Prefs.cwDecodeEngine = 1 }
+            }
+            ChipButton {
+                label: qsTr("Auto")
+                lit: root.cwEngine === 2
+                onClicked: { WdspEngine.cwDecodeEngine = 2
+                             // Persist only if it actually engaged (model loaded).
+                             if (WdspEngine.cwDecodeEngine === 2)
+                                 Prefs.cwDecodeEngine = 2 }
+            }
+            Label {
+                visible: (root.cwEngine === 1 || root.cwEngine === 2) && !WdspEngine.cwNeuralAvailable
+                text: qsTr("• model not found — see models/")
+                color: "#e0a030"
+                font.pixelSize: 11
+            }
+            Item { Layout.fillWidth: true }
+        }
+
+        // ── DeepFist: live "Sensitivity" (CTC blank-penalty) slider ──
+        RowLayout {
+            visible: !root.collapsed && root.cwEngine === 1
+            Layout.fillWidth: true
+            spacing: 10
+            Label { text: qsTr("Sensitivity"); color: root.cText; font.pixelSize: 12 }
+            LyraSlider {
+                id: penSlider
+                Layout.fillWidth: true
+                // Bipolar: negative = "cleaner" (suppress stray/doubled chars on
+                // strong signals), 0 = neutral, positive = recover weak code.
+                from: -1; to: 1; stepSize: 0.5; snapMode: Slider.SnapAlways
+                showTicks: true
+                showTickNumbers: true
+                value: Prefs.cwBlankPenalty
+                onMoved: {
+                    Prefs.cwBlankPenalty = value
+                    WdspEngine.setCwBlankPenalty(value)
+                }
+            }
+            Label {
+                // Signed value, e.g. "-0.5", "0", "+2".
+                text: (WdspEngine.cwBlankPenalty > 0 ? "+" : "")
+                      + WdspEngine.cwBlankPenalty.toFixed(1)
+                color: root.cText; font.pixelSize: 11
+                Layout.preferredWidth: 34; horizontalAlignment: Text.AlignRight
+            }
+        }
+        Label {
+            visible: !root.collapsed && root.cwEngine === 1
+            Layout.fillWidth: true
+            text: qsTr("0 = neutral.  Negative = cleaner copy on strong signals "
+                       + "(fewer stray/doubled characters).  Positive = pull weak/"
+                       + "fainter code out of the noise (but more stray characters).")
+            color: root.cMuted; font.pixelSize: 10; wrapMode: Text.WordWrap
+        }
+
         // ── Decoded-text pane (operator font + colour) ──
         Rectangle {
             visible: !root.collapsed
@@ -231,8 +434,8 @@ Rectangle {
                     readOnly: true
                     selectByMouse: true
                     wrapMode: TextArea.WrapAnywhere
-                    textFormat: TextArea.PlainText
-                    text: root.decodedText
+                    textFormat: TextArea.RichText   // spotted calls highlighted
+                    text: root.displayHtml(root.decodedText)
                     color: Prefs.cwDecodeColor
                     font.family: "Consolas"
                     font.pixelSize: Prefs.cwDecodeFontSize
@@ -251,14 +454,12 @@ Rectangle {
                         if (decodeScroll.followBottom)
                             Qt.callLater(decodeScroll.scrollToBottom)
 
-                    // Double-click a word → His Call.
+                    // Double-click a word → His Call (robust word extraction).
                     TapHandler {
                         acceptedButtons: Qt.LeftButton
                         onDoubleTapped: (pt) => {
-                            decodeOut.cursorPosition =
-                                decodeOut.positionAt(pt.position.x, pt.position.y)
-                            decodeOut.selectWord()
-                            var w = decodeOut.selectedText.trim()
+                            var w = root.wordAt(
+                                decodeOut.positionAt(pt.position.x, pt.position.y))
                             if (w.length > 0) CwMacros.hisCall = w.toUpperCase()
                         }
                     }
@@ -266,11 +467,8 @@ Rectangle {
                     TapHandler {
                         acceptedButtons: Qt.RightButton
                         onTapped: (pt) => {
-                            if (decodeOut.selectedText.trim().length === 0) {
-                                decodeOut.cursorPosition =
-                                    decodeOut.positionAt(pt.position.x, pt.position.y)
-                                decodeOut.selectWord()
-                            }
+                            root.grabWord = root.wordAt(
+                                decodeOut.positionAt(pt.position.x, pt.position.y))
                             grabMenu.popup()
                         }
                     }
@@ -300,12 +498,16 @@ Rectangle {
             Item { Layout.fillWidth: true }
         }
 
-        // ── Decoder (fldigi) controls ──
-        Divider { label: qsTr("Decoder") }
+        // ── Decoder (fldigi) controls — classic engine only; the neural engine
+        //    is self-tuning (no BW/speed/squelch knobs). ──
+        Divider {
+            label: qsTr("Decoder")
+            visible: !root.collapsed && root.cwEngine === 0
+        }
 
         // Speed (WPM seed) + adaptive Tracking + Matched-filter.
         RowLayout {
-            visible: !root.collapsed
+            visible: !root.collapsed && root.cwEngine === 0
             Layout.fillWidth: true
             spacing: 8
             opacity: root.cwActive ? 1.0 : 0.6
@@ -354,7 +556,7 @@ Rectangle {
 
         // Bandwidth (disabled when matched-filter is on — fldigi auto-sets it).
         RowLayout {
-            visible: !root.collapsed
+            visible: !root.collapsed && root.cwEngine === 0
             Layout.fillWidth: true
             spacing: 10
             opacity: root.cwActive ? 1.0 : 0.6
@@ -379,7 +581,7 @@ Rectangle {
 
         // Squelch on/off + metric level.
         RowLayout {
-            visible: !root.collapsed
+            visible: !root.collapsed && root.cwEngine === 0
             Layout.fillWidth: true
             spacing: 10
             opacity: root.cwActive ? 1.0 : 0.6
@@ -414,7 +616,7 @@ Rectangle {
         // is the current signal; the amber tick is your Squelch threshold when
         // Squelch is on — set the slider just under the signal peaks.
         RowLayout {
-            visible: !root.collapsed
+            visible: !root.collapsed && root.cwEngine === 0
             Layout.fillWidth: true
             spacing: 10
             opacity: root.cwActive ? 1.0 : 0.4
@@ -529,14 +731,14 @@ Rectangle {
     Menu {
         id: grabMenu
         MenuItem {
-            text: qsTr("→ His Call:  ") + decodeOut.selectedText.trim().toUpperCase()
-            enabled: decodeOut.selectedText.trim().length > 0
-            onTriggered: CwMacros.hisCall = decodeOut.selectedText.trim().toUpperCase()
+            text: qsTr("→ His Call:  ") + root.grabWord.toUpperCase()
+            enabled: root.grabWord.length > 0
+            onTriggered: CwMacros.hisCall = root.grabWord.toUpperCase()
         }
         MenuItem {
-            text: qsTr("→ Name:  ") + decodeOut.selectedText.trim()
-            enabled: decodeOut.selectedText.trim().length > 0
-            onTriggered: CwMacros.opName = decodeOut.selectedText.trim()
+            text: qsTr("→ Name:  ") + root.grabWord
+            enabled: root.grabWord.length > 0
+            onTriggered: CwMacros.opName = root.grabWord
         }
     }
 }

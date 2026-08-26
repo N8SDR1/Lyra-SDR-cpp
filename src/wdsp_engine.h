@@ -37,10 +37,16 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 #include "dsp/MonitorRing.h"   // #90 — TX-monitor SPSC ring (value member)
 #include "dsp/CwDecoder.h"     // #173 CW-5a — RX CW decoder (value member)
+#include "dsp/deepfist/NeuralCwDecoder.h" // DeepFist neural CW decoder (2nd engine)
+#include "dsp/CwArbiter.h"          // Auto-engine ownership arbiter (Phase 1)
+#include "dsp/deepfist/ScpLocal.h"  // Phase 3: RBN-confirmed local call list
+#include "dsp/deepfist/CwCaptureHarvester.h"  // Phase 2: training harvest
+#include "dsp/deepfist/CwHarvestRing.h"
 #include "dsp/FreqCalMeasure.h" // freq calibration — carrier tone estimator
 #include "dsp/ZeroBeat.h"       // zero-beat carrier-offset tuning aid (value member)
 
@@ -176,6 +182,25 @@ class WdspEngine : public QObject {
     // separate CW decoder panel (CW-5b).
     Q_PROPERTY(bool cwDecodeEnabled READ cwDecodeEnabled WRITE setCwDecodeEnabled
                NOTIFY cwDecodeEnabledChanged)
+    // DeepFist — which CW decode engine is active (0=Classic fldigi, 1=Neural)
+    // and whether the neural model actually loaded (drives the panel's toggle
+    // + "model not found" status).
+    Q_PROPERTY(int cwDecodeEngine READ cwDecodeEngine WRITE setCwDecodeEngine
+               NOTIFY cwDecodeEngineChanged)
+    Q_PROPERTY(bool cwNeuralAvailable READ cwNeuralAvailable
+               NOTIFY cwNeuralAvailableChanged)
+    // Learn / Harvest are no longer user-facing chips.  Learn (record RBN-
+    // confirmed calls into the local SCP list) is ON for everyone by default,
+    // disabled only with LYRA_CW_LEARN=0.  Harvest (write trust-tiered CW audio
+    // segments to disk for DeepFist training) is a developer tool, OFF unless
+    // LYRA_CW_HARVEST is set truthy.  Both are read once at construction, so the
+    // panel binds them as CONSTANT.
+    Q_PROPERTY(bool cwLearnEnabled READ cwLearnEnabled CONSTANT)
+    Q_PROPERTY(bool cwHarvestEnabled READ cwHarvestEnabled CONSTANT)
+    // DeepFist — live CTC blank-logit penalty (0..5).  Higher recovers dropped
+    // chars on weak audio, adds spurious chars on strong signals.
+    Q_PROPERTY(double cwBlankPenalty READ cwBlankPenalty WRITE setCwBlankPenalty
+               NOTIFY cwBlankPenaltyChanged)
     // ── RX DSP operator controls (ported from old Lyra's DSP+AUDIO
     // panel).  Noise reduction = WDSP EMNR.  nrMode 1..4 picks the
     // gain function (Wiener+SPP / Wiener / MMSE-LSA / trained); AEPF is
@@ -607,6 +632,45 @@ public:
     // Live squelch signal metric (SNR 0..100) for the panel bar; polled by QML.
     Q_INVOKABLE double cwDecodeMetric() const { return cwDecoder_.squelchMetric(); }
     int  cwRxWpm() const { return cwDecoder_.rxWpm(); }
+
+    // DeepFist neural CW decoder — second, selectable engine.  Both engines
+    // share the CW-mode-gated audio tap; only the selected one runs.  Unlike
+    // the classic engine (incremental cwDecodedChar), the neural engine emits
+    // the FULL decoded text of the current 6 s window via cwNeuralText.
+    int  cwDecodeEngine() const { return cwEngine_.load(std::memory_order_relaxed); }
+    Q_INVOKABLE void setCwDecodeEngine(int engine);
+    bool cwNeuralAvailable() const { return neuralCw_.ready(); }
+    bool cwLearnEnabled()   const { return cwLearnEnabled_; }
+    bool cwHarvestEnabled() const { return cwHarvestEnabled_; }
+
+    // CW panel — is this decoded token a KNOWN-REAL callsign?  Exact
+    // MASTER.SCP membership (loaded with the neural model), OR'd with the
+    // Phase-3 local list of RBN-confirmed calls heard at this station (live —
+    // a call noted this session ambers immediately; the rescorer picks it up
+    // at the next model load).
+    Q_INVOKABLE bool cwCallKnown(const QString& call) {
+        const std::string u = call.trimmed().toUpper().toStdString();
+        if (neuralCw_.scpKnows(u)) return true;
+        ensureCwScpLocal();
+        return cwScpLocal_.contains(u);
+    }
+
+    // CW panel — remember an RBN/cluster-confirmed call copied off the air
+    // (the cwLearnEnabled gate lives in QML; this always records).  GUI
+    // thread only.
+    Q_INVOKABLE void cwNoteConfirmedCall(const QString& call);
+
+    // Phase 2 harvest — opt-in capture of trust-tiered CW segments for
+    // DeepFist training (spec §6).  Enabling creates <Documents>/Lyra/
+    // cw_harvest, allocates the ring+harvester and starts a 1 Hz pump worker;
+    // disabling stops the worker.  GUI thread.
+    Q_INVOKABLE void setCwCaptureEnabled(bool on);
+    Q_INVOKABLE int  cwCaptureCount() const {
+        return cwHarvester_ ? cwHarvester_->segmentsWritten() : 0;
+    }
+
+    double cwBlankPenalty() const { return neuralCw_.blankPenalty(); }
+    Q_INVOKABLE void setCwBlankPenalty(double p);
     // Task #53 — shared RX+TX filter low edge.  Affects only the
     // ASYMMETRIC SSB / DIG modes (USB/LSB/DIGU/DIGL).  CW filter
     // is centred on the pitch (low edge isn't a meaningful axis);
@@ -788,6 +852,18 @@ signals:
     void cwDecodeEnabledChanged();
     void cwDecodedChar(QString ch, double confidence);  // decoded unit (conf always 1)
     void cwRxWpmChanged(int wpm);            // fldigi RX speed
+    // DeepFist — engine selection changed; neural model availability resolved;
+    // and the full current-window neural decode (replace-mode display).
+    void cwDecodeEngineChanged();
+    void cwNeuralAvailableChanged();
+    void cwBlankPenaltyChanged();
+    void cwNeuralText(QString windowText);
+    // Auto engine — unified arbiter output; fallback == true when the Classic
+    // safety net produced it (panel dims that run).
+    void cwAutoText(QString text, bool fallback);
+    // DeepFist CTC-lattice callsign verdict (confident only): best = the
+    // lattice-preferred call, orig = the greedy decode (== best when confirmed).
+    void cwNeuralCall(QString best, QString orig, double marginNats);
     // Freq calibration — one emit per analysis window while measuring.
     void freqCalUpdated(double measuredHz, double snrDb, int windows);
     void nrChanged();        // NR enable / mode / AEPF / NPE
@@ -862,6 +938,7 @@ private:
     void pushNrState();
     // Push the current AGC mode (SetRXAAGCMode).  No-op when closed.
     void pushAgcMode();
+    void ensureCwScpLocal();    // lazy load of scp_local.txt (GUI thread)
     // Push ANF (auto-notch) + LMS (line enhancer) run/vals.  No-op when
     // closed; channel-parameterized for RX2 reuse.
     void pushAnfState();
@@ -1221,6 +1298,27 @@ private:
     // cwModeActive_ (set in setMode) gates to CWU/CWL; cwDecodeOn_ is the
     // operator enable.  cwMonoBuf_ holds the de-interleaved mono block.
     lyra::dsp::CwDecoder                 cwDecoder_;
+
+    // DeepFist neural CW decoder — second engine sharing the same tap.
+    // cwEngine_: 0 = Classic (fldigi), 1 = Neural (DeepFist), 2 = Auto (arbiter).
+    lyra::dsp::NeuralCwDecoder           neuralCw_;
+    lyra::dsp::CwArbiter                 cwArbiter_;   // Auto: owns display handoff
+    std::atomic<int>                     cwEngine_{0};
+    lyra::dsp::ScpLocal                  cwScpLocal_;       // Phase 3 local calls
+    bool                                 cwScpLocalLoaded_ = false;
+
+    // Phase 2 harvest — allocated on first enable (opt-in, default off).
+    std::unique_ptr<lyra::dsp::CwHarvestRing>       cwHarvestRing_;
+    std::unique_ptr<lyra::dsp::DeepFistResampler>   cwHarvestDecim_;
+    std::unique_ptr<lyra::dsp::CwCaptureHarvester>  cwHarvester_;
+    std::vector<float>                              cwHarvestTmp_;
+    std::atomic<bool>                               cwCaptureOn_{false};
+    std::thread                                     cwHarvestWorker_;
+    std::atomic<bool>                               cwHarvestRun_{false};
+    // Env-gated at construction (no UI chips): Learn on unless LYRA_CW_LEARN=0;
+    // Harvest off unless LYRA_CW_HARVEST is set truthy (developer capture).
+    bool                                            cwLearnEnabled_{true};
+    bool                                            cwHarvestEnabled_{false};
 
     // Zero-beat tuning aid.  zeroBeat_ is touched ONLY on the RX worker
     // (feedIq); zbRunPrev_/zbRate_ are worker-only edge trackers.  The result

@@ -61,6 +61,21 @@ set(PA_BUILD_TESTS       OFF CACHE BOOL "" FORCE)
 set(PA_BUILD_EXAMPLES    OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/portaudio EXCLUDE_FROM_ALL)
 
+# --- ONNX Runtime (DeepFist neural CW decoder) ------------------------
+# Prebuilt CPU ONNX Runtime (MIT, Microsoft) vendored under
+# third_party/onnxruntime.  Only the API headers + license are committed;
+# the ~11 MB DLL + import lib live in lib/ (git-ignored, repopulated per
+# third_party/onnxruntime/README.md).  Imported as a SHARED lib: link the
+# import lib, ship onnxruntime.dll next to lyra.exe.  Used by
+# src/dsp/deepfist/ to run the DeepFist CNN+CTC CW model (DeepFist is MIT,
+# © Brent Crier — permissive inside Lyra's GPLv3).
+set(ORT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime)
+add_library(onnxruntime SHARED IMPORTED)
+set_target_properties(onnxruntime PROPERTIES
+    IMPORTED_IMPLIB               ${ORT_DIR}/lib/onnxruntime.lib
+    IMPORTED_LOCATION             ${ORT_DIR}/lib/onnxruntime.dll
+    INTERFACE_INCLUDE_DIRECTORIES ${ORT_DIR}/include)
+
 qt_standard_project_setup(REQUIRES 6.5)
 
 qt_add_executable(lyra
@@ -256,6 +271,36 @@ qt_add_executable(lyra
     src/dsp/cw_fldigi/fldigi_cw.cpp
     src/dsp/FreqCalMeasure.h
     src/dsp/FreqCalMeasure.cpp
+    # DeepFist neural CW decoder (second, selectable CW engine)
+    src/dsp/deepfist/DeepFistResampler.h
+    src/dsp/deepfist/DeepFistResampler.cpp
+    src/dsp/deepfist/DeepFistSpectrogram.h
+    src/dsp/deepfist/DeepFistSpectrogram.cpp
+    src/dsp/deepfist/DeepFistConditioner.h
+    src/dsp/deepfist/DeepFistConditioner.cpp
+    src/dsp/deepfist/DeepFistCtc.h
+    src/dsp/deepfist/DeepFistCtc.cpp
+    src/dsp/deepfist/DeepFistScp.h
+    src/dsp/deepfist/DeepFistScp.cpp
+    src/dsp/deepfist/DeepFistRescore.h
+    src/dsp/deepfist/DeepFistRescore.cpp
+    src/dsp/deepfist/DeepFistModel.h
+    src/dsp/deepfist/DeepFistModel.cpp
+    src/dsp/deepfist/NeuralCwDecoder.h
+    src/dsp/deepfist/NeuralCwDecoder.cpp
+    # Phase 3 — RBN-confirmed local callsign list (WdspEngine::ensureCwScpLocal /
+    # cwNoteConfirmedCall).
+    src/dsp/deepfist/ScpLocal.h
+    src/dsp/deepfist/ScpLocal.cpp
+    # Phase 2 — opt-in CW training-harvest capture (WdspEngine::setCwCaptureEnabled).
+    src/dsp/deepfist/CwHarvestRing.h
+    src/dsp/deepfist/CwHarvestIo.h
+    src/dsp/deepfist/CwHarvestIo.cpp
+    src/dsp/deepfist/CwCaptureHarvester.h
+    src/dsp/deepfist/CwCaptureHarvester.cpp
+    # CW Auto arbiter — engine-agnostic ownership state machine (Phase 1).
+    src/dsp/CwArbiter.h
+    src/dsp/CwArbiter.cpp
     src/dsp/ZeroBeat.h
     src/dsp/ZeroBeat.cpp
     # (Stage 7.1 TxIqRing RETIRED 2026-06-09 — wrong-architecture
@@ -538,6 +583,8 @@ target_link_libraries(lyra PRIVATE
     # Windows host-API system libs (winmm/ole32/uuid/setupapi) as
     # transitive static-link deps.
     portaudio
+    # DeepFist neural CW decoder — ONNX Runtime (prebuilt CPU, MIT).
+    onnxruntime
 )
 
 # TX-rip Phase 1 step 1c — put `src/` on the include path so the
@@ -604,6 +651,45 @@ add_custom_command(TARGET lyra POST_BUILD
         "$<TARGET_FILE_DIR:lyra>/_native"
     COMMENT "Bundling WDSP DLLs into _native/"
     VERBATIM)
+
+# DeepFist neural CW decoder — ship onnxruntime.dll next to lyra.exe (a
+# load-time import, so it must sit beside the exe, not in _native/) and copy
+# the trained model into models/ next to the exe.  The model is git-ignored;
+# if it isn't present locally the copy is skipped and the neural engine simply
+# reports "model not found" at runtime (classic decoder unaffected).
+if(WIN32)
+    add_custom_command(TARGET lyra POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ORT_DIR}/lib/onnxruntime.dll" "$<TARGET_FILE_DIR:lyra>"
+        COMMENT "Bundling onnxruntime.dll next to lyra.exe"
+        VERBATIM)
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/deepfist.onnx")
+    add_custom_command(TARGET lyra POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:lyra>/models"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/models/deepfist.onnx"
+            "$<TARGET_FILE_DIR:lyra>/models/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/models/deepfist.onnx.json"
+            "$<TARGET_FILE_DIR:lyra>/models/"
+        COMMENT "Bundling DeepFist model into models/"
+        VERBATIM)
+else()
+    message(WARNING "DeepFist model not found at models/deepfist.onnx — the "
+                    "neural CW decoder will be disabled at runtime. See models/README.md.")
+endif()
+# MASTER.SCP callsign DB for the CTC-lattice rescorer (optional; rescorer is a
+# no-op without it, so no warning when absent).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/MASTER.SCP")
+    add_custom_command(TARGET lyra POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:lyra>/models"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/models/MASTER.SCP"
+            "$<TARGET_FILE_DIR:lyra>/models/"
+        COMMENT "Bundling MASTER.SCP into models/"
+        VERBATIM)
+endif()
 
 # Auto-deploy the Qt runtime DLLs next to lyra.exe after every build.
 # Without this, adding/changing Qt modules (e.g. Widgets +
@@ -906,4 +992,124 @@ target_link_libraries(test_profile_rack PRIVATE Qt6::Core)
 set_target_properties(test_profile_rack PROPERTIES AUTOMOC ON)
 if(MSVC)
     target_compile_options(test_profile_rack PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# DeepFist neural CW decoder — headless WAV decode verification harness.
+# Proves the C++ front-end + ONNX decode matches the Python/Rust reference on
+# known clips BEFORE any UI wiring.  Qt-free (the DeepFist DSP is Qt-free);
+# links only ONNX Runtime.  EXCLUDE_FROM_ALL; build + run:
+#   cmake --build build --target test_neural_cw
+#   build/test_neural_cw <modelDir> <clip.wav> [expected text] ...
+add_executable(test_neural_cw EXCLUDE_FROM_ALL
+    scratch/test_neural_cw.cpp
+    src/dsp/deepfist/DeepFistResampler.h
+    src/dsp/deepfist/DeepFistResampler.cpp
+    src/dsp/deepfist/DeepFistSpectrogram.h
+    src/dsp/deepfist/DeepFistSpectrogram.cpp
+    src/dsp/deepfist/DeepFistConditioner.h
+    src/dsp/deepfist/DeepFistConditioner.cpp
+    src/dsp/deepfist/DeepFistCtc.h
+    src/dsp/deepfist/DeepFistCtc.cpp
+    src/dsp/deepfist/DeepFistScp.h
+    src/dsp/deepfist/DeepFistScp.cpp
+    src/dsp/deepfist/DeepFistRescore.h
+    src/dsp/deepfist/DeepFistRescore.cpp
+    src/dsp/deepfist/DeepFistModel.h
+    src/dsp/deepfist/DeepFistModel.cpp
+    src/dsp/deepfist/NeuralCwDecoder.h
+    src/dsp/deepfist/NeuralCwDecoder.cpp
+)
+target_include_directories(test_neural_cw PRIVATE src)
+target_link_libraries(test_neural_cw PRIVATE onnxruntime)
+if(MSVC)
+    target_compile_options(test_neural_cw PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+if(WIN32)
+    add_custom_command(TARGET test_neural_cw POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ORT_DIR}/lib/onnxruntime.dll" "$<TARGET_FILE_DIR:test_neural_cw>"
+        VERBATIM)
+endif()
+
+# DeepFist — real-time STREAMING harness: plays a 48 kHz CW WAV through the
+# actual NeuralCwDecoder (worker thread + frame-timed commit) and prints
+# committed characters as they stream.  Deterministic test of the live decode
+# path without a radio/GUI.  Build + run:
+#   cmake --build build --target test_neural_cw_stream
+#   build/test_neural_cw_stream <modelDir> <clip48k.wav>
+add_executable(test_neural_cw_stream EXCLUDE_FROM_ALL
+    scratch/test_neural_cw_stream.cpp
+    src/dsp/deepfist/DeepFistResampler.cpp
+    src/dsp/deepfist/DeepFistSpectrogram.cpp
+    src/dsp/deepfist/DeepFistCtc.cpp
+    src/dsp/deepfist/DeepFistModel.cpp
+    src/dsp/deepfist/NeuralCwDecoder.cpp
+)
+target_include_directories(test_neural_cw_stream PRIVATE src)
+target_link_libraries(test_neural_cw_stream PRIVATE onnxruntime)
+if(MSVC)
+    target_compile_options(test_neural_cw_stream PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+if(WIN32)
+    add_custom_command(TARGET test_neural_cw_stream POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ORT_DIR}/lib/onnxruntime.dll" "$<TARGET_FILE_DIR:test_neural_cw_stream>"
+        VERBATIM)
+endif()
+
+# DeepFist — CTC-lattice rescorer unit test (ctcNll vs PyTorch + candidate flip).
+# Qt-free, no ONNX Runtime.  Build + run:
+#   cmake --build build --target test_rescore
+add_executable(test_rescore EXCLUDE_FROM_ALL
+    scratch/test_rescore.cpp
+    src/dsp/deepfist/DeepFistRescore.h
+    src/dsp/deepfist/DeepFistRescore.cpp
+    src/dsp/deepfist/DeepFistScp.h
+    src/dsp/deepfist/DeepFistScp.cpp
+)
+target_include_directories(test_rescore PRIVATE src)
+if(MSVC)
+    target_compile_options(test_rescore PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# CW Auto arbiter — engine-agnostic ownership state machine unit test.
+# Qt-free, no ONNX Runtime.  Build + run:
+#   cmake --build build --target test_cw_arbiter && build/test_cw_arbiter
+add_executable(test_cw_arbiter EXCLUDE_FROM_ALL
+    scratch/test_cw_arbiter.cpp
+    src/dsp/CwArbiter.h
+    src/dsp/CwArbiter.cpp
+)
+target_include_directories(test_cw_arbiter PRIVATE src)
+if(MSVC)
+    target_compile_options(test_cw_arbiter PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# Phase 3 — RBN-confirmed local callsign list unit test.  Qt-free.
+#   cmake --build build --target test_scp_local && build/test_scp_local
+add_executable(test_scp_local EXCLUDE_FROM_ALL
+    scratch/test_scp_local.cpp
+    src/dsp/deepfist/ScpLocal.h
+    src/dsp/deepfist/ScpLocal.cpp
+    src/dsp/deepfist/DeepFistScp.h
+    src/dsp/deepfist/DeepFistScp.cpp
+)
+target_include_directories(test_scp_local PRIVATE src)
+if(MSVC)
+    target_compile_options(test_scp_local PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# Phase 2 — harvest support units (ring / wav16 / sidecar io).  Qt-free.
+#   cmake --build build --target test_cw_harvest && build/test_cw_harvest
+add_executable(test_cw_harvest EXCLUDE_FROM_ALL
+    scratch/test_cw_harvest.cpp
+    src/dsp/deepfist/CwHarvestRing.h
+    src/dsp/deepfist/CwHarvestIo.h
+    src/dsp/deepfist/CwHarvestIo.cpp
+    src/dsp/deepfist/CwCaptureHarvester.h
+    src/dsp/deepfist/CwCaptureHarvester.cpp
+)
+target_include_directories(test_cw_harvest PRIVATE src)
+if(MSVC)
+    target_compile_options(test_cw_harvest PRIVATE /utf-8 /Zc:preprocessor)
 endif()

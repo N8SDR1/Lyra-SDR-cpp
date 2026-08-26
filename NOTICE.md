@@ -228,6 +228,33 @@ notice is retained as the MIT license requires.
 
 ---
 
+## DeepFist neural CW decoder (MIT license)
+
+Lyra-cpp's optional neural CW (Morse) decode engine
+(`src/dsp/deepfist/`) embeds **DeepFist**, a clean-room,
+self-trained neural (spectrogram → CNN + CTC) Morse decoder.
+DeepFist is © 2026 Brent Crier (N9BC) and is distributed under the MIT
+license; its terms are compatible with Lyra-cpp's GPL v3+.  The
+trained model artifact (`deepfist.onnx` + JSON sidecar) is
+DeepFist's own, trained on its own synthetically generated data —
+no third-party model weights are used or redistributed.  The C++
+front-end (decimator, spectrogram, greedy CTC) is an original
+re-implementation of DeepFist's own MIT Python; no AGPL-licensed
+code (e.g. DeepCW / HamNoise, used only as conceptual references
+during DeepFist's development) is present in Lyra-cpp.
+
+## ONNX Runtime (vendored, MIT license)
+
+The DeepFist engine runs its model through **ONNX Runtime**
+(prebuilt CPU build, version 1.20.1), vendored under
+`third_party/onnxruntime/`.  ONNX Runtime is © Microsoft
+Corporation and is distributed under the MIT license, preserved
+at `third_party/onnxruntime/LICENSE` (third-party notices at
+`third_party/onnxruntime/ThirdPartyNotices.txt`).  Its MIT terms
+are compatible with Lyra-cpp's GPL v3+.
+
+---
+
 ## Project author
 
 **Lyra-cpp** is N8SDR (Rick Langford)'s project, building on
