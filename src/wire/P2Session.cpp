@@ -413,6 +413,7 @@ void P2Session::open(const QString &ip) {
     statusCount_   = 0;
     iqFrameCount_  = 0;
     iqSeqErrors_   = 0;
+    warnedNoIq_    = false;
     ddcSeqStarted_.fill(false);
     spkrSeq_       = 0;
     spkrStage_.clear();
@@ -492,6 +493,30 @@ void P2Session::onHpTick() {
     if (++hpTickCount_ % kDdcRefreshTicks == 0)
         sock_.writeDatagram(buildDdcSpecificPacket(),
                             radioAddr_, kPortDdcConfig);
+
+    // Firewall-blocked-RX self-diagnosis (resolved 2026-08-26).  If the
+    // control link is healthy (status flowing) but a DDC is enabled and
+    // NOT ONE IQ frame has arrived, the cause is almost always Windows
+    // Firewall dropping the radio's unsolicited RX-IQ (source port 1035+,
+    // a port the host never sends to, so no stateful return opens for it).
+    // Small status(1025)/mic(1026) get through because the host DOES send
+    // to those ports.  Fires once so a "dead" panadapter says WHY.
+    if (!warnedNoIq_ && running_ && iqFrameCount_ == 0 &&
+        statusCount_ >= 25) {
+        bool anyDdc = false;
+        for (bool en : ddcEnabled_) if (en) { anyDdc = true; break; }
+        if (anyDdc) {
+            warnedNoIq_ = true;
+            emit logLine(QStringLiteral(
+                "P2: control link healthy but ZERO RX-IQ after %1 status "
+                "packets — this is almost always WINDOWS FIREWALL blocking "
+                "inbound UDP for this Lyra build. The radio's IQ arrives on "
+                "an unsolicited port (1035+). Fix (admin PowerShell): "
+                "New-NetFirewallRule -DisplayName 'Lyra SDR (UDP In)' "
+                "-Direction Inbound -Program '<this lyra.exe>' -Protocol UDP "
+                "-Action Allow -Profile Any").arg(statusCount_));
+        }
+    }
 }
 
 void P2Session::startTxTransportRxState() {

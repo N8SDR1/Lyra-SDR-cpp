@@ -265,6 +265,7 @@ private:
     std::array<bool,    10> ddcSeqStarted_{};
     quint32      iqFrameCount_ = 0;
     quint32      iqSeqErrors_  = 0;
+    bool         warnedNoIq_   = false;  // one-shot firewall-blocked-RX hint
     const P2HardwareProfile *profile_ = nullptr;
     int          trxAntenna_   = 1;               // ANT1..3
     P2RxInput    rxInput_      = P2RxInput::Trx;
