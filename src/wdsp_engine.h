@@ -190,10 +190,24 @@ class WdspEngine : public QObject {
     // (Long / Auto / Custom land with the rest of the AGC surface.)
     Q_PROPERTY(QString agcMode READ agcMode NOTIFY agcModeChanged)
     // Live AGC gain action (WDSP RXA_AGC_GAIN), dB — re-read at the 5 Hz
-    // levels poll.  agcThreshDb is the (currently fixed) AGC threshold the
-    // readout shows alongside it, matching old Lyra's "thr / gain" cells.
+    // levels poll.  agcThreshDb is the operator-set AGC knee/threshold
+    // (WDSP-dBFS) the readout shows alongside it, matching old Lyra's
+    // "thr / gain" cells; adjustable via setAgcThreshDb.
     Q_PROPERTY(double agcGainDb   READ agcGainDb   NOTIFY levelsChanged)
-    Q_PROPERTY(double agcThreshDb READ agcThreshDb CONSTANT)
+    Q_PROPERTY(double agcThreshDb READ agcThreshDb NOTIFY agcThreshDbChanged)
+    // Auto AGC-T (latching).  When on, a re-track timer re-anchors the knee to
+    // the live measured noise floor at a fixed cadence (reference-faithful: the
+    // reference latches the mode and re-tracks on a fixed 500 ms timer; the
+    // interval is not operator-exposed there and isn't here either).  Any
+    // manual threshold touch turns it off.  The AGC cell lights when engaged.
+    Q_PROPERTY(bool autoAgcThresh READ autoAgcThresh NOTIFY autoAgcThreshChanged)
+    // Auto AGC-T offset (dB): the knee is anchored to floor + this margin
+    // (reference-faithful — mirrors the reference's per-RX auto-AGC offset).
+    // Positive raises the knee = lowers the resulting AGC max-gain.
+    Q_PROPERTY(double autoAgcMarginDb READ autoAgcMarginDb NOTIFY autoAgcMarginDbChanged)
+    // Resulting AGC max-gain ceiling (WDSP GetRXAAGCTop), dB — the number the
+    // reference shows on its AGC-T display.  Re-read at the levels poll.
+    Q_PROPERTY(double agcMaxGainDb READ agcMaxGainDb NOTIFY levelsChanged)
     // ANF — auto-notch (LMS predictor that nulls carriers/heterodynes).
     Q_PROPERTY(bool anfEnabled READ anfEnabled NOTIFY anfChanged)
     // LMS — line enhancer (ANR predictor that lifts CW/tones).  strength
@@ -447,6 +461,36 @@ public:
     Q_INVOKABLE void setAepfEnabled(bool on);
     Q_INVOKABLE void setNpeMethod(int method);   // 0=OSMS 1=MCRA
     Q_INVOKABLE void setAgcMode(const QString &mode);  // off/fast/med/slow
+    // AGC knee/threshold in WDSP-dBFS (more negative = more weak-signal
+    // headroom).  Re-derives the AGC ceiling via SetRXAAGCThresh; clamped
+    // to a sane operator range.  Rig-independent (WDSP RXA, post-ADC).
+    Q_INVOKABLE void setAgcThreshDb(double db);
+    // One-shot Auto: set the knee from the measured passband noise floor
+    // (WDSP-dBFS raw, from MeterModel.noiseFloorWdspRawDbFs()) + marginDb.
+    // Subtracts the per-bin noise_offset (WDSP re-adds it internally), so
+    // the effective knee lands on the floor + margin.  marginDb 0 matches
+    // the reference's default (knee on the floor).
+    Q_INVOKABLE void applyAutoAgcThresh(double passbandFloorRawDbFs,
+                                        double marginDb);
+    // Latching Auto AGC-T.  autoAgcThresh() is the live on/off state.
+    // setAutoAgcThresh(true) engages the latch (immediate re-track + a fixed
+    // 500 ms re-track cadence while on); setAutoAgcThresh(false) releases it.
+    bool autoAgcThresh() const { return autoAgcThresh_; }
+    Q_INVOKABLE void setAutoAgcThresh(bool on);
+    double autoAgcMarginDb() const { return autoAgcMarginDb_; }
+    // Offset (dB) the latch anchors above the floor.  Persisted; re-tracks
+    // immediately when the latch is engaged.  +ve lowers the AGC max-gain.
+    Q_INVOKABLE void setAutoAgcMarginDb(double db);
+    // Resulting AGC max-gain (WDSP GetRXAAGCTop); NaN when not running.  The
+    // reference-comparable number to dial the offset against.
+    double agcMaxGainDb() const;
+    // Inject the live noise-floor source the latch re-anchors to (WDSP-dBFS
+    // raw, e.g. MeterModel::noiseFloorWdspRawDbFs()).  Called once at wire-up
+    // (mainwindow.cpp) after the MeterModel exists.  Owner keeps the model
+    // alive for the engine's lifetime.
+    void setAgcFloorProvider(std::function<double()> f) {
+        agcFloorProvider_ = std::move(f);
+    }
     bool anfEnabled()    const { return anfEnabled_; }
     bool lmsEnabled()    const { return lmsEnabled_; }
     double lmsStrength() const { return lmsStrength_; }
@@ -798,6 +842,9 @@ signals:
     void freqCalUpdated(double measuredHz, double snrDb, int windows);
     void nrChanged();        // NR enable / mode / AEPF / NPE
     void agcModeChanged();
+    void agcThreshDbChanged();
+    void autoAgcThreshChanged();
+    void autoAgcMarginDbChanged();
     void anfChanged();
     void lmsChanged();       // LMS enable / strength
     void notchesChanged();   // NF run / list add / remove / edit
@@ -868,6 +915,14 @@ private:
     void pushNrState();
     // Push the current AGC mode (SetRXAAGCMode).  No-op when closed.
     void pushAgcMode();
+    void pushAgcThresh();   // re-derive AGC ceiling from agcThreshDb_
+    // Auto AGC-T re-track: read the floor provider, derive+apply the knee WITHOUT
+    // persisting (the timer path — no QSettings write spam).  No-op unless the
+    // latch is on, the channel is open, and the floor reads valid.
+    void retrackAutoAgc();
+    // Clamp/store/push agcThreshDb_ + emit, WITHOUT persisting to QSettings.
+    // The no-persist core of setAgcThreshDb; the latch timer uses this.
+    void applyAgcThreshNoPersist(double db);
     // Push ANF (auto-notch) + LMS (line enhancer) run/vals.  No-op when
     // closed; channel-parameterized for RX2 reuse.
     void pushAnfState();
@@ -1074,6 +1129,15 @@ private:
     bool    aepfEnabled_ = true;
     int     npeMethod_   = 0;            // 0=OSMS 1=MCRA
     QString agcMode_     = QStringLiteral("med");
+    double  agcThreshDb_ = -100.0;   // WDSP-dBFS AGC knee (persisted; see kAgcThreshDbFs)
+    // Latching Auto AGC-T state.  autoAgcThresh_ is persisted; the timer runs
+    // always (constructed in the ctor) and its tick early-returns unless the
+    // latch is engaged.  agcFloorProvider_ is injected at wire-up.  Margin 0
+    // matches the reference (knee on the measured floor).
+    bool    autoAgcThresh_    = false;
+    double  autoAgcMarginDb_  = 0.0;
+    QTimer  autoAgcTimer_;
+    std::function<double()> agcFloorProvider_;
     bool    anfEnabled_  = false;
     bool    lmsEnabled_  = false;
     double  lmsStrength_ = 0.5;          // 0..1 (0.5 ≈ WDSP-class default)

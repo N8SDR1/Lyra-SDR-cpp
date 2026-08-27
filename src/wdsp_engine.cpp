@@ -121,8 +121,14 @@ constexpr double kUsbHighHz  = 3000.0;
 // args.  Do NOT also call SetRXAAGCTop — it writes the same max_gain
 // field SetRXAAGCThresh computes and would clobber it.
 constexpr int    kAgcSlope         = 35;
-constexpr double kAgcThreshDbFs    = -100.0;
+constexpr double kAgcThreshDbFs    = -100.0;   // default knee (persisted override)
 constexpr double kAgcThreshFftSize = 4096.0;
+// Operator AGC-knee clamp (WDSP-dBFS).  More negative = more weak-signal
+// headroom; toward 0 = higher knee / less boost.  -100 default sits
+// mid-range.  Range matches the reference's setAGCThresholdPoint clamp
+// [-160 .. +2] so Auto (knee on the measured noise floor) is never clipped.
+constexpr double kAgcThreshMinDbFs = -160.0;
+constexpr double kAgcThreshMaxDbFs =    2.0;
 // AGC fixed-gain (dB) for mode 0 / FIXD ("AGC OFF").  WDSP's
 // create-time default is 1000.0 linear = +60 dB (RXA.c:366) which
 // makes AGC OFF audibly LOUDER than FAST/MED/SLOW that actively
@@ -376,6 +382,17 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
         }
     });
 
+    // Auto AGC-T re-track (latching).  Fixed 500 ms cadence, reference-faithful
+    // (the reference latches the mode and re-tracks on a hardwired 500 ms timer;
+    // the interval is not operator-exposed).  Always running; retrackAutoAgc()
+    // early-returns unless the latch is engaged + the channel is open + the
+    // floor reads valid — so it costs a bool test per tick when idle.
+    autoAgcTimer_.setInterval(500);
+    connect(&autoAgcTimer_, &QTimer::timeout, this, [this]() {
+        retrackAutoAgc();
+    });
+    autoAgcTimer_.start();
+
     // Step 3e: enumerate the operator's PC output devices + default.  Guarded,
     // and skippable via LYRA_SAFE (safe-boot): a wedged virtual audio device is
     // a prime cause of a pre-window startup fault, and this runs before the main
@@ -500,6 +517,12 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
         s.value(QStringLiteral("dsp/npeMethod"), 0).toInt(), 0, 1);
     agcMode_     = s.value(QStringLiteral("dsp/agcMode"),
                            QStringLiteral("med")).toString();
+    agcThreshDb_ = std::clamp(
+        s.value(QStringLiteral("dsp/agcThreshDb"), kAgcThreshDbFs).toDouble(),
+        kAgcThreshMinDbFs, kAgcThreshMaxDbFs);
+    autoAgcThresh_ = s.value(QStringLiteral("dsp/autoAgcThresh"), false).toBool();
+    autoAgcMarginDb_ = std::clamp(
+        s.value(QStringLiteral("dsp/autoAgcMargin"), 0.0).toDouble(), -30.0, 30.0);
     anfEnabled_  = s.value(QStringLiteral("dsp/anfEnabled"), false).toBool();
     lmsEnabled_  = s.value(QStringLiteral("dsp/lmsEnabled"), false).toBool();
     lmsStrength_ = std::clamp(
@@ -879,16 +902,10 @@ bool WdspEngine::openRx1()
 
     // Level calibration: replace WDSP's hot create-time AGC default
     // (max_gain = 10000 / 80 dB, which overshoots 0 dBFS) with a
-    // threshold-computed ceiling.  SetRXAAGCThresh derives max_gain
-    // from (thresh, size, rate) + the slope-derived var_gain; we must
-    // NOT also call SetRXAAGCTop (same field, would clobber).
-    if (api.SetRXAAGCSlope) {
-        api.SetRXAAGCSlope(channel_, kAgcSlope);
-    }
-    if (api.SetRXAAGCThresh) {
-        api.SetRXAAGCThresh(channel_, kAgcThreshDbFs, kAgcThreshFftSize,
-                            static_cast<double>(cfg_.inRate));
-    }
+    // threshold-computed ceiling.  See pushAgcThresh() for the slope+thresh
+    // pair (kept together — SetRXAAGCThresh derives max_gain, must NOT be
+    // clobbered by a separate SetRXAAGCTop).
+    pushAgcThresh();
     // Panel (post-DSP makeup) gain = the operator's AF gain (dB → linear;
     // 0 dB = unity = WDSP create_panel default).
     if (api.SetRXAPanelGain1) {
@@ -2360,7 +2377,17 @@ double WdspEngine::txMeterRaw(int txaMeterType) const
 
 double WdspEngine::agcThreshDb() const
 {
-    return kAgcThreshDbFs;                 // fixed first-light threshold
+    return agcThreshDb_;                   // operator-set AGC knee (WDSP-dBFS)
+}
+
+double WdspEngine::agcMaxGainDb() const
+{
+    if (!running_ || !wdsp_) return std::numeric_limits<double>::quiet_NaN();
+    const WdspApi &api = wdsp_->api();
+    if (!api.GetRXAAGCTop) return std::numeric_limits<double>::quiet_NaN();
+    double top = 0.0;
+    api.GetRXAAGCTop(channel_, &top);      // resulting AGC ceiling, dB
+    return top;
 }
 
 void WdspEngine::setVolume(double v)
@@ -2595,6 +2622,115 @@ void WdspEngine::setNpeMethod(int method)
     QSettings().setValue(QStringLiteral("dsp/npeMethod"), method);
     pushNrState();
     emit nrChanged();
+}
+
+// Re-derive the AGC ceiling from agcThreshDb_.  The slope + thresh calls
+// are kept together: SetRXAAGCThresh computes max_gain from
+// (thresh, size, rate) + the slope-derived var_gain, and we must never
+// also call SetRXAAGCTop (same field, would clobber).  Used at channel
+// open and on every operator threshold change.
+void WdspEngine::pushAgcThresh()
+{
+    if (!opened_ || !wdsp_) return;
+    const WdspApi &api = wdsp_->api();
+    if (api.SetRXAAGCSlope) {
+        api.SetRXAAGCSlope(channel_, kAgcSlope);
+    }
+    if (api.SetRXAAGCThresh) {
+        api.SetRXAAGCThresh(channel_, agcThreshDb_, kAgcThreshFftSize,
+                            static_cast<double>(cfg_.inRate));
+    }
+}
+
+// No-persist core: clamp/store/push + emit, no QSettings write.  The latch
+// re-track timer uses this so a drifting floor doesn't spam QSettings.
+void WdspEngine::applyAgcThreshNoPersist(double db)
+{
+    db = std::clamp(db, kAgcThreshMinDbFs, kAgcThreshMaxDbFs);
+    if (agcThreshDb_ == db) return;
+    agcThreshDb_ = db;
+    pushAgcThresh();
+    emit agcThreshDbChanged();
+}
+
+void WdspEngine::setAgcThreshDb(double db)
+{
+    // A manual threshold touch releases the latch (reference-faithful: any
+    // manual AGC-T adjustment turns Auto off).
+    if (autoAgcThresh_) setAutoAgcThresh(false);
+    db = std::clamp(db, kAgcThreshMinDbFs, kAgcThreshMaxDbFs);
+    const bool changed = (agcThreshDb_ != db);
+    applyAgcThreshNoPersist(db);
+    QSettings().setValue(QStringLiteral("dsp/agcThreshDb"), db);
+    if (changed)
+        emitLog(QStringLiteral("[wdsp] AGC threshold %1 dBFS").arg(db, 0, 'f', 0));
+}
+
+void WdspEngine::applyAutoAgcThresh(double passbandFloorRawDbFs, double marginDb)
+{
+    // The WDSP `thresh` arg is PER-FFT-BIN; SetRXAAGCThresh adds its own
+    // noise_offset = 10*log10(bw*size/rate) internally to compare against
+    // passband power.  Our floor comes in as passband-power (RXA_S_PK
+    // domain), so subtract that same noise_offset here — WDSP re-adds it,
+    // and the effective knee lands exactly on the measured floor + margin.
+    // (Reference parity: Thetis anchors to the per-bin panadapter floor and
+    // lets WDSP add noise_offset; we anchor to the passband S-meter floor
+    // and pre-subtract it — same effective knee.)
+    //
+    // No-persist: the auto-tracked knee is transient (only the operator's
+    // manual value + the latch on/off flag persist).  Gated on an actual
+    // change so a stable band doesn't re-log every re-track tick.
+    const double bwHz = std::max(1.0,
+        std::abs(passbandHighHz_ - passbandLowHz_));
+    const double rate = std::max(1.0, static_cast<double>(cfg_.inRate));
+    const double noiseOffset =
+        10.0 * std::log10(bwHz * kAgcThreshFftSize / rate);
+    const double knee = std::clamp(passbandFloorRawDbFs + marginDb - noiseOffset,
+                                   kAgcThreshMinDbFs, kAgcThreshMaxDbFs);
+    if (agcThreshDb_ == knee) return;
+    applyAgcThreshNoPersist(knee);
+    emitLog(QStringLiteral(
+        "[wdsp] Auto AGC-T: floor %1 dBFS(raw) margin %2 - noiseOffset %3 "
+        "-> thr %4 dBFS -> max-gain %5 dB")
+            .arg(passbandFloorRawDbFs, 0, 'f', 1).arg(marginDb, 0, 'f', 1)
+            .arg(noiseOffset, 0, 'f', 1).arg(agcThreshDb_, 0, 'f', 1)
+            .arg(agcMaxGainDb(), 0, 'f', 0));
+}
+
+void WdspEngine::setAutoAgcThresh(bool on)
+{
+    if (autoAgcThresh_ == on) return;
+    autoAgcThresh_ = on;
+    QSettings().setValue(QStringLiteral("dsp/autoAgcThresh"), on);
+    emit autoAgcThreshChanged();
+    emitLog(QStringLiteral("[wdsp] Auto AGC-T %1")
+                .arg(on ? QStringLiteral("engaged (latched)")
+                        : QStringLiteral("released")));
+    // Engage: track immediately rather than waiting up to 500 ms for the timer.
+    if (on) retrackAutoAgc();
+}
+
+void WdspEngine::setAutoAgcMarginDb(double db)
+{
+    db = std::clamp(db, -30.0, 30.0);
+    if (autoAgcMarginDb_ == db) return;
+    autoAgcMarginDb_ = db;
+    QSettings().setValue(QStringLiteral("dsp/autoAgcMargin"), db);
+    emit autoAgcMarginDbChanged();
+    // Re-anchor now if the latch is live so the operator sees the new landing
+    // point immediately (used to dial the resulting max-gain to the reference).
+    if (autoAgcThresh_) retrackAutoAgc();
+}
+
+// Latch re-track: pull the live floor and re-anchor the knee.  Costs a bool
+// test per tick when idle; only acts while engaged, the channel is open, a
+// floor provider is wired, and the floor reads a finite value.
+void WdspEngine::retrackAutoAgc()
+{
+    if (!autoAgcThresh_ || !opened_ || !agcFloorProvider_) return;
+    const double floor = agcFloorProvider_();
+    if (!std::isfinite(floor)) return;
+    applyAutoAgcThresh(floor, autoAgcMarginDb_);
 }
 
 void WdspEngine::setAgcMode(const QString &mode)

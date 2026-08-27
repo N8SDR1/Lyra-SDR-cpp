@@ -515,7 +515,12 @@ Rectangle {
                 radius: 4
                 color: agcMa.containsMouse ? "#16242e" : "transparent"
                 border.width: 1
-                border.color: agcMa.containsMouse ? "#2a4a5a" : "transparent"
+                // Latched Auto AGC-T lights the cell border orange (engaged
+                // state cue, same "engaged orange" as Auto-LNA / MON).  Hover
+                // blue when not latched; otherwise no border.
+                border.color: WdspEngine.autoAgcThresh ? root.cOn
+                            : agcMa.containsMouse       ? "#2a4a5a"
+                            :                             "transparent"
                 Row {
                     id: agcRow
                     anchors.centerIn: parent
@@ -543,15 +548,96 @@ Rectangle {
                     id: agcMa
                     anchors.fill: parent
                     hoverEnabled: true
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: {
+                    onClicked: (m) => {
+                        if (m.button === Qt.RightButton) { agcThrPopup.open(); return }
                         var order = ["off", "fast", "med", "slow"]
                         var i = order.indexOf(WdspEngine.agcMode)
                         WdspEngine.setAgcMode(order[(i + 1) % order.length])
                     }
-                    ToolTip.text: qsTr("Click to cycle AGC: Off → Fast → Med → Slow.")
+                    ToolTip.text: qsTr("Left-click: cycle AGC (Off → Fast → Med → Slow).\n"
+                        + "Wheel: nudge the AGC threshold ±1 dBFS.\n"
+                        + "Right-click: type an exact threshold.\n"
+                        + "Lower (more negative) = more weak-signal gain; higher = less.")
                     ToolTip.visible: (containsMouse) && Prefs.tooltipsEnabled
                     ToolTip.delay: 500
+                }
+                // Wheel over the whole cell nudges the AGC knee (same idiom as
+                // the LNA slider's wheel).  Left-click still cycles mode.
+                WheelHandler {
+                    onWheel: (ev) => WdspEngine.setAgcThreshDb(
+                        WdspEngine.agcThreshDb + (ev.angleDelta.y > 0 ? 1 : -1))
+                }
+                Popup {
+                    id: agcThrPopup
+                    popupType: Popup.Window
+                    x: 0; y: parent.height + 2
+                    padding: 8
+                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                    Row {
+                        spacing: 8
+                        Label { text: qsTr("AGC thr"); color: root.cMuted
+                                anchors.verticalCenter: parent.verticalCenter }
+                        LyraSpinBox {
+                            from: -160; to: 2; stepSize: 1
+                            value: Math.round(WdspEngine.agcThreshDb)
+                            onValueModified: WdspEngine.setAgcThreshDb(value)
+                        }
+                        Label { text: qsTr("dBFS"); color: root.cMuted
+                                anchors.verticalCenter: parent.verticalCenter }
+                        Button {
+                            id: autoAgcBtn
+                            text: qsTr("Auto")
+                            checkable: true
+                            checked: WdspEngine.autoAgcThresh
+                            onToggled: WdspEngine.setAutoAgcThresh(checked)
+                            implicitHeight: 24; implicitWidth: 48
+                            anchors.verticalCenter: parent.verticalCenter
+                            background: Rectangle {
+                                radius: 3
+                                color: autoAgcBtn.checked ? "#3a2a14" : "#161e28"
+                                border.color: autoAgcBtn.checked ? root.cOn : "#2a3a4a"
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                text: autoAgcBtn.text
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                color: autoAgcBtn.checked ? root.cOn : root.cText
+                                font.pixelSize: 12
+                            }
+                            ToolTip.text: qsTr("Auto AGC-T (latching) — keeps the AGC "
+                                + "knee anchored to the live noise floor and re-tracks "
+                                + "as the band changes.\nAny manual threshold change turns "
+                                + "it off; the AGC cell glows orange while engaged.")
+                            ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                            ToolTip.delay: 400
+                        }
+                        // Auto offset (dB): raises the knee above the floor.
+                        // The reference lands its auto max-gain ~55-57; nudge
+                        // this until the "max" readout matches (higher offset
+                        // = lower max-gain).  Persists.
+                        Label { text: qsTr("off"); color: root.cMuted
+                                visible: WdspEngine.autoAgcThresh
+                                anchors.verticalCenter: parent.verticalCenter }
+                        LyraSpinBox {
+                            visible: WdspEngine.autoAgcThresh
+                            from: -30; to: 30; stepSize: 1
+                            value: Math.round(WdspEngine.autoAgcMarginDb)
+                            onValueModified: WdspEngine.setAutoAgcMarginDb(value)
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        // Resulting AGC max-gain — the reference-comparable
+                        // number (their auto lands ~55-57).
+                        Label {
+                            visible: WdspEngine.autoAgcThresh
+                            text: qsTr("max ") + (isNaN(WdspEngine.agcMaxGainDb)
+                                    ? "—" : Math.round(WdspEngine.agcMaxGainDb) + qsTr(" dB"))
+                            color: root.cText; font.family: "Consolas"
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
                 }
             }
 

@@ -1167,6 +1167,15 @@ double MeterModel::calibratedSMeterDbm(double raw) const {
     return raw + calDb_ - lna + p2Comp;
 }
 
+double MeterModel::noiseFloorWdspRawDbFs() const {
+    // Inverse of calibratedSMeterDbm() (raw = dispDbm - calDb_ + lna).
+    // noiseFloorDbm_ is tracked in the calibrated-dBm (dispDbm) domain, so
+    // undo the cal to land back in the WDSP raw/RXA_S_PK domain the AGC
+    // threshold math lives in.
+    const double lna = stream_ ? static_cast<double>(stream_->lnaGainDb()) : 0.0;
+    return noiseFloorDbm_ - calDb_ + lna;
+}
+
 double MeterModel::rxSMeterDbm() const {
     const double raw = wdsp_ ? wdsp_->sMeterDbm() : -200.0;
     // RXA_S_PK returns ≈ −200 when the stream isn't running / between rate

@@ -346,6 +346,14 @@ public:
     // Tick marks for the scale: list of { pos: 0..1, label: "9"/"+20", major: bool }.
     Q_INVOKABLE QVariantList tickMarks() const;
 
+    // The rolling-minimum RX noise floor converted from calibrated dBm back
+    // into the WDSP-dBFS *raw* domain (the exact inverse of
+    // calibratedSMeterDbm: raw = dispDbm - calDb + lna).  Passband power,
+    // matching RXA_S_PK.  Consumed by WdspEngine::applyAutoAgcThresh for the
+    // one-shot Auto AGC-threshold.  Keep paired with calibratedSMeterDbm so
+    // the two never drift.
+    Q_INVOKABLE double noiseFloorWdspRawDbFs() const;
+
 signals:
     void updated();
     void styleChanged();

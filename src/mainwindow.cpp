@@ -588,6 +588,14 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     // (hardware-profile-converted) whenever it is the live wire path.
     meter_->setP2Bridge(p2Bridge_);
 
+    // Auto AGC-T (latching) floor source: the engine's re-track timer anchors
+    // the knee to the same measured noise floor the on-screen S-meter reports.
+    // meter_ outlives the engine's use of the lambda (both parented to this).
+    if (auto *we = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
+        MeterModel *m = meter_;
+        we->setAgcFloorProvider([m]() { return m->noiseFloorWdspRawDbFs(); });
+    }
+
     // Tuner panel — manual-ATU tuning memory (tracks the dial vs stored
     // Input/Output/Inductor points per antenna).  Pure UI + QSettings.
     tuner_ = new TunerMemory(qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
