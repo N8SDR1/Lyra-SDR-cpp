@@ -76,6 +76,16 @@ qt_add_executable(lyra
     src/mic_source.h
     src/mic_source.cpp
     src/win_perf.cpp
+    # Platform layer — Win32/POSIX seams.  On Windows these delegate to
+    # the same APIs the code used before, so the Windows build is
+    # unchanged; on macOS/Linux they supply the POSIX equivalents.
+    # See src/platform/win32_compat.h for the design rationale.
+    src/platform/win32_compat.h
+    src/platform/socket_compat.h
+    src/platform/dynamic_library.h
+    src/platform/dynamic_library.cpp
+    src/platform/thread_priority.h
+    src/platform/thread_priority.cpp
     # Multi-rig Stage 1 — per-family capability descriptor (inert
     # scaffolding; see docs/architecture/multi_rig_design.md).
     src/rig/RadioCapabilities.h
@@ -580,6 +590,34 @@ if(WIN32)
     target_link_libraries(lyra PRIVATE ws2_32 winmm iphlpapi)
 endif()
 
+# macOS counterpart of the Windows wire-path libraries above.
+#   * BSD sockets and dlopen live in libSystem — nothing to link.
+#   * The Win32 synchronisation primitives the ported ChannelMaster code
+#     calls are mapped onto GCD dispatch semaphores (CoreFoundation) by
+#     src/platform/win32_compat.h.
+#   * MMCSS has no equivalent; src/platform/thread_priority.cpp uses the
+#     Mach time-constraint scheduler instead, which needs no extra lib.
+#   * PortAudio's macOS host API is CoreAudio.
+if(APPLE)
+    # The verbatim-ported ChannelMaster sources carry MSVC's
+    # `__declspec(align(16))` on their IVAC/AAMix state (src/wire/Ivac.cpp,
+    # src/wire/AAMix.cpp).  Rewriting those to `alignas` would break the
+    # line-for-line parity with upstream Thetis that the port depends on,
+    # so enable clang's __declspec support instead.
+    target_compile_options(lyra PRIVATE -fdeclspec)
+
+    find_library(CORE_FOUNDATION_LIBRARY CoreFoundation REQUIRED)
+    find_library(CORE_AUDIO_LIBRARY      CoreAudio      REQUIRED)
+    find_library(AUDIO_TOOLBOX_LIBRARY   AudioToolbox   REQUIRED)
+    find_library(AUDIO_UNIT_LIBRARY      AudioUnit      REQUIRED)
+    target_link_libraries(lyra PRIVATE
+        ${CORE_FOUNDATION_LIBRARY}
+        ${CORE_AUDIO_LIBRARY}
+        ${AUDIO_TOOLBOX_LIBRARY}
+        ${AUDIO_UNIT_LIBRARY}
+    )
+endif()
+
 # Step 3a: bundle the WDSP DSP engine DLLs (`wdsp.dll` +
 # `libfftw3-3.dll` + `libfftw3f-3.dll` + `rnnoise.dll` +
 # `specbleach.dll`) into a `_native/` subdirectory next to
@@ -596,14 +634,54 @@ endif()
 # all files in one step.  Doing per-file `copy_if_different` calls
 # fails on first build because the `_native/` dest dir doesn't
 # exist yet (CMake's per-file copy doesn't create parent dirs).
-add_custom_command(TARGET lyra POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        "$<TARGET_FILE_DIR:lyra>/_native"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/_native"
-        "$<TARGET_FILE_DIR:lyra>/_native"
-    COMMENT "Bundling WDSP DLLs into _native/"
-    VERBATIM)
+#
+# NOTE: _native/ in the source tree holds WINDOWS binaries only, so this
+# copy is Windows-only.  On macOS the engine is built from upstream WDSP
+# source by tools/build_wdsp_macos.sh into build/_native/libwdsp.dylib —
+# see the APPLE branch below.
+if(WIN32)
+    add_custom_command(TARGET lyra POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:lyra>/_native"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/_native"
+            "$<TARGET_FILE_DIR:lyra>/_native"
+        COMMENT "Bundling WDSP DLLs into _native/"
+        VERBATIM)
+endif()
+
+# macOS: stage libwdsp.dylib next to the executable in the same _native/
+# layout WdspNative::load() expects.  The dylib is produced out-of-band by
+# tools/build_wdsp_macos.sh (it fetches and builds upstream WDSP); this
+# only copies it, and warns rather than failing the build if it is absent
+# so the app still links and can report the problem at runtime.
+if(APPLE)
+    set(LYRA_WDSP_DYLIB "${CMAKE_CURRENT_BINARY_DIR}/_native/libwdsp.dylib")
+    set(LYRA_WDSP_STAMP "${CMAKE_CURRENT_BINARY_DIR}/wdsp_staged.stamp")
+
+    # A POST_BUILD step on `lyra` would only re-run when lyra itself
+    # relinks — so rebuilding ONLY the engine (tools/build_wdsp_macos.sh)
+    # would leave a stale copy inside the bundle, and the app would keep
+    # loading the old DSP.  Depending on the dylib explicitly makes the
+    # staging re-run whenever the engine changes.
+    add_custom_command(
+        OUTPUT "${LYRA_WDSP_STAMP}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:lyra>/_native"
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_DYLIB=${LYRA_WDSP_DYLIB}
+            -DDEST_DIR=$<TARGET_FILE_DIR:lyra>/_native
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageWdspDylib.cmake"
+        COMMAND ${CMAKE_COMMAND} -E touch "${LYRA_WDSP_STAMP}"
+        # DEPENDS on the dylib is what makes this correct.  The file may
+        # not exist yet (engine not built); CMake tolerates a missing
+        # dependency here and StageWdspDylib.cmake warns rather than fails.
+        DEPENDS "${LYRA_WDSP_DYLIB}" lyra
+        COMMENT "Staging libwdsp.dylib into _native/"
+        VERBATIM)
+
+    add_custom_target(lyra_stage_wdsp ALL DEPENDS "${LYRA_WDSP_STAMP}")
+endif()
 
 # Auto-deploy the Qt runtime DLLs next to lyra.exe after every build.
 # Without this, adding/changing Qt modules (e.g. Widgets +
@@ -641,6 +719,29 @@ if(MSVC)
     # the parent console — turn on Settings → Hardware → "verbose debug
     # logging" to capture the full detail.
     set_target_properties(lyra PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
+
+# macOS: build a real .app bundle rather than a bare executable.
+#
+# Beyond being the platform convention (Dock icon, Info.plist, Finder
+# double-click, codesigning surface), this is also REQUIRED here: the QML
+# module URI is "Lyra", so qt_add_qml_module creates a `Lyra/` directory
+# in the build tree.  macOS filesystems are case-insensitive by default,
+# so a bare executable named `lyra` collides with that directory and the
+# link fails with "Is a directory".  A bundle puts the binary at
+# lyra.app/Contents/MacOS/lyra, out of the collision.
+if(APPLE)
+    set_target_properties(lyra PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME        "Lyra"
+        MACOSX_BUNDLE_BUNDLE_VERSION     "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_GUI_IDENTIFIER     "com.n8sdr1.lyra"
+        MACOSX_BUNDLE_COPYRIGHT          "GPL v3+"
+        # The HL2 is reached over the LAN; declaring this keeps the
+        # local-network permission prompt attributable to Lyra.
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MacOSXBundleInfo.plist.in"
+    )
 endif()
 
 # Install / deploy hint (used later by windeployqt to bundle Qt DLLs
@@ -717,6 +818,8 @@ endif()
 # cmsetup + wdspcalls).  Qt Core only — wire/wdspcalls.cpp uses qWarning.
 add_executable(test_ivac EXCLUDE_FROM_ALL
     scratch/test_ivac.cpp
+    src/platform/dynamic_library.h
+    src/platform/dynamic_library.cpp
     src/wire/Ivac.h
     src/wire/Ivac.cpp
     src/wire/AAMix.h
@@ -729,9 +832,16 @@ add_executable(test_ivac EXCLUDE_FROM_ALL
     src/wire/wdspcalls.cpp
 )
 target_include_directories(test_ivac PRIVATE src)
-target_link_libraries(test_ivac PRIVATE Qt6::Core)
+# portaudio carries portaudio.h as a PUBLIC include dir (src/wire/Ivac.h
+# needs it); on Windows the app target pulled it in transitively, but this
+# standalone target has to ask for it.  It also compiles the same
+# __declspec-annotated ChannelMaster sources the app does.
+target_link_libraries(test_ivac PRIVATE Qt6::Core portaudio)
 if(MSVC)
     target_compile_options(test_ivac PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+if(APPLE)
+    target_compile_options(test_ivac PRIVATE -fdeclspec)
 endif()
 
 # #89 Stage A — voice-keyer injector core unit test (ClipRecorderPlayer).

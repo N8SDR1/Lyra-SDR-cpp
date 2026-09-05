@@ -61,6 +61,12 @@
     #define NOMINMAX
   #endif
   #include <winsock2.h>
+#else
+  // HANDLE / DWORD / LARGE_INTEGER for the reference-parity fields
+  // below, plus SOCKET for the wire path.  The WSAEVENT members stay
+  // Win32-only (they are guarded individually further down).
+  #include "platform/socket_compat.h"
+  #include "platform/win32_compat.h"
 #endif
 
 namespace lyra::wire {

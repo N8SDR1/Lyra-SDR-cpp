@@ -76,7 +76,10 @@ void start_obthread (int id)
 {
 #pragma warning(suppress: 4312)  // verbatim text wins: reference passes int as void* thread arg
 #pragma warning(suppress: 4189)  // verbatim text wins: reference keeps `handle` for the commented SetThreadPriority
-	HANDLE handle = (HANDLE) _beginthread(ob_main, 0, (void *)id);
+	// Width-safe int<->pointer round trip via intptr_t.  MSVC only
+	// warns here (suppressed above); clang rejects the direct cast
+	// outright on LP64, so the intermediate is required.
+	HANDLE handle = (HANDLE) _beginthread(ob_main, 0, (void *)(intptr_t)id);
 	//SetThreadPriority(handle, THREAD_PRIORITY_HIGHEST);
 }
 
@@ -236,7 +239,7 @@ void ob_main (void *pargs)
 
 #pragma warning(suppress: 4311)  // verbatim text wins: reference truncates the void* thread arg back to int
 #pragma warning(suppress: 4302)
-	int id = (int)pargs;
+	int id = (int)(intptr_t)pargs;   // see start_obthread: width-safe round trip
 	OBB a = obp.pdbuff[id];
 
 	while (_InterlockedAnd (&a->run, 1))

@@ -2,6 +2,7 @@
 
 #include "dsp/EqAnalyzer.h"
 
+#include <algorithm>   // std::fill — MSVC pulled this in transitively
 #include <cmath>
 
 namespace lyra::dsp {

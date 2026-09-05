@@ -1225,13 +1225,29 @@ static int paHostApiIndexForName(const QString &name)
             }
         }
     }
-    for (int i = 0; i < nApi; ++i) {   // fallback: first WASAPI
+    // Fallback: the platform's native host API.  Windows uses WASAPI
+    // (the reference's posture, and what VB-Audio / VAC cables present
+    // themselves on); macOS has no WASAPI at all, so asking for it would
+    // return -1 and disable the whole VAC/digital-mode path.  CoreAudio
+    // is the direct equivalent — it is where BlackHole, Loopback and
+    // Soundflower virtual devices appear.
+#if defined(_WIN32)
+    constexpr PaHostApiTypeId kNativeHostApi = paWASAPI;
+#elif defined(__APPLE__)
+    constexpr PaHostApiTypeId kNativeHostApi = paCoreAudio;
+#else
+    constexpr PaHostApiTypeId kNativeHostApi = paALSA;
+#endif
+    for (int i = 0; i < nApi; ++i) {
         const PaHostApiInfo *ha = Pa_GetHostApiInfo(i);
-        if (ha && ha->type == paWASAPI) {
+        if (ha && ha->type == kNativeHostApi) {
             return i;
         }
     }
-    return -1;
+    // Last resort: PortAudio's own default host API, so a machine with an
+    // unexpected driver set still gets audio rather than silence.
+    const PaHostApiIndex fallback = Pa_GetDefaultHostApi();
+    return fallback >= 0 ? fallback : -1;
 }
 
 // #158 DL-3 — host APIs exposing >=1 device: display names + parallel PA

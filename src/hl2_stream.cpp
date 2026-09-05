@@ -26,6 +26,7 @@
 // WinSock2 MUST be included before windows.h to avoid winsock 1.x
 // being pulled in via windows.h transitively.  NOMINMAX keeps the
 // windows.h macros from clobbering std::min/std::max.
+#if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -37,6 +38,19 @@
 #include <windows.h>
 #include <iphlpapi.h>    // GetUdpStatisticsEx (Task #48 diagnostic)
 #include <process.h>     // _beginthreadex — EP2 writer thread (P4.b; reference StartAudioNative netInterface.c:66)
+#else
+// POSIX: BSD sockets under the Winsock names the wire logic below uses,
+// plus the Win32 thread/sync primitives for the EP2 writer.  See
+// src/platform/socket_compat.h and src/platform/win32_compat.h.
+#include "platform/socket_compat.h"
+#include "platform/win32_compat.h"
+#include "platform/thread_priority.h"
+#include <netinet/udp.h>
+#if defined(__APPLE__)
+#include <netinet/udp_var.h>   // struct udpstat — net.inet.udp.stats sysctl
+#include <sys/sysctl.h>
+#endif
+#endif
 
 #include <QByteArray>
 #include <QDebug>           // qInfo / qCritical for safety-event mirror
@@ -86,8 +100,9 @@ QByteArray buildControlPacket(bool start) {
 }
 
 // 1032-byte EP2 host→radio keepalive datagram.  Frame-0 C&C carries
-// Stringify a Windows error code (FormatMessage) for log lines.
+// Stringify a socket error code for log lines.
 QString winsockError(int code) {
+#if defined(_WIN32)
     wchar_t *buf = nullptr;
     const DWORD len = ::FormatMessageW(
         FORMAT_MESSAGE_ALLOCATE_BUFFER |
@@ -101,6 +116,11 @@ QString winsockError(int code) {
         descr = QString::fromWCharArray(buf, len).trimmed();
         ::LocalFree(buf);
     }
+#else
+    // POSIX: the socket error IS errno, so strerror gives the same
+    // operator-readable text FormatMessage does on Windows.
+    const QString descr = QString::fromUtf8(::strerror(code)).trimmed();
+#endif
     return descr.isEmpty()
         ? QStringLiteral("WSA=%1").arg(code)
         : QStringLiteral("WSA=%1: %2").arg(code).arg(descr);
@@ -150,6 +170,7 @@ QString winsockError(int code) {
 bool snapshotUdpStatsV4(qint64 *inDatagrams,
                         qint64 *inNoPorts,
                         qint64 *inErrors) {
+#if defined(_WIN32)
     MIB_UDPSTATS stats{};
     const DWORD rc = ::GetUdpStatisticsEx(&stats, AF_INET);
     if (rc != NO_ERROR) {
@@ -159,6 +180,33 @@ bool snapshotUdpStatsV4(qint64 *inDatagrams,
     if (inNoPorts)   *inNoPorts   = static_cast<qint64>(stats.dwNoPorts);
     if (inErrors)    *inErrors    = static_cast<qint64>(stats.dwInErrors);
     return true;
+#elif defined(__APPLE__)
+    // macOS exposes the same system-wide UDPv4 counters through the
+    // `net.inet.udp.stats` sysctl, so the diagnostic above keeps its
+    // meaning verbatim — including the one that matters most:
+    // udps_fullsock is "not delivered, input socket full", the direct
+    // analogue of Windows' dwInErrors socket-buffer-overflow case.
+    struct udpstat stats{};
+    size_t length = sizeof(stats);
+    if (::sysctlbyname("net.inet.udp.stats", &stats, &length, nullptr, 0) != 0) {
+        return false;
+    }
+    if (inDatagrams) *inDatagrams = static_cast<qint64>(stats.udps_ipackets);
+    if (inNoPorts)   *inNoPorts   = static_cast<qint64>(stats.udps_noport);
+    // Group the "arrived but undeliverable for a reason other than
+    // no-listener" counters, matching dwInErrors' definition.
+    if (inErrors) {
+        *inErrors = static_cast<qint64>(stats.udps_fullsock) +
+                    static_cast<qint64>(stats.udps_hdrops)   +
+                    static_cast<qint64>(stats.udps_badsum)   +
+                    static_cast<qint64>(stats.udps_badlen);
+    }
+    return true;
+#else
+    // No portable equivalent; caller writes sentinel -1.
+    (void)inDatagrams; (void)inNoPorts; (void)inErrors;
+    return false;
+#endif
 }
 
 // Open a native UDP socket bound to ANY:ephemeral.  Sets a 4 MiB
@@ -192,7 +240,12 @@ SocketHandle openNativeUdpSocket(QString *errOut) {
 
 quint16 localPortOf(SocketHandle sh) {
     sockaddr_in local{};
+    // Winsock declares the length as int*, POSIX as socklen_t*.
+#if defined(_WIN32)
     int len = sizeof(local);
+#else
+    socklen_t len = sizeof(local);
+#endif
     if (::getsockname(static_cast<SOCKET>(sh),
                       reinterpret_cast<sockaddr*>(&local), &len) == 0) {
         return ntohs(local.sin_port);

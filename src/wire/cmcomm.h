@@ -38,20 +38,29 @@
 // Reference ChannelMaster/cmcomm.h:27-32 include set (Windows.h /
 // process.h / intrin.h / math.h / time.h / avrt.h), plus the C
 // stdlib headers the wdsp/comm.h surface supplies transitively.
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
+//
+// On non-Windows hosts src/platform/win32_compat.h supplies the same
+// primitives (critical sections, semaphores, MMCSS, _beginthreadex) so
+// the verbatim ChannelMaster port below needs no edits.
+#if defined(_WIN32)
+  #define WIN32_LEAN_AND_MEAN
+  #define NOMINMAX
+  #include <windows.h>
 
-#include <process.h>
-#include <intrin.h>
+  #include <process.h>
+  #include <intrin.h>
+  #include <avrt.h>
+
+  #pragma comment(lib, "avrt.lib")   // AvSetMmThreadCharacteristics/Priority
+#else
+  #include "platform/win32_compat.h"
+#endif
+
 #include <math.h>
 #include <time.h>
-#include <avrt.h>
 
 #include <stdlib.h>
 #include <string.h>
-
-#pragma comment(lib, "avrt.lib")   // AvSetMmThreadCharacteristics/Priority
 
 // Reference wdsp/comm.h: `#define PORT __declspec(dllexport)`.
 // Lyra-cpp builds the ported family into the executable — expands
