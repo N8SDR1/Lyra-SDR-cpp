@@ -200,7 +200,10 @@ Item {
             }
 
             // ── Tick labels around the outer edge ──
-            ctx.font = Math.round(arc.tickFont) + "px Consolas"
+            // Canvas font strings bypass QFont::insertSubstitutions, so the
+            // fallback list has to be spelled out here or macOS logs
+            // "font families specified are invalid" on every repaint.
+            ctx.font = Math.round(arc.tickFont) + "px Consolas, Menlo, monospace"
             ctx.textAlign = "center"
             ctx.textBaseline = "middle"
             var ticks = Meter.tickMarks()

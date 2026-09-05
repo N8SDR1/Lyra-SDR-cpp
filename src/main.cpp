@@ -95,6 +95,7 @@ std::atomic<bool> g_shutdown_complete{false};
 #include <QGuiApplication>
 #include <QApplication>
 #include <QColor>
+#include <QFont>
 #include <QIcon>
 #include <QPalette>
 #include <QSettings>
@@ -387,6 +388,21 @@ int main(int argc, char *argv[])
     }
 
     QApplication app(argc, argv);
+
+#ifdef Q_OS_MACOS
+    // Consolas is a Windows font and does not exist on macOS.  The UI asks for
+    // it by name in ~25 places (stylesheets, QFont, QML), so rather than edit
+    // every call site, register a substitution once: Qt then resolves every
+    // "Consolas" request to a real monospace face.  Menlo ships with every
+    // macOS and matches Consolas' metrics closely; Monaco and Courier New are
+    // backstops.  Note SF Mono is deliberately absent — it is not matchable by
+    // family name from a normal app bundle and silently falls through to a
+    // proportional face.
+    QFont::insertSubstitutions(QStringLiteral("Consolas"),
+                               {QStringLiteral("Menlo"),
+                                QStringLiteral("Monaco"),
+                                QStringLiteral("Courier New")});
+#endif
 
     // NOTE: do NOT force the "Basic" Qt Quick Controls style here.  It
     // silences the "does not support customization" warning flood, but the

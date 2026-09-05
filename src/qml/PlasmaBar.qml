@@ -168,7 +168,9 @@ Item {
 
             // ── Tick marks + labels (below the reflection) ──
             var tickTop = refY + refH + 2
-            ctx.font = Math.round(barH * 0.42) + "px Consolas"
+            // Canvas font strings bypass QFont::insertSubstitutions — spell out
+            // the fallback list or macOS logs an invalid-family warning per repaint.
+            ctx.font = Math.round(barH * 0.42) + "px Consolas, Menlo, monospace"
             ctx.textAlign = "center"
             ctx.textBaseline = "top"
             var ticks = Meter.tickMarks()

@@ -2324,9 +2324,21 @@ void MainWindow::buildToolbar() {
                     d->hide();
                 }
             });
+            // Mirror the dock's state onto the chip WITHOUT re-driving it.
+            // setFloating() re-parents the dock, which hides then re-shows it,
+            // so visibilityChanged fires from inside the toggled() handler
+            // above.  Unblocked, setChecked() re-emits toggled(), which calls
+            // setFloating() again — the two connections then drive each other
+            // until the stack is exhausted (SIGSEGV, "excessive recursion").
+            // The isChecked() != vis test does not break it: the transient
+            // hide genuinely flips the value each pass.  visibilityChanged is
+            // a report, never a command, so block the echo — same idiom as the
+            // rack chip's closed() handler above.
             connect(d, &QDockWidget::visibilityChanged, fc, [fc](bool vis) {
-                if (fc->isChecked() != vis)
+                if (fc->isChecked() != vis) {
+                    QSignalBlocker b(fc);
                     fc->setChecked(vis);
+                }
             });
             attachChipHelp(fc, QStringLiteral("freqcal"));  // right-click → guide
         }
