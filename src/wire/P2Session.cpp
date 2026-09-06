@@ -7,6 +7,7 @@
 
 #include <QtEndian>
 #include <algorithm>
+#include <cmath>
 
 namespace lyra::wire {
 
@@ -743,9 +744,68 @@ void P2Session::onReadyRead() {
                    senderPort <  kPortDdcIq0 + kNumDdc &&
                    buf.size() == kIqFrameLen) {
             parseIqFrame(senderPort - kPortDdcIq0, buf);
+        } else if (senderPort == kPortMicFromSdr &&
+                   buf.size() == kMicPktLen) {
+            parseMic(buf);
         }
-        // Phase D adds: 1026 mic, wideband.
+        // Phase D adds: wideband.
     }
+}
+
+void P2Session::parseMic(const QByteArray &d) {
+    const char *p = d.constData();
+    const quint32 seq = rdBeU32(p);
+    // 64 big-endian signed 16-bit mono samples follow the 4-byte sequence.
+    const auto *s = reinterpret_cast<const std::uint8_t *>(p + 4);
+    double peak = 0.0;
+    for (int i = 0; i < kMicFrames; ++i) {
+        const auto raw = static_cast<qint16>(
+            (static_cast<quint16>(s[2 * i]) << 8) | s[2 * i + 1]);
+        const double v = raw * (1.0 / 32768.0);
+        peak = std::max(peak, std::abs(v));
+        // {I = mic, Q = 0} — the modulator's real-input convention.
+        latestMicBlock_[static_cast<std::size_t>(2 * i)]     = v;
+        latestMicBlock_[static_cast<std::size_t>(2 * i + 1)] = 0.0;
+    }
+    micFresh_ = true;
+
+    if (micSeqStarted_ && seq != micSeqNext_)
+        ++micSeqErrors_;
+    micSeqStarted_ = true;
+    micSeqNext_    = seq + 1;
+
+    ++micPktCount_;
+    micPeak_ = std::max(micPeak_, peak);
+
+    if (!micRateTimer_.isValid())
+        micRateTimer_.start();
+    if (micRateTimer_.elapsed() >= 1000) {
+        emit logLine(QStringLiteral(
+            "P2 mic: %1 pkt/s  peak=%2  seqErr=%3")
+            .arg(micPktCount_)
+            .arg(micPeak_, 0, 'f', 3)
+            .arg(micSeqErrors_));
+        micPktCount_ = 0;
+        micPeak_     = 0.0;
+        micRateTimer_.restart();
+    }
+}
+
+bool P2Session::feedTxProducer(const double *pumpZeros, int n) {
+    static_assert(2 * kMicFrames == 128,
+                  "latestMicBlock_ literal size (2*64) must equal 2*kMicFrames");
+    if (!txProducerTerminal_)
+        return false;
+    // Live radio mic drives the modulator when a fresh block is available;
+    // otherwise the pump's zero block keeps the 48 kHz cadence (initial
+    // prime before the mic stream starts, and gap-fill if it slips). RF stays
+    // MOX-gated regardless — feeding mic in RX only shapes inert DUC-IQ.
+    //
+    if (micFresh_) {
+        micFresh_ = false;
+        return txProducerTerminal_(latestMicBlock_.data(), kMicFrames);
+    }
+    return txProducerTerminal_(pumpZeros, n);
 }
 
 void P2Session::parseIqFrame(int ddc, const QByteArray &d) {

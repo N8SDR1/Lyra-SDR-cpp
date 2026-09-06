@@ -156,8 +156,20 @@ public:
     void setHpfBypass(bool on) { hpfBypass_ = on; }
     void setAdcAttenuation(int adc, int db);
     void setTxProducerSink(P2TxPump::InputSink sink) {
-        txPump_.setInputSink(std::move(sink));
+        txProducerTerminal_ = std::move(sink);
+        // The pump ticks the 48 kHz modulator-input cadence; feedTxProducer
+        // substitutes the live radio front-panel mic block for the pump's
+        // zeros when one is fresh, else forwards the zeros (prime / gap-fill).
+        txPump_.setInputSink([this](const double *iq, int n) {
+            return feedTxProducer(iq, n);
+        });
     }
+    // Called once per pump tick (session thread). Feeds the latest decoded
+    // mic block into the modulator if fresh, otherwise the pump's zero block
+    // (initial prime + gap-fill when the mic stream slips). Reference model:
+    // radio mic is the base modulator source; VAC/TCI still override it
+    // downstream in xcmaster().
+    bool feedTxProducer(const double *pumpZeros, int n);
     // P2 TX control is intentionally split into two calls. The bridge
     // owns the transient operator interlock; MOX/PTT only supplies intent.
     // Every transition is re-evaluated through P2TxSafetyGate and pushed
@@ -246,6 +258,7 @@ private:
     QByteArray buildDdcSpecificPacket() const;
     void parseStatus(const QByteArray &d);
     void parseIqFrame(int ddc, const QByteArray &d);
+    void parseMic(const QByteArray &d);
     void startTxTransportRxState();
     void stopTxTransport();
     void latchTxFault(const QString &reason);
@@ -276,6 +289,24 @@ private:
     quint32      iqFrameCount_ = 0;
     quint32      iqSeqErrors_  = 0;
     bool         warnedNoIq_   = false;  // one-shot firewall-blocked-RX hint
+    // S2a mic-receive diagnostic (radio->host front-panel mic, port 1026).
+    // Decode + peak/rate tracking only; NOT yet fed to the modulator.
+    quint32      micPktCount_  = 0;      // packets since the last 1 s report
+    double       micPeak_      = 0.0;    // peak |sample| in that window
+    quint32      micSeqNext_   = 0;
+    bool         micSeqStarted_ = false;
+    quint32      micSeqErrors_ = 0;
+    QElapsedTimer micRateTimer_;
+    // S2b — the live mic drives the modulator. parseMic decodes into this
+    // {I=mic, Q=0} block; feedTxProducer hands it to the modulator on the
+    // next pump tick. Same session thread as the pump, so no lock needed.
+    // Size is 2*kMicFrames as a literal (the kMic* constants are declared
+    // below the members, matching the ddc arrays' use of literal 10);
+    // feedTxProducer static_asserts the two agree.
+    std::array<double, 2 * 64> latestMicBlock_{};
+    bool micFresh_ = false;
+    // The terminal feed the bridge installs (-> feedP2TxCmasterInput).
+    P2TxPump::InputSink txProducerTerminal_;
     const P2HardwareProfile *profile_ = nullptr;
     int          trxAntenna_   = 1;               // ANT1..3
     P2RxInput    rxInput_      = P2RxInput::Trx;
@@ -298,6 +329,13 @@ private:
     static constexpr quint16 kPortSpkrToSdr  = 1028;  // speaker audio -> radio
     static constexpr quint16 kPortDucIqToSdr = 1029;  // TX IQ -> radio
     static constexpr quint16 kPortDdcIq0     = 1035;  // radio SOURCE, +ddc
+    // The radio digitizes its own front-panel mic and streams it back on
+    // its OWN source port 1026 (base+1) — same numeric value as the
+    // host->radio DUC-config port, distinguished by direction. 132-byte
+    // packet: 4-byte BE sequence + 64 x 16-bit BE mono samples @ 48 kHz.
+    static constexpr quint16 kPortMicFromSdr = 1026;  // radio SOURCE (mic)
+    static constexpr int     kMicFrames      = 64;    // samples per packet
+    static constexpr int     kMicPktLen      = 132;   // 4 seq + 64*2 bytes
     static constexpr int     kNumDdc         = 10;
     static constexpr int     kSpkrFrames     = 64;    // frames per packet
     static constexpr int     kSpkrPktLen     = 260;   // 4 seq + 64*4 bytes
