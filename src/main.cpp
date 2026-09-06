@@ -461,8 +461,15 @@ int main(int argc, char *argv[])
     //   cmMAXInbound  = 256/stream (max samples per Inbound() call —
     //                     comfortably above the EP6 mic batch).
     //   cmMAXInRate   = 384000 (HL2 max IQ rate).
-    //   cmMAXAudioRate / cmMAXTxOutRate = 48000 (AK4951 codec rate /
-    //                     fixed HL2 TX out rate, CLAUDE.md §3.5).
+    //   cmMAXAudioRate = 48000 (AK4951 codec rate, CLAUDE.md §3.5).
+    //   cmMAXTxOutRate = 192000: the TX channel out[] buffers are
+    //                     pre-allocated at getbuffsize(cmMAXTxOutRate)
+    //                     so the shared TXA channel can be raised to the
+    //                     192 kHz P2 DUC rate at runtime (SetXmtrDucOutrate)
+    //                     without a realloc.  P1/HL2 still OPENS the channel
+    //                     at 48 kHz out (ch_outrate unchanged) — this only
+    //                     enlarges the allocation ceiling, so P1 behaviour
+    //                     is byte-identical.
     //   xcm_inrates   = 48000 per stream (TX mic-in rate; stream 0
     //                     unused by the pump), audio out 48000,
     //                     rcvr/xmtr ch_outrates 48000 -> every
@@ -471,7 +478,7 @@ int main(int argc, char *argv[])
         int cmSPC[cmMAXspc]   = {0, 0};
         int cmMAXInbound[2]   = {256, 256};
         lyra::wire::SetRadioStructure(2, 1, 1, 1, 0, cmSPC,
-                                      cmMAXInbound, 384000, 48000, 48000);
+                                      cmMAXInbound, 384000, 48000, 192000);
         int xcm_inrates[2]    = {48000, 48000};
         int rcvr_outrates[1]  = {48000};
         int xmtr_outrates[1]  = {48000};
@@ -1703,17 +1710,32 @@ int main(int argc, char *argv[])
                             qInfo("[tx] TUN postgen: run=0 (stopped)");
                         }
                     },
-                    .setTwoTone = [txch](bool on) {
+                    .setTwoTone = [txch, txf](bool on) {
                         if (on) {
+                            // The two-tone must follow the selected sideband
+                            // exactly as the TUN tone (line ~1700) and the
+                            // bandpass (per-mode switch ~1588) do: USB-side
+                            // modes (USB/CWU/DIGU) place both tones on the
+                            // positive (upper) baseband, LSB-side modes
+                            // (LSB/CWL/DIGL) on the negative (lower).  Without
+                            // this sign the postgen two-tone sat on the upper
+                            // side in EVERY mode and never flipped with USB/LSB
+                            // (operator bench 2026-09-06).
+                            double s = 1.0;
+                            switch (txf->mode) {
+                                case 0: case 3: case 9: s = -1.0; break; // LSB/CWL/DIGL
+                                default:                s =  1.0; break; // USB/CWU/DIGU
+                            }
+                            const double f1 = s * static_cast<double>(
+                                lyra::ipc::HL2Stream::kTwoToneFreq1Hz);
+                            const double f2 = s * static_cast<double>(
+                                lyra::ipc::HL2Stream::kTwoToneFreq2Hz);
                             lyra::wire::SetTXAPostGenMode(txch, 1);
-                            lyra::wire::SetTXAPostGenTTFreq(
-                                txch,
-                                static_cast<double>(
-                                    lyra::ipc::HL2Stream::kTwoToneFreq1Hz),
-                                static_cast<double>(
-                                    lyra::ipc::HL2Stream::kTwoToneFreq2Hz));
+                            lyra::wire::SetTXAPostGenTTFreq(txch, f1, f2);
                             lyra::wire::SetTXAPostGenTTMag(txch, 0.49999, 0.49999);
                             lyra::wire::SetTXAPostGenRun(txch, 1);
+                            qInfo("[tx] two-tone postgen: mode=%d f1=%.0f f2=%.0f "
+                                  "(USB-side +, LSB-side -)", txf->mode, f1, f2);
                         } else {
                             lyra::wire::SetTXAPostGenRun(txch, 0);
                         }

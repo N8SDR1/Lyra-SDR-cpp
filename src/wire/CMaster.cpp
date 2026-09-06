@@ -752,6 +752,32 @@ void SetXmtrChannelOutrate (int xmtr_id, int rate, int state)	// 2014-11-24:  Ca
 	LeaveCriticalSection (&pcm->update[in_id]);
 }
 
+// Lyra-native (2026-09-06): narrow variant of SetXmtrChannelOutrate that
+// changes ONLY the transmitter channel's DUC output rate + the output-stage
+// block sizes (WDSP channel out rate, txgain, EER, interleaver).  It does
+// NOT touch the RX-audio AAMixer: the full reference call re-rates AND
+// toggles the TX-monitor mixer input's active state, which would clobber the
+// operator's MON setting on this channel shared between P1 (48 kHz out) and
+// P2 (192 kHz DUC out).  SetOutputSamplerate also re-points the compensating
+// FIR (CFIR) to the new rate.  Used by the P2 DUC producer seam to raise the
+// shared TXA channel to 192 kHz on P2 TX activate and restore 48 kHz on
+// deactivate; P2 TX-monitor rate handling is a later (Stage-2+) item, and
+// P1/HL2 never calls this so its 48 kHz path is unaffected.
+void SetXmtrDucOutrate (int xmtr_id, int rate)
+{
+	int in_id = inid (1, xmtr_id);
+	int size  = getbuffsize (rate);
+	EnterCriticalSection (&pcm->update[in_id]);
+	pcm->xmtr[xmtr_id].ch_outrate = rate;								// channel out_rate
+	pcm->xmtr[xmtr_id].ch_outsize = size;								// channel out_size
+	SetOutputSamplerate (chid (in_id, 0), rate);						// DSP out rate (+ CFIR rate, internal resamplers, reallocs)
+	SetTXGainSize (pcm->xmtr[xmtr_id].pgain, size);						// Penelope gain block size
+	pSetEERSamplerate (pcm->xmtr[xmtr_id].peer, rate);					// EER rate
+	pSetEERSize (pcm->xmtr[xmtr_id].peer, size);						// EER size
+	pSetILVInsize (pcm->xmtr[xmtr_id].pilv, size);						// interleave & Outbound size
+	LeaveCriticalSection (&pcm->update[in_id]);
+}
+
 // Reference cmaster.c:582-588 (verbatim):
 
 PORT

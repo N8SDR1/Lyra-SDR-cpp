@@ -1,9 +1,12 @@
-// RF-inert adapter between the legacy 48 kHz ChannelMaster callback
-// surface and the 192 kHz Protocol 2 TX FIFO. It uses WDSP's stateful
-// complex resampler and leaves the proven P1 TXA channel configuration
-// unchanged. Kept in its own translation unit because the reference
-// CMaster headers carry legacy C macros that must not leak into
-// Qt/application headers.
+// Adapter between the ChannelMaster TX callback surface and the 192 kHz
+// Protocol 2 DUC TX FIFO.  On P2 TX activate it raises the shared TXA
+// channel to native 192 kHz output (SetXmtrDucOutrate) and enables the
+// compensating FIR (CFIR) for the radio's DUC CIC droop — reference-faithful
+// P2 TX — then feeds WDSP's native 192 kHz IQ straight to the FIFO; on
+// deactivate it restores the P1/HL2 48 kHz output + CFIR-off so the shared
+// channel is byte-identical for a later P1 transmit.  Kept in its own
+// translation unit because the reference CMaster headers carry legacy C
+// macros that must not leak into Qt/application headers.
 
 #pragma once
 

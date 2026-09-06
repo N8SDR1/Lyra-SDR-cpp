@@ -8,19 +8,23 @@
 #include "wire/wdspcalls.h"
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <cmath>
 #include <mutex>
 
 namespace lyra::wire {
 
+// Defined in CMaster.cpp (Lyra-native): narrow reconfigure of the TX
+// channel's DUC output rate + output-stage block sizes, WITHOUT touching the
+// RX-audio AAMixer (the full reference SetXmtrChannelOutrate would clobber
+// the shared channel's TX-monitor mixer state).  SetOutputSamplerate inside
+// it also re-points CFIR's rate.
+void SetXmtrDucOutrate(int xmtr_id, int rate);
+
 namespace {
 std::atomic_bool active{false};
 std::atomic_bool channelRunning{false};
-RESAMPLE resampler = nullptr;
-std::mutex resamplerMutex;
-std::array<double, 2 * P2TxFifo::kCapacitySamples> resampledIq{};
+std::mutex stateMutex;
 // Diagnostic: peak |I|,|Q| of the last block actually pushed to the DUC
 // FIFO (== what putSample24 packs on the wire).  Surfaced on-screen (the
 // file log is dead) so a low-power bench can tell "DSP output is short"
@@ -31,62 +35,49 @@ void p2TxCmasterOutbound(int id, int nsamples, double *iq) noexcept {
     if (id != 1 || nsamples <= 0 || !iq || !p2TxInputEnabled())
         return;
 
-    // The existing TXA/ILV path is intentionally left at its proven
-    // 48 kHz P1 rate. P2 DUC IQ is fixed at 192 kHz, so convert at the
-    // protocol boundary with WDSP's own stateful complex resampler.
-    // At the normal 64-sample TXA block this produces 256 samples; the
-    // FIFO absorbs the 256-vs-240 P2 packet-size mismatch.
-    if (static_cast<std::size_t>(nsamples) >
-        P2TxFifo::kCapacitySamples / 4)
+    // The shared TXA channel is raised to the 192 kHz P2 DUC output rate on
+    // activate (SetXmtrDucOutrate), so WDSP's own output resampler now emits
+    // native 192 kHz IQ here — feed it straight to the DUC FIFO, no external
+    // resample.  CFIR (enabled at 192 kHz) has already pre-corrected the
+    // radio's DUC CIC interpolator droop.  The FIFO absorbs the block-size
+    // vs 240-sample P2 packet mismatch.
+    if (static_cast<std::size_t>(nsamples) > P2TxFifo::kCapacitySamples)
         return;
 
-    std::lock_guard<std::mutex> lock(resamplerMutex);
-    if (!active.load(std::memory_order_acquire) || !resampler || !xresample)
+    std::lock_guard<std::mutex> lock(stateMutex);
+    if (!active.load(std::memory_order_acquire))
         return;
-    resampler->in = iq;
-    resampler->size = nsamples;
-    const int outputSamples = xresample(resampler);
-    if (outputSamples > 0) {
-        double pk = 0.0;
-        for (int n = 0; n < 2 * outputSamples; ++n)
-            pk = std::max(pk, std::fabs(resampledIq[static_cast<std::size_t>(n)]));
-        lastPeak.store(pk, std::memory_order_relaxed);
-        p2TxInputFifo().pushInterleaved(
-            resampledIq.data(), static_cast<std::size_t>(outputSamples));
-    }
+    double pk = 0.0;
+    for (int n = 0; n < 2 * nsamples; ++n)
+        pk = std::max(pk, std::fabs(iq[static_cast<std::size_t>(n)]));
+    lastPeak.store(pk, std::memory_order_relaxed);
+    p2TxInputFifo().pushInterleaved(iq, static_cast<std::size_t>(nsamples));
 }
 }
 
 bool activateP2TxCmasterProducer() {
     if (active.load(std::memory_order_acquire))
         return true;
-    if (!pcm || !pcm->xmtr[0].pilv || !create_resample ||
-        !destroy_resample || !flush_resample || !xresample)
+    if (!pcm || !pcm->xmtr[0].pilv || !SetOutputSamplerate || !SetTXACFIRRun)
         return false;
 
     {
-        std::lock_guard<std::mutex> lock(resamplerMutex);
-        resampler = create_resample(
-            1, 64, nullptr, resampledIq.data(),
-            48'000, P2TxFifo::kSampleRateHz, 0.0, 0, 1.0);
-        if (!resampler)
-            return false;
+        std::lock_guard<std::mutex> lock(stateMutex);
+        // Raise the shared TXA channel to the 192 kHz P2 DUC output rate.
+        // WDSP's own output resampler (96→192 kHz) now produces the DUC
+        // stream natively — no external resampler.  The channel is restored
+        // to the P1/HL2 48 kHz rate on deactivate.
+        SetXmtrDucOutrate(0, P2TxFifo::kSampleRateHz);
         p2TxInputFifo().reset();
         active.store(true, std::memory_order_release);
         setP2TxInputEnabled(true);
     }
     SendpOutboundTx(&p2TxCmasterOutbound);
-    // DIAGNOSTIC (2026-09-06): CFIR DISABLED to test the -13 dB (peak 0.215)
-    // TUN under-drive.  The CFIR here compensates a 192 kHz-out DUC CIC, but
-    // Lyra's shared TXA outputs at 48 kHz and does its OWN clean 48→192
-    // resample — so this CFIR is configured for the wrong rate and is
-    // attenuating the output, not gently boosting the band edges.  Lyra's
-    // external resampler already interpolates cleanly; the radio's own DUC
-    // CIC droop across a single tune tone near passband centre is
-    // negligible.  If the DUC-IQ peak jumps to ~1.0 with this off, the CFIR
-    // was the shortfall.  (Was: SetTXACFIRRun(chid(1,0), 1).)
-    if (SetTXACFIRRun)
-        SetTXACFIRRun(chid(1, 0), 0);
+    // Enable the compensating FIR — valid only at the DUC output rate, where
+    // it pre-corrects the radio's DUC CIC interpolator droop (reference:
+    // Thetis/deskHPSDR run CFIR ON for Protocol 2, OFF for Protocol 1).
+    // Restored to off (the P1 default) on deactivate.
+    SetTXACFIRRun(chid(1, 0), 1);
     return true;
 }
 
@@ -98,20 +89,19 @@ void deactivateP2TxCmasterProducer() {
     // routes to the P2 FIFO) so we never leave the shared channel running
     // for a later P1 transmit.  Idempotent if the transport already stopped it.
     setP2TxCmasterChannelRunning(false);
-    // Stop accepting and restore P1 before releasing resampler state.
+    // Stop accepting and restore P1 before releasing state.
     setP2TxInputEnabled(false);
-    // Restore the TXA compensating FIR to its create-time default (off)
-    // so a later P1/HL2 transmit on the same TXA channel is unaffected.
+    // Restore the compensating FIR to off (the P1 default) and the shared
+    // TXA channel to the P1/HL2 48 kHz output rate, so a later P1/HL2
+    // transmit on the same channel is byte-identical to before.
     if (SetTXACFIRRun)
         SetTXACFIRRun(chid(1, 0), 0);
+    SetXmtrDucOutrate(0, 48'000);
     if (pcm && pcm->xmtr[0].pilv)
         SendpOutboundTx(&OutBound);
     {
-        std::lock_guard<std::mutex> lock(resamplerMutex);
+        std::lock_guard<std::mutex> lock(stateMutex);
         active.store(false, std::memory_order_release);
-        if (resampler && destroy_resample)
-            destroy_resample(resampler);
-        resampler = nullptr;
     }
     p2TxInputFifo().reset();
 }

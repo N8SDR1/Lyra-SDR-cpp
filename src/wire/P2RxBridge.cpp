@@ -171,6 +171,15 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 if (fault && stream_ && stream_->moxActive())
                     stream_->requestMox(false);
                 emit txStateChanged();
+                // Operator preference: re-apply the transient interlock the
+                // moment the transport reaches Ready, so a controlled
+                // dummy-load bench isn't re-armed by hand each session.
+                // Same health gate as a manual arm (setTxBenchArmed guards
+                // hardware/running/ready/fault), so this can only fire on a
+                // TX-capable rig with a healthy transport.
+                if (txAutoArm_ && !txBenchArmed_ && txTransportReady_ &&
+                    txHardwareSupported_ && running_ && !txFaultLatched_)
+                    setTxBenchArmed(true);
             });
 
     // Connection confirmation: isRunning() must not go true until the
@@ -353,6 +362,21 @@ void P2RxBridge::setTxDriveLimitPercent(int percent) {
         rigScopedKey(rigId_, QStringLiteral("p2/txDriveLimitPct")), limited);
     if (open_ && stream_ && stream_->moxActive())
         syncTxIntentToSession(true);
+    emit txStateChanged();
+}
+
+void P2RxBridge::setTxAutoArm(bool on) {
+    if (on == txAutoArm_)
+        return;
+    txAutoArm_ = on;
+    QSettings().setValue(
+        rigScopedKey(rigId_, QStringLiteral("p2/txAutoArm")), on);
+    // If the transport is already Ready when the operator enables this,
+    // arm now rather than waiting for the next connect.  setTxBenchArmed
+    // re-checks the same hardware/health gate, so this is fail-closed.
+    if (on && !txBenchArmed_ && txHardwareSupported_ && running_ &&
+        txTransportReady_ && !txFaultLatched_)
+        setTxBenchArmed(true);
     emit txStateChanged();
 }
 
@@ -598,6 +622,10 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
         QSettings().value(
             rigScopedKey(rigId_, QStringLiteral("p2/txDriveLimitPct")),
             5).toInt(), 1, 100);
+    // Per-rig auto-arm preference (default off): re-applies the transient
+    // bench interlock automatically once the transport reports Ready.
+    txAutoArm_ = QSettings().value(
+        rigScopedKey(rigId_, QStringLiteral("p2/txAutoArm")), false).toBool();
 
     // Per-radio audio routing — applied TRANSIENTLY (globals stay as
     // the HL2 configured them; restored at close()).  P2 profiles are

@@ -74,6 +74,8 @@ class P2RxBridge : public QObject {
     Q_PROPERTY(int ducFifoSamples READ ducFifoSamples NOTIFY telemetryChanged)
     Q_PROPERTY(bool txBenchArmed READ txBenchArmed WRITE setTxBenchArmed
                NOTIFY txStateChanged)
+    Q_PROPERTY(bool txAutoArm READ txAutoArm WRITE setTxAutoArm
+               NOTIFY txStateChanged)
     Q_PROPERTY(bool txHardwareSupported READ txHardwareSupported
                NOTIFY txStateChanged)
     Q_PROPERTY(int txDriveLimitPercent READ txDriveLimitPercent
@@ -126,6 +128,7 @@ public:
     double reversePowerW() const { return revPowerW_; }
     int ducFifoSamples() const { return ducFifoSamples_; }
     bool txBenchArmed() const { return txBenchArmed_; }
+    bool txAutoArm() const { return txAutoArm_; }
     bool txHardwareSupported() const { return txHardwareSupported_; }
     int txDriveLimitPercent() const { return txDriveLimitPercent_; }
     bool txTransportReady() const { return txTransportReady_; }
@@ -150,9 +153,16 @@ public slots:
     void setRxInput(int input);
     void setHpfBypass(bool on);
     void setTrxAntenna(int ant);
-    // Transient, connection-scoped interlock. It deliberately never
-    // persists: every launch/open requires a fresh dummy-load decision.
+    // Transient, connection-scoped interlock. The armed flag itself never
+    // persists — but an explicit operator preference (setTxAutoArm) can
+    // re-apply it automatically once the TX transport reports Ready.
     void setTxBenchArmed(bool on);
+    // Persisted per-rig operator preference: when set, the bench interlock
+    // auto-arms on every connect once the transport is healthy/Ready, so a
+    // controlled dummy-load bench needn't be re-armed by hand each session.
+    // Off by default; still gated on the same hardware/health checks as a
+    // manual arm, so it can never arm a non-TX rig or an unready transport.
+    void setTxAutoArm(bool on);
     // A second independent ceiling over the normal per-rig Drive slider.
     // Persisted per rig; first-use default is 5%, range is capped at 25%
     // until the G2 TX path completes its dummy-load validation.
@@ -201,6 +211,7 @@ private:
     bool       running_ = false;
     bool       txProducerSeamActive_ = false;
     bool       txBenchArmed_ = false;
+    bool       txAutoArm_ = false;
     bool       txHardwareSupported_ = false;
     bool       txTransportReady_ = false;
     bool       txTransmitting_ = false;

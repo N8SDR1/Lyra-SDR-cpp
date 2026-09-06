@@ -3404,6 +3404,20 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 "watt-meter; leave this OFF for receive-only operation."));
             p2Grid->addWidget(p2Arm, 0, 0, 1, 2);
 
+            auto *p2Auto = new QCheckBox(
+                tr("Auto-arm on connect (controlled dummy-load bench)"),
+                p2Wrap);
+            p2Auto->setToolTip(tr(
+                "Persisted per-rig operator preference. When ON, the bench "
+                "interlock above re-arms itself automatically each time this "
+                "G2/Saturn connects and its TX transport reports Ready, so "
+                "you don't have to arm it by hand every session. Same health "
+                "gate as a manual arm (TX-capable rig, running, Ready, no "
+                "fault). RF still also requires Enable PA, MOX/PTT and "
+                "non-zero Drive. Only enable with a dummy load and no "
+                "amplifier in line; leave OFF for receive-only rigs."));
+            p2Grid->addWidget(p2Auto, 1, 0, 1, 2);
+
             auto *limitLabel = new QLabel(tr("P2 bench drive ceiling"), p2Wrap);
             auto *limit = new QSpinBox(p2Wrap);
             // Ceiling raised from a 25% dummy-load cap to full scale
@@ -3416,22 +3430,27 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 "Independent ceiling over the front-panel Drive slider. "
                 "Defaults to 5% and is hard-limited to 25% until G2 TX "
                 "completes dummy-load validation."));
-            p2Grid->addWidget(limitLabel, 1, 0);
-            p2Grid->addWidget(limit, 1, 1, Qt::AlignLeft);
+            p2Grid->addWidget(limitLabel, 2, 0);
+            p2Grid->addWidget(limit, 2, 1, Qt::AlignLeft);
 
             auto *p2Status = new QLabel(p2Wrap);
             p2Status->setWordWrap(true);
             p2Status->setStyleSheet(
                 QStringLiteral("QLabel{color:#67d3e8;font-weight:bold;}"));
-            p2Grid->addWidget(p2Status, 2, 0, 1, 2);
+            p2Grid->addWidget(p2Status, 3, 0, 1, 2);
 
-            auto refreshP2Tx = [this, p2Wrap, p2Arm, limit, p2Status]() {
+            auto refreshP2Tx = [this, p2Wrap, p2Arm, p2Auto, limit,
+                                p2Status]() {
                 const bool visible = p2_ && p2_->isOpen();
                 p2Wrap->setVisible(visible);
                 if (!visible) return;
                 {
                     QSignalBlocker b(p2Arm);
                     p2Arm->setChecked(p2_->txBenchArmed());
+                }
+                {
+                    QSignalBlocker b(p2Auto);
+                    p2Auto->setChecked(p2_->txAutoArm());
                 }
                 {
                     QSignalBlocker b(limit);
@@ -3450,6 +3469,10 @@ QWidget *SettingsDialog::buildHardwareTab() {
             connect(p2Arm, &QCheckBox::toggled, p2Wrap,
                     [this](bool on) {
                         if (p2_) p2_->setTxBenchArmed(on);
+                    });
+            connect(p2Auto, &QCheckBox::toggled, p2Wrap,
+                    [this](bool on) {
+                        if (p2_) p2_->setTxAutoArm(on);
                     });
             connect(limit, qOverload<int>(&QSpinBox::valueChanged), p2Wrap,
                     [this](int value) {
