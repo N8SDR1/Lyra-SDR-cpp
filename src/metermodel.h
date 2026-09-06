@@ -563,6 +563,15 @@ private:
     double noiseLevel_ = 0.0;  // floor position on the scale (0..1)
     QString snrText_ = QStringLiteral("—");
 
+    // Mask the P2 step-attenuator change transient.  Moving the S-ATT
+    // adds/removes the host-side +ATT S-meter comp instantly, but the raw
+    // RXA_S_PK reading only catches up over a wire round-trip (~1 s), so
+    // raw + comp briefly disagree and the reading swings then resettles.
+    // Hold the displayed reading across that settle.  P2-only; HL2 untouched.
+    static constexpr int kFrontEndSettleTicks = 24;  // ~1.2 s @ 50 ms/tick
+    int    frontEndHoldTicks_ = 0;
+    double lastFrontEndDb_    = -1e9;   // sentinel: no P2 attenuation seen yet
+
     double  calDb_ = 0.0;
     int     peakHoldMs_    = 800;   // dwell before decay (operator-tunable)
     int     peakHoldTicks_ = 16;    // = peakHoldMs_ / tick interval

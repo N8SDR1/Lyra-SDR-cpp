@@ -2917,47 +2917,14 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     });
             hwRow->addWidget(audCombo);
 
-            // Startup radio (radio/startupMac): explicit operator choice
-            // of which SAVED radio auto-opens at launch.  Unset = the
-            // legacy behavior (P1/HL2 auto-connect) — retention rules.
-            auto *startupChk = new QCheckBox(tr("Open at startup"), radioBox);
-            auto syncStartup = [startupChk, list]() {
-                const QString mac = QSettings()
-                    .value(QStringLiteral("radio/startupMac")).toString();
-                auto *it = list->currentItem();
-                const bool on = it && !mac.isEmpty() &&
-                    it->data(Qt::UserRole + 1).toString()
-                        .compare(mac, Qt::CaseInsensitive) == 0;
-                startupChk->blockSignals(true);
-                startupChk->setChecked(on);
-                startupChk->blockSignals(false);
-            };
-            connect(list, &QListWidget::currentRowChanged, radioBox,
-                    [syncStartup](int) { syncStartup(); });
-            syncStartup();
-            connect(startupChk, &QCheckBox::toggled, radioBox,
-                    [status, list](bool on) {
-                        auto *it = list->currentItem();
-                        if (!it) return;
-                        const QString mac =
-                            it->data(Qt::UserRole + 1).toString();
-                        QSettings s;
-                        if (on && !mac.isEmpty()) {
-                            s.setValue(QStringLiteral("radio/startupMac"), mac);
-                            status->setText(tr(
-                                "%1 will open at the next launch.")
-                                    .arg(it->data(Qt::UserRole).toString()));
-                        } else if (!on &&
-                                   s.value(QStringLiteral("radio/startupMac"))
-                                       .toString().compare(
-                                           mac, Qt::CaseInsensitive) == 0) {
-                            s.remove(QStringLiteral("radio/startupMac"));
-                            status->setText(tr(
-                                "Startup radio cleared — the HL2 "
-                                "auto-connect behavior returns."));
-                        }
-                    });
-            hwRow->addWidget(startupChk);
+            // "Open at startup" was retired 2026-09-06: it wrote a separate
+            // radio/startupMac that competed with the active rig for "which
+            // radio auto-opens", and overrode the Rig-menu choice.  The active
+            // rig is now the single source of truth (beginConnect auto-opens
+            // the active rig's radio on its own protocol), and "auto-connect
+            // on launch (on/off)" is the Auto-start-radio-on-launch option.
+            // To make a radio the one that opens at launch, switch to it
+            // (Rig menu, or Open it here → "Switch to X?").
             rv->addLayout(hwRow);
 
             // Live G2 front-end state.  These settings are rig- and
@@ -3091,6 +3058,27 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 lyra::rig::registry::ensureRig(
                     mac, lyra::rig::registry::familyForDiscovery(proto, board),
                     QString(), ip);
+
+                // If this radio carries a DIFFERENT per-rig profile than the
+                // one currently loaded, opening it under the wrong profile is
+                // the confusing state (the HL2's PA-gain / OC config showing
+                // on a Brick, etc.).  Offer to switch to it instead — the same
+                // "Switch to X? Restart now / Later / Cancel" prompt the Rig
+                // menu uses — so the natural "pick a radio + Open" reaches the
+                // rig switch.  Deferred to MainWindow over a queued connection:
+                // the switch's "Restart now" tears down this dialog's parent,
+                // so it must never run nested inside this click handler.
+                {
+                    const QString rigId =
+                        lyra::rig::registry::rigIdForMac(mac);
+                    if (!rigId.isEmpty() &&
+                        rigId != lyra::rig::registry::activeRigId()) {
+                        status->setText(tr("This radio has its own saved "
+                                           "profile — offering to switch…"));
+                        emit requestRigSwitch(rigId);
+                        return;
+                    }
+                }
 
                 // Protocol 2 (Saturn / ANAN G2): opens through the P2
                 // bridge (session thread + DDC0 IQ → the same WDSP RX
@@ -3418,7 +3406,11 @@ QWidget *SettingsDialog::buildHardwareTab() {
 
             auto *limitLabel = new QLabel(tr("P2 bench drive ceiling"), p2Wrap);
             auto *limit = new QSpinBox(p2Wrap);
-            limit->setRange(1, 25);
+            // Ceiling raised from a 25% dummy-load cap to full scale
+            // (operator RF-safety call: bench rig is ~15 W max into a
+            // 500 W dummy, no amplifier in line).  Still an operator-set
+            // ceiling on the P2 bench drive, just no longer clamped to 25.
+            limit->setRange(1, 100);
             limit->setSuffix(tr(" %"));
             limit->setToolTip(tr(
                 "Independent ceiling over the front-panel Drive slider. "

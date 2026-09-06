@@ -111,6 +111,12 @@ struct P2HardwareProfile {
     // frequency, and TX halfword (ANT select + LPF) — trxAnt 1..3.
     quint16 (*alexRxWord)(quint32 hz, P2RxInput input, bool hpfBypass);
     quint16 (*alexTxWord)(quint32 hz, int trxAnt);
+    // Some Hermes-class radios (BrickSDR) need a FIXED, band-independent
+    // TX front-end / T-R constant on the wire while transmitting (captured
+    // from the working reference keydown) instead of a per-band Alex
+    // ladder.  When true, buildHighPriorityPacket asserts that constant
+    // (OC + Alex relay bytes) only while transmit is active.
+    bool fixedTxFrontEnd = false;
 };
 
 // The selected/saved marketed model chooses runtime front-end policy.
@@ -157,6 +163,10 @@ public:
     // Every transition is re-evaluated through P2TxSafetyGate and pushed
     // immediately to the radio. Disarm always wins and forces RF off.
     void setTxOperatorArmed(bool armed);
+    // Push the operator drive-limit ceiling (0..255 byte) into the
+    // fail-closed safety gate so it is enforced structurally on every
+    // effective-drive evaluation.
+    void setTxDriveCeiling(int ceilingByte);
     void setTransmitIntent(bool on, bool paRequested, int drive);
     void restartTxTransportRxState();
 

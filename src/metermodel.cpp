@@ -1099,7 +1099,27 @@ void MeterModel::computeSMeter() {
     // on-screen meter and the wire can never disagree.
     const double dbm = calibratedSMeterDbm(raw);
 
-    dispDbm_ += kSmooth * (dbm - dispDbm_);
+    // Front-end (P2 step attenuator) change transient: the +ATT comp is
+    // applied host-side the instant the operator moves the S-ATT, but the raw
+    // reading only catches up over the wire round-trip, so raw + comp briefly
+    // disagree.  Hold the displayed reading across that ~1 s settle so it
+    // doesn't swing then resettle.  P2-only; the HL2 LNA path is unchanged.
+    if (p2_ && p2_->isRunning()) {
+        const double frontEnd = static_cast<double>(p2_->rxAttenuationDb());
+        if (lastFrontEndDb_ < -1e8) {
+            lastFrontEndDb_ = frontEnd;          // first read: adopt, no hold
+        } else if (std::abs(frontEnd - lastFrontEndDb_) > 0.01) {
+            lastFrontEndDb_ = frontEnd;
+            frontEndHoldTicks_ = kFrontEndSettleTicks;
+        }
+    } else {
+        frontEndHoldTicks_ = 0;
+    }
+
+    if (frontEndHoldTicks_ > 0)
+        --frontEndHoldTicks_;                    // hold: freeze the reading
+    else
+        dispDbm_ += kSmooth * (dbm - dispDbm_);
     const double n = normForDbm(dispDbm_);
     level_ = n;
 
@@ -1168,12 +1188,20 @@ double MeterModel::calibratedSMeterDbm(double raw) const {
 }
 
 double MeterModel::noiseFloorWdspRawDbFs() const {
-    // Inverse of calibratedSMeterDbm() (raw = dispDbm - calDb_ + lna).
-    // noiseFloorDbm_ is tracked in the calibrated-dBm (dispDbm) domain, so
-    // undo the cal to land back in the WDSP raw/RXA_S_PK domain the AGC
-    // threshold math lives in.
-    const double lna = stream_ ? static_cast<double>(stream_->lnaGainDb()) : 0.0;
-    return noiseFloorDbm_ - calDb_ + lna;
+    // EXACT inverse of calibratedSMeterDbm(), which maps
+    //     dispDbm = raw + calDb_ - lna + p2Comp
+    // noiseFloorDbm_ is tracked in the dispDbm domain, so to land back in the
+    // WDSP raw/RXA_S_PK domain the AGC threshold math lives in we must undo
+    // EVERY term the same way — including the P2 comp (rx attenuation + model
+    // offset).  That term was missing here, so on the Brick the AGC-T floor
+    // was off from the S-meter by (attenuation + model offset) — part of why
+    // the auto knee's max-gain landed wrong.
+    const bool onP2 = p2_ && p2_->isRunning();
+    const double lna = (!onP2 && stream_)
+        ? static_cast<double>(stream_->lnaGainDb()) : 0.0;
+    const double p2Comp = onP2
+        ? p2_->rxAttenuationDb() + p2_->meterCalibrationOffset() : 0.0;
+    return noiseFloorDbm_ - calDb_ + lna - p2Comp;
 }
 
 double MeterModel::rxSMeterDbm() const {

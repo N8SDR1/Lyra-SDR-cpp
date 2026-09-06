@@ -1808,6 +1808,12 @@ void MainWindow::ensureSettingsDialog() {
             voiceKeyer_, recorder_, converter_,
             profiles_, companion_, serialPtt_, serialCwKey_, catServers_,
             p2Bridge_, this);
+        // Opening a radio whose per-rig profile differs from the active rig
+        // offers to switch to it.  QUEUED so switchRig's modal (and its
+        // "Restart now" teardown) runs AFTER the Settings Open click handler
+        // has fully unwound — never nested inside it.
+        connect(settingsDlg_, &SettingsDialog::requestRigSwitch,
+                this, &MainWindow::switchRig, Qt::QueuedConnection);
     }
 }
 
@@ -1891,17 +1897,13 @@ void MainWindow::switchRig(const QString &rigId) {
     const auto r = lyra::rig::registry::rig(rigId);
     const QString label = r.label.isEmpty() ? rigId : r.label;
 
-    // A Protocol-2 rig (Brick / ANAN G2) is registered for identity, but
-    // Lyra can't bring it up yet — the P2 receive engine is deferred, and
-    // the launch auto-connect would try to open it on the P1 stream.  Block
-    // making it active until that engine lands, with an honest message.
-    if (lyra::rig::capabilitiesFor(r.family).protocol == 2) {
-        QMessageBox::information(this, tr("Switch rig"),
-            tr("\"%1\" is a Protocol-2 radio — it's registered, but receive "
-               "support is still in progress, so it can't be made the active "
-               "rig yet.").arg(label));
-        return;
-    }
+    // (Historical P2 block removed 2026-09-05.)  A Protocol-2 rig (Brick /
+    // ANAN G2) may now be made the active rig: the P2 receive engine has
+    // landed (the Brick RX is bench-confirmed), and the launch auto-connect
+    // routes P1 vs P2 INSIDE beginConnect(), so a P2 active rig opens on its
+    // own P2 path — not the P1 stream.  Making the connected P2 radio the
+    // active rig is exactly what gives it its OWN per-rig config scope
+    // (rig/<id>/…) instead of borrowing whatever P1 rig was active.
 
     QMessageBox box(this);
     box.setWindowTitle(tr("Switch rig"));
@@ -1924,8 +1926,17 @@ void MainWindow::switchRig(const QString &rigId) {
     if (clicked == restartBtn) {
         // Relaunch a fresh instance, then close cleanly.  The new instance
         // seeds/loads the now-active rig and auto-connects to its lastIp.
-        QProcess::startDetached(QCoreApplication::applicationFilePath(),
-                                QCoreApplication::arguments().mid(1));
+        //
+        // --await-primary is mandatory here: this (outgoing) instance still
+        // holds the single-instance lock while it tears down, so a plain
+        // relaunch would hit the guard, ping this dying window, and exit —
+        // the restart would silently never happen (operator-observed
+        // 2026-09-06).  The flag makes the new process wait for us to exit,
+        // then take over as the sole primary on the now-active rig.
+        QStringList args = QCoreApplication::arguments().mid(1);
+        if (!args.contains(QStringLiteral("--await-primary")))
+            args << QStringLiteral("--await-primary");
+        QProcess::startDetached(QCoreApplication::applicationFilePath(), args);
         close();
     }
     // "Later" — active rig recorded; loads on the next manual restart.
@@ -2727,26 +2738,32 @@ void MainWindow::beginConnect(const QString &preferIp) {
     // concurrently (single-feeder-thread contract, P2RxBridge.h).
     if (p2Bridge_ && p2Bridge_->isRunning()) p2Bridge_->close();
 
-    // Layer-2 startup radio (Settings → Radio → "Open at startup"):
-    // an explicit saved P2 choice opens through the bridge.  Unset —
-    // or pointing at a P1 radio — falls through to the legacy HL2
-    // auto-connect exactly as before (retention rules; a P1 radio is
-    // already served by the radio/lastIp remember mechanism).
-    {
-        const QString startupMac = QSettings()
-            .value(QStringLiteral("radio/startupMac")).toString();
-        if (!startupMac.isEmpty() && p2Bridge_) {
-            const auto rp = lyra::rig::registry::rig(
-                lyra::rig::registry::rigIdForMac(startupMac));
-            const bool isP2 =
-                lyra::rig::capabilitiesFor(rp.family).protocol == 2;
-            if (rp.isValid() && isP2 && !rp.lastIp.isEmpty()) {
-                if (connStatus_)
-                    connStatus_->setText(tr("Opening %1…").arg(
-                        rp.label.isEmpty() ? rp.lastIp : rp.label));
-                p2Bridge_->open(rp.lastIp, rp.mac);
-                return;
-            }
+    // Multi-rig: the ACTIVE rig is the single source of truth for which
+    // radio auto-opens AND on which protocol.  A P2 family (Brick / Saturn /
+    // ANAN G2) opens through the P2 bridge WITH its MAC — so the Layer-2
+    // model profile AND the "(BrickSDR2)" connection label both resolve —
+    // then returns here; a P1 family (HL2) falls through to the legacy
+    // HL2 auto-connect below.  This keeps switching rigs (Rig menu, or
+    // opening a radio) coherent: it moves BOTH the config profile and the
+    // connected radio together.
+    //
+    // This replaces the old radio/startupMac gate, which was a SECOND,
+    // competing "which radio" setting parallel to the active rig: when it
+    // was set it force-opened that radio regardless of the rig you'd
+    // switched to (the override), and when it was empty a P2 active rig
+    // fell through to the P1 path below and opened the Brick as a
+    // Protocol-1 stream with no model label (operator-reported 2026-09-06).
+    if (p2Bridge_) {
+        const auto rp = lyra::rig::registry::rig(
+            lyra::rig::registry::activeRigId());
+        const bool isP2 =
+            lyra::rig::capabilitiesFor(rp.family).protocol == 2;
+        if (rp.isValid() && isP2 && !rp.lastIp.isEmpty()) {
+            if (connStatus_)
+                connStatus_->setText(tr("Opening %1…").arg(
+                    rp.label.isEmpty() ? rp.lastIp : rp.label));
+            p2Bridge_->open(rp.lastIp, rp.mac);
+            return;
         }
     }
     // Leaving Disconnected — show the connect attempt in amber (not the

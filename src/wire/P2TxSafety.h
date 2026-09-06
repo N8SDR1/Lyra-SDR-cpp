@@ -23,6 +23,11 @@ struct P2TxSafetyInputs {
     bool telemetryHealthy = false;
     bool watchdogEnabled = true;
     bool faultLatched = false;
+    // Hard drive ceiling (0..255 byte). The gate clamps the effective
+    // drive to this, so the operator drive-limit is enforced structurally
+    // here rather than only in the caller that builds the intent. 255 =
+    // no additional ceiling (default until a limit is pushed in).
+    std::uint8_t driveCeiling = 255;
 };
 
 struct P2TxEffectiveState {

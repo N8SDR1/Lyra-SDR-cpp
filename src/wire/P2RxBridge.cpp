@@ -292,9 +292,14 @@ QString P2RxBridge::txStatus() const {
         return QStringLiteral("RX only - TX hardware profile unverified");
     if (!txTransportReady_) return QStringLiteral("Priming TX transport");
     if (txTransmitting_)
-        return QStringLiteral("TX %1%2")
+        // Diagnostic tail: drive byte (0-255, the P2 HP pkt[345] value) +
+        // the live DUC-IQ peak (~1.0 = full-scale).  Both maxed but low RF
+        // ⇒ the shortfall is radio-side, not Lyra's drive/amplitude.
+        return QStringLiteral("TX %1%2 drv=%3 iq=%4")
             .arg((txEffectiveDrive_ * 100 + 127) / 255)
-            .arg(txPaEnabled_ ? QStringLiteral("% PA") : QStringLiteral("% PA off"));
+            .arg(txPaEnabled_ ? QStringLiteral("% PA") : QStringLiteral("% PA off"))
+            .arg(txEffectiveDrive_)
+            .arg(lyra::wire::p2TxCmasterLastPeak(), 0, 'f', 2);
     if (!txBenchArmed_) return QStringLiteral("Ready - RF disarmed");
     return QStringLiteral("Armed - dummy load only");
 }
@@ -305,12 +310,15 @@ void P2RxBridge::syncTxIntentToSession(bool on) {
     if (on && !txHardwareSupported_)
         on = false;
     const int capRaw =
-        (std::clamp(txDriveLimitPercent_, 0, 25) * 255 + 50) / 100;
+        (std::clamp(txDriveLimitPercent_, 0, 100) * 255 + 50) / 100;
     const int drive = stream_
         ? std::min(stream_->txDriveLevel(), capRaw) : 0;
     const bool pa = stream_ && stream_->paEnabled();
     auto *s = session_;
-    QMetaObject::invokeMethod(s, [s, on, pa, drive]() {
+    QMetaObject::invokeMethod(s, [s, on, pa, drive, capRaw]() {
+        // Enforce the drive-limit structurally in the fail-closed gate,
+        // not only in this pre-clamp, so it holds for any transmit path.
+        s->setTxDriveCeiling(capRaw);
         s->setTransmitIntent(on, pa, drive);
     });
 }
@@ -337,7 +345,7 @@ void P2RxBridge::setTxBenchArmed(bool on) {
 }
 
 void P2RxBridge::setTxDriveLimitPercent(int percent) {
-    const int limited = std::clamp(percent, 1, 25);
+    const int limited = std::clamp(percent, 1, 100);
     if (limited == txDriveLimitPercent_)
         return;
     txDriveLimitPercent_ = limited;
@@ -589,7 +597,7 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     txDriveLimitPercent_ = std::clamp(
         QSettings().value(
             rigScopedKey(rigId_, QStringLiteral("p2/txDriveLimitPct")),
-            5).toInt(), 1, 25);
+            5).toInt(), 1, 100);
 
     // Per-radio audio routing — applied TRANSIENTLY (globals stay as
     // the HL2 configured them; restored at close()).  P2 profiles are

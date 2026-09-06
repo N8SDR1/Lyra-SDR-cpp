@@ -2221,19 +2221,20 @@ private:
     // EXACTLY (§15.27 reference-faithful posture, "do as the
     // reference does, no variation"):
     //
-    //   alcMaxGainLinear_ = 3.0 LINEAR  (= 3.0× amplitude = +9.54 dB
-    //                                    amplification headroom).
-    //                                    Reference UI: integer
-    //                                    spinner 0..120 incr 1
-    //                                    default 3, passed straight
-    //                                    through to SetTXAALCMaxGain
-    //                                    with NO unit conversion.
-    //                                    WDSP create-time is 1.0
-    //                                    linear (= 0 dB) which pins
-    //                                    the TXA output chain at
-    //                                    a hard 0 dB ALC ceiling
-    //                                    regardless of mic level —
-    //                                    the load-bearing trap that
+    //   alcMaxGainLinear_ = 3.0        — the "Linear" in the name is a
+    //                                    MISNOMER: SetTXAALCMaxGain
+    //                                    applies max_gain=10^(arg/20),
+    //                                    so the argument is dB.  3 =
+    //                                    +3 dB (~1.413x ceiling).
+    //                                    Reference UI: integer spinner
+    //                                    0..120 incr 1 default 3, fed
+    //                                    to the same dB call =
+    //                                    reference-faithful.  WDSP
+    //                                    create-time max_gain is 1.0
+    //                                    (= 0 dB) which pins the TXA
+    //                                    output chain at a hard 0 dB
+    //                                    ALC ceiling regardless of mic
+    //                                    level — the load-bearing trap
     //                                    THIS default lifts.
     //   micGainDb_        = 0.0 dB     — WDSP create-time unity.
     //                                    Matches lyra-cpp's ship-

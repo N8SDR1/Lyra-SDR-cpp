@@ -80,6 +80,7 @@ void (*SetTXALevelerSt)(int, int) = nullptr;
 void (*SetTXALevelerDecay)(int, int) = nullptr;
 void (*SetTXALevelerTop)(int, double) = nullptr;
 void (*SetTXAPHROTRun)(int, int) = nullptr;   // #109 phase rotator run
+void (*SetTXACFIRRun)(int, int) = nullptr;    // TXA compensating FIR run (P2 DUC droop pre-correction)
 void (*SetTXACTCSSRun)(int, int) = nullptr;   // FM sub-tone run (off for basic FM)
 void (*SetTXAFMDeviation)(int, double) = nullptr;   // #107 FM peak deviation Hz
 void (*SetTXAFMAFFreqs)(int, double, double) = nullptr;  // FM audio band edges (low,high) → modulator occupied-BW clamp
@@ -171,6 +172,7 @@ void (*SetPSIntsAndSpi)(int, int, int) = nullptr;
     X(SetTXALevelerDecay)   \
     X(SetTXALevelerTop)     \
     X(SetTXAPHROTRun)       \
+    X(SetTXACFIRRun)        \
     X(SetTXACTCSSRun)       \
     X(SetTXAFMDeviation)    \
     X(SetTXAFMAFFreqs)      \

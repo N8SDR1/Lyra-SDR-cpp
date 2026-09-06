@@ -3,6 +3,8 @@
 
 #include "P2Session.h"
 
+#include "P2TxCmaster.h"   // setP2TxCmasterChannelRunning — run the TXA channel with the DUC transport
+
 #include <QtEndian>
 #include <algorithm>
 
@@ -90,12 +92,42 @@ const P2HardwareProfile kSaturnProfile = {
     "ANAN-G2", "Saturn (ANAN G2)", 10, 10, 2,
     &saturnAlexRxWord, &saturnAlexTxWord,
 };
+
+// BrickSDR (Hermes-class P2) has NO Alex front end -- its onboard LPF
+// self-selects in gateware from the tuned frequency (catalog hasAlex=false).
+// So the Alex0 TX+RX halfwords ([1432..1435]) stay zero -- byte-for-byte
+// what the bench-confirmed Brick RX already sent while running with
+// profile_==nullptr.  This is the Saturn per-band-Alex ladder the Brick
+// deliberately avoids; do NOT point these at saturnAlex*Word.
+//
+// S-T0 = un-grey "Arm P2 TX" only (txHardwareSupported_ = profile!=nullptr).
+// It is RF-inert and RX-byte-identical: adcCount=1 matches the pkt[4]
+// nullptr-default, and both word functors return 0 like the skipped block.
+// S-T1 replaces brickAlexTxWord with the captured fixed TX front-end
+// constant (OC 0x04 / the 08 04 01 00 ... relay bytes) -- which only ever
+// reaches the wire during TX.
+quint16 brickAlexRxWord(quint32, P2RxInput, bool) { return 0; }
+quint16 brickAlexTxWord(quint32, int) { return 0; }  // S-T1: captured constant
+
+const P2HardwareProfile kBrickProfile = {
+    "BRICK-SDR", "BrickSDR",
+    1,   // boardId: bHermes (P2 discovery reply [11]); informational, unconsumed
+    1,   // ddcCount: informational, unconsumed (the RX loop uses kNumDdc)
+    1,   // adcCount: CONSUMED (pkt[4]) -- Hermes-class single ADC; == RX default
+    &brickAlexRxWord, &brickAlexTxWord,
+    true,  // fixedTxFrontEnd: assert the captured fixed TX/T-R constant on key
+};
 } // namespace
 
 const P2HardwareProfile *p2ProfileForModel(const QString &modelKey) {
     if (modelKey.compare(QLatin1String("ANAN-G2"), Qt::CaseInsensitive) == 0 ||
         modelKey.compare(QLatin1String("ANAN-G2-1K"), Qt::CaseInsensitive) == 0)
         return &kSaturnProfile;
+    // BRICK-SDR2 = the pre-generalization key; the catalog resolves it to
+    // BRICK-SDR, but a saved profile may still carry it here.
+    if (modelKey.compare(QLatin1String("BRICK-SDR"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("BRICK-SDR2"), Qt::CaseInsensitive) == 0)
+        return &kBrickProfile;
     return nullptr;
 }
 
@@ -259,6 +291,22 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
         pkt[1434] = static_cast<char>(rxw >> 8);
         pkt[1435] = static_cast<char>(rxw & 0xFF);
     }
+    // S-T1 BrickSDR fixed TX front-end + T/R assertion.  Band-independent
+    // constant captured verbatim from a working reference->Brick P2 keydown
+    // (SDRProject/brick_p2_hp_diff.log, 2026-08-01): OC[1402]=0x04, Alex1
+    // [1428..1430]=08 04 01, Alex0 TX halfword [1432..1433]=08 04.  The
+    // Brick's onboard LPFs self-select in gateware from the DUC carrier;
+    // this is the T/R + enable the radio needs to actually key.  On the wire
+    // ONLY while transmitting (overrides the all-zero profile words above);
+    // every byte returns to zero on unkey, so RX stays byte-identical.
+    if (transmit && profile_ && profile_->fixedTxFrontEnd) {
+        pkt[1402] = char{0x04};
+        pkt[1428] = char{0x08};
+        pkt[1429] = char{0x04};
+        pkt[1430] = char{0x01};
+        pkt[1432] = char{0x08};
+        pkt[1433] = char{0x04};
+    }
     pkt[1442] = static_cast<char>(adcAttenuation_[1]); // ADC2 ATT
     pkt[1443] = static_cast<char>(adcAttenuation_[0]); // ADC1 ATT
     return pkt;
@@ -290,6 +338,13 @@ void P2Session::setTxOperatorArmed(bool armed) {
               "non-zero limited drive can now request RF")
         : QStringLiteral(
               "P2 TX: bench interlock disarmed; transmit/PA/drive forced off"));
+}
+
+void P2Session::setTxDriveCeiling(int ceilingByte) {
+    txSafety_.driveCeiling =
+        static_cast<std::uint8_t>(std::clamp(ceilingByte, 0, 255));
+    if (open_)
+        applyTxControlNow();
 }
 
 void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
@@ -494,6 +549,19 @@ void P2Session::onHpTick() {
         sock_.writeDatagram(buildDdcSpecificPacket(),
                             radioAddr_, kPortDdcConfig);
 
+    // Low-power-bench diagnostic (~1/s while keyed): the actual wire drive
+    // byte (pkt[345], 0-255) + the live DUC-IQ peak (~1.0 = full-scale).
+    // Both maxed but low RF ⇒ the shortfall is radio-side, not Lyra's
+    // drive/amplitude.  Also mirrored on the "P2 TX:" status line.
+    if (txIntent_.transmitRequested && (hpTickCount_ % 10 == 0)) {
+        const auto eff = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
+        qInfo("[p2tx] keyed: drive byte=%d/255 (HP pkt[345])  DUC-IQ peak=%.3f "
+              "(~1.0=full-scale)  pa=%d",
+              static_cast<int>(eff.drive),
+              lyra::wire::p2TxCmasterLastPeak(),
+              eff.paEnabled ? 1 : 0);
+    }
+
     // Firewall-blocked-RX self-diagnosis (resolved 2026-08-26).  If the
     // control link is healthy (status flowing) but a DDC is enabled and
     // NOT ONE IQ frame has arrived, the cause is almost always Windows
@@ -527,6 +595,9 @@ void P2Session::startTxTransportRxState() {
         emit logLine(QStringLiteral(
             "P2 TX: no CMaster producer attached; port 1029 remains stopped "
             "and RF controls remain safe"));
+        // Surface on-screen (the file log is dead): the producer seam never
+        // attached, so nothing can ever prime.
+        emitTxState(QStringLiteral("no producer seam — port 1029 stopped"));
         return;
     }
 
@@ -534,8 +605,25 @@ void P2Session::startTxTransportRxState() {
     fifo.reset();
     txSafety_.iqPrimed = false;
     emitTxState(QStringLiteral("TX transport stopped"));
+    // Arm the shared WDSP TXA channel BEFORE the pump feeds its first
+    // block.  P2TxPump::start() SYNCHRONOUSLY seeds block 0 (its input
+    // sink calls Inbound(inid(1,0),…), which releases stream 1's
+    // Sem_BuffReady and wakes the high-priority cm_main(1) pump →
+    // xcmaster(1) → fexchange0(chid(1,0),…)).  create_xmtr opens that
+    // channel OPEN-but-NOT-STARTED (state=0) with block=1 ("block until
+    // output available").  If the channel is still state=0 when that
+    // first fexchange0 fires, the block-until-output wait on a stopped
+    // channel never completes → the cm pump thread stalls → the producer
+    // FIFO never fills → priming below never completes → port 1029 never
+    // streams (the "DUC FIFO 0 samples" symptom, with no fault latched
+    // because the pump's single seed returned true).  Arm first so the
+    // channel's DSP worker is running before the seed lands.  RF stays
+    // gated by the wire MOX bit (buildHighPriorityPacket), so arming in
+    // RX state only streams zero-valued IQ — no on-air output.
+    setP2TxCmasterChannelRunning(true);
     txPump_.start();
     if (!txPump_.isRunning()) {
+        setP2TxCmasterChannelRunning(false);   // undo the arm on a failed start
         latchTxFault(QStringLiteral("CMaster producer failed to start"));
         return;
     }
@@ -544,11 +632,16 @@ void P2Session::startTxTransportRxState() {
     emit logLine(QStringLiteral(
         "P2 TX: priming port 1029 in RX state (transmit=0, PA=off, "
         "drive=0)"));
+    qInfo("[p2tx] transport start: TXA channel chid(1,0) ARMED before the "
+          "pump seed; priming producer FIFO toward the prime target");
 }
 
 void P2Session::stopTxTransport() {
     txPrimeTimer_.stop();
+    // Stop the pump (no more input) BEFORE stopping the TXA channel, so the
+    // non-blocking channel stop can't race the pump feeding a stopped chain.
     txPump_.stop();
+    setP2TxCmasterChannelRunning(false);
     txWriter_.stop();
     txSafety_.iqPrimed = false;
 }
@@ -591,8 +684,23 @@ void P2Session::onTxPrimeTick() {
         latchTxFault(QStringLiteral("producer FIFO overflow during priming"));
         return;
     }
-    if (fifo.size() < kTxPrimeSamples)
+    if (fifo.size() < kTxPrimeSamples) {
+        // Producer-side priming progress, surfaced ON-SCREEN (the file log
+        // is dead — see reference_lyra_cpp_dead_logfile).  This is the real
+        // Stage-1a signal: the "DUC FIFO N samples" number in the same line
+        // is a downstream RADIO-reported field, but this "prod FIFO x/y"
+        // is Lyra's own producer ring off fexchange0.  If it stays pinned
+        // at 0, the cm pump / fexchange0 is not producing (arm-before-feed
+        // did not take, or a deeper stall); if it climbs, the producer path
+        // works and any remaining "DUC 0" is the radio not buffering TX-IQ
+        // in RX state.  Throttled so the poll cadence doesn't spam signals.
+        static int primeEmitThrottle = 0;
+        if ((primeEmitThrottle++ % 8) == 0)
+            emitTxState(QStringLiteral("priming (prod FIFO %1/%2)")
+                            .arg(static_cast<qulonglong>(fifo.size()))
+                            .arg(static_cast<qulonglong>(kTxPrimeSamples)));
         return;
+    }
 
     txPrimeTimer_.stop();
     txWriter_.startFromInput();
@@ -601,7 +709,11 @@ void P2Session::onTxPrimeTick() {
         return;
     }
     txSafety_.iqPrimed = true;
-    emitTxState(QStringLiteral("TX transport ready (RF disarmed)"));
+    // On-screen (file log is dead): producer primed + writer streaming to
+    // 1029.  If the operator now sees this but "DUC FIFO" stays 0, the
+    // break is the radio not buffering TX-IQ in RX state — not the producer.
+    emitTxState(QStringLiteral("streaming 1029 (prod FIFO %1, RF disarmed)")
+                    .arg(static_cast<qulonglong>(p2TxInputFifo().size())));
     emit logLine(QStringLiteral(
         "P2 TX: port 1029 streaming in RX state (seq=%1, FIFO=%2 "
         "samples; transmit=0, PA=off, drive=0)")

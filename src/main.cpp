@@ -254,6 +254,19 @@ int main(int argc, char *argv[])
         for (const auto *k : {"tx/maxOutputW", "tx/driveLevel",
                               "tx/paEnabled", "tx/micBoost"})
             lyra::rig::migrate::migrateKeyToActiveRig(QLatin1String(k));
+        // pa_gain/* (PA-gain-by-band + full-output + cap) and meter/pwrTrim/*
+        // (PWR-meter cal) are the HL2's TX power + meter calibration.  Relocate
+        // them to the active rig ONLY when that rig is the HL2 (their owner),
+        // so a P2 rig (Brick / G2) that is active first gets clean neutral
+        // defaults instead of inheriting HL2 numbers.  The global set waits
+        // until the HL2 is active, then migrates once (snapshot-gated).  An
+        // ungated migrateGroup here would wrongly dump HL2 cal onto whatever
+        // rig is active — e.g. a Brick.
+        if (lyra::rig::registry::rig(lyra::rig::registry::activeRigId()).family
+                == lyra::rig::RadioFamily::Hl2) {
+            lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("pa_gain/"));
+            lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("meter/pwrTrim/"));
+        }
     }
 
     // Safe-boot hatch: `--safe` (or LYRA_SAFE=1 in the environment) forces the
@@ -1936,21 +1949,19 @@ int main(int argc, char *argv[])
         // Multi-rig: auto-connect to the ACTIVE rig's radio.  The rig's
         // lastIp is kept current by HL2Stream::open; fall back to the legacy
         // global radio/lastIp (fresh installs / the seeded HL2 rig).
+        // The ACTIVE rig's lastIp is the auto-connect target (a P2 rig's IP
+        // is kept current by P2RxBridge::open, a P1 rig's by HL2Stream::open);
+        // beginConnect routes it to the P2 bridge or the P1 stream by the
+        // active rig's protocol.  Fall back to the legacy global radio/lastIp
+        // (fresh installs / the seeded HL2 rig).
         QString lastIp =
             lyra::rig::registry::rig(lyra::rig::registry::activeRigId()).lastIp;
         if (lastIp.isEmpty())
             lastIp = QSettings().value(QStringLiteral("radio/lastIp")).toString();
-        // Layer-2 startup radio (P2): an explicit "Open at startup"
-        // choice (radio/startupMac) also arms the launch connect — its
-        // P2 branch is handled inside beginConnect.  A box that has
-        // only ever run a P2 radio has no rig/legacy lastIp, so lastIp
-        // alone would never fire.
-        const bool haveStartupRadio = !QSettings()
-            .value(QStringLiteral("radio/startupMac")).toString().isEmpty();
         // Auto-start-on-launch opt-out (Settings → Hardware).  Default ON
         // (historical behaviour).  When the operator unticks it Lyra loads
         // but waits for an explicit Start instead of opening the radio.
-        if ((!lastIp.isEmpty() || haveStartupRadio)
+        if (!lastIp.isEmpty()
             && prefs->autoStartOnLaunch()
             && !qEnvironmentVariableIsSet("LYRA_SAFE")) {
             // Resilient connect: probe the remembered IP and open it only

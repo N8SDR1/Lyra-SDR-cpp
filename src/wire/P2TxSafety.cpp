@@ -20,7 +20,9 @@ P2TxEffectiveState P2TxSafetyGate::evaluate(
     state.transmit = true;
     state.paEnabled = intent.paRequested;
     state.drive = state.paEnabled
-        ? static_cast<std::uint8_t>(std::clamp(intent.drive, 0, 255))
+        ? static_cast<std::uint8_t>(
+              std::min(std::clamp(intent.drive, 0, 255),
+                       static_cast<int>(inputs.driveCeiling)))
         : std::uint8_t{0};
     return state;
 }
