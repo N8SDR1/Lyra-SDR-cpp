@@ -262,6 +262,12 @@ private:
     void startTxTransportRxState();
     void stopTxTransport();
     void latchTxFault(const QString &reason);
+    // A transport-cadence fault (writer pacing miss / FIFO underflow) is a
+    // real RF-safety event ONLY while keyed. While no transmit intent exists
+    // the P2 TX stream is RF-inert (transmit=0, PA=off, drive=0) and a
+    // transient host stall must recover in place, not latch and lock out the
+    // next key-up. Keyed -> latchTxFault; RX-idle -> deferred re-prime.
+    void onTxTransportCadenceFault(const QString &reason);
     void applyTxControlNow();
     void emitTxState(const QString &detail = QString());
 

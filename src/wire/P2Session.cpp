@@ -164,11 +164,11 @@ P2Session::P2Session(QObject *parent)
             sock_.writeDatagram(packet, radioAddr_, kPortDucIqToSdr);
     });
     txWriter_.setFaultSink([this]() {
-        latchTxFault(QStringLiteral(
+        onTxTransportCadenceFault(QStringLiteral(
             "TX-IQ pacing deadline/FIFO fault"));
     });
     txPump_.setFaultSink([this]() {
-        latchTxFault(QStringLiteral(
+        onTxTransportCadenceFault(QStringLiteral(
             "CMaster producer deadline/input fault"));
     });
 }
@@ -672,6 +672,26 @@ void P2Session::latchTxFault(const QString &reason) {
     emit logLine(QStringLiteral(
         "P2 TX: %1; transport stopped and RF controls forced safe")
         .arg(reason));
+}
+
+void P2Session::onTxTransportCadenceFault(const QString &reason) {
+    // Keyed: a cadence/FIFO miss can produce a stuck or garbage carrier, so
+    // this is a hard safety event — stop, force RF safe, latch, unkey.
+    if (txIntent_.transmitRequested) {
+        latchTxFault(reason);
+        return;
+    }
+    // RX-idle: the P2 TX stream is RF-inert (transmit=0, PA=off, drive=0).
+    // A transient host stall here must recover in place, never latch and
+    // lock out the next key-up. The faulting writer/pump has already stopped
+    // itself; re-prime once this call stack unwinds (deferred so we don't
+    // restart timers from inside the faulting timer callback).
+    if (!open_ || !running_)
+        return;
+    emit logLine(QStringLiteral(
+        "P2 TX: %1 while RX-idle (RF-inert); re-priming transport")
+        .arg(reason));
+    QTimer::singleShot(0, this, [this]() { restartTxTransportRxState(); });
 }
 
 void P2Session::onTxPrimeTick() {

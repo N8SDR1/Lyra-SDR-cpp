@@ -123,22 +123,22 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                     paA_ = std::isnan(paA_)
                                ? amps : paA_ + 0.5 * (amps - paA_);
                 }
-                if (g2PowerTelemetry_) {
-                    // Thetis computeAlexFwd/RevPower ANAN-G2 constants:
-                    // V=(ADC-offset)/4095*5, W=V^2/bridge. REV uses a
-                    // different 6 m coupler constant.
-                    const auto watts = [](quint16 raw, int offset,
-                                          double bridge) {
+                if (hasPowerTelemetry_) {
+                    // fwd/rev counts -> watts with the session's coupler
+                    // constants: V = (raw - off)/4095 * c1, W = V^2 / c2.
+                    // REV uses a separate 6 m coupler constant.
+                    const auto watts = [this](quint16 raw, int offset,
+                                              double bridge) {
                         const double v = std::max(
                             0.0, (static_cast<double>(raw) - offset) /
-                                     4095.0 * 5.0);
+                                     4095.0 * pcC1_);
                         return v * v / bridge;
                     };
                     const bool sixMetres =
                         stream_ && stream_->txFreqHz() >= 50'000'000u;
-                    const double fwd = watts(fwdRaw, 32, 0.12);
-                    const double rev =
-                        watts(revRaw, 28, sixMetres ? 0.7 : 0.15);
+                    const double fwd = watts(fwdRaw, pcFwdOff_, pcC2Fwd_);
+                    const double rev = watts(
+                        revRaw, pcRevOff_, sixMetres ? pcC2Rev6m_ : pcC2Rev_);
                     fwdPowerW_ = std::isnan(fwdPowerW_)
                         ? fwd : fwdPowerW_ + 0.35 * (fwd - fwdPowerW_);
                     revPowerW_ = std::isnan(revPowerW_)
@@ -680,9 +680,21 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     // silently treating a guess as fact (bench finding 2026-07-20).
     // Telemetry conversion constants for this session's model.
     hasVoltsAmps_ = hw && hw->hasVolts && hw->hasAmps;
-    g2PowerTelemetry_ = hw &&
+    // fwd/rev -> watts coupler constants, per device family. Saturn/G2 use a
+    // 5 V / high-offset bridge; every other Hermes-class P2 board (BrickSDR
+    // included) uses the 3.3 V / low-offset Hermes set. An unrecognised
+    // model gets no power path (better blank than wrong).
+    const bool isG2 = hw &&
         (modelKey.compare(QStringLiteral("ANAN-G2"), Qt::CaseInsensitive) == 0 ||
          modelKey.compare(QStringLiteral("ANAN-G2-1K"), Qt::CaseInsensitive) == 0);
+    hasPowerTelemetry_ = (hw != nullptr);
+    if (isG2) {
+        pcC1_ = 5.0;  pcC2Fwd_ = 0.12;  pcC2Rev_ = 0.15;  pcC2Rev6m_ = 0.7;
+        pcFwdOff_ = 32;  pcRevOff_ = 28;
+    } else {
+        pcC1_ = 3.3;  pcC2Fwd_ = 0.095; pcC2Rev_ = 0.095; pcC2Rev6m_ = 0.5;
+        pcFwdOff_ = 6;   pcRevOff_ = 3;
+    }
     ampVoff_ = hw ? hw->voltOff  : 360.f;
     ampSens_ = hw ? hw->voltSens : 120.f;
     meterCalOffset_ = hw ? hw->rxMeterOffset : 0.0;
@@ -792,7 +804,7 @@ void P2RxBridge::close() {
     paA_     = std::numeric_limits<double>::quiet_NaN();
     fwdPowerW_ = std::numeric_limits<double>::quiet_NaN();
     revPowerW_ = std::numeric_limits<double>::quiet_NaN();
-    g2PowerTelemetry_ = false;
+    hasPowerTelemetry_ = false;
     adcOverloadTier_ = 0;
     adcOverloadMask_ = 0;
     adc1Peak_ = 0;

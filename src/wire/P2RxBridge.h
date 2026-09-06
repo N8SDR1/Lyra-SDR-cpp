@@ -236,7 +236,18 @@ private:
     double     fwdPowerW_ = std::numeric_limits<double>::quiet_NaN();
     double     revPowerW_ = std::numeric_limits<double>::quiet_NaN();
     int        ducFifoSamples_ = 0;
-    bool       g2PowerTelemetry_ = false;
+    // Per-model fwd/rev -> watts calibration (selected on session open).
+    // W = ((raw - off)/4095 * c1)^2 / c2.  Saturn/G2 and Hermes-class
+    // (incl. BrickSDR) use different coupler constants; hasPowerTelemetry_
+    // gates the whole path (an unrecognised model shows no power, not a
+    // wrong one).
+    bool       hasPowerTelemetry_ = false;
+    double     pcC1_      = 3.3;
+    double     pcC2Fwd_   = 0.095;
+    double     pcC2Rev_   = 0.095;
+    double     pcC2Rev6m_ = 0.5;
+    int        pcFwdOff_  = 6;
+    int        pcRevOff_  = 3;
     bool       lastHardwarePtt_ = false;
     QString    currentBand_;
     int        defaultTrxAntenna_ = 1;
