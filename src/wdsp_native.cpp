@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <string>
 #include <thread>
 
 #include <QApplication>
@@ -66,6 +67,27 @@ QString winError(DWORD code) {
     return descr.isEmpty()
         ? QStringLiteral("Win32 error %1").arg(code)
         : QStringLiteral("Win32 error %1: %2").arg(code).arg(descr);
+}
+
+// Atomically publish `tmpPath` over `finalPath` on the same volume.
+// MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH) is atomic on NTFS: a reader
+// (or a crashing writer) never sees a half-written file — it sees the old
+// one or the new one, never a torn one.  This is what makes the wisdom and
+// impulse-cache writes crash-safe: an interrupted build or shutdown-save
+// leaves a torn file only at the temp path, while the live file is replaced
+// in one step or left untouched.  Returns false (and fills `err`) when the OS
+// blocks the rename; the caller then keeps the previous file and rebuilds on
+// the next launch — no torn file is ever left where WDSP will read it.
+bool atomicReplaceFile(const QString &tmpPath, const QString &finalPath,
+                       QString *err = nullptr) {
+    const std::wstring tmpW = QDir::toNativeSeparators(tmpPath).toStdWString();
+    const std::wstring finW = QDir::toNativeSeparators(finalPath).toStdWString();
+    if (::MoveFileExW(tmpW.c_str(), finW.c_str(),
+                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        return true;
+    }
+    if (err) *err = winError(::GetLastError());
+    return false;
 }
 
 // Branded art for the one-time-setup splash: the real Lyra logo (the
@@ -442,14 +464,37 @@ void WdspNative::unload() {
     // section before FreeLibrary.  Guarded by impulseCacheInited_ so a
     // never-inited / exports-absent load is a clean no-op.
     if (impulseCacheInited_ && api_.save_impulse_cache) {
-        const QString file = QDir::cleanPath(
+        // Crash-safe save: write to a temp file, then atomically rename over
+        // the live cache.  This runs at exit, so a force-kill DURING shutdown
+        // then leaves a torn file only at the .tmp path — the live
+        // impulse_cache.dat is replaced in one step or left intact, and the
+        // next launch never reads a half-written cache (which WDSP parses
+        // into a heap-corrupting bad state on the read path).
+        const QString finalFile = QDir::cleanPath(
             wisdomDir() + QStringLiteral("/impulse_cache.dat"));
-        const QByteArray fileBytes =
-            QDir::toNativeSeparators(file).toLocal8Bit();
-        const int rc = api_.save_impulse_cache(fileBytes.constData());
-        logWisdom(QStringLiteral(
-            "[wdsp] impulse-cache: save_impulse_cache(%1) rc=%2 "
-            "(rc=0 saved)").arg(file).arg(rc));
+        const QString tmpFile = finalFile + QStringLiteral(".tmp");
+        QFile::remove(tmpFile);   // clear any stale temp
+        const QByteArray tmpBytes =
+            QDir::toNativeSeparators(tmpFile).toLocal8Bit();
+        const int rc = api_.save_impulse_cache(tmpBytes.constData());
+        if (rc == 0 && QFileInfo(tmpFile).size() > 0) {
+            QString err;
+            if (atomicReplaceFile(tmpFile, finalFile, &err)) {
+                logWisdom(QStringLiteral(
+                    "[wdsp] impulse-cache: saved atomically to %1")
+                    .arg(finalFile));
+            } else {
+                logWisdom(QStringLiteral(
+                    "[wdsp] impulse-cache: save ok but atomic publish blocked "
+                    "(%1) — keeping previous cache").arg(err));
+                QFile::remove(tmpFile);
+            }
+        } else {
+            logWisdom(QStringLiteral(
+                "[wdsp] impulse-cache: save_impulse_cache rc=%1 — leaving "
+                "previous cache intact").arg(rc));
+            QFile::remove(tmpFile);
+        }
     }
     if (impulseCacheInited_ && api_.destroy_impulse_cache)
         api_.destroy_impulse_cache();
@@ -863,94 +908,111 @@ bool WdspNative::ensureWisdom() {
 
     const QString dir = wisdomDir();
     QDir().mkpath(dir);
+    const QString finalFile   = wisdomFilePath();
+    const bool    haveExisting = wisdomFileExists(dir);
 
-    // ---- Fast path: cache exists -> import in place. ----
-    // Runs through runWisdomCall (worker thread + console taming) so
-    // that even if the cached file is REJECTED by FFTW and WDSP silently
-    // re-plans, it neither pops a console window nor freezes the GUI
-    // thread; the 'please wait' notice appears only if that rebuild
-    // actually happens (a clean import is sub-100 ms).
-    if (wisdomFileExists(dir)) {
+    // Crash-safe publish: plan/import in a private work dir on the SAME
+    // volume, then atomically rename wdspWisdom00 into place.  WDSPwisdom
+    // writes a fixed filename into whatever dir it is handed AND leaves the
+    // freshly-planned wisdom live in FFTW's process-global state, so building
+    // in a work dir still primes the running process — only the *file* moves.
+    // An interrupted build/rebuild (force-kill during a slow FFTW_PATIENT
+    // plan, or during WDSP's reject-and-re-export) can then only leave a torn
+    // file inside the work dir; the live wdspWisdom00 is replaced in one
+    // atomic step or left untouched.  This closes the crash-on-launch class
+    // where a torn wisdom file yields a bad (SIMD-misaligned) FFT plan that
+    // faults on execute — the mechanism observed after a force-kill cascade.
+    // (An earlier revision wrote in place, "Thetis-style", on the theory that
+    // FFTW cleanly re-rejects a truncated file; a real force-kill cascade
+    // disproved that — a partially-valid file plans and crashes instead of
+    // rebuilding.  With Lyra excluded from the on-access AV scanner the old
+    // "AV blocks the rename" worry does not apply; even if a rename were
+    // blocked the fallback below keeps the session live and rebuilds next
+    // launch — strictly safer than a torn file.)
+    const QString workDir =
+        QDir(dir).filePath(QStringLiteral(".wisdom-build"));
+    QDir(workDir).removeRecursively();          // clear any stale/torn temp
+    const bool    haveWork = QDir().mkpath(workDir);
+    const QString workFile =
+        QDir(workDir).filePath(QString::fromLatin1(kWisdomFilename));
+    // The dir handed to WDSP: the work dir when we could make it, else fall
+    // back to building in place (rare; still self-heals via rc==1, just not
+    // atomically).
+    const QString callDir = haveWork ? workDir : dir;
+    if (haveWork && haveExisting) {
+        // Seed the work dir so WDSPwisdom IMPORTS the existing cache (fast
+        // path, sub-100 ms) instead of rebuilding from scratch.
+        QFile::remove(workFile);
+        QFile::copy(finalFile, workFile);
+    }
+
+    const bool showModal = !haveExisting;       // the scratch build is the slow one
+    if (haveExisting) {
         logWisdom(QStringLiteral(
-            "[wdsp] wisdom: loading cached plans from %1").arg(dir));
-        QElapsedTimer t; t.start();
-        const int rc = runWisdomCall(dir);
-        const bool rebuilt = (rc == 1);
-        if (rc == 1) {
-            // WDSPwisdom returns 1 ONLY when it rebuilt the plans --
-            // i.e. the cached file was present but REJECTED by FFTW
-            // (stale after a wdsp.dll/FFTW bump, wrong-CPU, or corrupt)
-            // and silently re-planned IN-PROCESS.  Should be rare (the
-            // atomic publish means a truncated file can't linger); log it
-            // so a "rebuilds every launch" report on an existing file is
-            // unambiguous rather than looking like a normal load.  WDSP
-            // re-exports the file itself on this branch, so it self-heals.
-            logWisdom(QStringLiteral(
-                "[wdsp] wisdom: cached file at %1 was REJECTED by FFTW "
-                "and re-planned in-process in %2 ms -- the cache is "
-                "stale/incompatible").arg(dir).arg(t.elapsed()));
-        } else {
-            logWisdom(QStringLiteral(
-                "[wdsp] wisdom: loaded cached plans in %1 ms (rc=%2)")
-                .arg(t.elapsed()).arg(rc));
-        }
-        initImpulseCache(dir, rebuilt);
+            "[wdsp] wisdom: loading cached plans (import <100 ms; rebuilds "
+            "only if FFTW rejects the file) from %1").arg(dir));
+    } else {
+        logWisdom(QStringLiteral(
+            "[wdsp] wisdom: building (one-time, may take several minutes; a "
+            "'please wait' notice shows and Lyra stays responsive) -> %1")
+            .arg(callDir));
+    }
+
+    QElapsedTimer t; t.start();
+    // Build/import IN-PROCESS on a worker thread (no self-spawned child --
+    // that pattern trips antivirus SONAR: an unsigned exe launching a copy
+    // of itself).  runWisdomCall keeps the GUI responsive + tames WDSP's
+    // AllocConsole; the 'please wait' notice appears immediately for a
+    // scratch build, or only if a fast-path import turns into a rebuild.
+    const int  rc      = runWisdomCall(callDir, showModal);
+    const bool rebuilt = (rc == 1);
+    if (rebuilt) {
+        logWisdom(QStringLiteral(
+            "[wdsp] wisdom: plans (re)built via FFTW_PATIENT in %1 ms "
+            "(rc=1 — file was missing or REJECTED as stale/incompatible/"
+            "corrupt; self-heals by rebuilding)").arg(t.elapsed()));
+    } else {
+        logWisdom(QStringLiteral(
+            "[wdsp] wisdom: loaded cached plans in %1 ms (rc=%2)")
+            .arg(t.elapsed()).arg(rc));
+    }
+
+    // Verify the planned file exists before publishing.
+    const QString   srcFile = haveWork ? workFile : finalFile;
+    const QFileInfo srcInfo(srcFile);
+    if (!srcInfo.exists() || srcInfo.size() == 0) {
+        logWisdom(QStringLiteral(
+            "[wdsp] wisdom: no usable wisdom file at %1 after WDSPwisdom "
+            "(rc=%2) — the write was blocked (permissions?).  Plans are live "
+            "this session; next launch rebuilds.").arg(srcFile).arg(rc));
+        if (haveWork) QDir(workDir).removeRecursively();
+        // Plans are still live in FFTW's process-global state from the call
+        // above, so RX/TX work this session; only the persisted file is
+        // missing.  Treat as rebuilt (fresh plan world → stale impulse cache).
+        initImpulseCache(dir, /*wisdomRebuilt=*/true);
         return true;
     }
 
-    // ---- Slow path: no cache -> build IN PLACE, exactly like Thetis. ----
-    // Thetis (radio.cs CreateDSP) calls WDSPwisdom(finalDir) directly --
-    // WDSP writes wdspWisdom00 straight into the cache folder, no temp
-    // dir, no rename.  We mirror that: build directly into `dir`.  An
-    // earlier version built into a QTemporaryDir + MoveFileExW'd it into
-    // place for "atomicity", but that extra file op is (a) something
-    // Thetis does NOT do and (b) a second write/rename on %LOCALAPPDATA%
-    // that a folder-shield / antivirus can block AFTER the plan succeeds
-    // -- leaving the final wdspWisdom00 absent so every launch rebuilds.
-    // Thetis proves the atomicity is unnecessary: if a build is
-    // interrupted, the partial wdspWisdom00 is simply re-rejected by FFTW
-    // on the next launch and rebuilt -- the SAME self-correcting path as a
-    // missing file.  So: write in place, one operation, like Thetis.
-    logWisdom(QStringLiteral(
-        "[wdsp] wisdom: building IN PLACE (one-time, may take several "
-        "minutes; a 'please wait' notice shows and Lyra stays "
-        "responsive) -- writing directly to %1, Thetis-style").arg(dir));
-
-    QElapsedTimer t; t.start();
-    // Build the plans IN-PROCESS on a worker thread (no self-spawned
-    // child -- that pattern trips antivirus SONAR: an unsigned exe
-    // launching a copy of itself).  WDSPwisdom writes wdspWisdom00 into
-    // `dir` AND leaves the freshly-planned wisdom live in FFTW's
-    // process-global state, so once this returns the running process is
-    // ready -- NO separate re-import needed.  runWisdomCall keeps the GUI
-    // responsive + tames WDSP's AllocConsole.  Show the modal immediately:
-    // main.cpp has deferred the main window for this build, so there is
-    // nothing to sit behind and no blank gap.
-    const int rc = runWisdomCall(dir, /*showModalImmediately=*/true);
-
-    // Verify the file landed (Thetis just trusts the write; we log so a
-    // "rebuilds every launch" report has an unambiguous cause).  A missing
-    // / empty file here = the write itself was blocked (folder shield /
-    // permissions) -- the ONE thing an antivirus can still do, but now
-    // there is no separate rename step to also block.
-    const QString finalFile = wisdomFilePath();
-    const QFileInfo finalInfo(finalFile);
-    if (!finalInfo.exists() || finalInfo.size() == 0) {
-        logWisdom(QStringLiteral(
-            "[wdsp] wisdom: BUILD FAILED — no usable wisdom file at %1 "
-            "after WDSPwisdom (rc=%2) -- the write was blocked "
-            "(antivirus folder shield / permissions?)")
-            .arg(finalFile).arg(rc));
-        return false;
+    // Publish atomically only when the file is new/changed: a fresh build
+    // (rebuilt) or a first-ever build (!haveExisting).  A clean import
+    // (rc==0, existing) left finalFile untouched — the work copy is
+    // byte-identical, so there is nothing to publish.
+    if (haveWork && (rebuilt || !haveExisting)) {
+        QString err;
+        if (atomicReplaceFile(workFile, finalFile, &err)) {
+            logWisdom(QStringLiteral(
+                "[wdsp] wisdom: published %1 bytes atomically to %2")
+                .arg(QFileInfo(finalFile).size()).arg(finalFile));
+        } else {
+            logWisdom(QStringLiteral(
+                "[wdsp] wisdom: atomic publish blocked (%1).  Plans are live "
+                "this session; next launch rebuilds — no torn file left.")
+                .arg(err));
+        }
     }
-    logWisdom(QStringLiteral(
-        "[wdsp] wisdom: built in %1 s (rc=%2), %3 bytes written to %4")
-        .arg(t.elapsed() / 1000).arg(rc)
-        .arg(finalInfo.size()).arg(finalFile));
-    // Wisdom was just built from scratch -> any pre-existing
-    // impulse_cache.dat is stale (hashed against the old plan world);
-    // treat as rebuilt so it is deleted + the read skipped.
-    initImpulseCache(dir, /*wisdomRebuilt=*/true);
+    if (haveWork) QDir(workDir).removeRecursively();
+
+    initImpulseCache(dir, rebuilt);
     return true;
 }
 
