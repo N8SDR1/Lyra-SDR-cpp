@@ -17,6 +17,7 @@
 #include "dsp/ParamEq.h"     // #59 — RX EQ engine (processMonoDup / bypassed)
 #include "dsp/EqAnalyzer.h"  // #59 — RX EQ analyzer feed (pre/post)
 #include "wire/CMaster.h" // #158 Stage 4 — SendpInboundVacTxAudio (VAC-in seam)
+#include "rig/RigScope.h" // #2 — per-rig audio-route scoping (scope::rigKey / migrate)
 #include <QDataStream>
 #include <QDateTime>
 #include <QDebug>
@@ -42,6 +43,20 @@
 #endif
 
 namespace {
+
+// #2 — per-rig audio-route setting keys.  The output PATH (radio jack vs
+// PC soundcard) and the chosen PC device are per-RADIO, not global: the
+// operator runs one rig on its onboard jack (Hermes AK4951 -> line-in
+// cable) and another over PC audio (Brick, single line-in already taken).
+// Scoping to the active rig lets each remember its own path; a rig switch
+// restarts the app (mainwindow switchRig), so the WdspEngine ctor below
+// reloads under the new rig's scope automatically — no live re-apply.
+QString audioOutputKey() {
+    return lyra::rig::scope::rigKey(QStringLiteral("audio/output"));
+}
+QString audioDeviceKey() {
+    return lyra::rig::scope::rigKey(QStringLiteral("audio/deviceName"));
+}
 
 // C++ half of the guarded enumeration — kept OUT of the __try function below
 // because it allocates QList / QAudioDevice temporaries, and an SEH frame that
@@ -460,8 +475,12 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     monVolume_.store(std::clamp(
         s.value(QStringLiteral("audio/monVolume"), 0.5).toDouble(), 0.0, 1.0),
         std::memory_order_relaxed);
+    // #2 — one-time relocate the legacy flat audio-route keys onto the
+    // active rig, then read them per-rig (audioOutputKey/audioDeviceKey).
+    lyra::rig::migrate::migrateKeyToActiveRig(QStringLiteral("audio/deviceName"));
+    lyra::rig::migrate::migrateKeyToActiveRig(QStringLiteral("audio/output"));
     const QString savedDev =
-        s.value(QStringLiteral("audio/deviceName")).toString();
+        s.value(audioDeviceKey()).toString();
     if (!savedDev.isEmpty()) {
         for (int i = 0; i < devices_.size(); ++i) {
             if (devices_[i].description() == savedDev) {
@@ -472,7 +491,7 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     }
     // Output routing: HL2 onboard codec (default — old Lyra's HL2 path)
     // unless the operator previously chose a PC device.
-    hl2Out_ = s.value(QStringLiteral("audio/output"),
+    hl2Out_ = s.value(audioOutputKey(),
                       QStringLiteral("hl2")).toString() != QLatin1String("pc");
     // #158 — VAC1 persisted state (Settings → Audio).  Applied at stream
     // open (rebuildVac1 in openRx1) + live via the setters below.
@@ -3577,7 +3596,7 @@ void WdspEngine::setAudioOutputDevice(int index)
         // HL2 onboard codec: stop the PC sink, route audio to EP2.
         if (!hl2Out_) {
             hl2Out_ = true;
-            QSettings().setValue(QStringLiteral("audio/output"),
+            QSettings().setValue(audioOutputKey(),
                                  QStringLiteral("hl2"));
             if (running_) stopAudio();          // drop the QAudioSink
             emit audioDeviceChanged();
@@ -3596,9 +3615,9 @@ void WdspEngine::setAudioOutputDevice(int index)
     }
     hl2Out_      = false;
     deviceIndex_ = devIdx;
-    QSettings().setValue(QStringLiteral("audio/output"),
+    QSettings().setValue(audioOutputKey(),
                          QStringLiteral("pc"));
-    QSettings().setValue(QStringLiteral("audio/deviceName"),
+    QSettings().setValue(audioDeviceKey(),
                          devices_[devIdx].description());
     emit audioDeviceChanged();
     emitLog(QStringLiteral("[wdsp] audio: output device -> %1")
@@ -3640,7 +3659,7 @@ void WdspEngine::applyAudioRouteTransient(bool hl2,
     if (devIdx < 0) {
         // Fall back to the operator's persisted PC device choice.
         const QString saved =
-            QSettings().value(QStringLiteral("audio/deviceName")).toString();
+            QSettings().value(audioDeviceKey()).toString();
         for (int i = 0; i < devices_.size(); ++i)
             if (devices_[i].description() == saved) { devIdx = i; break; }
     }
@@ -3663,10 +3682,10 @@ void WdspEngine::restoreAudioRouteFromSettings()
 {
     QSettings s;
     const bool hl2 =
-        s.value(QStringLiteral("audio/output"), QStringLiteral("hl2"))
+        s.value(audioOutputKey(), QStringLiteral("hl2"))
             .toString() != QLatin1String("pc");
     applyAudioRouteTransient(
-        hl2, s.value(QStringLiteral("audio/deviceName")).toString());
+        hl2, s.value(audioDeviceKey()).toString());
 }
 
 // Stage B.6.a (2026-06-08) -- pure extraction from feedIq's inline
