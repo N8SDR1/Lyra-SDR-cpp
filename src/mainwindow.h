@@ -137,6 +137,13 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    // Crash-guard tightening: cleared to true the moment ANY QML panel
+    // renders its first frame (see makeQuick).  That proves the graphics /
+    // RHI / scene-graph path built + rendered OK, so the graphics
+    // safe-mode ladder's "startup pending" sentinel is dropped early — a
+    // crash AFTER first paint (e.g. a DSP/network fault) is then not
+    // mis-attributed to graphics.  One-shot guard.
+    bool gfxSentinelCleared_ = false;
     // Build a QQuickWidget that hosts <qmlFile> from the Lyra QML
     // module, with the four service objects set as context properties
     // BEFORE the source loads.

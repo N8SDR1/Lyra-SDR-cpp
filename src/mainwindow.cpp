@@ -88,6 +88,7 @@
 #include <QPixmap>
 #include <QQmlContext>
 #include <QQuickWidget>
+#include <QQuickWindow>   // frameSwapped — crash-guard first-frame sentinel clear
 #include <QQuickItem>
 #include <QSettings>
 #include <QVariant>
@@ -1163,6 +1164,30 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
     qw->rootContext()->setContextProperty(
         QStringLiteral("Converter"), converter_); // #201 offline MP4 converter
     qw->setSource(QUrl(QStringLiteral("qrc:/qt/qml/Lyra/src/qml/") + qmlFile));
+    // Crash-guard tightening: the moment ANY panel swaps its first frame,
+    // the RHI / GPU / scene-graph path has provably built + rendered, so
+    // drop the graphics "startup pending" sentinel NOW rather than waiting
+    // for the 2 s timer in main.cpp.  Otherwise a crash that lands AFTER
+    // the UI is up but before that timer (e.g. a DSP/network fault "when
+    // audio hits") leaves the sentinel set and the NEXT launch wrongly
+    // steps the graphics backend down + can reset the layout — the mis-
+    // attribution this fixes.  One-shot (gfxSentinelCleared_ guard) and
+    // self-disconnecting; the 2 s timer remains the fallback if no frame
+    // ever swaps.  A genuine GPU crash happens DURING scene-graph build,
+    // before any frameSwapped, so it still leaves the sentinel set and the
+    // ladder still arms — this only clears it once graphics is proven good.
+    if (QQuickWindow *qwin = qw->quickWindow()) {
+        auto conn = std::make_shared<QMetaObject::Connection>();
+        *conn = connect(qwin, &QQuickWindow::frameSwapped, this,
+                        [this, conn]() {
+            if (!gfxSentinelCleared_) {
+                gfxSentinelCleared_ = true;
+                QSettings().setValue(QStringLiteral("ui/gfxStartupPending"),
+                                     false);
+            }
+            QObject::disconnect(*conn);
+        });
+    }
     // Diagnostic: if a panel's QML fails to load, the QQuickWidget goes
     // blank — dump the errors so we don't have to guess.
     if (qw->status() == QQuickWidget::Error) {
