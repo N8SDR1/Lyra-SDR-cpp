@@ -495,6 +495,14 @@ void P2Session::open(const QString &ip) {
     // status stream starts.  First HP goes immediately; the timer
     // refreshes it every 100 ms which doubles as the keepalive.
     sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
+    // A prior unclean exit (force-kill) leaves the radio still streaming to
+    // the now-dead session.  Now that the general packet has (re)claimed the
+    // controller lease for our new source port, send an explicit run=0 so the
+    // radio halts any lingering stream before we (re)start it fresh below —
+    // this shrinks the stale-IQ flood the run() gate in parseIqFrame drops.
+    // On a clean start the radio isn't streaming yet, so this is a no-op.
+    sock_.writeDatagram(buildHighPriorityPacket(false), radioAddr_,
+                        kPortHpToSdr);
     sock_.writeDatagram(P2TxPackets::encodeDucSpecific(ducConfig_),
                         radioAddr_, kPortDucConfig);
     sock_.writeDatagram(buildDdcSpecificPacket(), radioAddr_, kPortDdcConfig);
@@ -852,6 +860,18 @@ void P2Session::parseIqFrame(int ddc, const QByteArray &d) {
     if (bits != 24 || spp != kIqSamplesPerFrame) {
         // Unexpected framing — count it as a stream error and drop.
         ++iqSeqErrors_;
+        return;
+    }
+
+    // Drop IQ that arrives BEFORE this session's status handshake completes
+    // (running_ is set by parseStatus on the radio's first status packet for
+    // THIS session, and cleared in open()).  A prior unclean exit (force-kill)
+    // leaves the radio still streaming stale frames to the dead session; if
+    // those are fed into a not-yet-confirmed RX pipeline they overrun WDSP's
+    // buffers — the "arm-before-feed" heap corruption seen on a restart after
+    // a kill.  Once the new session is confirmed active we accept IQ normally.
+    // On a clean start the radio sends status before IQ, so this drops nothing.
+    if (!running_) {
         return;
     }
 
