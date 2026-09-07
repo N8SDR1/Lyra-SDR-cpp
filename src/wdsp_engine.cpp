@@ -593,14 +593,22 @@ void WdspEngine::emitLog(const QString &line)
 
 void WdspEngine::configureAnalyzerForRx() noexcept
 {
+    // Public form: acquire analyzerMtx_ then run the body.  Callers hold
+    // channelMtx_; order stays channelMtx_ -> analyzerMtx_.
+    std::lock_guard<std::mutex> lk(analyzerMtx_);
+    configureAnalyzerForRx_locked();
+}
+
+void WdspEngine::configureAnalyzerForRx_locked() noexcept
+{
+    // PRECONDITION: analyzerMtx_ held by caller.  Split from the public
+    // form so openRx1 can hold analyzerMtx_ across XCreateAnalyzer +
+    // this configure as one critical section (no reader observes a
+    // created-but-unconfigured analyzer), without re-taking the
+    // non-recursive analyzerMtx_.
     if (!analyzerOpen_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
     if (!api.SetAnalyzer) return;
-
-    // Take analyzerMtx_ so feedTxSpectrumFromSip1() can't slip a
-    // Spectrum0 between this SetAnalyzer reconfigure and the
-    // txAnalyzerBfSize_ atomic store below (amendment A.5).
-    std::lock_guard<std::mutex> lk(analyzerMtx_);
 
     // overlap + max_w per the frame-rate formula.  max_w sizes an
     // internal display-history buffer — passing 0 makes WDSP crash on
@@ -664,12 +672,17 @@ void WdspEngine::configureAnalyzerForRx() noexcept
 
 void WdspEngine::configureAnalyzerForTx() noexcept
 {
+    // Public form — symmetric with configureAnalyzerForRx().
+    std::lock_guard<std::mutex> lk(analyzerMtx_);
+    configureAnalyzerForTx_locked();
+}
+
+void WdspEngine::configureAnalyzerForTx_locked() noexcept
+{
+    // PRECONDITION: analyzerMtx_ held by caller.
     if (!analyzerOpen_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
     if (!api.SetAnalyzer) return;
-
-    // analyzerMtx_ — symmetric with configureAnalyzerForRx().
-    std::lock_guard<std::mutex> lk(analyzerMtx_);
 
     // TX-state sizing — REFERENCE MECHANISM (v2.3): the WDSP sip1
     // siphon auto-feeds Spectrum0 via TXASetSipMode(1)+TXASetSipDisplay
@@ -943,10 +956,17 @@ bool WdspEngine::openRx1()
     if (api.XCreateAnalyzer && api.SetAnalyzer) {
         int success = 0;
         char appDataPath[] = "";   // empty app-data path (no temp files)
+        // Hold analyzerMtx_ across create + configure + flag as one
+        // critical section: a GetPixels reader (copySpectrum/
+        // copyWaterfallSpectrum) can never observe the analyzer between
+        // XCreateAnalyzer and its configure, nor a closeRx1 Destroy
+        // mid-read.  Caller holds channelMtx_ -> order channelMtx_ ->
+        // analyzerMtx_.
+        std::lock_guard<std::mutex> lk(analyzerMtx_);
         api.XCreateAnalyzer(kAnDisp, &success, kAnMaxFft, 1, 1, appDataPath);
         if (success == 0) {
             analyzerOpen_ = true;
-            configureAnalyzerForRx();
+            configureAnalyzerForRx_locked();
             emitLog(QStringLiteral(
                 "[wdsp] analyzer: %1 pixels, fft %2, window %3 "
                 "(panadapter source)")
@@ -1125,8 +1145,18 @@ void WdspEngine::closeRx1()
     }
     levelsTimer_.stop();
     stopAudio();
-    if (analyzerOpen_ && api.DestroyAnalyzer) {
-        api.DestroyAnalyzer(kAnDisp);
+    {
+        // Guard Destroy + flag under analyzerMtx_ so a GUI-thread
+        // GetPixels reader can't be mid-read when the analyzer is freed
+        // (the confirmed rate-change UAF: setSampleRate on the P2
+        // session thread -> closeRx1 -> DestroyAnalyzer).  Caller holds
+        // channelMtx_ -> order channelMtx_ -> analyzerMtx_.  The lock
+        // wraps only the Destroy call (microseconds); the blocking
+        // SetChannelState flush above is outside it.
+        std::lock_guard<std::mutex> lk(analyzerMtx_);
+        if (analyzerOpen_ && api.DestroyAnalyzer) {
+            api.DestroyAnalyzer(kAnDisp);
+        }
         analyzerOpen_ = false;
     }
     audioDbFs_.store(-200.0, std::memory_order_relaxed);
@@ -2157,7 +2187,7 @@ void WdspEngine::cropSpectrum(const float *full, float *dst, int n,
 
 int WdspEngine::copySpectrum(float *dst, int maxN)
 {
-    if (!analyzerOpen_ || dst == nullptr) {
+    if (dst == nullptr) {
         return 0;
     }
     const WdspApi &api = wdsp_->api();
@@ -2177,8 +2207,22 @@ int WdspEngine::copySpectrum(float *dst, int maxN)
     if (static_cast<int>(specCache_.size()) != kAnPixels) {
         specCache_.assign(kAnPixels, -200.0f);
     }
-    int flag = 0; double ref = 0.0;
-    api.GetPixels(kAnDisp, 0, specCache_.data(), &flag, &ref);
+    // Guard the analyzerOpen_ check + GetPixels under analyzerMtx_ so a
+    // rate-change reopen (setSampleRate -> closeRx1/openRx1 on the P2
+    // session thread) can't Destroy the analyzer mid-read.  try_lock: this
+    // GUI-thread reader must NEVER block on the reopen (XCreateAnalyzer can
+    // take a few ms) — a contended tick skips the refresh and serves the
+    // retained last-good specCache_ (a 1-2 frame frozen trace, never a
+    // stall or a UAF).
+    {
+        std::unique_lock<std::mutex> lk(analyzerMtx_, std::try_to_lock);
+        if (lk.owns_lock()) {
+            if (!analyzerOpen_) return 0;   // mid-reopen gap -> bail clean
+            int flag = 0; double ref = 0.0;
+            api.GetPixels(kAnDisp, 0, specCache_.data(), &flag, &ref);
+        }
+        // try_lock failed -> skip refresh, fall through, serve specCache_.
+    }
     const float *full = specCache_.data();
 
     const double z = zoom_.load(std::memory_order_relaxed);
@@ -2216,7 +2260,7 @@ int WdspEngine::copySpectrum(float *dst, int maxN)
 // per phased scope choice) adds pixout=1 RX averaging.
 int WdspEngine::copyWaterfallSpectrum(float *dst, int maxN)
 {
-    if (!analyzerOpen_ || dst == nullptr) {
+    if (dst == nullptr) {
         return 0;
     }
     const WdspApi &api = wdsp_->api();
@@ -2226,7 +2270,8 @@ int WdspEngine::copyWaterfallSpectrum(float *dst, int maxN)
 
     // RX state — fall through to copySpectrum (which reads pixout=0).
     // The waterfall and panadapter share that buffer in RX, matching
-    // pre-§15.29 behaviour.
+    // pre-§15.29 behaviour.  Delegate BEFORE taking analyzerMtx_:
+    // copySpectrum locks it itself, and analyzerMtx_ is non-recursive.
     if (!txOwnsAnalyzer_.load(std::memory_order_acquire)) {
         return copySpectrum(dst, maxN);
     }
@@ -2239,8 +2284,16 @@ int WdspEngine::copyWaterfallSpectrum(float *dst, int maxN)
     if (static_cast<int>(wfCache_.size()) != kAnPixels) {
         wfCache_.assign(kAnPixels, -200.0f);
     }
-    int flag = 0; double ref = 0.0;
-    api.GetPixels(kAnDisp, 1, wfCache_.data(), &flag, &ref);
+    // Same analyzer-lifetime guard as copySpectrum: try_lock, and on a
+    // failed lock (or the mid-reopen gap) serve the retained wfCache_.
+    {
+        std::unique_lock<std::mutex> lk(analyzerMtx_, std::try_to_lock);
+        if (lk.owns_lock()) {
+            if (!analyzerOpen_) return 0;
+            int flag = 0; double ref = 0.0;
+            api.GetPixels(kAnDisp, 1, wfCache_.data(), &flag, &ref);
+        }
+    }
     const float *full = wfCache_.data();
 
     const double z = zoom_.load(std::memory_order_relaxed);

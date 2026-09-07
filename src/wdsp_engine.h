@@ -960,12 +960,21 @@ private:
     // max_w 13696.  Both helpers are pure WDSP reconfiguration — the
     // analyzer ID + lifecycle stay owned by openRx1/closeRx1.
     //
-    // PRECONDITION (both): channelMtx_ held by caller.  Matches the
-    // openRx1 caller-holds convention.  Both ALSO acquire
-    // analyzerMtx_ internally to serialize SetAnalyzer vs Spectrum0
-    // feeds (amendment A.5).  No-op if analyzerOpen_ is false.
+    // PRECONDITION (both public forms): channelMtx_ held by caller.
+    // Matches the openRx1 caller-holds convention.  The public forms
+    // acquire analyzerMtx_ internally to serialize the SetAnalyzer
+    // reconfigure vs Spectrum0 feeds AND vs the GetPixels readers
+    // (amendment A.5 + the analyzer-lifetime extension: analyzerMtx_
+    // is now taken by copySpectrum/copyWaterfallSpectrum too, so a
+    // rate-change reopen can't free the analyzer under a paint read).
+    // The _locked forms carry the body; PRECONDITION: caller ALSO
+    // holds analyzerMtx_ (openRx1 holds it across XCreateAnalyzer +
+    // configure so no reader sees a created-but-unconfigured analyzer).
+    // No-op if analyzerOpen_ is false.
     void configureAnalyzerForRx() noexcept;
     void configureAnalyzerForTx() noexcept;
+    void configureAnalyzerForRx_locked() noexcept;   // analyzerMtx_ held
+    void configureAnalyzerForTx_locked() noexcept;   // analyzerMtx_ held
 
     // P4.b TUN display-honesty crop helpers (shared by copySpectrum +
     // copyWaterfallSpectrum).  txAnalyzerOffBins() converts the live
