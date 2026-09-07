@@ -26,6 +26,7 @@ not programmers — if you can click a menu, you can use this.
 - [Why "Lyra"?](#why-lyra)
 - [System requirements](#system-requirements)
 - [Getting started](#getting-started)
+- [Multiple radios & switching rigs](#multiple-radios--switching-rigs)
 - [The header (top toolbar)](#the-header-top-toolbar)
 - [The status bar (bottom — HL2 telemetry)](#the-status-bar-bottom--hl2-telemetry)
 - [Getting around the window](#getting-around-the-window)
@@ -316,6 +317,56 @@ optimization on next start"**, e.g. after a CPU change.)
 The version is shown in the **title bar** and under **Help → About
 Lyra…**. Include it when reporting a problem so it can be matched to the
 exact build.
+
+---
+
+## Multiple radios & switching rigs
+
+Lyra can manage more than one radio — a Hermes Lite 2 / 2+ on **Protocol 1**
+and a **Protocol-2** radio such as a **BrickSDR2** or **ANAN G2** — and keep
+**separate settings for each**. Every saved radio is a **"rig,"** and each
+rig remembers its own:
+
+- radio model, filter board, and antenna choice;
+- **audio output path and device** — e.g. Hermes out its own headphone jack,
+  the Brick out your PC soundcard — set once per rig and remembered (see
+  *Setting up audio output*);
+- band / frequency / mode memory, frequency calibration, meter and DSP
+  settings, and profile bindings.
+
+You still connect to **one radio at a time**; "rigs" are about keeping each
+radio's configuration in its own drawer so nothing bleeds between them.
+
+### The Rig menu
+
+The **Rig** menu (in the menu bar at the top of the window) lists your rigs
+with the active one checked, plus:
+
+- **Add rig…** — create a rig by name; the MAC address is optional, so you
+  can pre-stage a rig before its hardware is on the bench.
+- **Rename active rig…**
+- **Manage rigs (Settings → Hardware)…** — opens the radio list.
+
+A rig is also created **automatically** the first time you connect to a new
+radio.
+
+### Switching rigs
+
+Pick a rig from the **Rig** menu. Because Lyra loads a rig's settings at
+**startup**, switching restarts the app so the new rig comes up cleanly:
+
+- **Restart now** — Lyra relaunches on the chosen rig and (if *Auto-start
+  radio on launch* is on) connects to it.
+- **Later** — the switch takes effect on your next launch.
+- **Cancel** — stay on the current rig.
+
+Lyra **won't switch while you're transmitting** — unkey first. Opening a
+radio in **Settings → Hardware → Radio** that belongs to a different rig
+offers to switch to that rig for you.
+
+> Because each rig keeps its own audio path, you set **Hermes → the radio
+> jack** and the **Brick → PC audio** just once each, and Lyra selects the
+> right one automatically every time you switch — no re-choosing the output.
 
 ---
 
@@ -963,7 +1014,10 @@ your station is wired:
 - **PC sound device** — your computer's speakers, headset, or USB audio
   interface (or a virtual cable to another program).
 
-You can switch any time; Lyra remembers your choice.
+You can switch any time; Lyra remembers your choice **per rig** — each
+radio keeps its own output path and device, so a Hermes set to its jack and
+a Brick set to your PC soundcard each come back correctly when you switch
+between them (see *Multiple radios & switching rigs*).
 
 **Which one:**
 
@@ -2671,7 +2725,8 @@ Turn it on in **Settings → Bands → SW Database**:
 
 ### Radio
 
-Find and connect to your HL2 / HL2+. **Discover** scans the LAN, **Open**
+Find and connect to your radio — an HL2 / HL2+ (Protocol 1) or a Protocol-2
+radio (BrickSDR2 / ANAN G2). **Discover** scans the LAN, **Open**
 connects to the selected radio (or just **double-click** it), **Close**
 disconnects, and the status line shows what you're connected to. The
 **connected radio is shown green and bold** in the list, so with several
@@ -2682,7 +2737,9 @@ thing.)
 **Multiple radios.** Keep as many radios in the list as you like and switch
 between them: select one (or double-click) → **Open**; to change radios,
 **Close** the current one first, then Open another. Lyra connects to one
-radio at a time.
+radio at a time. To keep **separate settings per radio** (model, filter,
+audio path, band memory, calibration…) use the **Rig** menu — see
+[Multiple radios & switching rigs](#multiple-radios--switching-rigs).
 
 - **Add by IP** — type a radio's address (e.g. `192.168.1.50`) and click
   **Add** for a radio **Discover** can't reach: a fixed-IP HL2, one on a
@@ -2963,7 +3020,9 @@ Where Lyra sends received audio:
   headphones, a virtual audio cable to WSJT-X / FLDigi, etc.).
 
 Pick your output device here; everyday **Mute** and **Vol** stay on the
-[Audio panel](#audio-panel).
+[Audio panel](#audio-panel). This choice is saved **per rig** — each radio
+remembers its own output path and device across rig switches (see
+[Multiple radios & switching rigs](#multiple-radios--switching-rigs)).
 
 **Filter Low edge (RX + TX)** — single shared low cutoff for the
 SSB / DIG audio bandpass on both receive and transmit. Range
