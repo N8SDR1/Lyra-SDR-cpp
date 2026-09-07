@@ -249,13 +249,25 @@ void create_xmtr()
 			0.0,								// pdelay
 			1);									// amiq
 		// interleave (for eer)
+		// Lyra-native sizing fix (2026-09-07): the reference sizes the ILV
+		// outbuff at the create-time ch_outsize and NEVER re-rates the xmtr,
+		// so ch_outsize is always its max.  Lyra's P2 DUC path raises the
+		// interleaver insize to 192k at RUNTIME (SetXmtrDucOutrate ->
+		// pSetILVInsize) while the outbuff stayed sized for the 48k create
+		// rate -> xilv's memcpy/interleave overran it (heap corruption,
+		// dump-confirmed in xilv).  Allocate the outbuff for cmMAXTxOutRate
+		// exactly as the xmtr out[] buffers are (line ~182), then set the
+		// WORKING insize back to the channel's real initial size.  The max
+		// is only the buffer CAPACITY; a later SetXmtr*Outrate never exceeds
+		// it, so the interleaver can never overrun again.
 		pcm->xmtr[i].pilv = create_ilv(
 			0,									// run
 			1,									// id to use in Outbound call
-			pcm->xmtr[i].ch_outsize,			// input buffer size
+			getbuffsize (pcm->cmMAXTxOutRate),	// outbuff CAPACITY = max DUC rate
 			2,									// maximum number of inputs
 			3,									// which streams to interleave, one bit per stream
 			pcm->OutboundTx);					// function to call with Outbound data
+		pSetILVInsize (pcm->xmtr[i].pilv, pcm->xmtr[i].ch_outsize);	// working size = real initial rate
 
 		// DEFERRED [sidetone — CW v0.2.2] — reference
 		// cmaster.c:235-251:
