@@ -367,6 +367,7 @@ void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
         txIntent_ = {};
     }
 
+    txSafety_.transportRunning = txWriter_.isRunning();
     const auto effective = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
     if (open_)
         applyTxControlNow();
@@ -390,6 +391,10 @@ void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
 void P2Session::applyTxControlNow() {
     if (!open_)
         return;
+    // Authorise the wire transmit/PA/drive bytes against the LIVE transport
+    // state, never a stale prime latch. buildGeneral/HighPriority below also
+    // re-evaluate the gate, so refreshing here covers them too.
+    txSafety_.transportRunning = txWriter_.isRunning();
     const bool transmitting =
         P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit;
 
@@ -410,6 +415,7 @@ void P2Session::applyTxControlNow() {
 void P2Session::emitTxState(const QString &detail) {
     if (!detail.isEmpty())
         txStateDetail_ = detail;
+    txSafety_.transportRunning = txWriter_.isRunning();
     const auto effective = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
     emit txStateChanged(
         txWriter_.isRunning() && txSafety_.iqPrimed &&
@@ -543,6 +549,10 @@ void P2Session::onHpTick() {
         txSafety_.telemetryHealthy = false;
         latchTxFault(QStringLiteral("status telemetry timeout"));
     }
+    // The periodic HP packet re-derives transmit/PA/drive from the gate; keep
+    // the live transport-running input fresh so a stopped writer can't be
+    // reinforced into an authorised-but-dead keyed state.
+    txSafety_.transportRunning = txWriter_.isRunning();
     sock_.writeDatagram(buildHighPriorityPacket(true),
                         radioAddr_, kPortHpToSdr);
     // Periodic DDC-specific refresh (see kDdcRefreshTicks rationale).
@@ -688,6 +698,12 @@ void P2Session::onTxTransportCadenceFault(const QString &reason) {
     // restart timers from inside the faulting timer callback).
     if (!open_ || !running_)
         return;
+    // Tear the transport down NOW (clears iqPrimed) so the safety gate refuses
+    // any key-up that lands before the deferred re-prime runs; the re-prime is
+    // deferred only to avoid restarting timers from inside the faulting timer
+    // callback. Mirrors latchTxFault's synchronous stopTxTransport in the
+    // keyed branch (same fault-sink context, proven safe).
+    stopTxTransport();
     emit logLine(QStringLiteral(
         "P2 TX: %1 while RX-idle (RF-inert); re-priming transport")
         .arg(reason));

@@ -11,6 +11,7 @@ P2TxEffectiveState P2TxSafetyGate::evaluate(
     state.ready = inputs.operatorArmed &&
                   inputs.sessionRunning &&
                   inputs.iqPrimed &&
+                  inputs.transportRunning &&
                   inputs.telemetryHealthy &&
                   inputs.watchdogEnabled &&
                   !inputs.faultLatched;

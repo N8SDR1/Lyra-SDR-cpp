@@ -20,6 +20,12 @@ struct P2TxSafetyInputs {
     bool operatorArmed = false;
     bool sessionRunning = false;
     bool iqPrimed = false;
+    // The DUC-IQ writer is actually running RIGHT NOW. iqPrimed is a latched
+    // "was primed" flag; a cadence fault can stop the writer without clearing
+    // it (e.g. RX-idle re-prime in flight). Sourced live from the writer at
+    // each evaluation so the wire can never authorise transmit/PA/drive into
+    // a dead transport (empty/garbage keyed carrier). Fails closed.
+    bool transportRunning = false;
     bool telemetryHealthy = false;
     bool watchdogEnabled = true;
     bool faultLatched = false;
