@@ -1099,6 +1099,15 @@ VB-CABLE) — it appears as both a playback and a recording device.
 There's an option to auto-enable VAC1 when you switch to a digital mode.
 VAC1 also carries **PC → TX** (covered in *Setting up your mic input*).
 
+> **Both ends, or neither.** VAC1 is one two-way stream carrying *both*
+> RX→PC and PC→TX. It opens both directions together, so if the **Input
+> device** (PC→TX side) is missing or held by another app, the whole cable
+> fails to open — you lose RX→PC audio *too*, not just transmit. If digital
+> RX suddenly goes silent, check that **both** the VAC Input and Output
+> devices in Settings → Audio are set to real, free devices (Lyra logs
+> "VAC off this session" when the open fails). Close any app holding the
+> cable and re-enable VAC1.
+
 **Latency (for fast ARQ modes like VarAC).** Two controls tune how much
 buffering the cable carries:
 
@@ -1157,6 +1166,17 @@ Mic source**:
 
 *(VAC2 appears greyed out — planned for a later version.)* Only
 one source is live at a time — whatever's selected goes on the air.
+
+**Remembered per radio.** The mic source is saved **per rig**, so a
+Hermes Lite on its codec mic and a Brick on a PC mic each keep their own
+setting when you switch rigs — set it once per radio.
+
+**No usable mic jack? (some Brick / ANAN setups)** Not every rig has a mic
+jack you can use — for example a Brick whose RX audio already runs over the
+network to your PC. For those, transmit with a **PC Soundcard (VAC1)** mic
+for voice, or **TCI (digital modes)** for FT8/etc. — both work on any rig,
+including the Brick. The "Mic In" default only applies to a radio with an
+onboard codec mic (e.g. the Hermes Lite 2's jack).
 
 **Which one:**
 
