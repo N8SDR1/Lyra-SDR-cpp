@@ -303,14 +303,25 @@ private:
     bool         micSeqStarted_ = false;
     quint32      micSeqErrors_ = 0;
     QElapsedTimer micRateTimer_;
-    // S2b — the live mic drives the modulator. parseMic decodes into this
-    // {I=mic, Q=0} block; feedTxProducer hands it to the modulator on the
-    // next pump tick. Same session thread as the pump, so no lock needed.
-    // Size is 2*kMicFrames as a literal (the kMic* constants are declared
-    // below the members, matching the ddc arrays' use of literal 10);
-    // feedTxProducer static_asserts the two agree.
-    std::array<double, 2 * 64> latestMicBlock_{};
-    bool micFresh_ = false;
+    // S2b — the live mic drives the modulator through an elastic FIFO.
+    // parseMic (radio mic clock) pushes each decoded {I=mic, Q=0} block;
+    // feedTxProducer (PC pump clock) drains one block per tick. Both run on
+    // the session thread, so no lock is needed. The two clocks average the
+    // same 48 kHz but the socket delivers mic datagrams in bursts while the
+    // pump fires on its own timer, so their events are NOT interleaved 1:1
+    // on the event loop. A single-block hand-off dropped a mic block on
+    // every burst and zero-stuffed the following pump tick -> the modulator
+    // was fed mostly zeros and garbled the transmitted audio. The ring, with
+    // a small prime cushion, absorbs that batching jitter: underrun feeds
+    // zeros (and re-primes), overrun drops the oldest block.
+    // Capacity/prime as literals; feedTxProducer static_asserts the block
+    // width against 2*kMicFrames (kMic* constants are declared below).
+    static constexpr int kMicFifoCap    = 32;  // ring capacity (~43 ms)
+    static constexpr int kMicPrimeBlocks = 6;  // cushion before draining (~8 ms)
+    std::array<std::array<double, 2 * 64>, 32> micFifo_{};
+    int  micFifoHead_  = 0;     // index of the next block to drain
+    int  micFifoCount_ = 0;     // blocks currently queued
+    bool micPrimed_    = false; // false until the cushion first fills
     // The terminal feed the bridge installs (-> feedP2TxCmasterInput).
     P2TxPump::InputSink txProducerTerminal_;
     const P2HardwareProfile *profile_ = nullptr;

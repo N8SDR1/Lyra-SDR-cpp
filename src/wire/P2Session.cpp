@@ -801,6 +801,11 @@ void P2Session::parseMic(const QByteArray &d) {
     const quint32 seq = rdBeU32(p);
     // 64 big-endian signed 16-bit mono samples follow the 4-byte sequence.
     const auto *s = reinterpret_cast<const std::uint8_t *>(p + 4);
+    // Push this datagram's 64 samples onto the tail of the elastic FIFO.
+    // Overrun (a burst outran the pump) drops the oldest block so latency
+    // stays bounded; the pump drains from the head on its own cadence.
+    const int tail = (micFifoHead_ + micFifoCount_) % kMicFifoCap;
+    auto &block = micFifo_[static_cast<std::size_t>(tail)];
     double peak = 0.0;
     for (int i = 0; i < kMicFrames; ++i) {
         const auto raw = static_cast<qint16>(
@@ -808,10 +813,16 @@ void P2Session::parseMic(const QByteArray &d) {
         const double v = raw * (1.0 / 32768.0);
         peak = std::max(peak, std::abs(v));
         // {I = mic, Q = 0} — the modulator's real-input convention.
-        latestMicBlock_[static_cast<std::size_t>(2 * i)]     = v;
-        latestMicBlock_[static_cast<std::size_t>(2 * i + 1)] = 0.0;
+        block[static_cast<std::size_t>(2 * i)]     = v;
+        block[static_cast<std::size_t>(2 * i + 1)] = 0.0;
     }
-    micFresh_ = true;
+    if (micFifoCount_ < kMicFifoCap) {
+        ++micFifoCount_;
+    } else {
+        // Full: the block we just wrote overwrote the oldest slot, so step
+        // the head past it too (drop-oldest, keeping the freshest audio).
+        micFifoHead_ = (micFifoHead_ + 1) % kMicFifoCap;
+    }
 
     if (micSeqStarted_ && seq != micSeqNext_)
         ++micSeqErrors_;
@@ -837,7 +848,7 @@ void P2Session::parseMic(const QByteArray &d) {
 
 bool P2Session::feedTxProducer(const double *pumpZeros, int n) {
     static_assert(2 * kMicFrames == 128,
-                  "latestMicBlock_ literal size (2*64) must equal 2*kMicFrames");
+                  "micFifo_ block literal size (2*64) must equal 2*kMicFrames");
     if (!txProducerTerminal_)
         return false;
     // Live radio mic drives the modulator when a fresh block is available;
@@ -845,10 +856,22 @@ bool P2Session::feedTxProducer(const double *pumpZeros, int n) {
     // prime before the mic stream starts, and gap-fill if it slips). RF stays
     // MOX-gated regardless — feeding mic in RX only shapes inert DUC-IQ.
     //
-    if (micFresh_) {
-        micFresh_ = false;
-        return txProducerTerminal_(latestMicBlock_.data(), kMicFrames);
+    // Prime once the cushion fills, then drain a block per tick. Underrun
+    // (the pump briefly outran the mic) feeds zeros and re-arms priming so
+    // the next drain waits for the cushion to rebuild rather than chattering
+    // one block ahead of the producer. Steady state sits near the cushion
+    // depth with only the small ppm drift between the two 48 kHz clocks.
+    if (!micPrimed_ && micFifoCount_ >= kMicPrimeBlocks) {
+        micPrimed_ = true;
     }
+    if (micPrimed_ && micFifoCount_ > 0) {
+        const double *block = micFifo_[static_cast<std::size_t>(micFifoHead_)].data();
+        micFifoHead_ = (micFifoHead_ + 1) % kMicFifoCap;
+        --micFifoCount_;
+        return txProducerTerminal_(block, kMicFrames);
+    }
+    // Underrun (or not yet primed): keep the 48 kHz cadence with zeros.
+    micPrimed_ = false;
     return txProducerTerminal_(pumpZeros, n);
 }
 
