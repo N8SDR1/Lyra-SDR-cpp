@@ -16,10 +16,13 @@
 namespace lyra::ui {
 
 namespace {
-// Multi-rig Stage 4d: per-rig scope for the panadapter dB-SCALE keys only
-// (RX+TX spectrum & waterfall floor/ceiling).  The rest of panadapter/ is
-// UI prefs (palette, peak, glow, zoom…) that stay shared, so we wrap the
-// specific scaling keys at their read/write sites, not the whole group.
+// Multi-rig Stage 4d: per-rig scope for the specific keys that must differ
+// per radio — the panadapter dB-SCALE keys (RX+TX spectrum & waterfall
+// floor/ceiling) and the TX mic source (a jack-less Brick uses PC/VAC, the
+// HL2 uses its codec jack).  The rest of panadapter/ is shared UI prefs
+// (palette, peak, glow, zoom…), so we wrap the specific keys at their
+// read/write sites, not the whole group.  One-shot flat→scoped migration
+// for these keys runs in main.cpp before the first prefs autoload.
 // Returns rig/<activeId>/<flatKey> (or the flat key when no rig active).
 QString scaledKey(const char *flatKey) {
     return lyra::rig::scope::rigKey(QLatin1String(flatKey));
@@ -325,7 +328,7 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     // falls back to "mic1" so we never autoload into an inactive
     // source path.
     {
-        const QString tok = s.value(kMicSource, QStringLiteral("mic1")).toString();
+        const QString tok = s.value(scaledKey(kMicSource), QStringLiteral("mic1")).toString();
         micSource_ = micSourceTokens().contains(tok) ? tok
                                                      : QStringLiteral("mic1");
     }
@@ -1340,7 +1343,7 @@ void Prefs::setMicSource(const QString &token) {
                                                   : QStringLiteral("mic1");
     if (t != micSource_) {
         micSource_ = t;
-        QSettings().setValue(kMicSource, t);
+        QSettings().setValue(scaledKey(kMicSource), t);
         emit micSourceChanged();
     }
 }

@@ -252,7 +252,7 @@ int main(int argc, char *argv[])
         // arm (new rig defaults PA-off = safer), mic boost.  Per-band drive
         // already lives in band_mem/.
         for (const auto *k : {"tx/maxOutputW", "tx/driveLevel",
-                              "tx/paEnabled", "tx/micBoost"})
+                              "tx/paEnabled", "tx/micBoost", "tx/mic_source"})
             lyra::rig::migrate::migrateKeyToActiveRig(QLatin1String(k));
         // pa_gain/* (PA-gain-by-band + full-output + cap) and meter/pwrTrim/*
         // (PWR-meter cal) are the HL2's TX power + meter calibration.  Relocate
@@ -1827,6 +1827,18 @@ int main(int argc, char *argv[])
                     stream->setTxMode(wdspTxModeFor(m0));
                     lyra::wire::SetTxRackBypass(txModeBypassesRack(m0) ? 1 : 0);
                 }
+
+                // Hardening: Prefs.mode -> WdspEngine.mode is normally driven
+                // by the QML Binding on the (persistent) Tuning dock. This C++
+                // backup guarantees a mode change (incl. TCI / CAT / memory,
+                // which all write Prefs.mode) still reaches the demod + TX
+                // sideband even if that dock is ever made lazy-loaded/unloadable.
+                // setMode() no-ops on an unchanged value, so this never
+                // double-applies against the live QML binding.
+                QObject::connect(prefs, &lyra::ui::Prefs::modeChanged,
+                                 wdspEngine, [prefs, wdspEngine]() {
+                    wdspEngine->setMode(prefs->mode());
+                });
 
                 // Digital-mode TX-drive reduction — forward the operator
                 // Prefs (Settings → TX → Digital modes) to the wire layer,
