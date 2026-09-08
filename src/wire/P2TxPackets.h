@@ -60,8 +60,11 @@ public:
 
     static QByteArray encodeDucSpecific(const P2DucConfig &config);
 
-    // Saturn's InDUCIQ swaps the two 24-bit wire components before DMA.
-    // Therefore the P2 wire packet is Q then I for each logical {I,Q} sample.
+    // Wire order is I then Q for each logical {I,Q} sample: I in bytes 0-2,
+    // Q in bytes 3-5, 24-bit big-endian -- matching the RX DDC decode order
+    // (see P2RxBridge) and bench-confirmed on-air. Do NOT swap to Q-then-I:
+    // that inverts the transmitted sideband. See encodeIq() in the .cpp and
+    // P2TxFifo.h for the same warning.
     static QByteArray encodeIq(
         quint32 sequence,
         const std::array<P2TxIqSample, kIqSamplesPerPacket> &samples);
