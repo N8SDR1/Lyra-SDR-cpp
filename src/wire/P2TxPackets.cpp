@@ -83,9 +83,19 @@ QByteArray P2TxPackets::encodeIq(
     putBe32(packet, 0, sequence);
     for (int n = 0; n < kIqSamplesPerPacket; ++n) {
         const int offset = 4 + n * 6;
-        putSample24(packet, offset, samples[static_cast<std::size_t>(n)].q);
-        putSample24(packet, offset + 3,
+        // HPSDR P2 DUC-IQ wire order is I (bytes 0-2) then Q (bytes 3-5),
+        // 24-bit big-endian -- the SAME order the RX DDC-IQ frame uses
+        // (P2RxBridge decodes I then Q) and what the reference senders emit
+        // (deskHPSDR new_protocol.c new_protocol_iq_samples writes isample
+        // first; Thetis ChannelMaster P2 likewise). The P2 TX bring-up had
+        // these SWAPPED (Q then I), which mirror-images the transmitted
+        // sideband: RX + the panadapter look correct but on-air LSB comes
+        // out USB and vice-versa. Bench-confirmed inverted against an
+        // IC-9100 monitor on the Brick; corrected to I-then-Q here.
+        putSample24(packet, offset,
                     samples[static_cast<std::size_t>(n)].i);
+        putSample24(packet, offset + 3,
+                    samples[static_cast<std::size_t>(n)].q);
     }
     return packet;
 }
