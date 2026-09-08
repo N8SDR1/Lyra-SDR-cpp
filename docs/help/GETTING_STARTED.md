@@ -20,7 +20,9 @@ Lyra is a native **Windows** application.
   everything at once.
 - A **wired Ethernet** connection to the radio — this is the single biggest
   factor in glitch-free audio.
-- A Hermes Lite 2 or 2+ (HL2 / HL2+).
+- A **Hermes Lite 2 / 2+** (HL2 / HL2+, HPSDR Protocol 1), or a **Protocol-2**
+  radio — **BrickSDR2** or **ANAN G2**. Lyra keeps separate settings for each
+  (see *Multiple radios & switching rigs* in the Help guide).
 
 *(Full detail is in the Help guide under "System requirements". Linux/macOS
 are on the roadmap but do not run today.)*

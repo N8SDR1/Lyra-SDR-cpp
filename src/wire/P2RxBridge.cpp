@@ -2,15 +2,20 @@
 
 #include "P2RxBridge.h"
 
+#include "FrameComposer.h"
 #include "P2Session.h"
+#include "P2TxCmaster.h"
 #include "Router.h"
+#include "bandmemory.h"
 #include "hardware/HardwareCatalog.h"
 #include "hl2_stream.h"
 #include "rig/RigRegistry.h"
+#include "rig/RigScope.h"
 #include "wdsp_engine.h"
 
 #include <QMetaObject>
 #include <QSettings>
+#include <QTimer>
 #include <QtDebug>
 #include <algorithm>
 #include <cmath>
@@ -24,6 +29,18 @@ namespace {
 bool p2RateLegal(int khz) {
     return khz == 48 || khz == 96 || khz == 192 ||
            khz == 384 || khz == 768 || khz == 1536;
+}
+
+QString rigScopedKey(const QString &rigId, const QString &logicalKey) {
+    if (!rigId.isEmpty())
+        return QStringLiteral("rig/%1/%2").arg(rigId, logicalKey);
+    return lyra::rig::scope::rigKey(logicalKey);
+}
+
+QString frontEndBandPrefix(const QString &rigId, const QString &band) {
+    if (band.isEmpty()) return QString();
+    return rigScopedKey(rigId, QStringLiteral("band_mem/")) +
+           band + QStringLiteral("/p2/");
 }
 } // namespace
 
@@ -76,19 +93,93 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
     // (raw·5000/4095 − voff)/sens) from AIN4).  Light smoothing —
     // status arrives ~5/s in RX; the meter model smooths further.
     connect(session_, &P2Session::statusReceived, this,
-            [this](quint32, quint8, quint8, quint16, quint16, quint16,
-                   quint16, quint16, quint16,
-                   quint16 ain3Raw, quint16 ain4Raw) {
-                if (!running_ || !hasVoltsAmps_) return;
-                const double volts =
-                    (ain3Raw / 4095.0) * 5.0 * ((22.0 + 1.0) / 1.1);
-                const double mv = ain4Raw * 5000.0 / 4095.0;
-                const double amps =
-                    std::max(0.0, (mv - ampVoff_) / ampSens_);
-                supplyV_ = std::isnan(supplyV_)
-                               ? volts : supplyV_ + 0.5 * (volts - supplyV_);
-                paA_     = std::isnan(paA_)
-                               ? amps  : paA_     + 0.5 * (amps  - paA_);
+            [this](quint32, quint8 pttBits, quint8 overflows,
+                   quint16, quint16 fwdRaw, quint16 revRaw, quint16,
+                   quint16 adc1Peak, quint16 adc2Peak,
+                   quint16 ain3Raw, quint16 ain4Raw, quint16,
+                   quint8, quint16 ducFifo) {
+                if (!running_) return;
+                adcOverloadMask_ = overflows;
+                adc1Peak_ = adc1Peak;
+                adc2Peak_ = adc2Peak;
+                ducFifoSamples_ = ducFifo;
+                if (overflows != 0) {
+                    adcOverloadTier_ = 2;
+                    overloadDecayPackets_ = 5;
+                } else if (adcOverloadTier_ == 2) {
+                    adcOverloadTier_ = 1;
+                } else if (adcOverloadTier_ == 1 &&
+                           --overloadDecayPackets_ <= 0) {
+                    adcOverloadTier_ = 0;
+                }
+                if (hasVoltsAmps_) {
+                    const double volts =
+                        (ain3Raw / 4095.0) * 5.0 * ((22.0 + 1.0) / 1.1);
+                    const double mv = ain4Raw * 5000.0 / 4095.0;
+                    const double amps =
+                        std::max(0.0, (mv - ampVoff_) / ampSens_);
+                    supplyV_ = std::isnan(supplyV_)
+                                   ? volts : supplyV_ + 0.5 * (volts - supplyV_);
+                    paA_ = std::isnan(paA_)
+                               ? amps : paA_ + 0.5 * (amps - paA_);
+                }
+                if (hasPowerTelemetry_) {
+                    // fwd/rev counts -> watts with the session's coupler
+                    // constants: V = (raw - off)/4095 * c1, W = V^2 / c2.
+                    // REV uses a separate 6 m coupler constant.
+                    const auto watts = [this](quint16 raw, int offset,
+                                              double bridge) {
+                        const double v = std::max(
+                            0.0, (static_cast<double>(raw) - offset) /
+                                     4095.0 * pcC1_);
+                        return v * v / bridge;
+                    };
+                    const bool sixMetres =
+                        stream_ && stream_->txFreqHz() >= 50'000'000u;
+                    const double fwd = watts(fwdRaw, pcFwdOff_, pcC2Fwd_);
+                    const double rev = watts(
+                        revRaw, pcRevOff_, sixMetres ? pcC2Rev6m_ : pcC2Rev_);
+                    fwdPowerW_ = std::isnan(fwdPowerW_)
+                        ? fwd : fwdPowerW_ + 0.35 * (fwd - fwdPowerW_);
+                    revPowerW_ = std::isnan(revPowerW_)
+                        ? rev : revPowerW_ + 0.35 * (rev - revPowerW_);
+                }
+
+                // Saturn status byte 4 bit 0 is physical PTT OR keyer
+                // activity (GetP2PTTKeyInputs). Feed edges into Lyra's
+                // existing source-aware MOX FSM, behind its opt-in.
+                const bool hwPtt = (pttBits & 0x01u) != 0;
+                if (hwPtt != lastHardwarePtt_) {
+                    lastHardwarePtt_ = hwPtt;
+                    if (stream_ && stream_->hwPttEnabled())
+                        stream_->requestMoxFromHwPtt(hwPtt);
+                }
+                emit telemetryChanged();
+            });
+
+    connect(session_, &P2Session::txStateChanged, this,
+            [this](bool ready, bool armed, bool transmitting,
+                   bool paEnabled, int drive, bool fault,
+                   const QString &detail) {
+                txTransportReady_ = ready;
+                txBenchArmed_ = armed;
+                txTransmitting_ = transmitting;
+                txPaEnabled_ = paEnabled;
+                txEffectiveDrive_ = drive;
+                txFaultLatched_ = fault;
+                txStateDetail_ = detail;
+                if (fault && stream_ && stream_->moxActive())
+                    stream_->requestMox(false);
+                emit txStateChanged();
+                // Operator preference: re-apply the transient interlock the
+                // moment the transport reaches Ready, so a controlled
+                // dummy-load bench isn't re-armed by hand each session.
+                // Same health gate as a manual arm (setTxBenchArmed guards
+                // hardware/running/ready/fault), so this can only fire on a
+                // TX-capable rig with a healthy transport.
+                if (txAutoArm_ && !txBenchArmed_ && txTransportReady_ &&
+                    txHardwareSupported_ && running_ && !txFaultLatched_)
+                    setTxBenchArmed(true);
             });
 
     // Connection confirmation: isRunning() must not go true until the
@@ -121,6 +212,44 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 [this]() { pushDialToSession(); });
         connect(stream_, &lyra::ipc::HL2Stream::ritChanged, this,
                 [this]() { pushDialToSession(); });
+        connect(stream_, &lyra::ipc::HL2Stream::splitEnabledChanged, this,
+                [this]() { pushDialToSession(); });
+        connect(stream_, &lyra::ipc::HL2Stream::vfoBHzChanged, this,
+                [this]() { pushDialToSession(); });
+        connect(stream_, &lyra::ipc::HL2Stream::xitChanged, this,
+                [this]() { pushDialToSession(); });
+        connect(stream_, &lyra::ipc::HL2Stream::freqCorrectionChanged,
+                this, [this](double) { pushDialToSession(); });
+        // This fires synchronously inside requestMox(true), before the
+        // FSM advances. Cancelling here prevents even a transient TXA
+        // start when the P2 connection has not been deliberately armed.
+        connect(stream_, &lyra::ipc::HL2Stream::moxIntentPulse, this,
+                [this]() {
+                    if (!open_)
+                        return;
+                    if (txBenchArmed_ && txTransportReady_ &&
+                        !txFaultLatched_)
+                        return;
+                    emit logLine(QStringLiteral(
+                        "P2 TX: key request rejected - arm the P2 dummy-load "
+                        "interlock and verify TX transport Ready"));
+                    stream_->requestMox(false);
+                });
+        connect(stream_, &lyra::ipc::HL2Stream::moxActiveChanged, this,
+                [this](bool on) {
+                    if (open_)
+                        syncTxIntentToSession(on);
+                });
+        connect(stream_, &lyra::ipc::HL2Stream::paEnabledChanged, this,
+                [this](bool) {
+                    if (open_ && stream_ && stream_->moxActive())
+                        syncTxIntentToSession(true);
+                });
+        connect(stream_, &lyra::ipc::HL2Stream::txDriveLevelChanged, this,
+                [this](int) {
+                    if (open_ && stream_ && stream_->moxActive())
+                        syncTxIntentToSession(true);
+                });
     }
 
     // IQ-rate follow: the Display panel's rate switch reopens the WDSP
@@ -138,6 +267,11 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                     auto *s = session_;
                     QMetaObject::invokeMethod(s, [s, khz]() {
                         s->enableDdc(0, static_cast<quint16>(khz));
+                        // Let timer events delayed by the RX rebuild drain,
+                        // then re-prime the still-RX TX transport.
+                        QTimer::singleShot(
+                            100, s,
+                            [s]() { s->restartTxTransportRxState(); });
                     });
                     emit logLine(QStringLiteral(
                         "P2: DDC0 rate → %1 kHz (following engine)").arg(khz));
@@ -153,8 +287,136 @@ P2RxBridge::~P2RxBridge() {
         QMetaObject::invokeMethod(s, &P2Session::close,
                                   Qt::BlockingQueuedConnection);
     }
+    deactivateTxProducerSeam();
     thread_.quit();
     thread_.wait(2000);
+}
+
+QString P2RxBridge::txStatus() const {
+    if (!open_) return QStringLiteral("Disconnected");
+    if (txFaultLatched_)
+        return QStringLiteral("FAULT: %1").arg(txStateDetail_);
+    if (!running_) return QStringLiteral("Waiting for radio");
+    if (!txHardwareSupported_)
+        return QStringLiteral("RX only - TX hardware profile unverified");
+    if (!txTransportReady_) return QStringLiteral("Priming TX transport");
+    if (txTransmitting_)
+        // Diagnostic tail: drive byte (0-255, the P2 HP pkt[345] value) +
+        // the live DUC-IQ peak (~1.0 = full-scale).  Both maxed but low RF
+        // ⇒ the shortfall is radio-side, not Lyra's drive/amplitude.
+        return QStringLiteral("TX %1%2 drv=%3 iq=%4")
+            .arg((txEffectiveDrive_ * 100 + 127) / 255)
+            .arg(txPaEnabled_ ? QStringLiteral("% PA") : QStringLiteral("% PA off"))
+            .arg(txEffectiveDrive_)
+            .arg(lyra::wire::p2TxCmasterLastPeak(), 0, 'f', 2);
+    if (!txBenchArmed_) return QStringLiteral("Ready - RF disarmed");
+    return QStringLiteral("Armed - dummy load only");
+}
+
+void P2RxBridge::syncTxIntentToSession(bool on) {
+    if (!session_)
+        return;
+    if (on && !txHardwareSupported_)
+        on = false;
+    const int capRaw =
+        (std::clamp(txDriveLimitPercent_, 0, 100) * 255 + 50) / 100;
+    const int drive = stream_
+        ? std::min(stream_->txDriveLevel(), capRaw) : 0;
+    const bool pa = stream_ && stream_->paEnabled();
+    auto *s = session_;
+    QMetaObject::invokeMethod(s, [s, on, pa, drive, capRaw]() {
+        // Enforce the drive-limit structurally in the fail-closed gate,
+        // not only in this pre-clamp, so it holds for any transmit path.
+        s->setTxDriveCeiling(capRaw);
+        s->setTransmitIntent(on, pa, drive);
+    });
+}
+
+void P2RxBridge::setTxBenchArmed(bool on) {
+    if (on && (!txHardwareSupported_ || !running_ ||
+               !txTransportReady_ || txFaultLatched_)) {
+        emit logLine(QStringLiteral(
+            "P2 TX: cannot arm - G2 hardware profile and healthy "
+            "radio/transport are required"));
+        emit txStateChanged();
+        return;
+    }
+    if (on == txBenchArmed_)
+        return;
+    txBenchArmed_ = on;
+    auto *s = session_;
+    QMetaObject::invokeMethod(s, [s, on]() {
+        s->setTxOperatorArmed(on);
+    });
+    if (!on && stream_ && stream_->moxActive())
+        stream_->requestMox(false);
+    emit txStateChanged();
+}
+
+void P2RxBridge::setTxDriveLimitPercent(int percent) {
+    const int limited = std::clamp(percent, 1, 100);
+    if (limited == txDriveLimitPercent_)
+        return;
+    txDriveLimitPercent_ = limited;
+    QSettings().setValue(
+        rigScopedKey(rigId_, QStringLiteral("p2/txDriveLimitPct")), limited);
+    if (open_ && stream_ && stream_->moxActive())
+        syncTxIntentToSession(true);
+    emit txStateChanged();
+}
+
+void P2RxBridge::setTxAutoArm(bool on) {
+    if (on == txAutoArm_)
+        return;
+    txAutoArm_ = on;
+    QSettings().setValue(
+        rigScopedKey(rigId_, QStringLiteral("p2/txAutoArm")), on);
+    // If the transport is already Ready when the operator enables this,
+    // arm now rather than waiting for the next connect.  setTxBenchArmed
+    // re-checks the same hardware/health gate, so this is fail-closed.
+    if (on && !txBenchArmed_ && txHardwareSupported_ && running_ &&
+        txTransportReady_ && !txFaultLatched_)
+        setTxBenchArmed(true);
+    emit txStateChanged();
+}
+
+void P2RxBridge::resetTxUiState() {
+    txBenchArmed_ = false;
+    txHardwareSupported_ = false;
+    txTransportReady_ = false;
+    txTransmitting_ = false;
+    txPaEnabled_ = false;
+    txFaultLatched_ = false;
+    txEffectiveDrive_ = 0;
+    txStateDetail_ = QStringLiteral("Disconnected");
+    ducFifoSamples_ = 0;
+    lastHardwarePtt_ = false;
+}
+
+void P2RxBridge::activateTxProducerSeam() {
+    if (txProducerSeamActive_)
+        return;
+
+    txProducerSeamActive_ = activateP2TxCmasterProducer();
+    if (txProducerSeamActive_) {
+        emit logLine(QStringLiteral(
+            "P2 TX: WDSP producer seam ready (48 -> 192 kHz resampler "
+            "-> bounded FIFO; port 1029 starts after radio status; "
+            "transmit/drive/PA remain disarmed)"));
+    } else {
+        emit logLine(QStringLiteral(
+            "P2 TX: CMaster producer seam unavailable; TX remains disabled"));
+    }
+}
+
+void P2RxBridge::deactivateTxProducerSeam() {
+    if (!txProducerSeamActive_)
+        return;
+
+    // Disable acceptance before restoring the P1 callback so the dedicated
+    // P2 producer cannot race P1 teardown/startup.
+    deactivateP2TxCmasterProducer();
+    txProducerSeamActive_ = false;
 }
 
 void P2RxBridge::pushDialToSession() {
@@ -163,16 +425,114 @@ void P2RxBridge::pushDialToSession() {
     // radio has confirmed the session yet (P2Session applies it on
     // its next HP tick regardless).
     if (!open_ || !stream_) return;
+    const QString band =
+        lyra::ui::BandMemory::bandNameFor(static_cast<int>(stream_->rx1FreqHz()));
+    if (band != currentBand_) {
+        currentBand_ = band;
+        restoreFrontEndForBand(band);
+    }
     quint32 rx = stream_->rx1FreqHz();
     if (stream_->ritEnabled())
         rx = static_cast<quint32>(
             std::max<qint64>(0, qint64(rx) + stream_->ritOffsetHz()));
-    const quint32 tx = stream_->rx1FreqHz();
+    const quint32 tx = stream_->txFreqHz();
+    // Match P1's final wire-frequency choke point: calibration applies
+    // after RIT for RX and to the effective TX carrier (VFO B/XIT when
+    // enabled) for the DUC.
+    rx = static_cast<quint32>(corrected_freq(static_cast<int>(rx)));
+    const quint32 correctedTx =
+        static_cast<quint32>(corrected_freq(static_cast<int>(tx)));
     auto *s = session_;
-    QMetaObject::invokeMethod(s, [s, rx, tx]() {
+    QMetaObject::invokeMethod(s, [s, rx, correctedTx]() {
         s->setDdcFrequencyHz(0, rx);
-        s->setDucFrequencyHz(tx);
+        s->setDucFrequencyHz(correctedTx);
     });
+}
+
+void P2RxBridge::restoreFrontEndForBand(const QString &band) {
+    const QString p = frontEndBandPrefix(rigId_, band);
+    QSettings s;
+    rxAttenuationDb_ = p.isEmpty() ? 0
+        : std::clamp(s.value(p + QStringLiteral("attenuationDb"), 0).toInt(),
+                     0, 31);
+    ddcAdc_ = p.isEmpty() ? 0
+        : std::clamp(s.value(p + QStringLiteral("ddc0Adc"), 0).toInt(), 0, 1);
+    rxInput_ = p.isEmpty() ? 0
+        : std::clamp(s.value(p + QStringLiteral("rxInput"), 0).toInt(), 0, 3);
+    hpfBypass_ = !p.isEmpty() &&
+        s.value(p + QStringLiteral("hpfBypass"), false).toBool();
+    trxAntenna_ = p.isEmpty() ? defaultTrxAntenna_
+        : std::clamp(s.value(p + QStringLiteral("trxAntenna"),
+                             defaultTrxAntenna_).toInt(), 1, 3);
+    pushFrontEndToSession();
+    emit frontEndChanged();
+}
+
+void P2RxBridge::persistFrontEndValue(const QString &name,
+                                      const QVariant &value) {
+    const QString p = frontEndBandPrefix(rigId_, currentBand_);
+    if (!p.isEmpty()) QSettings().setValue(p + name, value);
+}
+
+void P2RxBridge::pushFrontEndToSession() {
+    if (!open_ || !session_) return;
+    auto *s = session_;
+    const int att = rxAttenuationDb_;
+    const int adc = ddcAdc_;
+    const int input = rxInput_;
+    const bool bypass = hpfBypass_;
+    const int ant = trxAntenna_;
+    QMetaObject::invokeMethod(s, [s, att, adc, input, bypass, ant]() {
+        s->setAdcAttenuation(adc, att);
+        s->setDdcAdc(0, adc);
+        s->setRxInput(static_cast<P2RxInput>(input));
+        s->setHpfBypass(bypass);
+        s->setTrxAntenna(ant);
+    });
+}
+
+void P2RxBridge::setRxAttenuationDb(int db) {
+    db = std::clamp(db, 0, 31);
+    if (db == rxAttenuationDb_) return;
+    rxAttenuationDb_ = db;
+    persistFrontEndValue(QStringLiteral("attenuationDb"), db);
+    pushFrontEndToSession();
+    emit frontEndChanged();
+}
+
+void P2RxBridge::setDdcAdc(int adc) {
+    adc = std::clamp(adc, 0, 1);
+    if (adc == ddcAdc_) return;
+    ddcAdc_ = adc;
+    persistFrontEndValue(QStringLiteral("ddc0Adc"), adc);
+    pushFrontEndToSession();
+    emit frontEndChanged();
+}
+
+void P2RxBridge::setRxInput(int input) {
+    input = std::clamp(input, 0, 3);
+    if (input == rxInput_) return;
+    rxInput_ = input;
+    persistFrontEndValue(QStringLiteral("rxInput"), input);
+    pushFrontEndToSession();
+    emit frontEndChanged();
+}
+
+void P2RxBridge::setHpfBypass(bool on) {
+    if (on == hpfBypass_) return;
+    hpfBypass_ = on;
+    persistFrontEndValue(QStringLiteral("hpfBypass"), on);
+    pushFrontEndToSession();
+    emit frontEndChanged();
+}
+
+void P2RxBridge::setTrxAntenna(int ant) {
+    ant = std::clamp(ant, 1, 3);
+    if (ant == trxAntenna_) return;
+    trxAntenna_ = ant;
+    persistFrontEndValue(QStringLiteral("trxAntenna"), ant);
+    pushFrontEndToSession();
+    emit frontEndChanged();
 }
 
 quint16 P2RxBridge::chooseRateKhz() {
@@ -199,11 +559,19 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
         return;
     }
 
+    activateTxProducerSeam();
+    resetTxUiState();
     rateKhz_ = chooseRateKhz();
     // Seed DDC0 from the dial (rx/freqHz persists across launches; 0
     // only on a truly fresh install → park on 20 m).
     quint32 hz = stream_ ? stream_->rx1FreqHz() : 0;
     if (hz == 0) hz = 14'100'000u;
+    const quint32 correctedHz =
+        static_cast<quint32>(corrected_freq(static_cast<int>(hz)));
+    quint32 txHz = stream_ ? stream_->txFreqHz() : hz;
+    if (txHz == 0) txHz = hz;
+    const quint32 correctedTx =
+        static_cast<quint32>(corrected_freq(static_cast<int>(txHz)));
 
     // Rig identity (folded into RigRegistry — was a parallel
     // RadioProfileStore, docs/architecture/p2_identity_reconciliation.md
@@ -246,6 +614,18 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
         }
         if (seeded) lyra::rig::registry::upsertRig(prof);
     }
+    rigId_ = prof.isValid() ? prof.rigId : QString();
+    // Read the limit only after resolving this radio's identity. P2 rigs
+    // are not the active rig, so RigScope alone would load another radio's
+    // TX ceiling.
+    txDriveLimitPercent_ = std::clamp(
+        QSettings().value(
+            rigScopedKey(rigId_, QStringLiteral("p2/txDriveLimitPct")),
+            5).toInt(), 1, 100);
+    // Per-rig auto-arm preference (default off): re-applies the transient
+    // bench interlock automatically once the transport reports Ready.
+    txAutoArm_ = QSettings().value(
+        rigScopedKey(rigId_, QStringLiteral("p2/txAutoArm")), false).toBool();
 
     // Per-radio audio routing — applied TRANSIENTLY (globals stay as
     // the HL2 configured them; restored at close()).  P2 profiles are
@@ -286,29 +666,45 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     // equivalent).  Precedence: radio profile → global setting →
     // Saturn-board default (the only bench-verified P2 family).
     QString modelKey = prof.isValid() ? prof.hardwareModelKey : QString();
-    if (modelKey.isEmpty())
+    if (modelKey.isEmpty() && !prof.isValid())
         modelKey = QSettings().value(QStringLiteral("radio/hardwareModel"),
                                      QStringLiteral("ANAN-G2")).toString();
     const auto *hw = lyra::hardware::modelByKey(modelKey);
-    if (!hw) hw = lyra::hardware::defaultModelForBoard(10, /*p2=*/true);
+    if (!hw)
+        emit logLine(QStringLiteral(
+            "P2: no marketed hardware model selected for this radio; "
+            "model-specific telemetry and front-end control stay disabled"));
     // Saturn is the ONLY bench-verified P2 model — if the rig's own
     // recorded family says otherwise (a Brick, most likely) but we're
     // still about to apply Saturn's constants, say so instead of
     // silently treating a guess as fact (bench finding 2026-07-20).
-    if (hw && hw->expectedBoard == 10 && prof.isValid() &&
-        prof.family != lyra::rig::RadioFamily::AnanP2 &&
-        prof.family != lyra::rig::RadioFamily::Unknown)
-        emit logLine(QStringLiteral(
-            "P2: no bench-verified hardware profile for this %1 — using "
-            "Saturn (ANAN-G2) telemetry/front-end defaults as a "
-            "placeholder; set the correct model in Settings → Hardware.")
-            .arg(lyra::rig::capabilitiesFor(prof.family).familyName));
     // Telemetry conversion constants for this session's model.
     hasVoltsAmps_ = hw && hw->hasVolts && hw->hasAmps;
+    // fwd/rev -> watts coupler constants, per device family. Saturn/G2 use a
+    // 5 V / high-offset bridge; every other Hermes-class P2 board (BrickSDR
+    // included) uses the 3.3 V / low-offset Hermes set. An unrecognised
+    // model gets no power path (better blank than wrong).
+    const bool isG2 = hw &&
+        (modelKey.compare(QStringLiteral("ANAN-G2"), Qt::CaseInsensitive) == 0 ||
+         modelKey.compare(QStringLiteral("ANAN-G2-1K"), Qt::CaseInsensitive) == 0);
+    hasPowerTelemetry_ = (hw != nullptr);
+    if (isG2) {
+        pcC1_ = 5.0;  pcC2Fwd_ = 0.12;  pcC2Rev_ = 0.15;  pcC2Rev6m_ = 0.7;
+        pcFwdOff_ = 32;  pcRevOff_ = 28;
+    } else {
+        pcC1_ = 3.3;  pcC2Fwd_ = 0.095; pcC2Rev_ = 0.095; pcC2Rev6m_ = 0.5;
+        pcFwdOff_ = 6;   pcRevOff_ = 3;
+    }
     ampVoff_ = hw ? hw->voltOff  : 360.f;
     ampSens_ = hw ? hw->voltSens : 120.f;
+    meterCalOffset_ = hw ? hw->rxMeterOffset : 0.0;
+    displayCalOffset_ = hw ? hw->rxDisplayOffset : 0.0;
+    if (engine_) engine_->setRxDisplayCalibrationDb(displayCalOffset_);
     supplyV_ = std::numeric_limits<double>::quiet_NaN();
     paA_     = std::numeric_limits<double>::quiet_NaN();
+    fwdPowerW_ = std::numeric_limits<double>::quiet_NaN();
+    revPowerW_ = std::numeric_limits<double>::quiet_NaN();
+    modelLabel_ = hw ? QString::fromLatin1(hw->displayName) : QString();
     if (hw)
         emit logLine(QStringLiteral(
             "P2: hardware profile %1 — %2 ADC%3, PS peak %4%5")
@@ -326,17 +722,14 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
                          .value(QStringLiteral("p2/trxAntenna"), 1)
                          .toInt(), 1, 3);
 
-    // Front-end (Alex) word-generator profile for this model — was
-    // unconditionally Saturn's regardless of the Settings selection
-    // (p2ProfileForBoard() ignored its argument; nothing here ever
-    // called session_->setProfile()).  Now resolved from the selected
-    // model's expected board and actually applied.  See
-    // p2ProfileForBoard()'s own comment for which boards share
-    // Saturn's word tables (the classic Alex HPF/LPF/ANT bit layout
-    // is common to the whole family per Thetis's own
-    // setBPF1ForOrionIISaturn sharing) versus genuinely unverified.
-    const auto *p2hw = hw
-        ? lyra::wire::p2ProfileForBoard(hw->expectedBoard) : nullptr;
+    // Runtime front-end policy follows the saved MARKETED model.  Board
+    // id alone is insufficient (e.g. a Brick and a genuine Hermes-class
+    // ANAN can share discovery identity but not front-end hardware).
+    const auto *p2hw = lyra::wire::p2ProfileForModel(modelKey);
+    // Only model-selected, bench-verified G2 profiles may expose the
+    // transient TX arm. A generic/unverified P2 radio remains RX-only even
+    // though the inert port-1029 transport can run safely in the background.
+    txHardwareSupported_ = p2hw != nullptr;
     if (!p2hw)
         emit logLine(QStringLiteral(
             "P2: no verified antenna/filter profile for %1 — front end "
@@ -345,11 +738,32 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
 
     auto *s = session_;
     const quint16 rate = rateKhz_;
-    QMetaObject::invokeMethod(s, [s, ip, hz, rate, ant, p2hw]() {
-        if (p2hw) s->setProfile(p2hw);
-        s->setTrxAntenna(ant);
-        s->setDdcFrequencyHz(0, hz);
-        s->setDucFrequencyHz(hz);
+    defaultTrxAntenna_ = ant;
+    currentBand_ =
+        lyra::ui::BandMemory::bandNameFor(static_cast<int>(hz));
+    restoreFrontEndForBand(currentBand_);
+    const int att = rxAttenuationDb_;
+    const int adc = ddcAdc_;
+    const int input = rxInput_;
+    const bool bypass = hpfBypass_;
+    const int bandAnt = trxAntenna_;
+    QMetaObject::invokeMethod(s, [s, ip, correctedHz, correctedTx, rate,
+                                  bandAnt, p2hw,
+                                  att, adc, input, bypass]() {
+        s->setTxProducerSink([](const double *iq, int samples) {
+            return feedP2TxCmasterInput(iq, samples);
+        });
+        s->setProfile(p2hw);
+        s->setTrxAntenna(bandAnt);
+        s->setAdcAttenuation(adc, att);
+        s->setDdcAdc(0, adc);
+        s->setRxInput(static_cast<P2RxInput>(input));
+        s->setHpfBypass(bypass);
+        s->setDdcFrequencyHz(0, correctedHz);
+        // Start the DUC on the effective TX carrier, not the RX dial.
+        // This matters immediately for split/VFO-B profiles; the normal
+        // dial-update path continues to track later changes.
+        s->setDucFrequencyHz(correctedTx);
         s->enableDdc(0, rate);
         s->open(ip);
     });
@@ -357,18 +771,22 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     ip_   = ip;
     open_ = true;
     emit openChanged();
+    emit txStateChanged();
     emit logLine(QStringLiteral(
-        "P2: opening %1 (DDC0 @ %2 kHz, %3 Hz)").arg(ip).arg(rateKhz_).arg(hz));
+        "P2: opening %1 (DDC0 @ %2 kHz, %3 Hz)")
+            .arg(ip).arg(rateKhz_).arg(correctedHz));
     // isRunning() stays false — and runningChanged() does NOT fire —
     // until P2Session::started() confirms the radio actually answered
     // (connected in the constructor).  See the open_/running_ split
     // in the header.
-    pushDialToSession();   // refresh with RIT applied (seed was raw dial)
+    pushDialToSession();   // refresh with RIT applied
 }
 
 void P2RxBridge::close() {
     if (!open_) return;
     auto *s = session_;
+    if (stream_ && stream_->moxActive())
+        stream_->requestMox(false);
     // BLOCKING: callers use close() to switch wire paths (Settings
     // Close, Start-button switch to an HL2) — the IQ feed must have
     // fully stopped before the P1 EP6 thread can start feeding the
@@ -377,11 +795,26 @@ void P2RxBridge::close() {
     // deadlock if ever called on the session thread itself).
     QMetaObject::invokeMethod(s, &P2Session::close,
                               Qt::BlockingQueuedConnection);
+    deactivateTxProducerSeam();
     open_    = false;
     running_ = false;
     ip_.clear();
+    rigId_.clear();
     supplyV_ = std::numeric_limits<double>::quiet_NaN();
     paA_     = std::numeric_limits<double>::quiet_NaN();
+    fwdPowerW_ = std::numeric_limits<double>::quiet_NaN();
+    revPowerW_ = std::numeric_limits<double>::quiet_NaN();
+    hasPowerTelemetry_ = false;
+    adcOverloadTier_ = 0;
+    adcOverloadMask_ = 0;
+    adc1Peak_ = 0;
+    adc2Peak_ = 0;
+    overloadDecayPackets_ = 0;
+    currentBand_.clear();
+    meterCalOffset_ = 0.0;
+    displayCalOffset_ = 0.0;
+    resetTxUiState();
+    if (engine_) engine_->setRxDisplayCalibrationDb(0.0);
     if (engine_) engine_->setRadioAudioSink({});   // stop the speaker tee
     // Return audio to the persisted global route (a per-radio "pc"
     // session route may have been applied at open; the HL2's
@@ -389,6 +822,9 @@ void P2RxBridge::close() {
     if (engine_) engine_->restoreAudioRouteFromSettings();
     emit runningChanged();
     emit openChanged();
+    emit telemetryChanged();
+    emit frontEndChanged();
+    emit txStateChanged();
 }
 
 } // namespace lyra::wire

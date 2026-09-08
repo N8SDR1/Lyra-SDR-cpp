@@ -8,13 +8,14 @@ Bench radio: ANAN-G2 (Saturn board, FPGA fw 27, hardened p2app v50 at
 ## Where the bring-up stands (all bench-verified on the G2)
 
 Working today via `src/wire/P2Session` + `src/wire/P2RxBridge`:
-discovery (dual P1+P2 sweep), session/controller lease, the four control
-packets (General / DDC-specific / DUC-specific / High Priority), HP
+discovery (dual P1+P2 sweep), session/controller lease, the three active
+control packets (General / DDC-specific / High Priority), HP
 status telemetry, DDC0 IQ at the engine rate into the WDSP RX chain +
 panadapter + audio out, VFO follow, DDS phase-word frequency encoding,
 Saturn front-end control (BPF/LPF/antenna via Alex words — the client
 OWNS the G2 front end; zeros = disconnected antenna), hardware model
-catalog + Settings model/antenna pickers.  RX-only by construction.
+catalog + Settings model/antenna pickers. RX is bench-verified; the TX
+transport and safety path are implemented through the dummy-load gate.
 
 Hard-won wire facts live in the P2Session.h preamble; per-bug history
 in the session memory notes.  Bench tool: `test_p2_session <ip> [secs]
@@ -70,6 +71,86 @@ HL2 · Saturn→ANAN-G2/ANAN-G2-1K · (HermesC10→ANAN-G2E, later).
 Marketed model ≠ discovered board — same FPGA family, different PA
 tables / calibration / mic wiring / relays / PureSignal setup.
 
+### G2 runtime profile parity (implemented 2026-07-25)
+
+The G2 profile now consumes the same model-specific facts as Thetis:
+
+- selected marketed model (`ANAN-G2` / `ANAN-G2-1K`) chooses the
+  Saturn front-end encoder; discovery board id alone never enables Alex
+  behavior on another product;
+- two ADCs, MkII BPF behavior, supply/current conversion, RX meter
+  offset `-4.476 dB`, RX display offset `-4.4005 dB`, P2 PureSignal
+  peak metadata `0.6121`, and the G2 PA table remain sourced from
+  `HardwareCatalog`;
+- DDC0 can select ADC1 or ADC2, and HP bytes 1442/1443 carry the
+  selected ADC's manual `0..31 dB` step attenuation;
+- status overload bits and both ADC peaks feed the protocol-neutral
+  `ActiveFrontEndModel`; the Audio panel shows ATT/ADC/overload for P2
+  and preserves the original LNA/Auto behavior for P1;
+- ATT, ADC, TRX antenna, RX input (`TRX`, `BYPS`, `EXT1`, `XVTR`) and
+  HPF bypass are persisted per rig and per band under
+  `rig/<id>/band_mem/<band>/p2/`;
+- the S-meter references P2 readings back to the antenna with the
+  actual attenuation plus the G2 meter offset, while the spectrum and
+  waterfall use the G2 display offset;
+- `test_p2_g2_profile` locks the 1444-byte HP and DDC-specific packet
+  images, including phase words, Alex routing, attenuation, and ADC
+  source. The live G2 transport test remains the hardware gate.
+
+Deliberately not added: automatic P2 attenuation. The first G2 profile
+is manual and observable; automation belongs after overload/level
+behavior is characterized across bands. PureSignal remains a separate
+later phase.
+
+### G2 TX transport + safety (implemented 2026-07-25/26)
+
+- `P2TxSafetyGate` derives transmit, PA-enable and drive from current
+  operator-arm, session, IQ-prime, telemetry, watchdog and fault inputs.
+  A missing prerequisite forces all three RF controls off.
+- `P2TxPackets` has production encoders for the 60-byte DUC-specific
+  control packet and the 1444-byte TX-IQ packet (4-byte sequence plus
+  240 complex 24-bit samples in Saturn's Q-then-I wire order).
+- `test_p2_tx_packets` locks down the safety matrix and byte-for-byte
+  Thetis/Saturn packet layouts.
+- The pure encoders have no socket access. `P2Session` is their only
+  production owner and derives every RF-bearing field through the gate.
+- `P2TxWriter` owns deterministic 800-packet/s pacing for the
+  192 kHz, 240-sample TX-IQ stream. It uses the session socket, bounds
+  catch-up, and stops/faults rather than flooding stale samples after a
+  missed deadline.
+- `P2TxFifo` is the bounded SPSC seam between ChannelMaster and the
+  session writer. It stores logical I/Q samples, rejects whole producer
+  blocks on overflow, faults the writer on underrun, and sanitizes
+  non-finite DSP output.
+- `P2TxCmaster` redirects the existing post-WDSP TX callback only while
+  a P2 radio is open. The established P1 TXA channel remains at 48 kHz;
+  WDSP's complex polyphase resampler converts it to the P2 DUC's fixed
+  192 kHz rate before the FIFO. This avoids the unsafe live
+  `SetOutputSamplerate` path in WDSP (bench crash at wdsp.dll+0x3b9f9).
+- Tests lock the 800-packet/s rate, sequence progression, logical I/Q to
+  Saturn Q/I wire order, underrun fail-stop, atomic overflow handling,
+  disabled/wrong-ID callback rejection, and non-finite sanitization.
+- `P2TxPump` drives the existing CMaster/TXA input at 750 blocks/s
+  (64 complex samples at 48 kHz). VAC1/ASIO and TCI feed the same
+  existing mic-selection seam; WDSP output is resampled to 192 kHz.
+- After the first valid radio status, the session primes 30 ms of IQ and
+  starts port 1029 continuously with HP transmit=0, PA=off and drive=0.
+  FIFO overflow/underflow, pacing failure, stale telemetry during a key
+  request, and radio-reported DUC underflow all fail closed.
+- MOX/CAT/TCI/VOX/space-bar intent remains on HL2Stream's established
+  TR-delay/TXA ramp FSM. Its settled edges drive the P2 safety gate.
+  Saturn status PTT bit 0 feeds the same FSM through
+  `requestMoxFromHwPtt()` when hardware PTT forwarding is enabled.
+- Settings exposes a connection-scoped `Arm Protocol 2 TX` interlock
+  that always resets off. A second per-rig drive ceiling defaults to 5%
+  and is hard-capped at 25% pending dummy-load validation. The existing
+  per-rig PA enable and Drive remain additional required controls.
+- The TX panel reports P2 SAFE/ARMED/TX/FAULT and DUC FIFO depth.
+  G2 forward/reverse coupler telemetry uses Thetis's ANAN-G2 constants
+  and feeds Lyra's PWR/SWR meter selections.
+- Session open sends the safe 60-byte DUC configuration (CW off,
+  192 kHz, maximum TX ADC attenuation) before asserting the RX run bit.
+
 ## Phase sequence
 1. **Freeze reference + golden tests** — pin the Thetis fork; byte
    golden tests for discovery, the four control packets, audio/TX-IQ
@@ -83,8 +164,12 @@ tables / calibration / mic wiring / relays / PureSignal setup.
 4. **More receivers + telemetry** — RX2/DDCs, ADC select, diversity,
    wideband, full overload/telemetry decode (status bytes are already
    parsed; surface them via the catalog's conversion constants).
-5. **P2 TX** — RX-audio return (base+4), TX IQ (base+5), PTT/MOX,
-   CW/keyer, drive + PA gates, TX meters, antenna/filter TX words.
+5. **P2 TX** — packet encoders, safe DUC send, deterministic TX-IQ
+   writer, bounded FIFO, WDSP producer pump, controlled writer priming,
+   MOX/PTT routing, live drive/PA safety gates, G2 coupler telemetry,
+   and RX-audio return are done. Remaining, in order: staged
+   dummy-load RF validation and kill-test, calibrated full-power work,
+   CW/keyer, then production removal/raising of the temporary 25% cap.
 6. **PureSignal** — feedback DDC config, model defaults (Saturn PS
    peak 0.6121 vs 0.2899), atten safety, two-tone validation.
 7. **Profile management** — create/rename/duplicate/import/export,

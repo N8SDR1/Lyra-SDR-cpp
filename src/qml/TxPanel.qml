@@ -95,6 +95,49 @@ Rectangle {
             font.pixelSize: 14
         }
 
+        Rectangle {
+            id: p2StateChip
+            visible: P2Bridge.running
+            Layout.preferredWidth: 92
+            Layout.preferredHeight: 26
+            radius: 4
+            color: P2Bridge.txFaultLatched ? root.cMox
+                 : P2Bridge.txTransmitting ? root.cMox
+                 : P2Bridge.txBenchArmed ? "#3a2a14"
+                 : "#12252e"
+            border.color: P2Bridge.txFaultLatched ? root.cMoxEdge
+                        : P2Bridge.txTransmitting ? root.cMoxEdge
+                        : P2Bridge.txBenchArmed ? root.cOn
+                        : root.cAccent
+            border.width: 2
+            Text {
+                anchors.fill: parent
+                anchors.margins: 3
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                clip: true
+                text: P2Bridge.txFaultLatched ? qsTr("P2 FAULT")
+                    : P2Bridge.txTransmitting ? qsTr("P2 TX")
+                    : !P2Bridge.txHardwareSupported ? qsTr("P2 RX ONLY")
+                    : P2Bridge.txBenchArmed ? qsTr("P2 ARMED")
+                    : P2Bridge.txTransportReady ? qsTr("P2 SAFE")
+                    : qsTr("P2 PRIME")
+                color: (P2Bridge.txFaultLatched || P2Bridge.txTransmitting)
+                    ? "#ffffff"
+                    : P2Bridge.txBenchArmed ? root.cOn : root.cAccent
+                font.bold: true
+                font.pixelSize: 11
+            }
+            HoverHandler { id: p2StateHover }
+            ToolTip.visible: p2StateHover.hovered && Prefs.tooltipsEnabled
+            ToolTip.delay: 600
+            ToolTip.text: P2Bridge.txStatus
+                + qsTr("\nDUC FIFO: %1 samples\nBench drive ceiling: %2%")
+                    .arg(P2Bridge.ducFifoSamples)
+                    .arg(P2Bridge.txDriveLimitPercent)
+        }
+
         // ── TX Drive % — operator tunes between QSOs ────────────────
         // Help lives on the LABEL, not the slider — a ToolTip popup is
         // window-clamped, so "above the slider" got shoved back onto the
@@ -517,6 +560,7 @@ Rectangle {
             font.bold: true
             font.pixelSize: 12
             checked: Stream.tuneEnabled
+            enabled: !P2Bridge.running || P2Bridge.txBenchArmed
             onClicked: {
                 if (!Stream.tuneEnabled) {
                     // Arming: set tone first so the very first EP2 frame
@@ -562,6 +606,43 @@ Rectangle {
         // settle), NOT the click checked-state, so the visual stays
         // honest through the ~65 ms keydown window.
         Button {
+            id: twoToneBtn
+            checkable: false
+            implicitWidth: 72
+            implicitHeight: 26
+            text: qsTr('2-Tone')
+            font.bold: true
+            font.pixelSize: 12
+            checked: Stream.twoToneEnabled
+            enabled: (!P2Bridge.running || P2Bridge.txBenchArmed)
+                     && (!Stream.tuneEnabled || Stream.twoToneEnabled)
+            onClicked: {
+                if (!Stream.twoToneEnabled) {
+                    Stream.setTwoToneEnabled(true)
+                    Stream.requestMox(true)
+                } else {
+                    Stream.requestMox(false)
+                    Stream.setTwoToneEnabled(false)
+                }
+            }
+            background: Rectangle {
+                radius: 4
+                color: Stream.twoToneEnabled ? '#302044' : '#1f2a35'
+                border.color: Stream.twoToneEnabled ? '#d68cff' : '#3a5060'
+                border.width: 2
+            }
+            contentItem: Text {
+                text: twoToneBtn.text
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                color: Stream.twoToneEnabled ? '#d68cff' : root.cText
+                font: twoToneBtn.font
+                elide: Text.ElideRight
+                clip: true
+            }
+        }
+
+        Button {
             id: moxBtn
             // NOT checkable: `checked` stays a pure one-way reflection of
             // Stream.moxActive (wire truth); the lamp already reads moxActive
@@ -573,6 +654,7 @@ Rectangle {
             font.bold: true
             font.pixelSize: 12
             checked: Stream.moxActive
+            enabled: !P2Bridge.running || P2Bridge.txBenchArmed
             onClicked: Stream.requestMox(!Stream.moxActive)
             background: Rectangle {
                 // Three-way state: moxActive (wire MOX live) → red;

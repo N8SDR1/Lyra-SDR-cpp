@@ -86,15 +86,6 @@ std::vector<std::uint8_t> g_fpga_write_bufp;
 // I/O contract.  See FrameComposer.h / freq_calibration_design.md.
 std::atomic<double> g_freq_correction{1.0};
 
-// Apply the ppm trim to a frequency the instant before it is stored to
-// `prn`.  Exact `== 1.0` fast path → default output is byte-identical to
-// pre-calibration (a bit-exact no-op), so a fresh install / Reset tunes
-// exactly as before.  Mirror of `VFOfreq`: `f_freq = f * factor`.
-int corrected_freq(int freq_hz) {
-    const double f = g_freq_correction.load(std::memory_order_relaxed);
-    if (f == 1.0) return freq_hz;
-    return static_cast<int>(std::llround(static_cast<double>(freq_hz) * f));
-}
 }  // namespace
 
 // =================== §4a setters =====================================
@@ -108,6 +99,16 @@ int corrected_freq(int freq_hz) {
 // store level) were Lyra-native additions caught by 2026-06-06
 // TX-Agent-2 setter audit and removed per "do as reference,
 // period."
+
+// Apply the ppm trim immediately before a P1 or P2 protocol encoder
+// receives the requested frequency.  Exact `== 1.0` fast path means a
+// fresh install / Reset remains bit-identical to pre-calibration output.
+// Mirror of `VFOfreq`: `f_freq = f * factor`.
+int corrected_freq(int freq_hz) {
+    const double f = g_freq_correction.load(std::memory_order_relaxed);
+    if (f == 1.0) return freq_hz;
+    return static_cast<int>(std::llround(static_cast<double>(freq_hz) * f));
+}
 
 void set_rx_freq(int rx_idx, int freq_hz) {
     prn->rx[rx_idx].frequency = corrected_freq(freq_hz);

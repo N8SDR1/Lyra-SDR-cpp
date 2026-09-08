@@ -253,8 +253,21 @@ int main(int argc, char *argv[])
         // arm (new rig defaults PA-off = safer), mic boost.  Per-band drive
         // already lives in band_mem/.
         for (const auto *k : {"tx/maxOutputW", "tx/driveLevel",
-                              "tx/paEnabled", "tx/micBoost"})
+                              "tx/paEnabled", "tx/micBoost", "tx/mic_source"})
             lyra::rig::migrate::migrateKeyToActiveRig(QLatin1String(k));
+        // pa_gain/* (PA-gain-by-band + full-output + cap) and meter/pwrTrim/*
+        // (PWR-meter cal) are the HL2's TX power + meter calibration.  Relocate
+        // them to the active rig ONLY when that rig is the HL2 (their owner),
+        // so a P2 rig (Brick / G2) that is active first gets clean neutral
+        // defaults instead of inheriting HL2 numbers.  The global set waits
+        // until the HL2 is active, then migrates once (snapshot-gated).  An
+        // ungated migrateGroup here would wrongly dump HL2 cal onto whatever
+        // rig is active — e.g. a Brick.
+        if (lyra::rig::registry::rig(lyra::rig::registry::activeRigId()).family
+                == lyra::rig::RadioFamily::Hl2) {
+            lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("pa_gain/"));
+            lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("meter/pwrTrim/"));
+        }
     }
 
     // Safe-boot hatch: `--safe` (or LYRA_SAFE=1 in the environment) forces the
@@ -464,8 +477,15 @@ int main(int argc, char *argv[])
     //   cmMAXInbound  = 256/stream (max samples per Inbound() call —
     //                     comfortably above the EP6 mic batch).
     //   cmMAXInRate   = 384000 (HL2 max IQ rate).
-    //   cmMAXAudioRate / cmMAXTxOutRate = 48000 (AK4951 codec rate /
-    //                     fixed HL2 TX out rate, CLAUDE.md §3.5).
+    //   cmMAXAudioRate = 48000 (AK4951 codec rate, CLAUDE.md §3.5).
+    //   cmMAXTxOutRate = 192000: the TX channel out[] buffers are
+    //                     pre-allocated at getbuffsize(cmMAXTxOutRate)
+    //                     so the shared TXA channel can be raised to the
+    //                     192 kHz P2 DUC rate at runtime (SetXmtrDucOutrate)
+    //                     without a realloc.  P1/HL2 still OPENS the channel
+    //                     at 48 kHz out (ch_outrate unchanged) — this only
+    //                     enlarges the allocation ceiling, so P1 behaviour
+    //                     is byte-identical.
     //   xcm_inrates   = 48000 per stream (TX mic-in rate; stream 0
     //                     unused by the pump), audio out 48000,
     //                     rcvr/xmtr ch_outrates 48000 -> every
@@ -474,7 +494,7 @@ int main(int argc, char *argv[])
         int cmSPC[cmMAXspc]   = {0, 0};
         int cmMAXInbound[2]   = {256, 256};
         lyra::wire::SetRadioStructure(2, 1, 1, 1, 0, cmSPC,
-                                      cmMAXInbound, 384000, 48000, 48000);
+                                      cmMAXInbound, 384000, 48000, 192000);
         int xcm_inrates[2]    = {48000, 48000};
         int rcvr_outrates[1]  = {48000};
         int xmtr_outrates[1]  = {48000};
@@ -1477,15 +1497,15 @@ int main(int argc, char *argv[])
             // #158 DL-1 — PortAudio process init, once per process,
             // adjacent to create_rnet (the reference brings PortAudio up
             // in netInterface alongside the radio).  The VAC device layer
-            // (StartAudioIVAC) is not wired to wdsp_engine until DL-2;
-            // this only spins up PortAudio so DL-2 has a live PA context.
+            // (StartAudioIVAC) is owned by WdspEngine::rebuildVac1; this
+            // spins up PortAudio so the configured VAC stream can open.
             // The matching Pa_Terminate is the aboutToQuit handler-PA
             // connected in main scope (after handler-4 / destroy_cmaster).
             {
                 int paErr = lyra::wire::ivacInitPortAudio();
                 if (paErr == 0)
                     qInfo("[wire] DL-1: PortAudio initialized — VAC host "
-                          "audio context ready (not yet wired to wdsp_engine)");
+                          "audio context ready");
                 else
                     qWarning("[wire] DL-1: Pa_Initialize failed (err=%d) — "
                              "VAC host audio unavailable", paErr);
@@ -1706,6 +1726,36 @@ int main(int argc, char *argv[])
                             qInfo("[tx] TUN postgen: run=0 (stopped)");
                         }
                     },
+                    .setTwoTone = [txch, txf](bool on) {
+                        if (on) {
+                            // The two-tone must follow the selected sideband
+                            // exactly as the TUN tone (line ~1700) and the
+                            // bandpass (per-mode switch ~1588) do: USB-side
+                            // modes (USB/CWU/DIGU) place both tones on the
+                            // positive (upper) baseband, LSB-side modes
+                            // (LSB/CWL/DIGL) on the negative (lower).  Without
+                            // this sign the postgen two-tone sat on the upper
+                            // side in EVERY mode and never flipped with USB/LSB
+                            // (operator bench 2026-09-06).
+                            double s = 1.0;
+                            switch (txf->mode) {
+                                case 0: case 3: case 9: s = -1.0; break; // LSB/CWL/DIGL
+                                default:                s =  1.0; break; // USB/CWU/DIGU
+                            }
+                            const double f1 = s * static_cast<double>(
+                                lyra::ipc::HL2Stream::kTwoToneFreq1Hz);
+                            const double f2 = s * static_cast<double>(
+                                lyra::ipc::HL2Stream::kTwoToneFreq2Hz);
+                            lyra::wire::SetTXAPostGenMode(txch, 1);
+                            lyra::wire::SetTXAPostGenTTFreq(txch, f1, f2);
+                            lyra::wire::SetTXAPostGenTTMag(txch, 0.49999, 0.49999);
+                            lyra::wire::SetTXAPostGenRun(txch, 1);
+                            qInfo("[tx] two-tone postgen: mode=%d f1=%.0f f2=%.0f "
+                                  "(USB-side +, LSB-side -)", txf->mode, f1, f2);
+                        } else {
+                            lyra::wire::SetTXAPostGenRun(txch, 0);
+                        }
+                    },
                     .setPhrotRun = [txch](bool on) {   // #109 phase rotator
                         if (lyra::wire::SetTXAPHROTRun)
                             lyra::wire::SetTXAPHROTRun(txch, on ? 1 : 0);
@@ -1793,6 +1843,18 @@ int main(int argc, char *argv[])
                     stream->setTxMode(wdspTxModeFor(m0));
                     lyra::wire::SetTxRackBypass(txModeBypassesRack(m0) ? 1 : 0);
                 }
+
+                // Hardening: Prefs.mode -> WdspEngine.mode is normally driven
+                // by the QML Binding on the (persistent) Tuning dock. This C++
+                // backup guarantees a mode change (incl. TCI / CAT / memory,
+                // which all write Prefs.mode) still reaches the demod + TX
+                // sideband even if that dock is ever made lazy-loaded/unloadable.
+                // setMode() no-ops on an unchanged value, so this never
+                // double-applies against the live QML binding.
+                QObject::connect(prefs, &lyra::ui::Prefs::modeChanged,
+                                 wdspEngine, [prefs, wdspEngine]() {
+                    wdspEngine->setMode(prefs->mode());
+                });
 
                 // Digital-mode TX-drive reduction — forward the operator
                 // Prefs (Settings → TX → Digital modes) to the wire layer,
@@ -1937,21 +1999,19 @@ int main(int argc, char *argv[])
         // Multi-rig: auto-connect to the ACTIVE rig's radio.  The rig's
         // lastIp is kept current by HL2Stream::open; fall back to the legacy
         // global radio/lastIp (fresh installs / the seeded HL2 rig).
+        // The ACTIVE rig's lastIp is the auto-connect target (a P2 rig's IP
+        // is kept current by P2RxBridge::open, a P1 rig's by HL2Stream::open);
+        // beginConnect routes it to the P2 bridge or the P1 stream by the
+        // active rig's protocol.  Fall back to the legacy global radio/lastIp
+        // (fresh installs / the seeded HL2 rig).
         QString lastIp =
             lyra::rig::registry::rig(lyra::rig::registry::activeRigId()).lastIp;
         if (lastIp.isEmpty())
             lastIp = QSettings().value(QStringLiteral("radio/lastIp")).toString();
-        // Layer-2 startup radio (P2): an explicit "Open at startup"
-        // choice (radio/startupMac) also arms the launch connect — its
-        // P2 branch is handled inside beginConnect.  A box that has
-        // only ever run a P2 radio has no rig/legacy lastIp, so lastIp
-        // alone would never fire.
-        const bool haveStartupRadio = !QSettings()
-            .value(QStringLiteral("radio/startupMac")).toString().isEmpty();
         // Auto-start-on-launch opt-out (Settings → Hardware).  Default ON
         // (historical behaviour).  When the operator unticks it Lyra loads
         // but waits for an explicit Start instead of opening the radio.
-        if ((!lastIp.isEmpty() || haveStartupRadio)
+        if (!lastIp.isEmpty()
             && prefs->autoStartOnLaunch()
             && !qEnvironmentVariableIsSet("LYRA_SAFE")) {
             // Resilient connect: probe the remembered IP and open it only

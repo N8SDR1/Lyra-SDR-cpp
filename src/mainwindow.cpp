@@ -50,6 +50,7 @@
 #include "tx/VoiceKeyer.h"
 #include "wire/Ep6RecvThread.h"       // #89 B1 — ep6Thread().set_tx_clip_source(...)
 #include "wire/P2RxBridge.h"          // Saturn / ANAN G2 Protocol 2 RX path
+#include "hardware/ActiveFrontEndModel.h"
 #include "settingsdialog.h"
 #include "dockdragcontroller.h"
 #include "panelrack.h"
@@ -89,6 +90,7 @@
 #include <QPixmap>
 #include <QQmlContext>
 #include <QQuickWidget>
+#include <QQuickWindow>   // frameSwapped — crash-guard first-frame sentinel clear
 #include <QQuickItem>
 #include <QSettings>
 #include <QVariant>
@@ -383,6 +385,8 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     p2Bridge_ = new lyra::wire::P2RxBridge(
         qobject_cast<lyra::ipc::HL2Stream *>(stream_),
         qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_), this);
+    frontEnd_ = new lyra::hardware::ActiveFrontEndModel(
+        qobject_cast<lyra::ipc::HL2Stream *>(stream_), p2Bridge_, this);
     connect(p2Bridge_, &lyra::wire::P2RxBridge::runningChanged,
             this, [this]() { updateConnState(); });
     // The bridge's OWN diagnostics (hardware-profile resolution, the
@@ -586,6 +590,14 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     // P2 telemetry: PA volts/current read from the Saturn bridge
     // (hardware-profile-converted) whenever it is the live wire path.
     meter_->setP2Bridge(p2Bridge_);
+
+    // Auto AGC-T (latching) floor source: the engine's re-track timer anchors
+    // the knee to the same measured noise floor the on-screen S-meter reports.
+    // meter_ outlives the engine's use of the lambda (both parented to this).
+    if (auto *we = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
+        MeterModel *m = meter_;
+        we->setAgcFloorProvider([m]() { return m->noiseFloorWdspRawDbFs(); });
+    }
 
     // Tuner panel — manual-ATU tuning memory (tracks the dial vs stored
     // Input/Output/Inductor points per antenna).  Pure UI + QSettings.
@@ -1096,6 +1108,10 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
     qw->rootContext()->setContextProperty(
         QStringLiteral("Stream"), stream_);
     qw->rootContext()->setContextProperty(
+        QStringLiteral("FrontEnd"), frontEnd_);
+    qw->rootContext()->setContextProperty(
+        QStringLiteral("P2Bridge"), p2Bridge_);
+    qw->rootContext()->setContextProperty(
         QStringLiteral("Wdsp"), wdsp_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("WdspEngine"), wdspEngine_);
@@ -1150,6 +1166,30 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
     qw->rootContext()->setContextProperty(
         QStringLiteral("Converter"), converter_); // #201 offline MP4 converter
     qw->setSource(QUrl(QStringLiteral("qrc:/qt/qml/Lyra/src/qml/") + qmlFile));
+    // Crash-guard tightening: the moment ANY panel swaps its first frame,
+    // the RHI / GPU / scene-graph path has provably built + rendered, so
+    // drop the graphics "startup pending" sentinel NOW rather than waiting
+    // for the 2 s timer in main.cpp.  Otherwise a crash that lands AFTER
+    // the UI is up but before that timer (e.g. a DSP/network fault "when
+    // audio hits") leaves the sentinel set and the NEXT launch wrongly
+    // steps the graphics backend down + can reset the layout — the mis-
+    // attribution this fixes.  One-shot (gfxSentinelCleared_ guard) and
+    // self-disconnecting; the 2 s timer remains the fallback if no frame
+    // ever swaps.  A genuine GPU crash happens DURING scene-graph build,
+    // before any frameSwapped, so it still leaves the sentinel set and the
+    // ladder still arms — this only clears it once graphics is proven good.
+    if (QQuickWindow *qwin = qw->quickWindow()) {
+        auto conn = std::make_shared<QMetaObject::Connection>();
+        *conn = connect(qwin, &QQuickWindow::frameSwapped, this,
+                        [this, conn]() {
+            if (!gfxSentinelCleared_) {
+                gfxSentinelCleared_ = true;
+                QSettings().setValue(QStringLiteral("ui/gfxStartupPending"),
+                                     false);
+            }
+            QObject::disconnect(*conn);
+        });
+    }
     // Diagnostic: if a panel's QML fails to load, the QQuickWidget goes
     // blank — dump the errors so we don't have to guess.
     if (qw->status() == QQuickWidget::Error) {
@@ -1716,10 +1756,11 @@ void MainWindow::buildMenus() {
             tr("<h2 style='margin-bottom:2px'>Lyra "
                "<span style='color:#00e5ff'>v%1</span></h2>"
                "<p style='color:#8a9aac;margin-top:0'>"
-               "Hermes Lite 2 / 2+ — native C++23 / Qt 6 rebuild</p>"
-               "<p>A desktop SDR transceiver for the Hermes Lite 2 / 2+, "
-               "rebuilt in native C++ (Qt Quick + Vulkan/RHI) — no Python, "
-               "no GIL anywhere.</p>"
+               "HPSDR transceivers — native C++23 / Qt 6 rebuild</p>"
+               "<p>A desktop SDR transceiver for HPSDR radios — the "
+               "Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 "
+               "(Protocol 2) — rebuilt in native C++ (Qt Quick + "
+               "Vulkan/RHI) — no Python, no GIL anywhere.</p>"
                "<p style='color:#8a9aac'><i>Named for Apollo's lyre and "
                "the constellation Lyra — home of Vega. (See the User "
                "Guide for the full story.)</i></p>"
@@ -1795,6 +1836,12 @@ void MainWindow::ensureSettingsDialog() {
             voiceKeyer_, recorder_, converter_,
             profiles_, companion_, serialPtt_, serialCwKey_, catServers_,
             p2Bridge_, this);
+        // Opening a radio whose per-rig profile differs from the active rig
+        // offers to switch to it.  QUEUED so switchRig's modal (and its
+        // "Restart now" teardown) runs AFTER the Settings Open click handler
+        // has fully unwound — never nested inside it.
+        connect(settingsDlg_, &SettingsDialog::requestRigSwitch,
+                this, &MainWindow::switchRig, Qt::QueuedConnection);
     }
 }
 
@@ -1878,17 +1925,13 @@ void MainWindow::switchRig(const QString &rigId) {
     const auto r = lyra::rig::registry::rig(rigId);
     const QString label = r.label.isEmpty() ? rigId : r.label;
 
-    // A Protocol-2 rig (Brick / ANAN G2) is registered for identity, but
-    // Lyra can't bring it up yet — the P2 receive engine is deferred, and
-    // the launch auto-connect would try to open it on the P1 stream.  Block
-    // making it active until that engine lands, with an honest message.
-    if (lyra::rig::capabilitiesFor(r.family).protocol == 2) {
-        QMessageBox::information(this, tr("Switch rig"),
-            tr("\"%1\" is a Protocol-2 radio — it's registered, but receive "
-               "support is still in progress, so it can't be made the active "
-               "rig yet.").arg(label));
-        return;
-    }
+    // (Historical P2 block removed 2026-09-05.)  A Protocol-2 rig (Brick /
+    // ANAN G2) may now be made the active rig: the P2 receive engine has
+    // landed (the Brick RX is bench-confirmed), and the launch auto-connect
+    // routes P1 vs P2 INSIDE beginConnect(), so a P2 active rig opens on its
+    // own P2 path — not the P1 stream.  Making the connected P2 radio the
+    // active rig is exactly what gives it its OWN per-rig config scope
+    // (rig/<id>/…) instead of borrowing whatever P1 rig was active.
 
     QMessageBox box(this);
     box.setWindowTitle(tr("Switch rig"));
@@ -1911,8 +1954,17 @@ void MainWindow::switchRig(const QString &rigId) {
     if (clicked == restartBtn) {
         // Relaunch a fresh instance, then close cleanly.  The new instance
         // seeds/loads the now-active rig and auto-connects to its lastIp.
-        QProcess::startDetached(QCoreApplication::applicationFilePath(),
-                                QCoreApplication::arguments().mid(1));
+        //
+        // --await-primary is mandatory here: this (outgoing) instance still
+        // holds the single-instance lock while it tears down, so a plain
+        // relaunch would hit the guard, ping this dying window, and exit —
+        // the restart would silently never happen (operator-observed
+        // 2026-09-06).  The flag makes the new process wait for us to exit,
+        // then take over as the sole primary on the now-active rig.
+        QStringList args = QCoreApplication::arguments().mid(1);
+        if (!args.contains(QStringLiteral("--await-primary")))
+            args << QStringLiteral("--await-primary");
+        QProcess::startDetached(QCoreApplication::applicationFilePath(), args);
         close();
     }
     // "Later" — active rig recorded; loads on the next manual restart.
@@ -2720,32 +2772,44 @@ void MainWindow::onStartStop() {
 void MainWindow::beginConnect(const QString &preferIp) {
     auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
     if (!st || st->isRunning()) return;
+    // Arm the "radio never answered" watchdog for this attempt. It's cancelled
+    // by updateConnState() the moment either wire path reports running, or by
+    // a manual Stop; on timeout it tells the operator the radio wasn't found
+    // (the P2/Brick path has no discovery scan, so a powered-off Brick would
+    // otherwise just sit silently on "Opening…").
+    armConnWatchdog();
     // Start pressed while a Saturn (P2) session is live: the operator
     // is switching radios.  Close the P2 bridge FIRST — the two wire
     // paths share the router-0 → feedIq seam and must never feed it
     // concurrently (single-feeder-thread contract, P2RxBridge.h).
     if (p2Bridge_ && p2Bridge_->isRunning()) p2Bridge_->close();
 
-    // Layer-2 startup radio (Settings → Radio → "Open at startup"):
-    // an explicit saved P2 choice opens through the bridge.  Unset —
-    // or pointing at a P1 radio — falls through to the legacy HL2
-    // auto-connect exactly as before (retention rules; a P1 radio is
-    // already served by the radio/lastIp remember mechanism).
-    {
-        const QString startupMac = QSettings()
-            .value(QStringLiteral("radio/startupMac")).toString();
-        if (!startupMac.isEmpty() && p2Bridge_) {
-            const auto rp = lyra::rig::registry::rig(
-                lyra::rig::registry::rigIdForMac(startupMac));
-            const bool isP2 =
-                lyra::rig::capabilitiesFor(rp.family).protocol == 2;
-            if (rp.isValid() && isP2 && !rp.lastIp.isEmpty()) {
-                if (connStatus_)
-                    connStatus_->setText(tr("Opening %1…").arg(
-                        rp.label.isEmpty() ? rp.lastIp : rp.label));
-                p2Bridge_->open(rp.lastIp, rp.mac);
-                return;
-            }
+    // Multi-rig: the ACTIVE rig is the single source of truth for which
+    // radio auto-opens AND on which protocol.  A P2 family (Brick / Saturn /
+    // ANAN G2) opens through the P2 bridge WITH its MAC — so the Layer-2
+    // model profile AND the "(BrickSDR2)" connection label both resolve —
+    // then returns here; a P1 family (HL2) falls through to the legacy
+    // HL2 auto-connect below.  This keeps switching rigs (Rig menu, or
+    // opening a radio) coherent: it moves BOTH the config profile and the
+    // connected radio together.
+    //
+    // This replaces the old radio/startupMac gate, which was a SECOND,
+    // competing "which radio" setting parallel to the active rig: when it
+    // was set it force-opened that radio regardless of the rig you'd
+    // switched to (the override), and when it was empty a P2 active rig
+    // fell through to the P1 path below and opened the Brick as a
+    // Protocol-1 stream with no model label (operator-reported 2026-09-06).
+    if (p2Bridge_) {
+        const auto rp = lyra::rig::registry::rig(
+            lyra::rig::registry::activeRigId());
+        const bool isP2 =
+            lyra::rig::capabilitiesFor(rp.family).protocol == 2;
+        if (rp.isValid() && isP2 && !rp.lastIp.isEmpty()) {
+            if (connStatus_)
+                connStatus_->setText(tr("Opening %1…").arg(
+                    rp.label.isEmpty() ? rp.lastIp : rp.label));
+            p2Bridge_->open(rp.lastIp, rp.mac);
+            return;
         }
     }
     // Leaving Disconnected — show the connect attempt in amber (not the
@@ -2761,6 +2825,7 @@ void MainWindow::beginConnect(const QString &preferIp) {
             st->open(preferIp);
         } else if (connStatus_) {
             connStatus_->setText(tr("No saved radio"));
+            disarmConnWatchdog();  // nothing was attempted — no "not found" popup
         }
         return;
     }
@@ -2842,10 +2907,46 @@ void MainWindow::scanAndOpenFirst() {
     disc->scan(1.5, 2);
 }
 
+void MainWindow::armConnWatchdog() {
+    if (!connWatchdog_) {
+        connWatchdog_ = new QTimer(this);
+        connWatchdog_->setSingleShot(true);
+        connect(connWatchdog_, &QTimer::timeout, this, [this]() {
+            auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+            const bool running = (st && st->isRunning()) ||
+                                 (p2Bridge_ && p2Bridge_->isRunning());
+            if (running) return;  // connected before the timer fired
+            // Name the active rig if we can — else a general "the radio".
+            const auto rp = lyra::rig::registry::rig(
+                lyra::rig::registry::activeRigId());
+            const QString who = (rp.isValid() && !rp.label.isEmpty())
+                ? rp.label : tr("the radio");
+            if (connStatus_) {
+                connStatus_->setStyleSheet(
+                    QStringLiteral("QLabel{color:#e05050;font-weight:bold;}"));
+                connStatus_->setText(tr("No radio found"));
+            }
+            QMessageBox::warning(
+                this, tr("No radio found"),
+                tr("Lyra didn't get a response from %1.\n\n"
+                   "Check that the radio is powered on, its network cable is "
+                   "connected, and it's on the same network as this PC — then "
+                   "press Start to try again.").arg(who));
+        });
+    }
+    connWatchdog_->start(8000);  // ~8 s — a radio that is on answers in ~1-3 s
+}
+
+void MainWindow::disarmConnWatchdog() {
+    if (connWatchdog_) connWatchdog_->stop();
+}
+
 void MainWindow::updateConnState() {
     auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
     const bool running   = st && st->isRunning();
     const bool p2Running = p2Bridge_ && p2Bridge_->isRunning();
+    // A live connection (either wire path) cancels the startup watchdog.
+    if (running || p2Running) disarmConnWatchdog();
     // The button reflects EITHER wire path — a live P2 session is
     // just as "running" as a live P1 stream (see onStartStop).
     const bool anyRunning = running || p2Running;
@@ -2867,9 +2968,14 @@ void MainWindow::updateConnState() {
         // knows which wire path is up).
         if (running && st)
             connStatus_->setText(tr("Connected to %1").arg(st->targetIp()));
-        else if (p2Running)
-            connStatus_->setText(tr("Connected to %1 (Saturn P2)")
-                                     .arg(p2Bridge_->targetIp()));
+        else if (p2Running) {
+            // Show the resolved marketed model (BrickSDR, Saturn, …) rather
+            // than hardcoding "Saturn" — the P2 path serves the whole family.
+            const QString m = p2Bridge_->modelLabel();
+            connStatus_->setText(m.isEmpty()
+                ? tr("Connected to %1 (P2)").arg(p2Bridge_->targetIp())
+                : tr("Connected to %1 (%2, P2)").arg(p2Bridge_->targetIp(), m));
+        }
         else
             connStatus_->setText(tr("Disconnected"));
         // Green = connected, red = disconnected.

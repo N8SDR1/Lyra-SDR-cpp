@@ -81,6 +81,19 @@ constexpr double kPwrPeakDecay  = 0.10;
 constexpr double kPwrMaxDecay   = 0.012;       // same gentle drop as S-meter
 constexpr double kPwrGlowDecay  = 0.18;
 
+constexpr double kPaScaleMaxA = 3.0;
+constexpr double kPaDangerA   = 2.5;
+constexpr double kVScaleMaxV  = 16.0;
+constexpr double kVDangerV    = 14.0;
+
+// P2 telemetry uses a separate scale from the HL2 telemetry. These values
+// match the G2 conversion path and keep a normal ~14 V housekeeping rail out
+// of the HL2 over-voltage zone.
+constexpr double kP2PaScaleMaxA = 5.0;
+constexpr double kP2PaDangerA   = 4.0;
+constexpr double kP2VScaleMaxV  = 20.0;
+constexpr double kP2VDangerV    = 17.0;
+
 // SWR scale conventions.  Below this guard-band fwd power the
 // reflection-coefficient computation is dominated by ADC noise and
 // would render garbage SWR (e.g. 8:1 on a perfectly matched dummy
@@ -123,7 +136,9 @@ MeterModel::MeterModel(lyra::ipc::HL2Stream *stream,
     txStyle_ = std::clamp(s.value(QString::fromLatin1(kKeyTxStyle), 0).toInt(),
                           0, 2);
     separateStyle_ = s.value(QString::fromLatin1(kKeySepStyle), false).toBool();
-    calDb_ = s.value(calKeyScoped(), 0.0).toDouble();
+    // Seeds from the global active-rig scope; setP2Bridge() re-reads through
+    // rxCalKey() and reloadRxCal() switches it to the live P2 rig's own scope.
+    calDb_ = s.value(rxCalKey(), 0.0).toDouble();
     peakHoldMs_ = std::clamp(
         s.value(QString::fromLatin1(kKeyPeakHold), 800).toInt(), 100, 5000);
     peakHoldTicks_ = std::max(1, peakHoldMs_ / kTickMs);
@@ -372,7 +387,39 @@ void MeterModel::setCalDb(double d) {
     d = std::clamp(d, -60.0, 60.0);
     if (std::abs(d - calDb_) < 1e-9) return;
     calDb_ = d;
-    QSettings().setValue(calKeyScoped(), calDb_);
+    // Persist to whichever rig is the current RX source (the running P2 rig's
+    // own scope, else the active rig) so calibrating one radio never writes
+    // onto another's slot.
+    QSettings().setValue(rxCalKey(), calDb_);
+    emit calChanged();
+}
+
+// meter/calDb scoped to the CURRENT RX rig.  A P2 rig is never the global
+// active rig, so while its session runs we key on the bridge's resolved rigId;
+// otherwise fall back to the active-rig scope (the P1/HL2 path).
+QString MeterModel::rxCalKey() const {
+    if (p2_ && p2_->isRunning() && !p2_->rigId().isEmpty())
+        return QStringLiteral("rig/%1/%2").arg(p2_->rigId(),
+                                               QLatin1String(kKeyCal));
+    return calKeyScoped();
+}
+
+void MeterModel::setP2Bridge(lyra::wire::P2RxBridge *b) {
+    if (p2_ == b) return;
+    p2_ = b;
+    if (p2_)
+        connect(p2_, &lyra::wire::P2RxBridge::runningChanged,
+                this, &MeterModel::reloadRxCal);
+    reloadRxCal();
+}
+
+// Re-read the RX S-meter trim for the rig that is now the RX source.  Called
+// on every P2 session run-state flip so switching between the HL2 and a Brick
+// snaps the trim to that rig's own saved value (default 0) with no leak.
+void MeterModel::reloadRxCal() {
+    const double v = QSettings().value(rxCalKey(), 0.0).toDouble();
+    if (std::abs(v - calDb_) < 1e-9) return;
+    calDb_ = v;
     emit calChanged();
 }
 
@@ -602,7 +649,9 @@ QString MeterModel::formatSecondaryText(int src) const {
     if (!stream_) return QString();
     switch (src) {
     case PWR: {
-        const double raw = stream_->fwdPowerCalW();   // per-band-calibrated
+        const double raw = (p2_ && p2_->isRunning())
+            ? p2_->forwardPowerW()
+            : stream_->fwdPowerCalW();   // per-band-calibrated
         if (std::isnan(raw) || raw < 0.0) return QStringLiteral("PWR —");
         const double w = raw;                          // per-band trim is the cal
         return (w < 10.0)
@@ -610,8 +659,11 @@ QString MeterModel::formatSecondaryText(int src) const {
                    : QStringLiteral("PWR %1 W").arg(std::lround(w));
     }
     case SWR: {
-        const double fwd = stream_->fwdPowerW();
-        const double rev = stream_->revPowerW();
+        const bool onP2 = p2_ && p2_->isRunning();
+        const double fwd = onP2 ? p2_->forwardPowerW()
+                                : stream_->fwdPowerW();
+        const double rev = onP2 ? p2_->reversePowerW()
+                                : stream_->revPowerW();
         if (std::isnan(fwd) || std::isnan(rev) || fwd < kSwrGuardW)
             return QStringLiteral("SWR —");
         const double r = std::clamp(rev / std::max(fwd, 1e-9), 0.0, 0.999);
@@ -834,7 +886,8 @@ void MeterModel::ladderRowFor(int src, double *level, double *danger) const {
     if (!stream_) return;
     switch (src) {
     case PWR: {
-        const double raw = stream_->fwdPowerCalW();
+        const double raw = (p2_ && p2_->isRunning())
+            ? p2_->forwardPowerW() : stream_->fwdPowerCalW();
         const double w = (std::isnan(raw) || raw < 0.0) ? 0.0 : raw;
         *level = std::clamp(w / std::max(pwrScaleMaxW_, 1e-9), 0.0, 1.0);
         *danger = std::clamp(pwrRatedMaxW_ / std::max(pwrScaleMaxW_, 1e-9),
@@ -842,8 +895,11 @@ void MeterModel::ladderRowFor(int src, double *level, double *danger) const {
         return;
     }
     case SWR: {
-        const double fwd = stream_->fwdPowerW();
-        const double rev = stream_->revPowerW();
+        const bool onP2 = p2_ && p2_->isRunning();
+        const double fwd = onP2 ? p2_->forwardPowerW()
+                                : stream_->fwdPowerW();
+        const double rev = onP2 ? p2_->reversePowerW()
+                                : stream_->revPowerW();
         if (std::isnan(fwd) || std::isnan(rev) || fwd < kSwrGuardW) return;
         const double r = std::clamp(rev / std::max(fwd, 1e-9), 0.0, 0.999);
         const double rho = std::sqrt(r);
@@ -858,26 +914,25 @@ void MeterModel::ladderRowFor(int src, double *level, double *danger) const {
         return;
     }
     case PA_CURRENT: {
-        // HL2+ scale: idle ~0.2 A, full-tune anchor ~1.8 A.  Run the
-        // row out to 3 A (covers external-PA telemetry too); danger
-        // at 2.5 A (above operator's normal full-drive draw).
-        const double a = stream_->paCurrentA();
+        const bool onP2 = p2_ && p2_->isRunning();
+        const double a = onP2 ? p2_->paCurrentA()
+                              : stream_->paCurrentA();
         if (std::isnan(a)) return;
-        constexpr double kPAFullScale = 3.0;
-        constexpr double kPADanger    = 2.5;
-        *level = std::clamp(a / kPAFullScale, 0.0, 1.0);
-        *danger = kPADanger / kPAFullScale;
+        const double fullScale = onP2 ? kP2PaScaleMaxA : kPaScaleMaxA;
+        const double dangerLevel = onP2 ? kP2PaDangerA : kPaDangerA;
+        *level = std::clamp(a / fullScale, 0.0, 1.0);
+        *danger = dangerLevel / fullScale;
         return;
     }
     case PA_VOLTS: {
-        // Center the bar on the 12-13 V nominal HL2 supply; full scale
-        // 16 V leaves headroom for higher-VDD external supplies.
-        const double v = stream_->hl2SupplyV();
+        const bool onP2 = p2_ && p2_->isRunning();
+        const double v = onP2 ? p2_->supplyVolts()
+                              : stream_->hl2SupplyV();
         if (std::isnan(v)) return;
-        constexpr double kVFullScale = 16.0;
-        constexpr double kVDanger    = 14.0;
-        *level = std::clamp(v / kVFullScale, 0.0, 1.0);
-        *danger = kVDanger / kVFullScale;
+        const double fullScale = onP2 ? kP2VScaleMaxV : kVScaleMaxV;
+        const double dangerLevel = onP2 ? kP2VDangerV : kVDangerV;
+        *level = std::clamp(v / fullScale, 0.0, 1.0);
+        *danger = dangerLevel / fullScale;
         return;
     }
     case TEMP: {
@@ -1078,7 +1133,27 @@ void MeterModel::computeSMeter() {
     // on-screen meter and the wire can never disagree.
     const double dbm = calibratedSMeterDbm(raw);
 
-    dispDbm_ += kSmooth * (dbm - dispDbm_);
+    // Front-end (P2 step attenuator) change transient: the +ATT comp is
+    // applied host-side the instant the operator moves the S-ATT, but the raw
+    // reading only catches up over the wire round-trip, so raw + comp briefly
+    // disagree.  Hold the displayed reading across that ~1 s settle so it
+    // doesn't swing then resettle.  P2-only; the HL2 LNA path is unchanged.
+    if (p2_ && p2_->isRunning()) {
+        const double frontEnd = static_cast<double>(p2_->rxAttenuationDb());
+        if (lastFrontEndDb_ < -1e8) {
+            lastFrontEndDb_ = frontEnd;          // first read: adopt, no hold
+        } else if (std::abs(frontEnd - lastFrontEndDb_) > 0.01) {
+            lastFrontEndDb_ = frontEnd;
+            frontEndHoldTicks_ = kFrontEndSettleTicks;
+        }
+    } else {
+        frontEndHoldTicks_ = 0;
+    }
+
+    if (frontEndHoldTicks_ > 0)
+        --frontEndHoldTicks_;                    // hold: freeze the reading
+    else
+        dispDbm_ += kSmooth * (dbm - dispDbm_);
     const double n = normForDbm(dispDbm_);
     level_ = n;
 
@@ -1132,10 +1207,35 @@ void MeterModel::computeSMeter() {
 double MeterModel::calibratedSMeterDbm(double raw) const {
     // SINGLE source of truth for the RX S-meter calibration (see the header
     // decl).  RXA_S_PK is measured after the hardware PGA, so subtract the
-    // current LNA gain to stay true-to-source across LNA changes; calDb_
-    // then trims the absolute level once.
-    const double lna = stream_ ? static_cast<double>(stream_->lnaGainDb()) : 0.0;
-    return raw + calDb_ - lna;
+    // current LNA gain on P1 to stay true-to-source across LNA changes.
+    // P2 does not drive that HL2-only PGA control; subtracting its inert UI
+    // value made the P2 S-meter move while the ADC level stayed unchanged.
+    // P2 uses loss rather than gain: add the selected ADC's actual step
+    // attenuation to reference the reading back to the antenna, and apply
+    // the selected hardware model's Thetis-derived meter offset.
+    const bool onP2 = p2_ && p2_->isRunning();
+    const double lna = (!onP2 && stream_)
+        ? static_cast<double>(stream_->lnaGainDb()) : 0.0;
+    const double p2Comp = onP2
+        ? p2_->rxAttenuationDb() + p2_->meterCalibrationOffset() : 0.0;
+    return raw + calDb_ - lna + p2Comp;
+}
+
+double MeterModel::noiseFloorWdspRawDbFs() const {
+    // EXACT inverse of calibratedSMeterDbm(), which maps
+    //     dispDbm = raw + calDb_ - lna + p2Comp
+    // noiseFloorDbm_ is tracked in the dispDbm domain, so to land back in the
+    // WDSP raw/RXA_S_PK domain the AGC threshold math lives in we must undo
+    // EVERY term the same way — including the P2 comp (rx attenuation + model
+    // offset).  That term was missing here, so on the Brick the AGC-T floor
+    // was off from the S-meter by (attenuation + model offset) — part of why
+    // the auto knee's max-gain landed wrong.
+    const bool onP2 = p2_ && p2_->isRunning();
+    const double lna = (!onP2 && stream_)
+        ? static_cast<double>(stream_->lnaGainDb()) : 0.0;
+    const double p2Comp = onP2
+        ? p2_->rxAttenuationDb() + p2_->meterCalibrationOffset() : 0.0;
+    return noiseFloorDbm_ - calDb_ + lna - p2Comp;
 }
 
 double MeterModel::rxSMeterDbm() const {
@@ -1161,8 +1261,10 @@ void MeterModel::computePwr() {
     // No noise floor / SNR concept — those are RX-specific.  The text
     // readouts are "X.X W" / "X.XX W peak" so the operator can read
     // the watt-meter without crunching the scale.
-    const double raw = stream_ ? stream_->fwdPowerCalW()
-                                : std::numeric_limits<double>::quiet_NaN();
+    const double raw = (p2_ && p2_->isRunning())
+        ? p2_->forwardPowerW()
+        : (stream_ ? stream_->fwdPowerCalW()
+                   : std::numeric_limits<double>::quiet_NaN());
     // Telemetry sentinel: NaN means the slot hasn't arrived yet (stream
     // not running, or pre-first-statsChanged).  Display zero state so
     // the renderer doesn't show stale-bogus levels from a previous
@@ -1303,10 +1405,13 @@ void MeterModel::computeSwr() {
     //   * SWR above kSwrScaleMax pegs the meter; the text shows "≥N:1"
     //     so the operator knows it's off-scale rather than reading the
     //     pegged level as 3:1.
-    const double fwd = stream_ ? stream_->fwdPowerW()
-                                 : std::numeric_limits<double>::quiet_NaN();
-    const double rev = stream_ ? stream_->revPowerW()
-                                 : std::numeric_limits<double>::quiet_NaN();
+    const bool onP2 = p2_ && p2_->isRunning();
+    const double fwd = onP2 ? p2_->forwardPowerW()
+        : (stream_ ? stream_->fwdPowerW()
+                   : std::numeric_limits<double>::quiet_NaN());
+    const double rev = onP2 ? p2_->reversePowerW()
+        : (stream_ ? stream_->revPowerW()
+                   : std::numeric_limits<double>::quiet_NaN());
     const bool lowPwr = std::isnan(fwd) || std::isnan(rev) ||
                          fwd < kSwrGuardW;
 
@@ -1411,37 +1516,6 @@ void MeterModel::computeSwr() {
 // secondary readout when txSecondary_ is set.
 
 namespace {
-// PA current — HL2+ idle ~0.2 A, full-tune anchor ~1.8 A.  3 A
-// full-scale gives headroom for external-PA telemetry (some companion
-// boards route through here); 2.5 A danger threshold sits above the
-// operator's normal full-drive draw, so the red zone only lights up
-// when something's actually wrong.
-constexpr double kPaScaleMaxA = 3.0;
-constexpr double kPaDangerA   = 2.5;
-// PA supply / VDD — HL2 nominal supply is 12-13 V.  16 V full-scale
-// covers higher-VDD external supplies; 14 V danger flags an over-
-// voltage condition (the HL2's input regulator can take 12-15 V).
-constexpr double kVScaleMaxV  = 16.0;
-constexpr double kVDangerV    = 14.0;
-// P2 (Saturn / ANAN) telemetry — SEPARATE scale from the HL2's.
-// P2RxBridge reads AIN3/AIN4 through Thetis's fixed resistor-divider
-// conversion (console.cs convertToVolts, shared across the whole
-// MkII-BPF family, not just Saturn) and per-model amp offset/
-// sensitivity from the hardware catalog.  Bench-verified on a live
-// G2 (2026-07-19/20): idle supply read ~13.7-14.0 V, current ~0-0.2 A
-// — i.e. this ADC channel reads a 13.8 V-class housekeeping/bias
-// rail common to the family, NOT the RF PA's own (possibly higher)
-// supply.  That number sits right at/above the HL2's 14 V danger
-// threshold, so reusing the HL2 constants painted a healthy G2 red.
-// These constants give headroom around that verified idle reading;
-// they are NOT bench-confirmed under TX load or on non-Saturn P2
-// hardware — revisit per-model if the catalog ever needs to carry
-// its own scale (it already carries per-model amp conversion
-// constants, this could join them).
-constexpr double kP2PaScaleMaxA = 5.0;
-constexpr double kP2PaDangerA   = 4.0;
-constexpr double kP2VScaleMaxV  = 20.0;
-constexpr double kP2VDangerV    = 17.0;
 // HL2 board temperature.  Idle ~25 °C, full-tune climbs to ~31 °C;
 // 80 °C full-scale (well above the gateware thermal-cutoff floor);
 // 60 °C danger gives the operator a clear "back off" margin before

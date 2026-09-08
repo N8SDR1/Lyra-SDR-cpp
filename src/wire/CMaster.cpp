@@ -249,13 +249,25 @@ void create_xmtr()
 			0.0,								// pdelay
 			1);									// amiq
 		// interleave (for eer)
+		// Lyra-native sizing fix (2026-09-07): the reference sizes the ILV
+		// outbuff at the create-time ch_outsize and NEVER re-rates the xmtr,
+		// so ch_outsize is always its max.  Lyra's P2 DUC path raises the
+		// interleaver insize to 192k at RUNTIME (SetXmtrDucOutrate ->
+		// pSetILVInsize) while the outbuff stayed sized for the 48k create
+		// rate -> xilv's memcpy/interleave overran it (heap corruption,
+		// dump-confirmed in xilv).  Allocate the outbuff for cmMAXTxOutRate
+		// exactly as the xmtr out[] buffers are (line ~182), then set the
+		// WORKING insize back to the channel's real initial size.  The max
+		// is only the buffer CAPACITY; a later SetXmtr*Outrate never exceeds
+		// it, so the interleaver can never overrun again.
 		pcm->xmtr[i].pilv = create_ilv(
 			0,									// run
 			1,									// id to use in Outbound call
-			pcm->xmtr[i].ch_outsize,			// input buffer size
+			getbuffsize (pcm->cmMAXTxOutRate),	// outbuff CAPACITY = max DUC rate
 			2,									// maximum number of inputs
 			3,									// which streams to interleave, one bit per stream
 			pcm->OutboundTx);					// function to call with Outbound data
+		pSetILVInsize (pcm->xmtr[i].pilv, pcm->xmtr[i].ch_outsize);	// working size = real initial rate
 
 		// DEFERRED [sidetone — CW v0.2.2] — reference
 		// cmaster.c:235-251:
@@ -749,6 +761,32 @@ void SetXmtrChannelOutrate (int xmtr_id, int rate, int state)	// 2014-11-24:  Ca
 	//   for (i = 0; i < pcm->cmRCVR; i++)
 	//   	SetTCITxMonitorRate (i, rate);
 	// PIPE - set Wave Recorder (leave in C# since recorder is there)
+	LeaveCriticalSection (&pcm->update[in_id]);
+}
+
+// Lyra-native (2026-09-06): narrow variant of SetXmtrChannelOutrate that
+// changes ONLY the transmitter channel's DUC output rate + the output-stage
+// block sizes (WDSP channel out rate, txgain, EER, interleaver).  It does
+// NOT touch the RX-audio AAMixer: the full reference call re-rates AND
+// toggles the TX-monitor mixer input's active state, which would clobber the
+// operator's MON setting on this channel shared between P1 (48 kHz out) and
+// P2 (192 kHz DUC out).  SetOutputSamplerate also re-points the compensating
+// FIR (CFIR) to the new rate.  Used by the P2 DUC producer seam to raise the
+// shared TXA channel to 192 kHz on P2 TX activate and restore 48 kHz on
+// deactivate; P2 TX-monitor rate handling is a later (Stage-2+) item, and
+// P1/HL2 never calls this so its 48 kHz path is unaffected.
+void SetXmtrDucOutrate (int xmtr_id, int rate)
+{
+	int in_id = inid (1, xmtr_id);
+	int size  = getbuffsize (rate);
+	EnterCriticalSection (&pcm->update[in_id]);
+	pcm->xmtr[xmtr_id].ch_outrate = rate;								// channel out_rate
+	pcm->xmtr[xmtr_id].ch_outsize = size;								// channel out_size
+	SetOutputSamplerate (chid (in_id, 0), rate);						// DSP out rate (+ CFIR rate, internal resamplers, reallocs)
+	SetTXGainSize (pcm->xmtr[xmtr_id].pgain, size);						// Penelope gain block size
+	pSetEERSamplerate (pcm->xmtr[xmtr_id].peer, rate);					// EER rate
+	pSetEERSize (pcm->xmtr[xmtr_id].peer, size);						// EER size
+	pSetILVInsize (pcm->xmtr[xmtr_id].pilv, size);						// interleave & Outbound size
 	LeaveCriticalSection (&pcm->update[in_id]);
 }
 

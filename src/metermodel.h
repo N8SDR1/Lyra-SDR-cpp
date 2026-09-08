@@ -266,7 +266,9 @@ public:
     // running, PA volts/current read from it (converted with the
     // radio's hardware-profile constants) instead of the idle
     // HL2Stream's NaN.  Same meters, either wire path.
-    void setP2Bridge(lyra::wire::P2RxBridge *b) { p2_ = b; }
+    // Binds the P2 telemetry source and starts tracking its run state so the
+    // per-rig RX S-meter trim (calDb) reloads for whichever rig is live.
+    void setP2Bridge(lyra::wire::P2RxBridge *b);
 
     // TX-rip Phase 1 (Q2): setTxDspWorker removed — TX DSP worker is
     // being rebuilt from empty files per the signed Phase 0 mapping
@@ -345,6 +347,14 @@ public:
 
     // Tick marks for the scale: list of { pos: 0..1, label: "9"/"+20", major: bool }.
     Q_INVOKABLE QVariantList tickMarks() const;
+
+    // The rolling-minimum RX noise floor converted from calibrated dBm back
+    // into the WDSP-dBFS *raw* domain (the exact inverse of
+    // calibratedSMeterDbm: raw = dispDbm - calDb + lna).  Passband power,
+    // matching RXA_S_PK.  Consumed by WdspEngine::applyAutoAgcThresh for the
+    // one-shot Auto AGC-threshold.  Keep paired with calibratedSMeterDbm so
+    // the two never drift.
+    Q_INVOKABLE double noiseFloorWdspRawDbFs() const;
 
 signals:
     void updated();
@@ -481,6 +491,13 @@ private:
     lyra::ipc::HL2Stream   *stream_   = nullptr;
     lyra::dsp::WdspEngine  *wdsp_     = nullptr;
     lyra::wire::P2RxBridge *p2_       = nullptr;   // P2 telemetry source
+
+    // QSettings key for the RX S-meter trim (meter/calDb), scoped to the rig
+    // that is CURRENTLY the RX source: the running P2 rig's own id, else the
+    // global active rig.  reloadRxCal() re-reads it when the P2 session's run
+    // state flips so switching rigs never applies another rig's trim.
+    QString rxCalKey() const;
+    void    reloadRxCal();
     // TX-rip Phase 1 (Q2): txWorker_ removed; field returns with the
     // new TX DSP worker (docs/TX_ARCHITECTURAL_MAPPING.md §10.3).
     QTimer timer_;
@@ -554,6 +571,15 @@ private:
     double noiseFloorDbm_ = -140.0;  // rolling-minimum noise floor (dBm)
     double noiseLevel_ = 0.0;  // floor position on the scale (0..1)
     QString snrText_ = QStringLiteral("—");
+
+    // Mask the P2 step-attenuator change transient.  Moving the S-ATT
+    // adds/removes the host-side +ATT S-meter comp instantly, but the raw
+    // RXA_S_PK reading only catches up over a wire round-trip (~1 s), so
+    // raw + comp briefly disagree and the reading swings then resettles.
+    // Hold the displayed reading across that settle.  P2-only; HL2 untouched.
+    static constexpr int kFrontEndSettleTicks = 24;  // ~1.2 s @ 50 ms/tick
+    int    frontEndHoldTicks_ = 0;
+    double lastFrontEndDb_    = -1e9;   // sentinel: no P2 attenuation seen yet
 
     double  calDb_ = 0.0;
     int     peakHoldMs_    = 800;   // dwell before decay (operator-tunable)

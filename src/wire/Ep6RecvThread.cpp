@@ -627,12 +627,15 @@ void Ep6RecvThread::run_loop() {
             // position in OLD rxWorkerLoop).
             g_total_datagrams.fetch_add(1, std::memory_order_relaxed);
             g_window_datagrams.fetch_add(1, std::memory_order_relaxed);
-            // Per-datagram seq + dispatch lives outside the lock
-            // because process_datagram dispatches to operator
-            // sinks which may take their own locks (Router
-            // mutex, downstream consumer queues).  Reference
-            // does the seq check + MetisLastRecvSeq update
-            // INSIDE the lock (`:191-194`); we mirror that:
+            // Per-datagram seq check + dispatch run INSIDE rcvpktp1,
+            // faithfully mirroring the reference which does the seq check
+            // + MetisLastRecvSeq update inside the lock (`:191-194`).
+            // process_datagram dispatches to operator sinks that take their
+            // own locks (Router mutex, downstream consumer queues); this is
+            // safe — no other thread holds one of those inner locks while
+            // waiting on rcvpktp1, so there is no lock-ordering inversion.
+            // (Do NOT "optimise" the dispatch out of this scope: that would
+            // diverge from the reference's inside-the-lock seq handling.)
             process_datagram(readbuf, g_fpga_read_bufp.data());
         }  // rcvpktp1 released here
     }

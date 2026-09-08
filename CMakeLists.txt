@@ -18,7 +18,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.21.1
+    VERSION 0.22.0
     DESCRIPTION "Lyra — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
@@ -186,6 +186,21 @@ qt_add_executable(lyra
     src/wire/MetisFrame.cpp
     src/wire/ForceCandC.h
     src/wire/ForceCandC.cpp
+    # P2 TX: fail-closed safety, packet encoders, paced writer and bounded
+    # CMaster-to-session IQ FIFO. The writer is not started by production
+    # code, so MOX/drive/PA/transmit remain RF-inert.
+    src/wire/P2TxSafety.h
+    src/wire/P2TxSafety.cpp
+    src/wire/P2TxPackets.h
+    src/wire/P2TxPackets.cpp
+    src/wire/P2TxFifo.h
+    src/wire/P2TxFifo.cpp
+    src/wire/P2TxCmaster.h
+    src/wire/P2TxCmaster.cpp
+    src/wire/P2TxPump.h
+    src/wire/P2TxPump.cpp
+    src/wire/P2TxWriter.h
+    src/wire/P2TxWriter.cpp
     # Protocol 2 (Saturn / ANAN G2) Phase B — control-plane session
     # (general packet + HP run-bit keepalive + status stream parse).
     # WIRE-INERT in the app today: compiled so it tracks the tree, but
@@ -207,6 +222,8 @@ qt_add_executable(lyra
     # the Thetis model strings.  See docs/P2_HARDWARE_PROFILES_PLAN.md.
     src/hardware/HardwareCatalog.h
     src/hardware/HardwareCatalog.cpp
+    src/hardware/ActiveFrontEndModel.h
+    src/hardware/ActiveFrontEndModel.cpp
     # (src/radioprofile/{RadioProfile.h,RadioProfileStore.{h,cpp}}
     # RETIRED 2026-07-20 — the identity-layer fold agreed with N8SDR:
     # hardwareModelKey/trxAntenna/audioRoute/firstSeen/lastSeen moved
@@ -784,11 +801,67 @@ add_executable(test_p2_session EXCLUDE_FROM_ALL
     scratch/test_p2_session.cpp
     src/wire/P2Session.h
     src/wire/P2Session.cpp
+    src/wire/P2TxSafety.h
+    src/wire/P2TxSafety.cpp
+    src/wire/P2TxPackets.h
+    src/wire/P2TxPackets.cpp
+    src/wire/P2TxFifo.h
+    src/wire/P2TxFifo.cpp
+    src/wire/P2TxPump.h
+    src/wire/P2TxPump.cpp
+    src/wire/P2TxWriter.h
+    src/wire/P2TxWriter.cpp
 )
 target_include_directories(test_p2_session PRIVATE src)
 target_link_libraries(test_p2_session PRIVATE Qt6::Core Qt6::Network)
 if(MSVC)
     target_compile_options(test_p2_session PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# G2 hardware-profile golden packets: model selection, Alex input/filter/
+# antenna words, DDC ADC source and HP ADC attenuation bytes.
+add_executable(test_p2_g2_profile EXCLUDE_FROM_ALL
+    scratch/test_p2_g2_profile.cpp
+    src/wire/P2Session.h
+    src/wire/P2Session.cpp
+    src/wire/P2TxSafety.h
+    src/wire/P2TxSafety.cpp
+    src/wire/P2TxPackets.h
+    src/wire/P2TxPackets.cpp
+    src/wire/P2TxFifo.h
+    src/wire/P2TxFifo.cpp
+    src/wire/P2TxPump.h
+    src/wire/P2TxPump.cpp
+    src/wire/P2TxWriter.h
+    src/wire/P2TxWriter.cpp
+)
+target_include_directories(test_p2_g2_profile PRIVATE src)
+target_link_libraries(test_p2_g2_profile PRIVATE Qt6::Core Qt6::Network)
+if(MSVC)
+    target_compile_options(test_p2_g2_profile PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# P2 TX Phase A: safety prerequisites plus byte-for-byte DUC-specific and
+# 240-sample TX-IQ packet encoders. Pure/inert: no UDP send or radio keying.
+add_executable(test_p2_tx_packets EXCLUDE_FROM_ALL
+    scratch/test_p2_tx_packets.cpp
+    src/wire/P2Session.h
+    src/wire/P2Session.cpp
+    src/wire/P2TxSafety.h
+    src/wire/P2TxSafety.cpp
+    src/wire/P2TxPackets.h
+    src/wire/P2TxPackets.cpp
+    src/wire/P2TxFifo.h
+    src/wire/P2TxFifo.cpp
+    src/wire/P2TxPump.h
+    src/wire/P2TxPump.cpp
+    src/wire/P2TxWriter.h
+    src/wire/P2TxWriter.cpp
+)
+target_include_directories(test_p2_tx_packets PRIVATE src)
+target_link_libraries(test_p2_tx_packets PRIVATE Qt6::Core Qt6::Network)
+if(MSVC)
+    target_compile_options(test_p2_tx_packets PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # #199 OC Control Stage 1 — pure compute() + change-gate unit test.

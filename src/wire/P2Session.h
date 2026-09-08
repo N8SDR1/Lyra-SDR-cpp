@@ -1,10 +1,9 @@
 // Lyra — HPSDR Protocol 2 control-plane session (Saturn / ANAN G2).
 //
-// Phase B of the P2 bring-up: establishes and holds a P2 session with
-// the radio — general packet, high-priority run-bit keepalive, and the
-// radio's 60-byte high-priority status stream back.  NO IQ / audio
-// streams yet (those are Phase C/D); this class proves the handshake,
-// the controller lease, and two-way traffic on the bench.
+// Protocol 2 session for the Saturn/ANAN G2: control packets, RX DDC IQ,
+// speaker audio return, continuous TX-IQ transport, telemetry, and the
+// fail-closed TX safety gate. P2RxBridge supplies the app-facing state
+// and owns the transient operator bench interlock.
 //
 // References (both verified against KD4YAL's live Saturn G2 bench):
 //   * Radio side: KD4YAL Saturn fork, sw_projects/P2_app —
@@ -55,22 +54,38 @@
 //     [39..42]=ADC1/ADC2 peak (Saturn fw >= 27)  [49..50]=supply
 //     volts (raw ADC)  [55..58]=user analog  [59]=user I/O bits
 //
-// Bench safety: Phase B keys NOTHING — transmit bit never set, drive
-// level 0, PA enable 0 in the general packet.  The session is RX-only
-// control traffic; the hardware watchdog bit is set so the radio
-// drops to idle ~1 s after this client dies for any reason.
+// Bench safety: opening a session keys NOTHING. Port 1029 is primed and
+// streamed continuously in RX state, but transmit/PA/drive remain zero
+// until every safety prerequisite is healthy, the connection-scoped
+// bench interlock is explicitly armed, and MOX/PTT requests TX. The
+// hardware watchdog remains enabled so a dead client returns to RX.
 
 #pragma once
+
+#include "P2TxSafety.h"
+#include "P2TxPackets.h"
+#include "P2TxWriter.h"
+#include "P2TxPump.h"
 
 #include <QObject>
 #include <QString>
 #include <QHostAddress>
+#include <QElapsedTimer>
 #include <QUdpSocket>
 #include <QTimer>
 #include <array>
 #include <cstdint>
 
 namespace lyra::wire {
+
+// G2/Saturn RX input routing.  The G2's BYPS connector is the former
+// Alex EXT2 input (bit 10); it is distinct from HPF bypass (bit 12).
+enum class P2RxInput : quint8 {
+    Trx    = 0,
+    Bypass = 1,
+    Ext1   = 2,
+    Xvtr   = 3,
+};
 
 // ---- P2 hardware profile (Thetis "HardwareSpecific.Hardware" analogue) ----
 // Thetis branches per radio model at every hardware-behavior site
@@ -87,19 +102,27 @@ namespace lyra::wire {
 // = the "connects but only hears its own noise floor" trap (bench
 // 2026-07-19).  Bit layout per Thetis network.h:263-302 rbpfilter.
 struct P2HardwareProfile {
+    const char *modelKey;     // selected marketed model, not board id alone
     const char *name;
     int         boardId;      // P2 discovery reply byte [11]
     int         ddcCount;
     int         adcCount;
     // Alex0 RX halfword (BPF/HPF select, ext-in routing) for a dial
     // frequency, and TX halfword (ANT select + LPF) — trxAnt 1..3.
-    quint16 (*alexRxWord)(quint32 hz);
+    quint16 (*alexRxWord)(quint32 hz, P2RxInput input, bool hpfBypass);
     quint16 (*alexTxWord)(quint32 hz, int trxAnt);
+    // Some Hermes-class radios (BrickSDR) need a FIXED, band-independent
+    // TX front-end / T-R constant on the wire while transmitting (captured
+    // from the working reference keydown) instead of a per-band Alex
+    // ladder.  When true, buildHighPriorityPacket asserts that constant
+    // (OC + Alex relay bytes) only while transmit is active.
+    bool fixedTxFrontEnd = false;
 };
 
-// Profile lookup by discovery board type; unknown ids fall back to
-// the Saturn profile (the only P2 family bench-verified so far).
-const P2HardwareProfile *p2ProfileForBoard(int boardId);
+// The selected/saved marketed model chooses runtime front-end policy.
+// Discovery board id remains validation metadata; it cannot distinguish
+// every product variant that shares a wire-compatible board.
+const P2HardwareProfile *p2ProfileForModel(const QString &modelKey);
 
 class P2Session : public QObject {
     Q_OBJECT
@@ -119,18 +142,56 @@ public:
     // Protocol 2 legal rates (48/96/192/384/768/1536; p2app validates
     // and rejects the whole packet otherwise).  Sample size is always
     // 24 bit.  Takes effect on the next DDC-specific send (immediate
-    // if the session is open).  Source is ADC1 for all DDCs (multi-ADC
-    // routing is later work).
+    // if the session is open).  Source defaults to ADC1 and is selectable.
     void enableDdc(int ddc, quint16 rateKhz);
     void disableDdc(int ddc);
+    void setDdcAdc(int ddc, int adc);
     quint32 iqFrameCount() const { return iqFrameCount_; }
     quint32 iqSeqErrors()  const { return iqSeqErrors_;  }
 
-    // Hardware profile + TRX antenna port (1..3).  Applied on the next
-    // HP tick; the front-end words re-derive from DDC0's frequency on
-    // every HP build, so band changes re-filter automatically.
-    void setProfile(const P2HardwareProfile *p) { if (p) profile_ = p; }
+    // nullptr is an explicit no/unverified-front-end state.
+    void setProfile(const P2HardwareProfile *p) { profile_ = p; }
     void setTrxAntenna(int ant);
+    void setRxInput(P2RxInput input) { rxInput_ = input; }
+    void setHpfBypass(bool on) { hpfBypass_ = on; }
+    void setAdcAttenuation(int adc, int db);
+    void setTxProducerSink(P2TxPump::InputSink sink) {
+        txProducerTerminal_ = std::move(sink);
+        // The pump ticks the 48 kHz modulator-input cadence; feedTxProducer
+        // substitutes the live radio front-panel mic block for the pump's
+        // zeros when one is fresh, else forwards the zeros (prime / gap-fill).
+        txPump_.setInputSink([this](const double *iq, int n) {
+            return feedTxProducer(iq, n);
+        });
+    }
+    // Called once per pump tick (session thread). Feeds the latest decoded
+    // mic block into the modulator if fresh, otherwise the pump's zero block
+    // (initial prime + gap-fill when the mic stream slips). Reference model:
+    // radio mic is the base modulator source; VAC/TCI still override it
+    // downstream in xcmaster().
+    bool feedTxProducer(const double *pumpZeros, int n);
+    // P2 TX control is intentionally split into two calls. The bridge
+    // owns the transient operator interlock; MOX/PTT only supplies intent.
+    // Every transition is re-evaluated through P2TxSafetyGate and pushed
+    // immediately to the radio. Disarm always wins and forces RF off.
+    void setTxOperatorArmed(bool armed);
+    // Push the operator drive-limit ceiling (0..255 byte) into the
+    // fail-closed safety gate so it is enforced structurally on every
+    // effective-drive evaluation.
+    void setTxDriveCeiling(int ceilingByte);
+    void setTransmitIntent(bool on, bool paRequested, int drive);
+    void restartTxTransportRxState();
+
+    // Golden-packet test seam: exact production encoders, no I/O.
+    QByteArray diagnosticHighPriorityPacket(bool run) const {
+        return buildHighPriorityPacket(run);
+    }
+    QByteArray diagnosticDdcSpecificPacket() const {
+        return buildDdcSpecificPacket();
+    }
+    QByteArray diagnosticGeneralPacket() const {
+        return buildGeneralPacket();
+    }
 
     // RX-audio return to the RADIO's speaker (G2 on-board amp):
     // 48 kHz stereo int16 → 260 B packets (4 B incrementing seq +
@@ -170,7 +231,8 @@ signals:
                         quint16 revPowerRaw, quint16 supplyRaw,
                         quint16 adc1Peak, quint16 adc2Peak,
                         quint16 ain3Raw, quint16 ain4Raw,
-                        quint16 spkrFifoSamples);
+                        quint16 spkrFifoSamples, quint8 fifoFlags,
+                        quint16 ducFifoSamples);
     // One per DDC IQ frame (radio source port 1035+ddc).  `iqBytes` is
     // the 1428-byte payload: 238 samples x 6 bytes, I then Q, each a
     // big-endian signed 24-bit value (Thetis scales as (b0<<24 | b1<<16
@@ -178,11 +240,17 @@ signals:
     // ~201.7x/s per DDC — fine on the event loop for the control/bench
     // phase; the Phase D audio path moves consumption to a wire thread.
     void iqFrameReceived(int ddc, quint32 seq, QByteArray iqBytes);
+    // Session-thread TX truth for UI/bridge safety. transportReady means
+    // the 192 kHz FIFO is primed and the port-1029 writer is running.
+    void txStateChanged(bool transportReady, bool operatorArmed,
+                        bool transmitting, bool paEnabled, int drive,
+                        bool faultLatched, QString detail);
     void logLine(QString line);
 
 private slots:
     void onReadyRead();
     void onHpTick();
+    void onTxPrimeTick();
 
 private:
     QByteArray buildGeneralPacket() const;
@@ -190,36 +258,111 @@ private:
     QByteArray buildDdcSpecificPacket() const;
     void parseStatus(const QByteArray &d);
     void parseIqFrame(int ddc, const QByteArray &d);
+    void parseMic(const QByteArray &d);
+    void startTxTransportRxState();
+    void stopTxTransport();
+    void latchTxFault(const QString &reason);
+    // A transport-cadence fault (writer pacing miss / FIFO underflow) is a
+    // real RF-safety event ONLY while keyed. While no transmit intent exists
+    // the P2 TX stream is RF-inert (transmit=0, PA=off, drive=0) and a
+    // transient host stall must recover in place, not latch and lock out the
+    // next key-up. Keyed -> latchTxFault; RX-idle -> deferred re-prime.
+    void onTxTransportCadenceFault(const QString &reason);
+    void applyTxControlNow();
+    void emitTxState(const QString &detail = QString());
 
     QUdpSocket   sock_;
     QTimer       hpTimer_;
+    QTimer       txPrimeTimer_;
+    P2TxWriter   txWriter_;
+    P2TxPump     txPump_;
     QHostAddress radioAddr_;
     QString      radioIp_;
     bool         open_        = false;   // socket up, session being held
     bool         running_     = false;   // radio confirmed via status stream
     quint32      lastStatusSeq_ = 0;
     quint32      statusCount_   = 0;
+    QElapsedTimer statusAge_;
     int          hpTickCount_   = 0;     // paces the DDC-specific refresh
     std::array<quint32, 10> ddcFreqHz_{};
     quint32      ducFreqHz_  = 14'100'000;
     // Phase C receive-stream config + per-DDC sequence tracking.
     std::array<bool,    10> ddcEnabled_{};
     std::array<quint16, 10> ddcRateKhz_{};
+    std::array<quint8,  10> ddcAdc_{};
     std::array<quint32, 10> ddcSeqNext_{};
     std::array<bool,    10> ddcSeqStarted_{};
     quint32      iqFrameCount_ = 0;
     quint32      iqSeqErrors_  = 0;
-    const P2HardwareProfile *profile_ = nullptr;  // ctor sets Saturn default
+    bool         warnedNoIq_   = false;  // one-shot firewall-blocked-RX hint
+    // S2a mic-receive diagnostic (radio->host front-panel mic, port 1026).
+    // Decode + peak/rate tracking only; NOT yet fed to the modulator.
+    quint32      micPktCount_  = 0;      // packets since the last 1 s report
+    double       micPeak_      = 0.0;    // peak |sample| in that window
+    quint32      micSeqNext_   = 0;
+    bool         micSeqStarted_ = false;
+    quint32      micSeqErrors_ = 0;
+    QElapsedTimer micRateTimer_;
+    // Jack-less-rig hint: a rig with no usable mic jack streams NO mic packets
+    // (port 1026), so keying in "Mic In" transmits silence. lastMicPkt_ tracks
+    // time since the last mic packet; onHpTick fires warnedNoMic_ ONCE while
+    // keyed with no recent mic, pointing the operator at PC Soundcard / TCI.
+    QElapsedTimer lastMicPkt_;
+    bool         warnedNoMic_  = false;
+    // S2b — the live mic drives the modulator through an elastic FIFO.
+    // parseMic (radio mic clock) pushes each decoded {I=mic, Q=0} block;
+    // feedTxProducer (PC pump clock) drains one block per tick. Both run on
+    // the session thread, so no lock is needed. The two clocks average the
+    // same 48 kHz but the socket delivers mic datagrams in bursts while the
+    // pump fires on its own timer, so their events are NOT interleaved 1:1
+    // on the event loop. A single-block hand-off dropped a mic block on
+    // every burst and zero-stuffed the following pump tick -> the modulator
+    // was fed mostly zeros and garbled the transmitted audio. The ring, with
+    // a small prime cushion, absorbs that batching jitter: underrun feeds
+    // zeros (and re-primes), overrun drops the oldest block.
+    // Capacity/prime as literals; feedTxProducer static_asserts the block
+    // width against 2*kMicFrames (kMic* constants are declared below). The
+    // ring DEPTH is taken from kMicFifoCap so the array can't desync from the
+    // capacity used by the index math if kMicFifoCap is retuned.
+    static constexpr int kMicFifoCap    = 32;  // ring capacity (~43 ms)
+    static constexpr int kMicPrimeBlocks = 6;  // cushion before draining (~8 ms)
+    static_assert(kMicPrimeBlocks < kMicFifoCap,
+                  "prime cushion must leave headroom in the ring");
+    std::array<std::array<double, 2 * 64>, kMicFifoCap> micFifo_{};
+    int  micFifoHead_  = 0;     // index of the next block to drain
+    int  micFifoCount_ = 0;     // blocks currently queued
+    bool micPrimed_    = false; // false until the cushion first fills
+    // The terminal feed the bridge installs (-> feedP2TxCmasterInput).
+    P2TxPump::InputSink txProducerTerminal_;
+    const P2HardwareProfile *profile_ = nullptr;
     int          trxAntenna_   = 1;               // ANT1..3
+    P2RxInput    rxInput_      = P2RxInput::Trx;
+    bool         hpfBypass_    = false;
+    std::array<quint8, 2> adcAttenuation_{};
     quint32      spkrSeq_      = 0;               // speaker stream sequence
     QByteArray   spkrStage_;                      // partial-packet staging
+    // Every RF-bearing packet field is derived from these values through
+    // P2TxSafetyGate. Session open/reset leaves them fail-closed.
+    P2TxIntent       txIntent_;
+    P2TxSafetyInputs txSafety_;
+    P2DucConfig      ducConfig_;
+    QString          txStateDetail_;
 
     static constexpr quint16 kPortCommand    = 1024;  // general/discovery
     static constexpr quint16 kPortDdcConfig  = 1025;  // DDC-specific -> radio
+    static constexpr quint16 kPortDucConfig  = 1026;  // DUC-specific -> radio
     static constexpr quint16 kPortHpToSdr    = 1027;
     static constexpr quint16 kPortHpFromSdr  = 1025;  // radio SOURCE port
     static constexpr quint16 kPortSpkrToSdr  = 1028;  // speaker audio -> radio
+    static constexpr quint16 kPortDucIqToSdr = 1029;  // TX IQ -> radio
     static constexpr quint16 kPortDdcIq0     = 1035;  // radio SOURCE, +ddc
+    // The radio digitizes its own front-panel mic and streams it back on
+    // its OWN source port 1026 (base+1) — same numeric value as the
+    // host->radio DUC-config port, distinguished by direction. 132-byte
+    // packet: 4-byte BE sequence + 64 x 16-bit BE mono samples @ 48 kHz.
+    static constexpr quint16 kPortMicFromSdr = 1026;  // radio SOURCE (mic)
+    static constexpr int     kMicFrames      = 64;    // samples per packet
+    static constexpr int     kMicPktLen      = 132;   // 4 seq + 64*2 bytes
     static constexpr int     kNumDdc         = 10;
     static constexpr int     kSpkrFrames     = 64;    // frames per packet
     static constexpr int     kSpkrPktLen     = 260;   // 4 seq + 64*4 bytes
@@ -230,6 +373,13 @@ private:
     static constexpr int     kIqFrameLen     = 1444;
     static constexpr int     kIqHeaderLen    = 16;    // seq4 + ts8 + bits2 + count2
     static constexpr int     kIqSamplesPerFrame = 238;
+    // Prime 30 ms of TX IQ before starting the 800 Hz writer. This
+    // absorbs normal Windows timer coalescing and session-thread UDP
+    // bursts while still leaving FIFO headroom. HP transmit/PA/drive
+    // remain gated off throughout this RX-state transport phase.
+    static constexpr std::size_t kTxPrimeSamples =
+        24 * P2TxFifo::kPacketSamples;
+    static constexpr int     kTxPrimePollMs = 1;
     // HP cadence: Thetis-like periodic refresh.  Must stay well under
     // p2app's 1 s activity timeout; 100 ms gives 10x margin.
     static constexpr int     kHpPeriodMs     = 100;

@@ -2832,14 +2832,19 @@ QWidget *SettingsDialog::buildHardwareTab() {
             hwRow->addWidget(new QLabel(tr("Antenna:"), radioBox));
             auto *antCombo = new QComboBox(radioBox);
             antCombo->addItems({tr("ANT 1"), tr("ANT 2"), tr("ANT 3")});
-            antCombo->setCurrentIndex(qBound(
-                1, QSettings().value(QStringLiteral("p2/trxAntenna"), 1)
-                       .toInt(), 3) - 1);
+            antCombo->setCurrentIndex(
+                p2_ && p2_->isRunning()
+                    ? p2_->trxAntenna() - 1
+                    : qBound(1,
+                        QSettings().value(QStringLiteral("p2/trxAntenna"), 1)
+                            .toInt(), 3) - 1);
             connect(antCombo,
                     QOverload<int>::of(&QComboBox::currentIndexChanged),
-                    radioBox, [status, list](int idx) {
+                    radioBox, [this, status, list](int idx) {
                         QSettings().setValue(
                             QStringLiteral("p2/trxAntenna"), idx + 1);
+                        if (p2_ && p2_->isRunning())
+                            p2_->setTrxAntenna(idx + 1);
                         if (auto *it = list->currentItem();
                             it && it->data(Qt::UserRole + 7).toInt() == 2) {
                             auto p = lyra::rig::registry::rig(
@@ -2912,48 +2917,59 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     });
             hwRow->addWidget(audCombo);
 
-            // Startup radio (radio/startupMac): explicit operator choice
-            // of which SAVED radio auto-opens at launch.  Unset = the
-            // legacy behavior (P1/HL2 auto-connect) — retention rules.
-            auto *startupChk = new QCheckBox(tr("Open at startup"), radioBox);
-            auto syncStartup = [startupChk, list]() {
-                const QString mac = QSettings()
-                    .value(QStringLiteral("radio/startupMac")).toString();
-                auto *it = list->currentItem();
-                const bool on = it && !mac.isEmpty() &&
-                    it->data(Qt::UserRole + 1).toString()
-                        .compare(mac, Qt::CaseInsensitive) == 0;
-                startupChk->blockSignals(true);
-                startupChk->setChecked(on);
-                startupChk->blockSignals(false);
-            };
-            connect(list, &QListWidget::currentRowChanged, radioBox,
-                    [syncStartup](int) { syncStartup(); });
-            syncStartup();
-            connect(startupChk, &QCheckBox::toggled, radioBox,
-                    [status, list](bool on) {
-                        auto *it = list->currentItem();
-                        if (!it) return;
-                        const QString mac =
-                            it->data(Qt::UserRole + 1).toString();
-                        QSettings s;
-                        if (on && !mac.isEmpty()) {
-                            s.setValue(QStringLiteral("radio/startupMac"), mac);
-                            status->setText(tr(
-                                "%1 will open at the next launch.")
-                                    .arg(it->data(Qt::UserRole).toString()));
-                        } else if (!on &&
-                                   s.value(QStringLiteral("radio/startupMac"))
-                                       .toString().compare(
-                                           mac, Qt::CaseInsensitive) == 0) {
-                            s.remove(QStringLiteral("radio/startupMac"));
-                            status->setText(tr(
-                                "Startup radio cleared — the HL2 "
-                                "auto-connect behavior returns."));
-                        }
-                    });
-            hwRow->addWidget(startupChk);
+            // "Open at startup" was retired 2026-09-06: it wrote a separate
+            // radio/startupMac that competed with the active rig for "which
+            // radio auto-opens", and overrode the Rig-menu choice.  The active
+            // rig is now the single source of truth (beginConnect auto-opens
+            // the active rig's radio on its own protocol), and "auto-connect
+            // on launch (on/off)" is the Auto-start-radio-on-launch option.
+            // To make a radio the one that opens at launch, switch to it
+            // (Rig menu, or Open it here → "Switch to X?").
             rv->addLayout(hwRow);
+
+            // Live G2 front-end state.  These settings are rig- and
+            // band-scoped by P2RxBridge; they are intentionally disabled
+            // unless a P2 session is active, so editing an undiscovered
+            // radio can never write state under the wrong rig.
+            auto *feRow = new QHBoxLayout();
+            auto *feLabel = new QLabel(tr("Active G2 band:"), radioBox);
+            auto *adcCombo = new QComboBox(radioBox);
+            adcCombo->addItems({tr("ADC 1"), tr("ADC 2")});
+            auto *inputCombo = new QComboBox(radioBox);
+            inputCombo->addItems({tr("TRX antenna"), tr("BYPS"),
+                                  tr("EXT 1"), tr("XVTR")});
+            auto *hpfBypass = new QCheckBox(tr("HPF bypass"), radioBox);
+            const bool p2Active = p2_ && p2_->isRunning();
+            feLabel->setEnabled(p2Active);
+            adcCombo->setEnabled(p2Active);
+            inputCombo->setEnabled(p2Active);
+            hpfBypass->setEnabled(p2Active);
+            if (p2Active) {
+                adcCombo->setCurrentIndex(p2_->ddcAdc());
+                inputCombo->setCurrentIndex(p2_->rxInput());
+                hpfBypass->setChecked(p2_->hpfBypass());
+            }
+            connect(adcCombo,
+                    QOverload<int>::of(&QComboBox::currentIndexChanged),
+                    radioBox, [this](int idx) {
+                        if (p2_ && p2_->isRunning()) p2_->setDdcAdc(idx);
+                    });
+            connect(inputCombo,
+                    QOverload<int>::of(&QComboBox::currentIndexChanged),
+                    radioBox, [this](int idx) {
+                        if (p2_ && p2_->isRunning()) p2_->setRxInput(idx);
+                    });
+            connect(hpfBypass, &QCheckBox::toggled, radioBox,
+                    [this](bool on) {
+                        if (p2_ && p2_->isRunning()) p2_->setHpfBypass(on);
+                    });
+            feRow->addWidget(feLabel);
+            feRow->addWidget(adcCombo);
+            feRow->addWidget(new QLabel(tr("RX input:"), radioBox));
+            feRow->addWidget(inputCombo);
+            feRow->addWidget(hpfBypass);
+            feRow->addStretch(1);
+            rv->addLayout(feRow);
         }
 
         auto refresh = [this, scanBtn, openBtn, closeBtn, removeBtn,
@@ -3042,6 +3058,27 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 lyra::rig::registry::ensureRig(
                     mac, lyra::rig::registry::familyForDiscovery(proto, board),
                     QString(), ip);
+
+                // If this radio carries a DIFFERENT per-rig profile than the
+                // one currently loaded, opening it under the wrong profile is
+                // the confusing state (the HL2's PA-gain / OC config showing
+                // on a Brick, etc.).  Offer to switch to it instead — the same
+                // "Switch to X? Restart now / Later / Cancel" prompt the Rig
+                // menu uses — so the natural "pick a radio + Open" reaches the
+                // rig switch.  Deferred to MainWindow over a queued connection:
+                // the switch's "Restart now" tears down this dialog's parent,
+                // so it must never run nested inside this click handler.
+                {
+                    const QString rigId =
+                        lyra::rig::registry::rigIdForMac(mac);
+                    if (!rigId.isEmpty() &&
+                        rigId != lyra::rig::registry::activeRigId()) {
+                        status->setText(tr("This radio has its own saved "
+                                           "profile — offering to switch…"));
+                        emit requestRigSwitch(rigId);
+                        return;
+                    }
+                }
 
                 // Protocol 2 (Saturn / ANAN G2): opens through the P2
                 // bridge (session thread + DDC0 IQ → the same WDSP RX
@@ -3346,6 +3383,113 @@ QWidget *SettingsDialog::buildHardwareTab() {
         paWarn->setStyleSheet(QStringLiteral("QLabel{color:#cccccc;}"));
         g->addWidget(paWarn, 4, 0, 1, 2);
 
+        // Protocol 2 has an additional transient bench interlock. It is
+        // connection-scoped and defaults OFF even when the per-rig PA
+        // preference is enabled, so opening a G2 can never make RF by
+        // itself. The separate low drive ceiling protects the first
+        // dummy-load sessions from a previously saved 100% Drive value.
+        if (p2_) {
+            auto *p2Wrap = new QWidget(grp);
+            auto *p2Grid = new QGridLayout(p2Wrap);
+            p2Grid->setContentsMargins(0, 4, 0, 4);
+            p2Grid->setColumnStretch(1, 1);
+
+            auto *p2Arm = new QCheckBox(
+                tr("Arm Protocol 2 TX (dummy load bench only)"), p2Wrap);
+            p2Arm->setToolTip(tr(
+                "A transient, connection-scoped G2/Saturn TX interlock. "
+                "It resets OFF on every Open, Close, and app launch. "
+                "RF still also requires Enable PA, MOX/PTT, healthy TX-IQ "
+                "transport, and non-zero Drive. Use a dummy load and "
+                "watt-meter; leave this OFF for receive-only operation."));
+            p2Grid->addWidget(p2Arm, 0, 0, 1, 2);
+
+            auto *p2Auto = new QCheckBox(
+                tr("Auto-arm on connect (controlled dummy-load bench)"),
+                p2Wrap);
+            p2Auto->setToolTip(tr(
+                "Persisted per-rig operator preference. When ON, the bench "
+                "interlock above re-arms itself automatically each time this "
+                "G2/Saturn connects and its TX transport reports Ready, so "
+                "you don't have to arm it by hand every session. Same health "
+                "gate as a manual arm (TX-capable rig, running, Ready, no "
+                "fault). RF still also requires Enable PA, MOX/PTT and "
+                "non-zero Drive. Only enable with a dummy load and no "
+                "amplifier in line; leave OFF for receive-only rigs."));
+            p2Grid->addWidget(p2Auto, 1, 0, 1, 2);
+
+            auto *limitLabel = new QLabel(tr("P2 bench drive ceiling"), p2Wrap);
+            auto *limit = new QSpinBox(p2Wrap);
+            // Ceiling raised from a 25% dummy-load cap to full scale
+            // (operator RF-safety call: bench rig is ~15 W max into a
+            // 500 W dummy, no amplifier in line).  Still an operator-set
+            // ceiling on the P2 bench drive, just no longer clamped to 25.
+            limit->setRange(1, 100);
+            limit->setSuffix(tr(" %"));
+            limit->setToolTip(tr(
+                "Independent ceiling over the front-panel Drive slider. "
+                "Defaults to 5% and is hard-limited to 25% until G2 TX "
+                "completes dummy-load validation."));
+            p2Grid->addWidget(limitLabel, 2, 0);
+            p2Grid->addWidget(limit, 2, 1, Qt::AlignLeft);
+
+            auto *p2Status = new QLabel(p2Wrap);
+            p2Status->setWordWrap(true);
+            p2Status->setStyleSheet(
+                QStringLiteral("QLabel{color:#67d3e8;font-weight:bold;}"));
+            p2Grid->addWidget(p2Status, 3, 0, 1, 2);
+
+            auto refreshP2Tx = [this, p2Wrap, p2Arm, p2Auto, limit,
+                                p2Status]() {
+                const bool visible = p2_ && p2_->isOpen();
+                p2Wrap->setVisible(visible);
+                if (!visible) return;
+                {
+                    QSignalBlocker b(p2Arm);
+                    p2Arm->setChecked(p2_->txBenchArmed());
+                }
+                {
+                    QSignalBlocker b(p2Auto);
+                    p2Auto->setChecked(p2_->txAutoArm());
+                }
+                {
+                    QSignalBlocker b(limit);
+                    limit->setValue(p2_->txDriveLimitPercent());
+                }
+                p2Arm->setEnabled(
+                    p2_->txHardwareSupported() && p2_->isRunning() &&
+                    p2_->txTransportReady() &&
+                    !p2_->txFaultLatched());
+                limit->setEnabled(!p2_->txTransmitting());
+                p2Status->setText(
+                    tr("P2 TX: %1 | DUC FIFO %2 samples")
+                        .arg(p2_->txStatus())
+                        .arg(p2_->ducFifoSamples()));
+            };
+            connect(p2Arm, &QCheckBox::toggled, p2Wrap,
+                    [this](bool on) {
+                        if (p2_) p2_->setTxBenchArmed(on);
+                    });
+            connect(p2Auto, &QCheckBox::toggled, p2Wrap,
+                    [this](bool on) {
+                        if (p2_) p2_->setTxAutoArm(on);
+                    });
+            connect(limit, qOverload<int>(&QSpinBox::valueChanged), p2Wrap,
+                    [this](int value) {
+                        if (p2_) p2_->setTxDriveLimitPercent(value);
+                    });
+            connect(p2_, &lyra::wire::P2RxBridge::txStateChanged,
+                    p2Wrap, refreshP2Tx);
+            connect(p2_, &lyra::wire::P2RxBridge::telemetryChanged,
+                    p2Wrap, refreshP2Tx);
+            connect(p2_, &lyra::wire::P2RxBridge::openChanged,
+                    p2Wrap, refreshP2Tx);
+            connect(p2_, &lyra::wire::P2RxBridge::runningChanged,
+                    p2Wrap, refreshP2Tx);
+            refreshP2Tx();
+            g->addWidget(p2Wrap, 5, 0, 1, 2);
+        }
+
         // --- Auto-mute RX while transmitting (task #26) ---
         // Default ON.  When the wire MOX bit settles true (post TR-delay),
         // the WdspEngine drops RX audio to silence so the operator
@@ -3373,7 +3517,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 const bool on = engine_->autoMuteOnTx();
                 if (amBox->isChecked() != on) amBox->setChecked(on);
             });
-            g->addWidget(amBox, 5, 0, 1, 2);
+            g->addWidget(amBox, 6, 0, 1, 2);
         }
 
         // --- RX-on-unkey delay (queued thud/echo fix) ---
@@ -3416,7 +3560,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     rxdSpin->setValue(v);
                 }
             });
-            g->addWidget(rxdWrap, 6, 0, 1, 2);
+            g->addWidget(rxdWrap, 7, 0, 1, 2);
         }
 
         // --- Task #36: Hardware PTT input forwarder (default OFF) ---
@@ -3465,7 +3609,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     hwBox->setChecked(on);
                 }
             });
-            g->addWidget(hwBox, 7, 0, 1, 2);
+            g->addWidget(hwBox, 8, 0, 1, 2);
         }
 
         // --- Task #157: Space-bar PTT enable/disable ---
@@ -3500,7 +3644,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     sbBox->setChecked(on);
                 }
             });
-            g->addWidget(sbBox, 8, 0, 1, 2);
+            g->addWidget(sbBox, 9, 0, 1, 2);
         }
 
         // --- Auto-start on launch (opt-out) ---
@@ -3529,7 +3673,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     asBox->setChecked(on);
                 }
             });
-            g->addWidget(asBox, 9, 0, 1, 2);
+            g->addWidget(asBox, 10, 0, 1, 2);
         }
 
         // Mic source picker + Mic Boost checkbox MOVED to the TX
@@ -3805,18 +3949,43 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         // switches that band-follow off a band voltage.  Thetis exposes the
         // identical bit as its "HL2 Band Volts" checkbox.
         {
-            auto *bvBox = section(tr("Band-voltage output (fan-PWM pin)"));
+            auto *bvBox = section(
+                tr("Band-voltage output on the fan-PWM pin — special gateware only"));
             auto *bvv = new QVBoxLayout(bvBox);
+
+            // Prominent pointer: the common case (N2ADR filter / IO board driving
+            // a band-following amp such as the Xiegu GP100) is NOT this checkbox.
+            // Per the HL2 gateware, band data for a companion board rides the
+            // Open-Collector outputs, which the gateware relays to the board over
+            // I2C (addr 0x20).  So it's the OC grid above, not the fan-PWM pin.
+            auto *note = new QLabel(tr(
+                "Using an N2ADR filter / IO board (e.g. band voltage to a Xiegu "
+                "amp)?  That is NOT this checkbox.  The HL2 sends the "
+                "Open-Collector outputs above to the board over its I2C bus — "
+                "so configure the per-band OC pins in the grid above and enable "
+                "the filter board there.  This checkbox below is a separate, "
+                "rarely-used feature."));
+            note->setWordWrap(true);
+            note->setStyleSheet(QStringLiteral("color:#e0b060;"));  // amber caution
+            bvv->addWidget(note);
+
             auto *bv = new QCheckBox(
                 tr("Output per-band analog voltage on the fan-PWM pin"));
             bv->setChecked(stream_->bandVoltsOutput());
             bv->setToolTip(tr(
-                "HL2 gateware \"band volts\" feature (MI0BOT / Ramdor builds).\n"
-                "Drives a band-dependent voltage on the fan-PWM pin for amps,\n"
-                "tuners, or antenna switches that band-follow off a band voltage\n"
-                "(e.g. a HardRock-50 set to Transceiver: None).\n\n"
-                "TRADE-OFF: while on, that pin outputs band voltage INSTEAD of\n"
-                "fan speed control — leave OFF unless your wiring uses it."));
+                "HL2 gateware \"band volts\" feature — ONLY on special gateware\n"
+                "builds compiled with fan support (MI0BOT / Ramdor).  The stock\n"
+                "HL2/HL2+ (ak4951) gateware ships with the fan block disabled, so\n"
+                "on those builds this bit does NOTHING (the fan-PWM pin is held\n"
+                "low regardless).\n\n"
+                "When present, it drives a band-dependent voltage on the fan-PWM\n"
+                "pin for an amp / tuner / antenna switch that band-follows off a\n"
+                "single band voltage (e.g. a HardRock-50 set to Transceiver: None).\n\n"
+                "This is NOT the path for an N2ADR filter/IO board — those follow\n"
+                "the Open-Collector outputs relayed over I2C (see the note above).\n\n"
+                "TRADE-OFF (on fan-enabled gateware): while on, that pin outputs\n"
+                "band voltage INSTEAD of fan speed control — leave OFF unless your\n"
+                "wiring uses it."));
             connect(bv, &QCheckBox::toggled, stream_,
                     &lyra::ipc::HL2Stream::setBandVoltsOutput);
             connect(stream_, &lyra::ipc::HL2Stream::bandVoltsOutputChanged, bv,

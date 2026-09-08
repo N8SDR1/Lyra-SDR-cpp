@@ -474,23 +474,29 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         for (int i = 0; i < kNumPaGainBands; ++i) {
             const QString band = i < int(bands.size())
                 ? QString::fromUtf8(bands[i].name) : QString::number(i);
+            // pa_gain/* + meter/pwrTrim/* are PER-RIG TX power + meter
+            // calibration (rig/<id>/…); a Brick must not read the HL2's cal.
             paGainByBand_[i].store(
-                s.value(QStringLiteral("pa_gain/%1/gain").arg(band),
+                s.value(lyra::rig::scope::rigKey(
+                            QStringLiteral("pa_gain/%1/gain").arg(band)),
                         kPaGainDefault).toDouble(),
                 std::memory_order_relaxed);
             // Stage 3b — per-band measured full output (W); 0 = not measured.
             fullOutputWByBand_[i].store(
-                s.value(QStringLiteral("pa_gain/%1/fullW").arg(band),
+                s.value(lyra::rig::scope::rigKey(
+                            QStringLiteral("pa_gain/%1/fullW").arg(band)),
                         0.0).toDouble(),
                 std::memory_order_relaxed);
             // Stage B — per-band TUN-learned cap drive ceiling (-1 = unset)
             // + the cap it was learned for (-1 = none).
             capCeilRaw_[i].store(
-                s.value(QStringLiteral("pa_gain/%1/capCeilRaw").arg(band),
+                s.value(lyra::rig::scope::rigKey(
+                            QStringLiteral("pa_gain/%1/capCeilRaw").arg(band)),
                         -1).toInt(),
                 std::memory_order_relaxed);
             capCeilCapW_[i].store(
-                s.value(QStringLiteral("pa_gain/%1/capCeilCapW").arg(band),
+                s.value(lyra::rig::scope::rigKey(
+                            QStringLiteral("pa_gain/%1/capCeilCapW").arg(band)),
                         -1.0).toDouble(),
                 std::memory_order_relaxed);
             // Stage B — "settled under the cap" latch.  The HL2 drive DAC is
@@ -498,12 +504,14 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
             // the servo parks on the step just UNDER the cap and stops hunting.
             // Persisted so a converged band never blips over the cap again.
             capServoSettled_[i].store(
-                s.value(QStringLiteral("pa_gain/%1/capSettled").arg(band),
+                s.value(lyra::rig::scope::rigKey(
+                            QStringLiteral("pa_gain/%1/capSettled").arg(band)),
                         false).toBool(),
                 std::memory_order_relaxed);
             // Per-band PWR-meter trim (index-keyed; 1.0 = raw formula).
             pwrTrimByBand_[i].store(
-                std::clamp(s.value(QStringLiteral("meter/pwrTrim/%1").arg(i),
+                std::clamp(s.value(lyra::rig::scope::rigKey(
+                                       QStringLiteral("meter/pwrTrim/%1").arg(i)),
                                    1.0).toDouble(), 0.1, 10.0),
                 std::memory_order_relaxed);
             // Per-band raw-watts capture latch — session-only, start empty
@@ -568,18 +576,20 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     // micGainDb defaults to 0 dB = WDSP unity (no change vs the lyra-
     // cpp ship-no-setters posture at TxChannel::open()).
     //
-    // alcMaxGainLinear defaults to 3.0 LINEAR (= 3.0× amplitude =
-    // +9.54 dB amplification headroom), matching the verified
-    // reference's Setup-load spinner default EXACTLY — integer
-    // spinner 0..120 incr 1 default 3, passed straight to
-    // SetTXAALCMaxGain as LINEAR (no dB conversion).  WDSP create-
-    // time is 1.0 LINEAR (= 0 dB) which pins the entire TXA output
-    // chain at a 0 dB ALC ceiling regardless of mic level — the
-    // load-bearing trap that this default lifts.  Earlier Lyra
-    // shipped this property as dB and called `dbToLin(3.0)=1.413`
-    // — capping the ceiling at 47% of the reference's value and
-    // producing a 5-6 dB power deficit on continuous mic-input
-    // tones (task #79 root cause, fixed in §15.27 2026-06-03).
+    // alcMaxGainLinear defaults to 3.0, matching the verified
+    // reference's Setup-load spinner default EXACTLY (integer spinner
+    // 0..120 incr 1 default 3).  NOTE the "Linear" in the identifier
+    // is a MISNOMER: WDSP's SetTXAALCMaxGain applies
+    // max_gain = 10^(arg/20), i.e. the argument is dB.  So default 3
+    // = +3 dB (~1.413x amplitude ceiling); the reference passes the
+    // same 3 to the same dB call, so this stays reference-faithful.
+    // WDSP create-time max_gain is 1.0 (= 0 dB) which pins the entire
+    // TXA output chain at a 0 dB ALC ceiling regardless of mic level —
+    // the load-bearing trap that this default lifts.  An earlier Lyra
+    // path pre-converted (dbToLin(3.0)=1.413) then fed 1.413 into the
+    // dB argument, yielding only ~+1.4 dB of ceiling; passing the
+    // reference number (3) directly fixed that under-set ceiling
+    // (task #79, §15.27 2026-06-03).
     //
     // The old QSettings key `tx/alcMaxGainDb` (dB semantics) is
     // intentionally abandoned on upgrade — operator silently
@@ -682,6 +692,11 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     connect(this, &HL2Stream::moxActiveChanged, this, [this](bool on) {
         if (!on && tuneEnabled_.load(std::memory_order_relaxed)) {
             setTuneEnabled(false);
+        }
+    });
+    connect(this, &HL2Stream::moxActiveChanged, this, [this](bool on) {
+        if (!on && twoToneEnabled_.load(std::memory_order_relaxed)) {
+            setTwoToneEnabled(false);
         }
     });
     // #169 — SWR-protection evaluator: a 50 ms repeating tick armed on
@@ -1077,7 +1092,10 @@ void HL2Stream::open(const QString &ip) {
     // TX-0c-tune — fresh stream always starts disarmed (tune is per-
     // session, not persisted).  DC-injection carrier means no NCO
     // state to reset beyond this flag.
+    if (twoToneEnabled_.load(std::memory_order_relaxed))
+        setTwoToneEnabled(false);
     tuneEnabled_.store(false, std::memory_order_relaxed);
+    twoToneEnabled_.store(false, std::memory_order_relaxed);
     requestedMox_  = false;
     fsmRunning_    = false;
     if (moxActive_) { moxActive_ = false; emit moxActiveChanged(false); }
@@ -1467,7 +1485,10 @@ void HL2Stream::close() {
     mox_.store(false, std::memory_order_release);
     // TX-0c-tune — force-disarm in lockstep with the MOX clear so the
     // final EP2 frames carry silent TX I/Q.
+    if (twoToneEnabled_.load(std::memory_order_relaxed))
+        setTwoToneEnabled(false);
     tuneEnabled_.store(false, std::memory_order_relaxed);
+    twoToneEnabled_.store(false, std::memory_order_relaxed);
     requestedMox_  = false;
     fsmRunning_    = false;
     if (moxActive_) {
@@ -1813,7 +1834,9 @@ void HL2Stream::setPwrTrimForBand(int idx, double scale) {
     if (idx < 0 || idx >= kNumPaGainBands) return;
     scale = std::clamp(scale, 0.1, 10.0);
     pwrTrimByBand_[idx].store(scale, std::memory_order_relaxed);
-    QSettings().setValue(QStringLiteral("meter/pwrTrim/%1").arg(idx), scale);
+    QSettings().setValue(
+        lyra::rig::scope::rigKey(QStringLiteral("meter/pwrTrim/%1").arg(idx)),
+        scale);
 }
 
 // ----------------------------------------------------------------
@@ -2242,11 +2265,14 @@ void HL2Stream::tickCapServo_(double fwdW) {
         const QString b = band < int(bands.size())
             ? QString::fromUtf8(bands[band].name) : QString::number(band);
         QSettings s;
-        s.setValue(QStringLiteral("pa_gain/%1/capCeilRaw").arg(b),
+        s.setValue(lyra::rig::scope::rigKey(
+                       QStringLiteral("pa_gain/%1/capCeilRaw").arg(b)),
                    capCeilRaw_[band].load(std::memory_order_relaxed));
-        s.setValue(QStringLiteral("pa_gain/%1/capCeilCapW").arg(b),
+        s.setValue(lyra::rig::scope::rigKey(
+                       QStringLiteral("pa_gain/%1/capCeilCapW").arg(b)),
                    capCeilCapW_[band].load(std::memory_order_relaxed));
-        s.setValue(QStringLiteral("pa_gain/%1/capSettled").arg(b),
+        s.setValue(lyra::rig::scope::rigKey(
+                       QStringLiteral("pa_gain/%1/capSettled").arg(b)),
                    capServoSettled_[band].load(std::memory_order_relaxed));
     };
 
@@ -2396,9 +2422,9 @@ void HL2Stream::setPaGainForBand(int idx, double gain) {
     paGainByBand_[idx].store(gain, std::memory_order_relaxed);
     const auto &bands = lyra::amateurBands();
     QSettings().setValue(
-        QStringLiteral("pa_gain/%1/gain")
+        lyra::rig::scope::rigKey(QStringLiteral("pa_gain/%1/gain")
             .arg(idx < int(bands.size()) ? QString::fromUtf8(bands[idx].name)
-                                         : QString::number(idx)),
+                                         : QString::number(idx))),
         gain);
     // Re-apply live if this is the band we're transmitting on, so the
     // operator sees the dummy-load power move as they nudge the number.
@@ -2418,9 +2444,9 @@ void HL2Stream::setFullOutputForBand(int idx, double watts) {
     fullOutputWByBand_[idx].store(watts, std::memory_order_relaxed);
     const auto &bands = lyra::amateurBands();
     QSettings().setValue(
-        QStringLiteral("pa_gain/%1/fullW")
+        lyra::rig::scope::rigKey(QStringLiteral("pa_gain/%1/fullW")
             .arg(idx < int(bands.size()) ? QString::fromUtf8(bands[idx].name)
-                                         : QString::number(idx)),
+                                         : QString::number(idx))),
         watts);
     // Re-apply if this band is live — the watts ceiling just changed.
     const int cur = lyra::bandIndexForFreq(
@@ -2475,9 +2501,12 @@ void HL2Stream::clearCapLearnForBand(int idx) {
     const QString b = idx < int(bands.size())
         ? QString::fromUtf8(bands[idx].name) : QString::number(idx);
     QSettings s;
-    s.setValue(QStringLiteral("pa_gain/%1/capCeilRaw").arg(b), -1);
-    s.setValue(QStringLiteral("pa_gain/%1/capCeilCapW").arg(b), -1.0);
-    s.setValue(QStringLiteral("pa_gain/%1/capSettled").arg(b), false);
+    s.setValue(lyra::rig::scope::rigKey(
+                   QStringLiteral("pa_gain/%1/capCeilRaw").arg(b)), -1);
+    s.setValue(lyra::rig::scope::rigKey(
+                   QStringLiteral("pa_gain/%1/capCeilCapW").arg(b)), -1.0);
+    s.setValue(lyra::rig::scope::rigKey(
+                   QStringLiteral("pa_gain/%1/capSettled").arg(b)), false);
     // Re-apply if this band is live so a stale locked ceiling stops biting now.
     const int cur = lyra::bandIndexForFreq(
         static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
@@ -2711,6 +2740,8 @@ void HL2Stream::setTuneEnabled(bool on) {
     // Drive % scales the on-air power.  NOT persisted (TUN is an explicit
     // gesture) and auto-cleared on every wire-MOX-off edge by the ctor's
     // self-wired safety.
+    if (on && twoToneEnabled_.load(std::memory_order_relaxed))
+        setTwoToneEnabled(false);
     const bool prev = tuneEnabled_.exchange(on, std::memory_order_relaxed);
     if (prev == on) return;
     // Forward to the registered postgen callback (no-op if TX control
@@ -2764,6 +2795,22 @@ void HL2Stream::setTuneEnabled(bool on) {
 // an operator cancel mid-keydown unwinds cleanly, a re-key during
 // the keyup space window collapses to stay TX (standard HF-rig
 // PTT-FSM pattern).
+
+void HL2Stream::setTwoToneEnabled(bool on) {
+    if (on && tuneEnabled_.load(std::memory_order_relaxed))
+        setTuneEnabled(false);
+
+    const bool prev = twoToneEnabled_.exchange(on, std::memory_order_relaxed);
+    if (prev == on) return;
+
+    std::function<void(bool)> fwd;
+    {
+        std::lock_guard<std::mutex> lk(txControlMtx_);
+        fwd = txControl_.setTwoTone;
+    }
+    if (fwd) fwd(on);
+    emit twoToneEnabledChanged(on);
+}
 
 void HL2Stream::requestMox(bool on) {
     requestMox(on, PttSource::Manual);

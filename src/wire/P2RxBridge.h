@@ -1,12 +1,12 @@
-// Lyra — Protocol 2 RX bridge (Saturn / ANAN G2, Phase D).
+// Lyra — Protocol 2 application bridge (Saturn / ANAN G2).
 //
 // App-side owner of a P2Session: runs it on its OWN QThread and feeds
 // the radio's DDC0 IQ frames into router 0 — the SAME sink the P1 EP6
 // path dispatches to (main.cpp registers router_instance(0) port 0 →
 // WdspEngine::feedIq at boot).  Everything downstream of that seam —
 // WDSP filters / AGC / NR / demod, the panadapter analyzer, S-meter,
-// and the audio output — runs UNCHANGED: this bridge is the P2
-// equivalent of the EP6 receive thread, nothing more.
+// and the audio output — runs UNCHANGED.  The TX side clocks the same
+// CMaster/TXA chain used by P1 into a bounded P2 DUC-IQ transport.
 //
 // This mirrors Thetis's own architecture: its P2 read loop hands DDC
 // IQ to the identical xrouter(0, 0, …) call (network.c:608) that
@@ -28,9 +28,10 @@
 // are); the panadapter span therefore tracks exactly as it does on
 // the HL2.  A rate change while running re-sends the DDC config live.
 //
-// RX-only: P2Session never sets the transmit bit, sends drive 0 and
-// PA-disabled (see P2Session.h bench-safety note) — this bridge
-// cannot key the Saturn.  TX is later work.
+// TX: a dedicated 48 kHz CMaster/TXA pump feeds the session's bounded
+// 192 kHz FIFO and continuous port-1029 writer. RF remains fail-closed
+// on every open; the operator must explicitly arm the transient P2 bench
+// interlock before the normal Lyra MOX/PTT FSM can raise transmit/PA/drive.
 //
 // Threading: P2Session (QUdpSocket + timers) lives on thread_; every
 // session mutation is marshalled onto that thread via
@@ -43,6 +44,7 @@
 #include <QObject>
 #include <QString>
 #include <QThread>
+#include <QVariant>
 #include <limits>
 
 namespace lyra::ipc { class HL2Stream; }
@@ -54,6 +56,35 @@ class P2Session;
 
 class P2RxBridge : public QObject {
     Q_OBJECT
+    Q_PROPERTY(bool running READ isRunning NOTIFY runningChanged)
+    Q_PROPERTY(int rxAttenuationDb READ rxAttenuationDb WRITE setRxAttenuationDb
+               NOTIFY frontEndChanged)
+    Q_PROPERTY(int ddcAdc READ ddcAdc WRITE setDdcAdc NOTIFY frontEndChanged)
+    Q_PROPERTY(int rxInput READ rxInput WRITE setRxInput NOTIFY frontEndChanged)
+    Q_PROPERTY(bool hpfBypass READ hpfBypass WRITE setHpfBypass
+               NOTIFY frontEndChanged)
+    Q_PROPERTY(int trxAntenna READ trxAntenna WRITE setTrxAntenna
+               NOTIFY frontEndChanged)
+    Q_PROPERTY(int adcOverloadTier READ adcOverloadTier NOTIFY telemetryChanged)
+    Q_PROPERTY(int adcOverloadMask READ adcOverloadMask NOTIFY telemetryChanged)
+    Q_PROPERTY(int adc1Peak READ adc1Peak NOTIFY telemetryChanged)
+    Q_PROPERTY(int adc2Peak READ adc2Peak NOTIFY telemetryChanged)
+    Q_PROPERTY(double forwardPowerW READ forwardPowerW NOTIFY telemetryChanged)
+    Q_PROPERTY(double reversePowerW READ reversePowerW NOTIFY telemetryChanged)
+    Q_PROPERTY(int ducFifoSamples READ ducFifoSamples NOTIFY telemetryChanged)
+    Q_PROPERTY(bool txBenchArmed READ txBenchArmed WRITE setTxBenchArmed
+               NOTIFY txStateChanged)
+    Q_PROPERTY(bool txAutoArm READ txAutoArm WRITE setTxAutoArm
+               NOTIFY txStateChanged)
+    Q_PROPERTY(bool txHardwareSupported READ txHardwareSupported
+               NOTIFY txStateChanged)
+    Q_PROPERTY(int txDriveLimitPercent READ txDriveLimitPercent
+               WRITE setTxDriveLimitPercent NOTIFY txStateChanged)
+    Q_PROPERTY(bool txTransportReady READ txTransportReady
+               NOTIFY txStateChanged)
+    Q_PROPERTY(bool txTransmitting READ txTransmitting NOTIFY txStateChanged)
+    Q_PROPERTY(bool txFaultLatched READ txFaultLatched NOTIFY txStateChanged)
+    Q_PROPERTY(QString txStatus READ txStatus NOTIFY txStateChanged)
 
 public:
     explicit P2RxBridge(lyra::ipc::HL2Stream *stream,
@@ -72,6 +103,9 @@ public:
     // its early close (bench finding 2026-07-20).
     bool    isOpen()    const { return open_; }
     QString targetIp()  const { return ip_; }
+    // Resolved marketed-model display name for the connection banner
+    // (e.g. "BrickSDR", "Saturn (ANAN G2)"); empty until a session opens.
+    QString modelLabel() const { return modelLabel_; }
 
     // Live telemetry in real units, converted from the radio's HP
     // status stream with the ACTIVE hardware profile's constants
@@ -81,6 +115,33 @@ public:
     // whichever wire path is live.
     double supplyVolts() const { return supplyV_; }
     double paCurrentA() const { return paA_; }
+    int rxAttenuationDb() const { return rxAttenuationDb_; }
+    int ddcAdc() const { return ddcAdc_; }
+    int rxInput() const { return rxInput_; }
+    bool hpfBypass() const { return hpfBypass_; }
+    int trxAntenna() const { return trxAntenna_; }
+    int adcOverloadTier() const { return adcOverloadTier_; }
+    int adcOverloadMask() const { return adcOverloadMask_; }
+    int adc1Peak() const { return adc1Peak_; }
+    int adc2Peak() const { return adc2Peak_; }
+    double forwardPowerW() const { return fwdPowerW_; }
+    double reversePowerW() const { return revPowerW_; }
+    int ducFifoSamples() const { return ducFifoSamples_; }
+    bool txBenchArmed() const { return txBenchArmed_; }
+    bool txAutoArm() const { return txAutoArm_; }
+    bool txHardwareSupported() const { return txHardwareSupported_; }
+    int txDriveLimitPercent() const { return txDriveLimitPercent_; }
+    bool txTransportReady() const { return txTransportReady_; }
+    bool txTransmitting() const { return txTransmitting_; }
+    bool txFaultLatched() const { return txFaultLatched_; }
+    QString txStatus() const;
+    double meterCalibrationOffset() const { return meterCalOffset_; }
+    double displayCalibrationOffset() const { return displayCalOffset_; }
+    // The resolved per-rig id of the radio this session is bound to (empty
+    // when no Layer-2 profile matched).  A P2 rig is never the global "active"
+    // rig, so consumers that persist per-rig RX calibration (the S-meter trim)
+    // must scope to THIS id while the session runs -- see MeterModel.
+    QString rigId() const { return rigId_; }
 
 public slots:
     // Open a P2 session to <ip>: seed DDC0 from the current VFO,
@@ -92,20 +153,50 @@ public slots:
     void open(const QString &ip, const QString &mac = QString());
     // Tear down (HP run=0) and release the radio's controller lease.
     void close();
+    void setRxAttenuationDb(int db);
+    void setDdcAdc(int adc);
+    void setRxInput(int input);
+    void setHpfBypass(bool on);
+    void setTrxAntenna(int ant);
+    // Transient, connection-scoped interlock. The armed flag itself never
+    // persists — but an explicit operator preference (setTxAutoArm) can
+    // re-apply it automatically once the TX transport reports Ready.
+    void setTxBenchArmed(bool on);
+    // Persisted per-rig operator preference: when set, the bench interlock
+    // auto-arms on every connect once the transport is healthy/Ready, so a
+    // controlled dummy-load bench needn't be re-armed by hand each session.
+    // Off by default; still gated on the same hardware/health checks as a
+    // manual arm, so it can never arm a non-TX rig or an unready transport.
+    void setTxAutoArm(bool on);
+    // A second independent ceiling over the normal per-rig Drive slider.
+    // Persisted per rig; first-use default is 5%, range is capped at 25%
+    // until the G2 TX path completes its dummy-load validation.
+    void setTxDriveLimitPercent(int percent);
 
 signals:
     void runningChanged();
     // Fires whenever isOpen() changes — on both open() and close(),
     // independent of whether the radio ever confirmed.
     void openChanged();
+    void frontEndChanged();
+    void telemetryChanged();
+    void txStateChanged();
     void logLine(QString line);
 
 private:
+    QString modelLabel_;       // display name of the resolved marketed model
     quint16 chooseRateKhz();   // engine rate → legal P2 rate (may set engine rate)
-    // Mirror the tuning state onto the session: DDC0 = dial + RIT
-    // (matching the HL2 path's pushEffectiveRxFreq semantics), DUC =
-    // dial.  Called on every rx1FreqChanged AND ritChanged.
+    // Mirror the tuning state onto the session: DDC0 = effective RX carrier
+    // (dial + RIT), and DUC = effective TX carrier (VFO B/XIT when enabled).
+    // Called whenever the relevant tuning state changes.
     void pushDialToSession();
+    void restoreFrontEndForBand(const QString &band);
+    void persistFrontEndValue(const QString &name, const QVariant &value);
+    void pushFrontEndToSession();
+    void activateTxProducerSeam();
+    void deactivateTxProducerSeam();
+    void syncTxIntentToSession(bool on);
+    void resetTxUiState();
 
     lyra::ipc::HL2Stream  *stream_  = nullptr;
     lyra::dsp::WdspEngine *engine_  = nullptr;
@@ -123,7 +214,22 @@ private:
     //          forever (bench finding 2026-07-20).
     bool       open_    = false;
     bool       running_ = false;
+    bool       txProducerSeamActive_ = false;
+    bool       txBenchArmed_ = false;
+    bool       txAutoArm_ = false;
+    bool       txHardwareSupported_ = false;
+    bool       txTransportReady_ = false;
+    bool       txTransmitting_ = false;
+    bool       txPaEnabled_ = false;
+    bool       txFaultLatched_ = false;
+    int        txEffectiveDrive_ = 0;
+    int        txDriveLimitPercent_ = 5;
+    QString    txStateDetail_ = QStringLiteral("Disconnected");
     QString    ip_;
+    // P2 rigs are selectable identities but are not the active rig in the
+    // current multi-rig manager. Keep the selected identity here so P2
+    // hardware settings do not accidentally route through the active P1 rig.
+    QString    rigId_;
     quint16    rateKhz_ = 192;
     // Telemetry conversion state (main thread only — the status
     // signal is queued onto the bridge's thread).
@@ -132,6 +238,36 @@ private:
     float      ampSens_  = 120.f;
     double     supplyV_  = std::numeric_limits<double>::quiet_NaN();
     double     paA_      = std::numeric_limits<double>::quiet_NaN();
+    double     fwdPowerW_ = std::numeric_limits<double>::quiet_NaN();
+    double     revPowerW_ = std::numeric_limits<double>::quiet_NaN();
+    int        ducFifoSamples_ = 0;
+    // Per-model fwd/rev -> watts calibration (selected on session open).
+    // W = ((raw - off)/4095 * c1)^2 / c2.  Saturn/G2 and Hermes-class
+    // (incl. BrickSDR) use different coupler constants; hasPowerTelemetry_
+    // gates the whole path (an unrecognised model shows no power, not a
+    // wrong one).
+    bool       hasPowerTelemetry_ = false;
+    double     pcC1_      = 3.3;
+    double     pcC2Fwd_   = 0.095;
+    double     pcC2Rev_   = 0.095;
+    double     pcC2Rev6m_ = 0.5;
+    int        pcFwdOff_  = 6;
+    int        pcRevOff_  = 3;
+    bool       lastHardwarePtt_ = false;
+    QString    currentBand_;
+    int        defaultTrxAntenna_ = 1;
+    int        rxAttenuationDb_ = 0;
+    int        ddcAdc_ = 0;
+    int        rxInput_ = 0;
+    bool       hpfBypass_ = false;
+    int        trxAntenna_ = 1;
+    int        adcOverloadTier_ = 0;
+    int        adcOverloadMask_ = 0;
+    int        adc1Peak_ = 0;
+    int        adc2Peak_ = 0;
+    int        overloadDecayPackets_ = 0;
+    double     meterCalOffset_ = 0.0;
+    double     displayCalOffset_ = 0.0;
 };
 
 } // namespace lyra::wire

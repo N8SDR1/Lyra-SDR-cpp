@@ -66,6 +66,18 @@ public:
     // the panel has no Settings home (caller falls back to the guide).
     bool selectTopic(const QString &topic);
 
+signals:
+    // Emitted when the operator Opens a radio from the Hardware list whose
+    // per-rig config profile (rigId) differs from the active rig.  MainWindow
+    // connects this to switchRig() as a QUEUED connection, so its "Switch to
+    // X? Restart now / Later / Cancel" modal runs AFTER this dialog's Open
+    // click handler has fully unwound — never nested inside it (the switch's
+    // "Restart now" tears down the main window, so re-entrancy would be a
+    // use-after-free).  Opening a different rig is exactly a rig-switch
+    // moment: it lets the natural "pick a radio + Open" reach the switch
+    // instead of silently loading the wrong profile.
+    void requestRigSwitch(const QString &rigId);
+
 private:
     QWidget *buildVisualsTab();
     QWidget *buildHardwareTab();

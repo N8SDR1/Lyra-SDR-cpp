@@ -24,11 +24,13 @@
 #pragma once
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QObject>
 #include <QSharedMemory>
 #include <QString>
+#include <QThread>
 
 #include <functional>
 
@@ -55,11 +57,24 @@ inline bool acquireSingleInstance(int argc, char **argv,
                                   const QString &instanceId,
                                   QString *serverNameOut) {
     // Escape hatch: an explicit second copy (deliberate, e.g. testing).
+    // --await-primary: a DELIBERATE restart of the SAME config (e.g. the
+    // rig-switch "Restart now" flow) relaunches itself while the outgoing
+    // instance is still tearing down and therefore still holds the lock.
+    // A plain launch would see AlreadyExists, ping the dying primary, and
+    // exit — so the restart silently never happens.  With this flag the new
+    // process instead WAITS for the outgoing one to exit (which OS-refcount-
+    // releases the segment) and then takes over as primary — one radio, no
+    // TCI-port collision (the old instance frees its ports during teardown,
+    // before process exit, i.e. before the lock frees).
+    bool awaitPrimary = false;
     for (int i = 1; i < argc; ++i) {
-        if (QString::fromLocal8Bit(argv[i]) == QStringLiteral("--new-instance")) {
+        const QString a = QString::fromLocal8Bit(argv[i]);
+        if (a == QStringLiteral("--new-instance")) {
             if (serverNameOut) serverNameOut->clear();
             return true;
         }
+        if (a == QStringLiteral("--await-primary"))
+            awaitPrimary = true;
     }
 
     const QString key = singleInstanceKey(instanceId);
@@ -69,14 +84,29 @@ inline bool acquireSingleInstance(int argc, char **argv,
     // create() fails with AlreadyExists → it is the duplicate.  Any OTHER
     // create() failure (permissions, kernel object limit, …) must NOT lock
     // the operator out — fall through and run as primary in that case.
-    auto *lock = new QSharedMemory(key);
-    if (lock->create(1)) {
-        return true;   // primary — leak `lock` to hold the guard for our life
+    //
+    // Under --await-primary, an AlreadyExists means "the instance I am
+    // replacing hasn't finished exiting yet": poll until the segment frees
+    // (or a safety deadline elapses, well past the outgoing instance's ~10 s
+    // teardown watchdog), then take over as primary.
+    QElapsedTimer awaitTimer;
+    awaitTimer.start();
+    constexpr qint64 kAwaitDeadlineMs = 20000;
+    for (;;) {
+        auto *lock = new QSharedMemory(key);
+        if (lock->create(1)) {
+            return true;   // primary — leak `lock` to hold the guard for our life
+        }
+        if (lock->error() != QSharedMemory::AlreadyExists) {
+            return true;   // not a real duplicate — start anyway (never lock out)
+        }
+        delete lock;
+        if (awaitPrimary && awaitTimer.elapsed() < kAwaitDeadlineMs) {
+            QThread::msleep(150);   // outgoing instance still holds the lock
+            continue;
+        }
+        break;   // genuine duplicate (or the await deadline elapsed)
     }
-    if (lock->error() != QSharedMemory::AlreadyExists) {
-        return true;   // not a real duplicate — start anyway (never lock out)
-    }
-    delete lock;
 
     // Duplicate launch: ping the primary to bring its window forward, then
     // tell the caller to exit.  A minimal, short-lived QCoreApplication gives

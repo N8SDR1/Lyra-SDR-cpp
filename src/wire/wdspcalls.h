@@ -210,6 +210,12 @@ extern void (*SetTXALevelerDecay)(int channel, int decay);
 extern void (*SetTXALevelerTop)(int channel, double maxgain);
 //   iir.c:665+       void SetTXAPHROTRun (int channel, int run);   // #109 phase rotator
 extern void (*SetTXAPHROTRun)(int channel, int run);
+//   cfir.c           void SetTXACFIRRun (int channel, int run);
+//   TXA compensating FIR — pre-corrects the CIC interpolation droop of
+//   the 192 kHz P2 DUC across the TX passband.  Run ON only for a P2
+//   transmit path; the 48 kHz P1/HL2 path leaves it at the create-time
+//   default (off).
+extern void (*SetTXACFIRRun)(int channel, int run);
 //   fmmod.c:178      void SetTXACTCSSRun (int channel, int run);
 extern void (*SetTXACTCSSRun)(int channel, int run);
 //   #107 FM operator knobs (fmmod.c definition sites; verified present

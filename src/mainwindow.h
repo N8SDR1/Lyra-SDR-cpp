@@ -31,6 +31,7 @@ class QSystemTrayIcon;
 namespace lyra::wx { class WxService; }
 namespace lyra::solar { class SolarService; }
 namespace lyra::wire { class P2RxBridge; }
+namespace lyra::hardware { class ActiveFrontEndModel; }
 namespace lyra::profile { class ProfileManager; class CompanionLauncher; }
 namespace lyra::cat { class SerialPtt; class SerialCwKey; class CatServer; }
 namespace lyra::tx { class ClipBank; class VoiceKeyer; }
@@ -96,6 +97,14 @@ public:
     // "Connecting…" to a radio that moved / changed lease / is off.
     void beginConnect(const QString &preferIp);
 
+    // Startup "radio never answered" watchdog. armConnWatchdog() starts a
+    // one-shot timer when a connect is initiated; a successful connection
+    // (runningChanged) or a manual Stop cancels it via disarmConnWatchdog();
+    // on timeout it pops a message (the operator likely powered the radio
+    // off, or it's on the wrong network).
+    void armConnWatchdog();
+    void disarmConnWatchdog();
+
     // Exposed so main.cpp's early aboutToQuit teardown handler can
     // close the P2 session before destroy_cmaster() tears down the
     // router/DSP state the session's IQ callbacks dispatch into.
@@ -136,6 +145,13 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    // Crash-guard tightening: cleared to true the moment ANY QML panel
+    // renders its first frame (see makeQuick).  That proves the graphics /
+    // RHI / scene-graph path built + rendered OK, so the graphics
+    // safe-mode ladder's "startup pending" sentinel is dropped early — a
+    // crash AFTER first paint (e.g. a DSP/network fault) is then not
+    // mis-attributed to graphics.  One-shot guard.
+    bool gfxSentinelCleared_ = false;
     // Build a QQuickWidget that hosts <qmlFile> from the Lyra QML
     // module, with the four service objects set as context properties
     // BEFORE the source loads.
@@ -267,6 +283,7 @@ private:
     // Protocol 2 (Saturn / ANAN G2) RX bridge — the P2 counterpart of
     // the HL2 wire path; mutually exclusive with it (see P2RxBridge.h).
     lyra::wire::P2RxBridge *p2Bridge_ = nullptr;
+    lyra::hardware::ActiveFrontEndModel *frontEnd_ = nullptr;
     // Session recorder (#201): engine + the always-visible status-bar "● REC"
     // chip (shown only while recording; click-to-stop).
     lyra::recorder::RecorderEngine *recorder_ = nullptr;
@@ -318,6 +335,7 @@ private:
     QMetaObject::Connection     scanConn_;                    // one-shot scan→open
     QMetaObject::Connection     scanDoneConn_;                // one-shot scan-finished (no-radio reset)
     QMetaObject::Connection     probeConn_;                   // one-shot probe→open/scan-fallback
+    QTimer                     *connWatchdog_ = nullptr;      // per-attempt "radio never answered" timer
     // Drives drag-to-dock for the custom title bars (see makeDockTitleBar);
     // restores tear-out / move / snap-to-edge re-dock / tabify that the
     // replaced title bar removed.  Installed as each title bar's event filter.
