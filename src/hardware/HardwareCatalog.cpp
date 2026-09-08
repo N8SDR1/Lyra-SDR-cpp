@@ -79,7 +79,12 @@ const HardwareModelDescriptor kCatalog[] = {
     // Brick3 is Angelia/ANAN-100D-class (deskHPSDR ties it to ANAN-100D) --
     // a Brick3 uses the ANAN-100D model, NOT this Hermes-class row.
     {"BRICK-SDR",    "BrickSDR",        mHERMES,      bHermes,    WireSupport::P2Only, 1, false, 33, true,
-     false, false, 360.f, 120.f, 0.2899, 0.98f,      -2.1f,    false, false, PA_CLASSIC, 56.2f},
+     // rxMeterOffset 1.98: the Hermes-class 0.98 default + a WWV-derived
+     // +1 dB (N8SDR BrickSDR2 S-meter calibrated on 10 MHz WWV against a
+     // known-good reference receiver, 2026-09-08; held across step-att
+     // changes). A fresh Brick now starts here -- the per-rig meter/calDb
+     // trim is only a residual.
+     false, false, 360.f, 120.f, 0.2899, 1.98f,      -2.1f,    false, false, PA_CLASSIC, 56.2f},
 };
 
 #undef PA_CLASSIC
