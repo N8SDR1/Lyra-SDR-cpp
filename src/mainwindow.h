@@ -97,6 +97,14 @@ public:
     // "Connecting…" to a radio that moved / changed lease / is off.
     void beginConnect(const QString &preferIp);
 
+    // Startup "radio never answered" watchdog. armConnWatchdog() starts a
+    // one-shot timer when a connect is initiated; a successful connection
+    // (runningChanged) or a manual Stop cancels it via disarmConnWatchdog();
+    // on timeout it pops a message (the operator likely powered the radio
+    // off, or it's on the wrong network).
+    void armConnWatchdog();
+    void disarmConnWatchdog();
+
     // Exposed so main.cpp's early aboutToQuit teardown handler can
     // close the P2 session before destroy_cmaster() tears down the
     // router/DSP state the session's IQ callbacks dispatch into.
@@ -327,6 +335,7 @@ private:
     QMetaObject::Connection     scanConn_;                    // one-shot scan→open
     QMetaObject::Connection     scanDoneConn_;                // one-shot scan-finished (no-radio reset)
     QMetaObject::Connection     probeConn_;                   // one-shot probe→open/scan-fallback
+    QTimer                     *connWatchdog_ = nullptr;      // per-attempt "radio never answered" timer
     // Drives drag-to-dock for the custom title bars (see makeDockTitleBar);
     // restores tear-out / move / snap-to-edge re-dock / tabify that the
     // replaced title bar removed.  Installed as each title bar's event filter.

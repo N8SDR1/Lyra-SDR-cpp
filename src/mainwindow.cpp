@@ -2757,6 +2757,12 @@ void MainWindow::onStartStop() {
 void MainWindow::beginConnect(const QString &preferIp) {
     auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
     if (!st || st->isRunning()) return;
+    // Arm the "radio never answered" watchdog for this attempt. It's cancelled
+    // by updateConnState() the moment either wire path reports running, or by
+    // a manual Stop; on timeout it tells the operator the radio wasn't found
+    // (the P2/Brick path has no discovery scan, so a powered-off Brick would
+    // otherwise just sit silently on "Opening…").
+    armConnWatchdog();
     // Start pressed while a Saturn (P2) session is live: the operator
     // is switching radios.  Close the P2 bridge FIRST — the two wire
     // paths share the router-0 → feedIq seam and must never feed it
@@ -2804,6 +2810,7 @@ void MainWindow::beginConnect(const QString &preferIp) {
             st->open(preferIp);
         } else if (connStatus_) {
             connStatus_->setText(tr("No saved radio"));
+            disarmConnWatchdog();  // nothing was attempted — no "not found" popup
         }
         return;
     }
@@ -2885,10 +2892,46 @@ void MainWindow::scanAndOpenFirst() {
     disc->scan(1.5, 2);
 }
 
+void MainWindow::armConnWatchdog() {
+    if (!connWatchdog_) {
+        connWatchdog_ = new QTimer(this);
+        connWatchdog_->setSingleShot(true);
+        connect(connWatchdog_, &QTimer::timeout, this, [this]() {
+            auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+            const bool running = (st && st->isRunning()) ||
+                                 (p2Bridge_ && p2Bridge_->isRunning());
+            if (running) return;  // connected before the timer fired
+            // Name the active rig if we can — else a general "the radio".
+            const auto rp = lyra::rig::registry::rig(
+                lyra::rig::registry::activeRigId());
+            const QString who = (rp.isValid() && !rp.label.isEmpty())
+                ? rp.label : tr("the radio");
+            if (connStatus_) {
+                connStatus_->setStyleSheet(
+                    QStringLiteral("QLabel{color:#e05050;font-weight:bold;}"));
+                connStatus_->setText(tr("No radio found"));
+            }
+            QMessageBox::warning(
+                this, tr("No radio found"),
+                tr("Lyra didn't get a response from %1.\n\n"
+                   "Check that the radio is powered on, its network cable is "
+                   "connected, and it's on the same network as this PC — then "
+                   "press Start to try again.").arg(who));
+        });
+    }
+    connWatchdog_->start(8000);  // ~8 s — a radio that is on answers in ~1-3 s
+}
+
+void MainWindow::disarmConnWatchdog() {
+    if (connWatchdog_) connWatchdog_->stop();
+}
+
 void MainWindow::updateConnState() {
     auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
     const bool running   = st && st->isRunning();
     const bool p2Running = p2Bridge_ && p2Bridge_->isRunning();
+    // A live connection (either wire path) cancels the startup watchdog.
+    if (running || p2Running) disarmConnWatchdog();
     // The button reflects EITHER wire path — a live P2 session is
     // just as "running" as a live P1 stream (see onStartStop).
     const bool anyRunning = running || p2Running;
