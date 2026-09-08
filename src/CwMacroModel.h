@@ -35,6 +35,10 @@ class CwMacroModel : public QObject {
     Q_PROPERTY(QString rst     READ rst     WRITE setRst     NOTIFY contactChanged)
     Q_PROPERTY(QString opName  READ opName  WRITE setOpName  NOTIFY contactChanged)
     Q_PROPERTY(int     serial  READ serial  WRITE setSerial  NOTIFY serialChanged)
+    // #105 CW-3b — CW console send mode: false = Manual (compose then
+    // Send/Enter), true = Auto (send as you type / CWX type-ahead).
+    // Persisted (cw/typeAhead).
+    Q_PROPERTY(bool    typeAhead READ typeAhead WRITE setTypeAhead NOTIFY typeAheadChanged)
 public:
     CwMacroModel(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                  QObject *parent = nullptr);
@@ -46,7 +50,9 @@ public:
     QString rst()     const { return rst_; }
     QString opName()  const { return opName_; }
     int     serial()  const { return serial_; }
+    bool    typeAhead() const { return typeAhead_; }
 
+    void setTypeAhead(bool on);
     void setHisCall(const QString &s);
     void setRst(const QString &s);
     void setOpName(const QString &s);
@@ -78,6 +84,7 @@ signals:
     void tokensChanged();
     void sendingChanged();
     void serialChanged();
+    void typeAheadChanged();
     void contactChanged();
     // Emitted when a sent macro contained the {LOG} action token — the CW
     // Console asking a linked SDRLogger+ (Combo) to log the current QSO. The
@@ -104,6 +111,7 @@ private:
     QString  rst_  = QStringLiteral("599");
     QString  opName_;
     int      serial_ = 1;
+    bool     typeAhead_ = false;     // Manual by default (cw/typeAhead)
     QTimer  *sendTimer_ = nullptr;   // clears the sending highlight after the est. burst
 };
 

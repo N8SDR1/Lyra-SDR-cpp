@@ -3949,18 +3949,43 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         // switches that band-follow off a band voltage.  Thetis exposes the
         // identical bit as its "HL2 Band Volts" checkbox.
         {
-            auto *bvBox = section(tr("Band-voltage output (fan-PWM pin)"));
+            auto *bvBox = section(
+                tr("Band-voltage output on the fan-PWM pin — special gateware only"));
             auto *bvv = new QVBoxLayout(bvBox);
+
+            // Prominent pointer: the common case (N2ADR filter / IO board driving
+            // a band-following amp such as the Xiegu GP100) is NOT this checkbox.
+            // Per the HL2 gateware, band data for a companion board rides the
+            // Open-Collector outputs, which the gateware relays to the board over
+            // I2C (addr 0x20).  So it's the OC grid above, not the fan-PWM pin.
+            auto *note = new QLabel(tr(
+                "Using an N2ADR filter / IO board (e.g. band voltage to a Xiegu "
+                "amp)?  That is NOT this checkbox.  The HL2 sends the "
+                "Open-Collector outputs above to the board over its I2C bus — "
+                "so configure the per-band OC pins in the grid above and enable "
+                "the filter board there.  This checkbox below is a separate, "
+                "rarely-used feature."));
+            note->setWordWrap(true);
+            note->setStyleSheet(QStringLiteral("color:#e0b060;"));  // amber caution
+            bvv->addWidget(note);
+
             auto *bv = new QCheckBox(
                 tr("Output per-band analog voltage on the fan-PWM pin"));
             bv->setChecked(stream_->bandVoltsOutput());
             bv->setToolTip(tr(
-                "HL2 gateware \"band volts\" feature (MI0BOT / Ramdor builds).\n"
-                "Drives a band-dependent voltage on the fan-PWM pin for amps,\n"
-                "tuners, or antenna switches that band-follow off a band voltage\n"
-                "(e.g. a HardRock-50 set to Transceiver: None).\n\n"
-                "TRADE-OFF: while on, that pin outputs band voltage INSTEAD of\n"
-                "fan speed control — leave OFF unless your wiring uses it."));
+                "HL2 gateware \"band volts\" feature — ONLY on special gateware\n"
+                "builds compiled with fan support (MI0BOT / Ramdor).  The stock\n"
+                "HL2/HL2+ (ak4951) gateware ships with the fan block disabled, so\n"
+                "on those builds this bit does NOTHING (the fan-PWM pin is held\n"
+                "low regardless).\n\n"
+                "When present, it drives a band-dependent voltage on the fan-PWM\n"
+                "pin for an amp / tuner / antenna switch that band-follows off a\n"
+                "single band voltage (e.g. a HardRock-50 set to Transceiver: None).\n\n"
+                "This is NOT the path for an N2ADR filter/IO board — those follow\n"
+                "the Open-Collector outputs relayed over I2C (see the note above).\n\n"
+                "TRADE-OFF (on fan-enabled gateware): while on, that pin outputs\n"
+                "band voltage INSTEAD of fan speed control — leave OFF unless your\n"
+                "wiring uses it."));
             connect(bv, &QCheckBox::toggled, stream_,
                     &lyra::ipc::HL2Stream::setBandVoltsOutput);
             connect(stream_, &lyra::ipc::HL2Stream::bandVoltsOutputChanged, bv,
