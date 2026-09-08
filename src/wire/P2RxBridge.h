@@ -137,6 +137,11 @@ public:
     QString txStatus() const;
     double meterCalibrationOffset() const { return meterCalOffset_; }
     double displayCalibrationOffset() const { return displayCalOffset_; }
+    // The resolved per-rig id of the radio this session is bound to (empty
+    // when no Layer-2 profile matched).  A P2 rig is never the global "active"
+    // rig, so consumers that persist per-rig RX calibration (the S-meter trim)
+    // must scope to THIS id while the session runs -- see MeterModel.
+    QString rigId() const { return rigId_; }
 
 public slots:
     // Open a P2 session to <ip>: seed DDC0 from the current VFO,

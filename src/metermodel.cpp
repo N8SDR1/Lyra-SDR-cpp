@@ -136,7 +136,9 @@ MeterModel::MeterModel(lyra::ipc::HL2Stream *stream,
     txStyle_ = std::clamp(s.value(QString::fromLatin1(kKeyTxStyle), 0).toInt(),
                           0, 2);
     separateStyle_ = s.value(QString::fromLatin1(kKeySepStyle), false).toBool();
-    calDb_ = s.value(calKeyScoped(), 0.0).toDouble();
+    // Seeds from the global active-rig scope; setP2Bridge() re-reads through
+    // rxCalKey() and reloadRxCal() switches it to the live P2 rig's own scope.
+    calDb_ = s.value(rxCalKey(), 0.0).toDouble();
     peakHoldMs_ = std::clamp(
         s.value(QString::fromLatin1(kKeyPeakHold), 800).toInt(), 100, 5000);
     peakHoldTicks_ = std::max(1, peakHoldMs_ / kTickMs);
@@ -385,7 +387,39 @@ void MeterModel::setCalDb(double d) {
     d = std::clamp(d, -60.0, 60.0);
     if (std::abs(d - calDb_) < 1e-9) return;
     calDb_ = d;
-    QSettings().setValue(calKeyScoped(), calDb_);
+    // Persist to whichever rig is the current RX source (the running P2 rig's
+    // own scope, else the active rig) so calibrating one radio never writes
+    // onto another's slot.
+    QSettings().setValue(rxCalKey(), calDb_);
+    emit calChanged();
+}
+
+// meter/calDb scoped to the CURRENT RX rig.  A P2 rig is never the global
+// active rig, so while its session runs we key on the bridge's resolved rigId;
+// otherwise fall back to the active-rig scope (the P1/HL2 path).
+QString MeterModel::rxCalKey() const {
+    if (p2_ && p2_->isRunning() && !p2_->rigId().isEmpty())
+        return QStringLiteral("rig/%1/%2").arg(p2_->rigId(),
+                                               QLatin1String(kKeyCal));
+    return calKeyScoped();
+}
+
+void MeterModel::setP2Bridge(lyra::wire::P2RxBridge *b) {
+    if (p2_ == b) return;
+    p2_ = b;
+    if (p2_)
+        connect(p2_, &lyra::wire::P2RxBridge::runningChanged,
+                this, &MeterModel::reloadRxCal);
+    reloadRxCal();
+}
+
+// Re-read the RX S-meter trim for the rig that is now the RX source.  Called
+// on every P2 session run-state flip so switching between the HL2 and a Brick
+// snaps the trim to that rig's own saved value (default 0) with no leak.
+void MeterModel::reloadRxCal() {
+    const double v = QSettings().value(rxCalKey(), 0.0).toDouble();
+    if (std::abs(v - calDb_) < 1e-9) return;
+    calDb_ = v;
     emit calChanged();
 }
 

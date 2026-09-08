@@ -266,7 +266,9 @@ public:
     // running, PA volts/current read from it (converted with the
     // radio's hardware-profile constants) instead of the idle
     // HL2Stream's NaN.  Same meters, either wire path.
-    void setP2Bridge(lyra::wire::P2RxBridge *b) { p2_ = b; }
+    // Binds the P2 telemetry source and starts tracking its run state so the
+    // per-rig RX S-meter trim (calDb) reloads for whichever rig is live.
+    void setP2Bridge(lyra::wire::P2RxBridge *b);
 
     // TX-rip Phase 1 (Q2): setTxDspWorker removed — TX DSP worker is
     // being rebuilt from empty files per the signed Phase 0 mapping
@@ -489,6 +491,13 @@ private:
     lyra::ipc::HL2Stream   *stream_   = nullptr;
     lyra::dsp::WdspEngine  *wdsp_     = nullptr;
     lyra::wire::P2RxBridge *p2_       = nullptr;   // P2 telemetry source
+
+    // QSettings key for the RX S-meter trim (meter/calDb), scoped to the rig
+    // that is CURRENTLY the RX source: the running P2 rig's own id, else the
+    // global active rig.  reloadRxCal() re-reads it when the P2 session's run
+    // state flips so switching rigs never applies another rig's trim.
+    QString rxCalKey() const;
+    void    reloadRxCal();
     // TX-rip Phase 1 (Q2): txWorker_ removed; field returns with the
     // new TX DSP worker (docs/TX_ARCHITECTURAL_MAPPING.md §10.3).
     QTimer timer_;
