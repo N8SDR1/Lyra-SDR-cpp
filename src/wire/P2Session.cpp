@@ -479,6 +479,23 @@ void P2Session::open(const QString &ip) {
     ddcSeqStarted_.fill(false);
     spkrSeq_       = 0;
     spkrStage_.clear();
+    // Mic FIFO + sequence trackers: a reconnect (2nd+ open in one process)
+    // must not carry a prior session's fill level, primed cushion, or stale
+    // samples -- otherwise the first pump tick could drain leftover mic audio
+    // onto the air. Zeroing head/count and clearing primed makes the ring
+    // re-prime from fresh packets; the seq trackers reset so the first mic
+    // packet doesn't log a spurious seqErr.
+    micFifoHead_   = 0;
+    micFifoCount_  = 0;
+    micPrimed_     = false;
+    micSeqStarted_ = false;
+    micSeqNext_    = 0;
+    micSeqErrors_  = 0;
+    micPktCount_   = 0;
+    micPeak_       = 0.0;
+    micRateTimer_.invalidate();
+    lastMicPkt_.invalidate();
+    warnedNoMic_   = false;
     stopTxTransport();
     txIntent_ = {};
     txSafety_ = {};
@@ -603,6 +620,22 @@ void P2Session::onHpTick() {
                 "-Direction Inbound -Program '<this lyra.exe>' -Protocol UDP "
                 "-Action Allow -Profile Any").arg(statusCount_));
         }
+    }
+
+    // Jack-less-rig hint (fires once).  Keyed, but no mic packet has arrived
+    // from the radio recently — a rig with a working mic jack streams mic
+    // continuously while transmitting, so this means there is no usable mic
+    // jack (or its mic path is dead) and "Mic In" is sending silence.  Gated
+    // on transmitRequested + a stale/absent last-packet, so a jack-equipped
+    // rig (mic present during TX) never trips it.  Worded for voice — a CW /
+    // TUN / digital-via-VAC/TCI op can ignore the one line.
+    if (!warnedNoMic_ && running_ && txIntent_.transmitRequested &&
+        (!lastMicPkt_.isValid() || lastMicPkt_.elapsed() > 1500)) {
+        warnedNoMic_ = true;
+        emit logLine(QStringLiteral(
+            "P2 TX: no mic audio is arriving from the radio. For a VOICE mode "
+            "on a rig without a usable mic jack, set Settings → TX → "
+            "Mic source to PC Soundcard (VAC1) or TCI (digital modes)."));
     }
 }
 
@@ -831,6 +864,7 @@ void P2Session::parseMic(const QByteArray &d) {
 
     ++micPktCount_;
     micPeak_ = std::max(micPeak_, peak);
+    lastMicPkt_.restart();  // for the jack-less "no mic input" hint in onHpTick
 
     if (!micRateTimer_.isValid())
         micRateTimer_.start();

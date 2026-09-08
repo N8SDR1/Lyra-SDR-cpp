@@ -70,6 +70,11 @@ std::size_t P2TxFifo::size() const noexcept {
     return static_cast<std::size_t>(write - read);
 }
 
+// Relaxed stores: reset() is only called with the PRODUCER quiescent. The
+// P2 re-prime path (P2Session::startTxTransportRxState) stops the CMaster TX
+// pump first -- no Inbound(1,0) means the cm stream never wakes, so no
+// p2TxCmasterOutbound producer call races these index stores. If a future
+// caller resets while the producer can run, this needs acquire/release.
 void P2TxFifo::reset() noexcept {
     writeIndex_.store(0, std::memory_order_relaxed);
     readIndex_.store(0, std::memory_order_relaxed);

@@ -303,6 +303,12 @@ private:
     bool         micSeqStarted_ = false;
     quint32      micSeqErrors_ = 0;
     QElapsedTimer micRateTimer_;
+    // Jack-less-rig hint: a rig with no usable mic jack streams NO mic packets
+    // (port 1026), so keying in "Mic In" transmits silence. lastMicPkt_ tracks
+    // time since the last mic packet; onHpTick fires warnedNoMic_ ONCE while
+    // keyed with no recent mic, pointing the operator at PC Soundcard / TCI.
+    QElapsedTimer lastMicPkt_;
+    bool         warnedNoMic_  = false;
     // S2b — the live mic drives the modulator through an elastic FIFO.
     // parseMic (radio mic clock) pushes each decoded {I=mic, Q=0} block;
     // feedTxProducer (PC pump clock) drains one block per tick. Both run on
@@ -315,10 +321,14 @@ private:
     // a small prime cushion, absorbs that batching jitter: underrun feeds
     // zeros (and re-primes), overrun drops the oldest block.
     // Capacity/prime as literals; feedTxProducer static_asserts the block
-    // width against 2*kMicFrames (kMic* constants are declared below).
+    // width against 2*kMicFrames (kMic* constants are declared below). The
+    // ring DEPTH is taken from kMicFifoCap so the array can't desync from the
+    // capacity used by the index math if kMicFifoCap is retuned.
     static constexpr int kMicFifoCap    = 32;  // ring capacity (~43 ms)
     static constexpr int kMicPrimeBlocks = 6;  // cushion before draining (~8 ms)
-    std::array<std::array<double, 2 * 64>, 32> micFifo_{};
+    static_assert(kMicPrimeBlocks < kMicFifoCap,
+                  "prime cushion must leave headroom in the ring");
+    std::array<std::array<double, 2 * 64>, kMicFifoCap> micFifo_{};
     int  micFifoHead_  = 0;     // index of the next block to drain
     int  micFifoCount_ = 0;     // blocks currently queued
     bool micPrimed_    = false; // false until the cushion first fills

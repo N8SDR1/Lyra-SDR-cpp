@@ -3,10 +3,12 @@
 // Producer: ChannelMaster's existing post-WDSP ILV output callback.
 // Consumer: P2TxWriter on the P2 session thread.
 //
-// The FIFO stores logical {I,Q} doubles. P2TxPackets performs the
-// Saturn-specific Q-then-I wire encoding when a complete 240-sample
-// packet is consumed. Pushes are all-or-nothing so an overflow cannot
-// splice a partial WDSP block into the TX stream.
+// The FIFO stores logical {I,Q} doubles. P2TxPackets encodes them to the
+// wire as I-then-Q, 24-bit big-endian (encodeIq) -- the HPSDR P2 DUC-IQ
+// convention, matching the RX DDC-IQ decode. (An earlier bring-up packed
+// Q-then-I, which mirror-imaged the transmitted sideband; do NOT "restore"
+// that.) Pushes are all-or-nothing so an overflow cannot splice a partial
+// WDSP block into the TX stream.
 
 #pragma once
 
