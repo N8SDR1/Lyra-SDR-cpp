@@ -15,6 +15,13 @@
 #include <windows.h>
 #endif
 
+#if !defined(_WIN32)
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 #include <atomic>
 #include <cstdio>
 #include <string>
@@ -84,8 +91,16 @@ QString winError(DWORD code) {
 // in one step or left untouched.  Returns false (and fills `err`) when the OS
 // blocks the rename; the caller then keeps the previous file and rebuilds on
 // the next launch — no torn file is ever left where WDSP will read it.
+// POSIX rename(2) is the direct equivalent: atomic within a filesystem, and
+// it replaces an existing destination rather than failing.  MOVEFILE_WRITE_
+// THROUGH's durability half has no rename flag here — it is fsync on the
+// destination DIRECTORY, which is what actually commits the new directory
+// entry.  Without it the rename can still be lost in a power-loss window even
+// though it was never torn, so do it and treat a failure as non-fatal (the
+// file is in place; only the durability guarantee is weaker).
 bool atomicReplaceFile(const QString &tmpPath, const QString &finalPath,
                        QString *err = nullptr) {
+#if defined(_WIN32)
     const std::wstring tmpW = QDir::toNativeSeparators(tmpPath).toStdWString();
     const std::wstring finW = QDir::toNativeSeparators(finalPath).toStdWString();
     if (::MoveFileExW(tmpW.c_str(), finW.c_str(),
@@ -94,6 +109,26 @@ bool atomicReplaceFile(const QString &tmpPath, const QString &finalPath,
     }
     if (err) *err = winError(::GetLastError());
     return false;
+#else
+    const QByteArray tmpN = QFile::encodeName(tmpPath);
+    const QByteArray finN = QFile::encodeName(finalPath);
+    if (::rename(tmpN.constData(), finN.constData()) != 0) {
+        if (err) {
+            *err = QStringLiteral("rename failed (errno %1: %2)")
+                       .arg(errno)
+                       .arg(QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        return false;
+    }
+    const QByteArray dirN =
+        QFile::encodeName(QFileInfo(finalPath).absolutePath());
+    const int dirFd = ::open(dirN.constData(), O_RDONLY | O_DIRECTORY);
+    if (dirFd >= 0) {
+        ::fsync(dirFd);
+        ::close(dirFd);
+    }
+    return true;
+#endif
 }
 
 // Branded art for the one-time-setup splash: the real Lyra logo (the
@@ -994,8 +1029,12 @@ bool WdspNative::ensureWisdom() {
         QDir(dir).filePath(QStringLiteral(".wisdom-build"));
     QDir(workDir).removeRecursively();          // clear any stale/torn temp
     const bool    haveWork = QDir().mkpath(workDir);
+    // Seed/probe under the SAME basename as the live file.  (Upstream names
+    // this from a single kWisdomFilename constant; the port has to probe
+    // instead, because WDSP 2.00 writes "wdspWisdom01" and the bundled
+    // Windows DLL writes "wdspWisdom00" — see kWisdomFilenames.)
     const QString workFile =
-        QDir(workDir).filePath(QString::fromLatin1(kWisdomFilename));
+        QDir(workDir).filePath(QFileInfo(finalFile).fileName());
     // The dir handed to WDSP: the work dir when we could make it, else fall
     // back to building in place (rare; still self-heals via rc==1, just not
     // atomically).
@@ -1039,7 +1078,24 @@ bool WdspNative::ensureWisdom() {
     }
 
     // Verify the planned file exists before publishing.
-    const QString   srcFile = haveWork ? workFile : finalFile;
+    //
+    // WDSPwisdom picks the output NAME itself, and engines disagree on it, so
+    // probe the work dir for whichever known name actually landed instead of
+    // assuming it matches finalFile.  Assuming is wrong on a first-ever launch
+    // against an engine whose name is not kWisdomFilenames[0] (the bundled
+    // Windows DLL): the built file would be missed, reported as "write
+    // blocked", never published, and the multi-minute plan search would repeat
+    // on EVERY launch.  Falls back to workFile so the not-found diagnostic
+    // below still names the path we expected.
+    const QString   builtFile = haveWork ? existingWisdomFile(workDir) : QString();
+    const QString   srcFile   = !haveWork      ? finalFile
+                              : builtFile.isEmpty() ? workFile
+                                                    : builtFile;
+    // Publish under the name the engine actually wrote, so the file we drop
+    // next to it is the one wisdomFilePath() will find next launch.
+    const QString   pubFile   = haveWork
+                              ? QDir(dir).filePath(QFileInfo(srcFile).fileName())
+                              : finalFile;
     const QFileInfo srcInfo(srcFile);
     if (!srcInfo.exists() || srcInfo.size() == 0) {
         logWisdom(QStringLiteral(
@@ -1060,10 +1116,10 @@ bool WdspNative::ensureWisdom() {
     // byte-identical, so there is nothing to publish.
     if (haveWork && (rebuilt || !haveExisting)) {
         QString err;
-        if (atomicReplaceFile(workFile, finalFile, &err)) {
+        if (atomicReplaceFile(srcFile, pubFile, &err)) {
             logWisdom(QStringLiteral(
                 "[wdsp] wisdom: published %1 bytes atomically to %2")
-                .arg(QFileInfo(finalFile).size()).arg(finalFile));
+                .arg(QFileInfo(pubFile).size()).arg(pubFile));
         } else {
             logWisdom(QStringLiteral(
                 "[wdsp] wisdom: atomic publish blocked (%1).  Plans are live "
