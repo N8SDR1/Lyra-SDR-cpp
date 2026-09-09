@@ -14,7 +14,19 @@ import QtQuick.Controls
 
 Slider {
     id: control
-    implicitHeight: 20
+    // Extra height below the groove when integer tick labels are shown.
+    implicitHeight: showTickNumbers ? 32 : 20
+
+    // Optional step tick marks below the groove (e.g. for a stepped slider).
+    property bool showTicks: false
+    readonly property int tickCount:
+        (showTicks && stepSize > 0) ? Math.round((to - from) / stepSize) + 1 : 0
+
+    // Optional numeric labels under the integer tick positions.
+    property bool showTickNumbers: false
+    readonly property int _labelFirst: Math.ceil(from)
+    readonly property int labelCount:
+        showTickNumbers ? Math.floor(to) - _labelFirst + 1 : 0
 
     // White track with a subtle light-grey fill up to the handle.
     background: Rectangle {
@@ -31,6 +43,31 @@ Slider {
             height: parent.height
             radius: parent.radius
             color: control.enabled ? "#b9c6d0" : "#c8ccd0"
+        }
+        // Step ticks — short vertical marks at each snap position.
+        Repeater {
+            model: control.tickCount
+            delegate: Rectangle {
+                width: 2; height: 7; radius: 1
+                color: control.enabled ? "#8fa6b8" : "#c8ccd0"
+                x: (control.tickCount > 1
+                    ? index / (control.tickCount - 1) : 0) * (parent.width - width)
+                y: parent.height + 2
+            }
+        }
+        // Numeric labels centred under the integer ticks (opt-in).
+        Repeater {
+            model: control.labelCount
+            delegate: Text {
+                readonly property int val: control._labelFirst + index
+                readonly property real pos:
+                    (val - control.from) / (control.to - control.from)
+                text: val === 0 ? "0" : (val > 0 ? "+" + val : "" + val)
+                color: control.enabled ? "#5a6670" : "#a8b0b8"
+                font.pixelSize: 8
+                x: pos * (parent.width - 2) + 1 - width / 2
+                y: parent.height + 10
+            }
         }
     }
 
