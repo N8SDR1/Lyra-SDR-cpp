@@ -200,6 +200,35 @@
       </div>
     </section>
 
+    <section id="deepfist">
+      <h2>DeepFist — a neural ear for CW</h2>
+      <p class="marquee-sub">A self-trained neural network that reads Morse the way you do &mdash; by the sound of the fist, not a fixed threshold.</p>
+      <div style="display:flex; gap:28px; align-items:center; flex-wrap:wrap; justify-content:center;">
+        <div style="flex:0 0 auto; width:min(360px,100%);">
+          <img src="deepfist.jpg" alt="DeepFist — neural CW decoder" loading="lazy"
+               style="display:block; width:100%; height:auto; border-radius:18px; border:1px solid var(--line);
+                      box-shadow:0 24px 70px rgba(0,0,0,0.55), 0 0 50px rgba(0,229,255,0.10);">
+        </div>
+        <div style="flex:1 1 320px; min-width:280px;">
+          <p style="font-size:15px; color:var(--text); margin-bottom:16px;">
+            <strong style="color:var(--head)">DeepFist</strong> is an optional neural CW receive engine, sitting right
+            beside the classic decoder in the CW panel. A spectrogram feeds a CNN + CTC network running natively through
+            ONNX Runtime &mdash; so it copies hand-sent, drifting and weak-signal Morse where a threshold decoder
+            struggles, with a callsign rescorer that pulls real calls out of the noise.
+          </p>
+          <div style="display:grid; gap:10px; margin-bottom:16px;">
+            <div class="card" style="padding:12px 16px;"><h3 style="margin:0; font-size:15px;"><span class="ico">🎯</span> Classic</h3><p style="font-size:13.5px; margin-top:2px;">The faithful fldigi engine &mdash; fast, predictable, the default.</p></div>
+            <div class="card" style="padding:12px 16px;"><h3 style="margin:0; font-size:15px;"><span class="ico">🧠</span> Neural</h3><p style="font-size:13.5px; margin-top:2px;">DeepFist's CNN + CTC model &mdash; trained to read the fist.</p></div>
+            <div class="card" style="padding:12px 16px;"><h3 style="margin:0; font-size:15px;"><span class="ico">⚖️</span> Auto</h3><p style="font-size:13.5px; margin-top:2px;">A hybrid arbiter that picks the better copy, signal by signal.</p></div>
+          </div>
+          <p style="font-size:13px; color:var(--muted);">
+            Opt-in per panel · loads on first use, so it costs nothing when you don't · runs on the CPU.
+            DeepFist model &amp; training by <strong style="color:var(--text)">Brent Crier (N9BC)</strong> &mdash; MIT.
+          </p>
+        </div>
+      </div>
+    </section>
+
     <section>
       <h2>What it does</h2>
       <div class="grid">
@@ -207,7 +236,7 @@
         <div class="card"><h3><span class="ico">📊</span> GPU panadapter</h3><p>A Vulkan-accelerated spectrum and waterfall with click-to-tune, centre-tune (CTUN), RIT / XIT, peak hold and eight colour palettes.</p></div>
         <div class="card"><h3><span class="ico">🎚️</span> Studio TX chain</h3><p>8-band parametric EQ, a multiband combinator, tube-plate reverb, speech processing, a voice keyer and VOX — shape your audio like a broadcast desk, saved as recallable profiles.</p></div>
         <div class="card"><h3><span class="ico">🔇</span> Noise reduction</h3><p>WDSP noise reduction, noise blanker, auto-notch and LMS, plus a captured-noise profile that samples your own band noise and subtracts it.</p></div>
-        <div class="card"><h3><span class="ico">📡</span> CW</h3><p>An on-screen CW decoder (fldigi engine), click-to-send macros, an internal / Winkeyer keyer, and a callsign ID rendered right into your waterfall.</p></div>
+        <div class="card"><h3><span class="ico">📡</span> CW</h3><p>An on-screen CW decoder with a choice of engine — the classic fldigi reader or the <a href="#deepfist">DeepFist neural decoder</a> — plus click-to-send macros, an internal / Winkeyer keyer, and a callsign ID rendered right into your waterfall.</p></div>
         <div class="card"><h3><span class="ico">🗺️</span> Band awareness</h3><p>DX cluster / RBN spots overlaid on the panadapter for click-to-tune, an EiBi shortwave-broadcaster overlay, plus live solar and propagation panels.</p></div>
         <div class="card"><h3><span class="ico">⛈️</span> Weather aware</h3><p>Lightning and severe-storm alerts from the NWS, plus live wind and conditions from your own Ambient or Ecowitt station &mdash; so you know when to pull the antenna before the storm rolls in.</p></div>
         <div class="card"><h3><span class="ico">🔗</span> SDRLogger+ Combo link</h3><p>A two-way link with <a href="https://n8sdr1.github.io/SDRLoggerPlus/">SDRLogger+</a> over TCI — frequency, mode and DX spots stay in sync, and CW contacts log straight from Lyra's console with call and RST.</p></div>
