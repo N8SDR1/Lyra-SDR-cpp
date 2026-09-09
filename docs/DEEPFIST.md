@@ -41,9 +41,6 @@ third_party/onnxruntime/      vendored prebuilt CPU ONNX Runtime (headers commit
                               lib/ git-ignored — see its README)
 models/                       deepfist.onnx + .json + MASTER.SCP — git-ignored;
                               CMake copies them next to the exe on build
-scratch/test_neural_cw.cpp        one-shot decode harness (WAV → text)
-scratch/test_neural_cw_stream.cpp real-time streaming harness (WAV → live path)
-scratch/test_rescore.cpp          ctcNll vs PyTorch + rescore unit test (CMake target)
 ```
 
 ### Model contract
@@ -120,18 +117,11 @@ relink.)
 Launching the app talks to the HL2 radio and grabs audio — a real hardware side
 effect. It is RX-only and does not transmit at idle.
 
-### Offline harnesses
-
-The `scratch/test_neural_cw*` and `test_rescore` targets decode WAV files
-without Qt or the radio, for verification against the model reference. Both WAV
-readers accept 16-bit PCM and 32-bit-float (fmt=3). `test_rescore` checks the
-CTC forward pass against PyTorch's `F.ctc_loss` and is a CMake target.
-
 ## Verification
 
-- `cmake --build build --target test_rescore && build/test_rescore` — the CTC
-  forward (ctcNll) matches PyTorch `F.ctc_loss` to ~1e-4 and applies the
-  expected callsign correction.
+- The CTC forward (ctcNll) matches PyTorch `F.ctc_loss` to ~1e-4 and applies
+  the expected callsign correction (verified offline against the DeepFist
+  reference during development).
 - One-shot decode matches the Python/ONNX reference on clean clips, and the C++
   conditioner matches the model's reference conditioner.
 
