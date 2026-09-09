@@ -226,7 +226,6 @@ qt_add_executable(lyra
     # verbatim create_xmtr in src/wire/CMaster.cpp opens the WDSP
     # TXA channel itself through the wire/wdspcalls.h seam; the
     # runtime-DLL RAII carve-out the class existed for is gone.)
-    src/wdsp/TxaCffi.h
     src/wdsp/ChannelLifecycle.h
     # (Stage B src/wdsp/AAMix.{h,cpp} + src/wdsp/Resample.h RETIRED
     # 2026-06-11 — replaced by the P0.c verbatim direct port at
@@ -360,13 +359,10 @@ qt_add_executable(lyra
     # present from v0.2 but empty/inert; v0.3 PureSignal fills).
     # Populated in Phase 2 per docs/TX_ARCHITECTURAL_MAPPING.md §9.
     src/ps/CalcCffi.h
-    src/ps/IqcCffi.h
     src/ps/PsCalcThread.h
     src/ps/PsCalcThread.cpp
     src/ps/PsFsm.h
     src/ps/PsFsm.cpp
-    src/ps/IqcLifecycle.h
-    src/ps/IqcLifecycle.cpp
     src/iqstft.h
     src/iqstft.cpp
     src/capturedprofile.h
