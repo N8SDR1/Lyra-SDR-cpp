@@ -321,6 +321,27 @@ double MeterModel::normAtS9() const {
     return normDanger_;
 }
 
+double MeterModel::liveSwr() const {
+    // Raw antenna SWR for panels outside the meter (the Tuner pill).  Source-
+    // selected the SAME way the SWR meter compute is (P2 bridge when a
+    // Protocol-2 rig is running, HL2Stream otherwise) so it reads correctly on
+    // the BrickSDR2 where Stream.fwdPowerW/revPowerW are HL2-only and zero.
+    // Formula matches the Tuner panel's previous inline math exactly (0.05 W
+    // guard, sqrt reflection coefficient, 99.9 cap) so HL2 behavior is
+    // unchanged; −1 means "no usable reading".
+    const bool onP2 = p2_ && p2_->isRunning();
+    const double fwd = onP2 ? p2_->forwardPowerW()
+                            : (stream_ ? stream_->fwdPowerW()
+                                       : std::numeric_limits<double>::quiet_NaN());
+    const double rev = onP2 ? p2_->reversePowerW()
+                            : (stream_ ? stream_->revPowerW()
+                                       : std::numeric_limits<double>::quiet_NaN());
+    if (std::isnan(fwd) || std::isnan(rev) || fwd <= 0.05) return -1.0;
+    const double r = std::sqrt(std::max(0.0, rev) / fwd);
+    if (r >= 0.999) return 99.9;
+    return (1.0 + r) / (1.0 - r);
+}
+
 QString MeterModel::sLabel(double dbm) const {
     const SRow *rows = aboveS9_ ? kVhfRows : kHfRows;
     const int n = aboveS9_ ? int(std::size(kVhfRows)) : int(std::size(kHfRows));

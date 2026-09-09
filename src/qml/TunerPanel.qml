@@ -4,7 +4,7 @@
 // point, with live colour-coded SWR embedded.  Collapsed = basics only;
 // expanded = the full editable table.
 //
-// Context properties: Tuner (TunerMemory), Stream (fwd/rev power for SWR),
+// Context properties: Tuner (TunerMemory), Meter (P1/P2-aware live SWR),
 // Prefs (tooltips toggle).
 
 import QtQuick
@@ -33,13 +33,11 @@ Rectangle {
     readonly property color cRed:    "#ff4136"
 
     // Live SWR from forward / reflected power (only meaningful while keyed).
-    // Re-evaluates as Stream's power readings change.  −1 = no reading.
-    readonly property real swr: {
-        var pf = Stream.fwdPowerW, pr = Stream.revPowerW
-        if (pf <= 0.05) return -1
-        var r = Math.sqrt(Math.max(0, pr) / pf)
-        return r >= 0.999 ? 99.9 : (1 + r) / (1 - r)
-    }
+    // Sourced from the meter model so it is P1/P2-aware: on the BrickSDR2 the
+    // fwd/rev power lives on the P2 bridge, not on Stream (which is HL2-only
+    // and reads zero).  Meter.liveSwr selects the correct source and applies
+    // the same math the inline version used.  −1 = no reading.
+    readonly property real swr: Meter.liveSwr
     function swrColor(s) {
         if (s < 0) return cMuted
         if (s <= 1.5) return cGreen
