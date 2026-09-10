@@ -32,9 +32,16 @@ only today. See
 
 **Lyra doesn't find my radio.**
 - Make sure you pressed **▶ Start**, and the PC + HL2 are on the same LAN.
+- You don't need an "Any Subnet" or "Via all NICs" option — Lyra **always**
+  scans every adapter (including direct‑connect `169.254.x.x`) with both a
+  limited ("any subnet") and subnet‑directed broadcast, for P1 and P2. So a
+  no‑show usually means the radio's **reply** can't route back (different
+  subnets, no IP assigned yet, or a firewall), not that a broadcast mode is
+  off.
 - Use **Settings → Hardware → Radio → Add by IP** and type the radio's
   address — this sends a directed probe and works across subnets or where
-  broadcast is blocked.
+  broadcast is blocked. On a direct cable with no router, give the radio a
+  static IP in the **same subnet** as the PC's NIC so its reply can get home.
 - Check the radio is powered and its link LED is up; a direct NIC‑to‑radio
   cable is the most reliable setup.
 

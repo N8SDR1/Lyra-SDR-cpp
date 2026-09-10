@@ -39,9 +39,22 @@ to rebuild it, **Settings → Radio → FFT optimization → Clear &amp; rebuild
    radio shows **green and bold**.
 4. **Close** the current radio before opening a different one.
 
+> **No "Any Subnet" checkbox needed.** Lyra's discovery is always maximal:
+> every scan probes on **all** network adapters — including direct‑connect
+> link‑local addresses (`169.254.x.x`, the address Windows self‑assigns with
+> no router/DHCP) — and sends **both** a limited broadcast (`255.255.255.255`,
+> i.e. "any subnet") **and** a subnet‑directed broadcast, for **both** the P1
+> (HL2) and P2 (Brick/ANAN) protocols. So there's nothing to turn on — the
+> scan other apps gate behind "Any Subnet" / "Via all NICs" checkboxes is
+> simply how Lyra always scans.
+
 ### Radio not showing up?
-Use **Add by IP** — type the radio's address and Lyra sends a **directed
-unicast probe** straight to it. This is the answer for:
+Since the scan above is already maximal, a radio that still doesn't appear is
+almost never a missing broadcast mode — the probe reached it; the reply
+couldn't get back (different subnets so the answer can't route home, no IP
+assigned yet, or a firewall). The fix is to make the reply routable. Use
+**Add by IP** — type the radio's address and Lyra sends a **directed unicast
+probe** straight to it. This is the answer for:
 
 - a **fixed‑IP** HL2,
 - a radio on a **different subnet**,
