@@ -160,7 +160,11 @@ constexpr double kAgcThreshMaxDbFs =    2.0;
 // ratchets toward -inf on a quiet band (bounding the "walk-away" audio death).
 // We never call SetRXAAGCTop — SetRXAAGCThresh derives max_gain (see pushAgcThresh).
 constexpr double kAutoAgcThreshTransferK = -3.7;   // dB; WDSP create-const derived (bench-tunable)
-constexpr double kAutoAgcMaxGainCeilDb   = 57.0;   // dB; operator target ~55-57
+constexpr double kAutoAgcMaxGainCeilDb   = 120.0;  // dB; deskHPSDR's natural clamp.
+// (Was 57 "per Thetis" — that PINNED the knee at ~-61 and starved gain; N8SDR
+// runs knee ~-115 / ~111 dB on the Brick with no audio death, so the ceiling
+// is a runaway SAFETY bound, not the operating point.  120 matches deskHPSDR
+// SetRXAAGCTop clamp [-20,120]; the robust spectrum floor lands the knee.)
 constexpr double kAutoAgcFloorEmaAlpha   = 0.10;   // ~5 s TC at the 500 ms tick (deskHPSDR parity)
 constexpr double kAutoAgcFloorJumpDb     = 8.0;    // |floor-ema|>this => reseed (self-heal domain shift)
 constexpr double kAutoAgcKneeDeadbandDb  = 0.5;    // skip re-push if knee moves < this (anti-chatter)
