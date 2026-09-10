@@ -73,11 +73,17 @@ Rectangle {
     // Word (call) under the last right-click, for the grab menu.
     property string grabWord: ""
 
-    // The call-shaped word at plain-text position `pos` in the transcript.
-    // Extracted straight from decodedText (not selectWord/selectedText) so it
-    // works with the RichText pane and while text is streaming in.
+    // The call-shaped word at document position `pos` in the transcript.
+    // MUST read from decodeOut's OWN rendered plain text (getText), NOT the raw
+    // decodedText: decodeOut is a RichText pane, so positionAt() returns an
+    // index into the rendered document, where the dim-run control markers,
+    // HTML entities and collapsed whitespace make the raw decodedText a
+    // DIFFERENT length.  Indexing raw decodedText with a rendered position
+    // drifts earlier by the number of markers before the click — the "grabs a
+    // word from before the call / hit-miss" bug.  getText is the same stream
+    // positionAt indexes, so the two always agree.
     function wordAt(pos) {
-        var t = root.decodedText
+        var t = decodeOut.getText(0, decodeOut.length)
         if (pos < 0 || pos > t.length) return ""
         function isCh(c) {
             return (c >= "A" && c <= "Z") || (c >= "a" && c <= "z")
@@ -416,6 +422,15 @@ Rectangle {
                 function scrollToBottom() {
                     var f = decodeScroll.contentItem
                     if (!f) return
+                    // Scroll to the true content bottom.  decodeOut carries a
+                    // ~1.5-line bottomPadding as slack: the Flickable's
+                    // contentHeight lags one line behind the text layout while a
+                    // line is still streaming in, and the Flickable clamps any
+                    // contentY we set to its own (stale) contentHeight — so
+                    // without slack the newest line stays a line below the fold
+                    // until a resize forces a relayout (the "last line clipped"
+                    // bug).  The padding absorbs exactly that one-line lag so the
+                    // active line is always fully visible.
                     var ch = Math.max(f.contentHeight, decodeOut.implicitHeight)
                     f.contentY = ch > f.height ? ch - f.height : 0
                 }
@@ -440,6 +455,10 @@ Rectangle {
                     font.family: "Consolas"
                     font.pixelSize: Prefs.cwDecodeFontSize
                     background: null
+                    // One-and-a-half lines of slack under the text so the
+                    // newest, still-streaming line is never clipped by the
+                    // one-frame contentHeight lag (see scrollToBottom).
+                    bottomPadding: Math.round(Prefs.cwDecodeFontSize * 1.5)
                     // Re-pin to the end on EVERY appended character, not only
                     // when a new line grows contentHeight.  The old
                     // contentHeight-only trigger left the last, still-growing
@@ -451,6 +470,13 @@ Rectangle {
                             Qt.callLater(decodeScroll.scrollToBottom)
                     }
                     onContentHeightChanged:
+                        if (decodeScroll.followBottom)
+                            Qt.callLater(decodeScroll.scrollToBottom)
+                    // Fires AFTER the caret is laid out at the new end — i.e.
+                    // once the newest line's height is real — so this is the
+                    // trigger that reliably reveals the final line (contentHeight
+                    // may still be a frame stale at onTextChanged time).
+                    onCursorRectangleChanged:
                         if (decodeScroll.followBottom)
                             Qt.callLater(decodeScroll.scrollToBottom)
 
