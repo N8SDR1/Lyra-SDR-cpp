@@ -3439,11 +3439,28 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 QStringLiteral("QLabel{color:#67d3e8;font-weight:bold;}"));
             p2Grid->addWidget(p2Status, 3, 0, 1, 2);
 
-            auto refreshP2Tx = [this, p2Wrap, p2Arm, p2Auto, limit,
-                                p2Status]() {
+            auto refreshP2Tx = [this, p2Wrap, p2Arm, p2Auto, limitLabel,
+                                limit, p2Status]() {
                 const bool visible = p2_ && p2_->isOpen();
                 p2Wrap->setVisible(visible);
                 if (!visible) return;
+                // On-air-validated models (BrickSDR) key like HL2 off the
+                // Enable PA box above — hide the transient dummy-load arm
+                // interlock and per-P2 drive ceiling; keep only the TX
+                // status/DUC-FIFO readout.  Unvalidated (bench) models still
+                // show the manual arm controls.
+                const bool validated = p2_->txOnAirValidated();
+                p2Arm->setVisible(!validated);
+                p2Auto->setVisible(!validated);
+                limitLabel->setVisible(!validated);
+                limit->setVisible(!validated);
+                if (validated) {
+                    p2Status->setText(
+                        tr("P2 TX: %1 | DUC FIFO %2 samples")
+                            .arg(p2_->txStatus())
+                            .arg(p2_->ducFifoSamples()));
+                    return;
+                }
                 {
                     QSignalBlocker b(p2Arm);
                     p2Arm->setChecked(p2_->txBenchArmed());

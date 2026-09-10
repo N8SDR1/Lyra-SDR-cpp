@@ -117,6 +117,8 @@ const P2HardwareProfile kBrickProfile = {
     1,   // adcCount: CONSUMED (pkt[4]) -- Hermes-class single ADC; == RX default
     &brickAlexRxWord, &brickAlexTxWord,
     true,  // fixedTxFrontEnd: assert the captured fixed TX/T-R constant on key
+    true,  // txOnAirValidated: BrickSDR2 SSB first contact on air (v0.22.0) —
+           // keys like HL2 (Enable PA + MOX + Drive), no transient arm.
 };
 } // namespace
 

@@ -177,8 +177,12 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 // Same health gate as a manual arm (setTxBenchArmed guards
                 // hardware/running/ready/fault), so this can only fire on a
                 // TX-capable rig with a healthy transport.
-                if (txAutoArm_ && !txBenchArmed_ && txTransportReady_ &&
-                    txHardwareSupported_ && running_ && !txFaultLatched_)
+                // On-air-validated models (BrickSDR) auto-arm on every
+                // healthy connect regardless of the auto-arm preference, so
+                // TX keys off Enable PA + MOX + Drive exactly like HL2.
+                if ((txAutoArm_ || txOnAirValidated_) && !txBenchArmed_ &&
+                    txTransportReady_ && txHardwareSupported_ && running_ &&
+                    !txFaultLatched_)
                     setTxBenchArmed(true);
             });
 
@@ -230,9 +234,14 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                     if (txBenchArmed_ && txTransportReady_ &&
                         !txFaultLatched_)
                         return;
-                    emit logLine(QStringLiteral(
-                        "P2 TX: key request rejected - arm the P2 dummy-load "
-                        "interlock and verify TX transport Ready"));
+                    emit logLine(txOnAirValidated_
+                        ? QStringLiteral(
+                              "P2 TX: key request rejected - TX transport not "
+                              "ready (or a fault is latched)")
+                        : QStringLiteral(
+                              "P2 TX: key request rejected - arm the P2 "
+                              "dummy-load interlock and verify TX transport "
+                              "Ready"));
                     stream_->requestMox(false);
                 });
         connect(stream_, &lyra::ipc::HL2Stream::moxActiveChanged, this,
@@ -309,6 +318,9 @@ QString P2RxBridge::txStatus() const {
             .arg(txPaEnabled_ ? QStringLiteral("% PA") : QStringLiteral("% PA off"))
             .arg(txEffectiveDrive_)
             .arg(lyra::wire::p2TxCmasterLastPeak(), 0, 'f', 2);
+    // On-air-validated models key like HL2 (Enable PA + MOX + Drive) — the
+    // arm is automatic, so once the transport is ready it is simply "Ready".
+    if (txOnAirValidated_) return QStringLiteral("Ready");
     if (!txBenchArmed_) return QStringLiteral("Ready - RF disarmed");
     return QStringLiteral("Armed - dummy load only");
 }
@@ -318,8 +330,12 @@ void P2RxBridge::syncTxIntentToSession(bool on) {
         return;
     if (on && !txHardwareSupported_)
         on = false;
-    const int capRaw =
-        (std::clamp(txDriveLimitPercent_, 0, 100) * 255 + 50) / 100;
+    // On-air-validated models apply no extra P2 ceiling — the front-panel
+    // Drive slider is the sole authority, matching HL2.  The per-rig limit
+    // is kept for unvalidated (bench) models only.  Stored value untouched.
+    const int limitPct = txOnAirValidated_
+        ? 100 : std::clamp(txDriveLimitPercent_, 0, 100);
+    const int capRaw = (limitPct * 255 + 50) / 100;
     const int drive = stream_
         ? std::min(stream_->txDriveLevel(), capRaw) : 0;
     const bool pa = stream_ && stream_->paEnabled();
@@ -730,6 +746,8 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     // transient TX arm. A generic/unverified P2 radio remains RX-only even
     // though the inert port-1029 transport can run safely in the background.
     txHardwareSupported_ = p2hw != nullptr;
+    // On-air-validated models (BrickSDR) key like HL2 — no transient arm.
+    txOnAirValidated_ = p2hw && p2hw->txOnAirValidated;
     if (!p2hw)
         emit logLine(QStringLiteral(
             "P2: no verified antenna/filter profile for %1 — front end "

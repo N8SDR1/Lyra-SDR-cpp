@@ -130,6 +130,10 @@ public:
     bool txBenchArmed() const { return txBenchArmed_; }
     bool txAutoArm() const { return txAutoArm_; }
     bool txHardwareSupported() const { return txHardwareSupported_; }
+    // True when the selected model's TX is on-air validated (BrickSDR): it
+    // keys like HL2 (Enable PA + MOX + Drive), auto-arms on healthy connect,
+    // and hides the transient dummy-load arm interlock in the UI.
+    bool txOnAirValidated() const { return txOnAirValidated_; }
     int txDriveLimitPercent() const { return txDriveLimitPercent_; }
     bool txTransportReady() const { return txTransportReady_; }
     bool txTransmitting() const { return txTransmitting_; }
@@ -218,6 +222,7 @@ private:
     bool       txBenchArmed_ = false;
     bool       txAutoArm_ = false;
     bool       txHardwareSupported_ = false;
+    bool       txOnAirValidated_ = false;
     bool       txTransportReady_ = false;
     bool       txTransmitting_ = false;
     bool       txPaEnabled_ = false;
