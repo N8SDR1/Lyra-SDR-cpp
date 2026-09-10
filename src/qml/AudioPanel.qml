@@ -726,10 +726,24 @@ Rectangle {
 
             Item { width: 8 }
             CheckBox {
+                id: aepfCheck
                 text: qsTr("AEPF")
                 checked: WdspEngine.aepfEnabled
                 onToggled: WdspEngine.setAepfEnabled(checked)
                 font.pixelSize: 11
+                // Explicit label: the default CheckBox contentItem's text
+                // colour went invisible on the dark panel after a controls-
+                // style change, so the "AEPF" name vanished (the indicator
+                // tick still drew).  Render it in the panel text colour, offset
+                // past the tick, so the label is back.
+                contentItem: Text {
+                    text: aepfCheck.text
+                    color: root.cText
+                    font: aepfCheck.font
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: aepfCheck.indicator
+                                 ? aepfCheck.indicator.width + 4 : 0
+                }
                 ToolTip.text: qsTr("Anti-musical-noise smoother — engages BOTH WDSP "
                     + "stages (artifact elimination + post-filter). On = "
                     + "noticeably less musical 'twinkle' with the voice kept "
