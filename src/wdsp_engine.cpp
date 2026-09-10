@@ -3043,6 +3043,29 @@ void WdspEngine::setAutoAgcMarginDb(double db)
 // Latch re-track: pull the live floor and re-anchor the knee.  Costs a bool
 // test per tick when idle; only acts while engaged, the channel is open, a
 // floor provider is wired, and the floor reads a finite value.
+// Robust noise-floor estimate from the engine's OWN analyzer spectrum
+// (raw WDSP dBFS — the same domain SetRXAAGCThresh works in, NOT the
+// calibrated S-meter domain, so this does not touch the S-meter).  20th
+// percentile of the displayed span, so a signal sitting in the passband
+// cannot drag it up the way the passband S-meter rolling-min does — this
+// is the deskHPSDR-reference source (a spectrum percentile) that makes
+// Auto AGC-T work on a signal-present band.  Runs on the analyzer buffer
+// which is live regardless of panadapter widget visibility.  NaN when no
+// spectrum is available yet.  Used for the P2 Auto-AGC floor; the HL2 path
+// keeps its meter-floor provider untouched.
+double WdspEngine::spectrumFloorRawDbFs()
+{
+    const int n = spectrumPixelCount();
+    if (n < 4) return std::numeric_limits<double>::quiet_NaN();
+    specFloorScratch_.resize(static_cast<size_t>(n));
+    const int got = copySpectrum(specFloorScratch_.data(), n);
+    if (got < 4) return std::numeric_limits<double>::quiet_NaN();
+    const int k = std::clamp(static_cast<int>(got * 0.20), 1, got - 1);
+    std::nth_element(specFloorScratch_.begin(), specFloorScratch_.begin() + k,
+                     specFloorScratch_.begin() + got);
+    return static_cast<double>(specFloorScratch_[static_cast<size_t>(k)]);
+}
+
 void WdspEngine::retrackAutoAgc()
 {
     if (!autoAgcThresh_ || !opened_ || !agcFloorProvider_) return;

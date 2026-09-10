@@ -596,7 +596,17 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     // meter_ outlives the engine's use of the lambda (both parented to this).
     if (auto *we = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
         MeterModel *m = meter_;
-        we->setAgcFloorProvider([m]() { return m->noiseFloorWdspRawDbFs(); });
+        auto *p2 = p2Bridge_;
+        // Floor source is rig-aware (checked live so it flips when the operator
+        // switches radios): P2/Brick anchors to the engine's robust spectrum-
+        // percentile floor (deskHPSDR reference) — an in-passband carrier can't
+        // drag it, which is what made Auto collapse gain on the Brick.  HL2 (P1)
+        // keeps the meter-floor anchor untouched (it works there).
+        we->setAgcFloorProvider([m, we, p2]() {
+            return (p2 && p2->isRunning())
+                 ? we->spectrumFloorRawDbFs()
+                 : m->noiseFloorWdspRawDbFs();
+        });
     }
 
     // Tuner panel — manual-ATU tuning memory (tracks the dial vs stored

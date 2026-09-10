@@ -509,6 +509,11 @@ public:
     // Resulting AGC max-gain (WDSP GetRXAAGCTop); NaN when not running.  The
     // reference-comparable number to dial the offset against.
     double agcMaxGainDb() const;
+    // Robust noise floor (20th-pct of the engine's own analyzer spectrum, raw
+    // WDSP-dBFS) — the deskHPSDR-reference source the P2 Auto-AGC floor uses so
+    // an in-passband carrier can't drag the knee (unlike the passband S-meter
+    // min).  NaN until a spectrum exists.  Main-thread (re-track timer) only.
+    double spectrumFloorRawDbFs();
     // Inject the live noise-floor source the latch re-anchors to (WDSP-dBFS
     // raw, e.g. MeterModel::noiseFloorWdspRawDbFs()).  Called once at wire-up
     // (mainwindow.cpp) after the MeterModel exists.  Owner keeps the model
@@ -1232,6 +1237,7 @@ private:
     double  autoAgcFloorEma_  = 0.0;     // EMA of the provider floor (dBFS)
     bool    autoAgcEmaSeeded_ = false;   // false => next finite read seeds directly
     bool    autoAgcPrevTx_    = false;   // TX-edge tracker (reseed EMA on TX->RX)
+    std::vector<float> specFloorScratch_;  // reusable buffer for spectrumFloorRawDbFs()
     bool    anfEnabled_  = false;
     bool    lmsEnabled_  = false;
     double  lmsStrength_ = 0.5;          // 0..1 (0.5 ≈ WDSP-class default)
