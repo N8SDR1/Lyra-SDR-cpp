@@ -1224,6 +1224,14 @@ private:
     double  autoAgcMarginDb_  = 0.0;
     QTimer  autoAgcTimer_;
     std::function<double()> agcFloorProvider_;
+    // Auto AGC-T stabilization (2026-09-10, deskHPSDR-informed + 2 red-team):
+    // EMA-smoothed floor (self-reseeding on a large domain-shift jump) + a
+    // max-gain ceiling realised as a knee lower-bound in applyAutoAgcThresh.
+    // All runtime-only (never persisted).  Touched only from the timer slot /
+    // setAutoAgcThresh on the main thread.
+    double  autoAgcFloorEma_  = 0.0;     // EMA of the provider floor (dBFS)
+    bool    autoAgcEmaSeeded_ = false;   // false => next finite read seeds directly
+    bool    autoAgcPrevTx_    = false;   // TX-edge tracker (reseed EMA on TX->RX)
     bool    anfEnabled_  = false;
     bool    lmsEnabled_  = false;
     double  lmsStrength_ = 0.5;          // 0..1 (0.5 ≈ WDSP-class default)

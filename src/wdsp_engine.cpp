@@ -149,6 +149,21 @@ constexpr double kAgcThreshFftSize = 4096.0;
 // [-160 .. +2] so Auto (knee on the measured noise floor) is never clipped.
 constexpr double kAgcThreshMinDbFs = -160.0;
 constexpr double kAgcThreshMaxDbFs =    2.0;
+// Auto AGC-T stabilization (2026-09-10, deskHPSDR-informed + 2 red-team).
+// SetRXAAGCThresh's transfer is affine, slope -1:
+//     max_gain_dB = K - (thresh + noise_offset),  K = 20*log10(out_target/var_gain)
+// With WDSP's create-time AGC constants (out_targ=1.0, n_tau=4 =>
+// out_target=(1-e^-4)*0.9999=0.9816) and our kAgcSlope=35 (var_gain=
+// 10^(35/200)=1.496):  K = -3.7 dB.  So capping max_gain at a ceiling C is a
+// knee LOWER-BOUND:  thresh >= K - C - noise_offset.  This is the load-bearing
+// fix for the old "auto max-gain ~158 dB" bug AND pins the knee when the floor
+// ratchets toward -inf on a quiet band (bounding the "walk-away" audio death).
+// We never call SetRXAAGCTop — SetRXAAGCThresh derives max_gain (see pushAgcThresh).
+constexpr double kAutoAgcThreshTransferK = -3.7;   // dB; WDSP create-const derived (bench-tunable)
+constexpr double kAutoAgcMaxGainCeilDb   = 57.0;   // dB; operator target ~55-57
+constexpr double kAutoAgcFloorEmaAlpha   = 0.10;   // ~5 s TC at the 500 ms tick (deskHPSDR parity)
+constexpr double kAutoAgcFloorJumpDb     = 8.0;    // |floor-ema|>this => reseed (self-heal domain shift)
+constexpr double kAutoAgcKneeDeadbandDb  = 0.5;    // skip re-push if knee moves < this (anti-chatter)
 // AGC fixed-gain (dB) for mode 0 / FIXD ("AGC OFF").  WDSP's
 // create-time default is 1000.0 linear = +60 dB (RXA.c:366) which
 // makes AGC OFF audibly LOUDER than FAST/MED/SLOW that actively
@@ -2975,9 +2990,21 @@ void WdspEngine::applyAutoAgcThresh(double passbandFloorRawDbFs, double marginDb
     const double rate = std::max(1.0, static_cast<double>(cfg_.inRate));
     const double noiseOffset =
         10.0 * std::log10(bwHz * kAgcThreshFftSize / rate);
+    // Max-gain ceiling as a knee LOWER-BOUND (red-team: the load-bearing fix).
+    // max_gain = K - (thresh + noiseOffset) is affine slope -1, so
+    // max_gain <= ceiling  <=>  thresh >= K - ceiling - noiseOffset.  Folding it
+    // into the clamp here (rather than a post-push correction) keeps the target
+    // knee and the applied knee identical, so the dead-band below never chatters.
+    const double kneeLowerBound = kAutoAgcThreshTransferK
+                                  - kAutoAgcMaxGainCeilDb - noiseOffset;
+    const double lo = std::max(kAgcThreshMinDbFs, kneeLowerBound);
     const double knee = std::clamp(passbandFloorRawDbFs + marginDb - noiseOffset,
-                                   kAgcThreshMinDbFs, kAgcThreshMaxDbFs);
-    if (agcThreshDb_ == knee) return;
+                                   lo, kAgcThreshMaxDbFs);
+    // Dead-band: the EMA floor drifts sub-dB every 500 ms tick; only re-push when
+    // the knee actually moves, else SetRXAAGCThresh + the log + agcThreshDbChanged
+    // would chatter at the tick rate (the == short-circuit below rarely fires
+    // with a continuously-moving EMA).
+    if (std::abs(knee - agcThreshDb_) < kAutoAgcKneeDeadbandDb) return;
     applyAgcThreshNoPersist(knee);
     emitLog(QStringLiteral(
         "[wdsp] Auto AGC-T: floor %1 dBFS(raw) margin %2 - noiseOffset %3 "
@@ -2996,8 +3023,9 @@ void WdspEngine::setAutoAgcThresh(bool on)
     emitLog(QStringLiteral("[wdsp] Auto AGC-T %1")
                 .arg(on ? QStringLiteral("engaged (latched)")
                         : QStringLiteral("released")));
-    // Engage: track immediately rather than waiting up to 500 ms for the timer.
-    if (on) retrackAutoAgc();
+    // Engage: seed the EMA fresh then track immediately rather than waiting up
+    // to 500 ms for the timer.
+    if (on) { autoAgcEmaSeeded_ = false; retrackAutoAgc(); }
 }
 
 void WdspEngine::setAutoAgcMarginDb(double db)
@@ -3018,9 +3046,29 @@ void WdspEngine::setAutoAgcMarginDb(double db)
 void WdspEngine::retrackAutoAgc()
 {
     if (!autoAgcThresh_ || !opened_ || !agcFloorProvider_) return;
+    // Freeze while transmitting: during MOX the passband floor is poisoned by
+    // TX-coupled energy (mirrors the Auto-LNA MOX freeze).  txOwnsAnalyzer_ is
+    // set true on the keydown MOX edge / false on keyup.  Reseed the EMA on the
+    // TX->RX edge so a TX-poisoned value can't survive the first post-keyup tick.
+    const bool tx = txOwnsAnalyzer_.load(std::memory_order_acquire);
+    if (tx) { autoAgcPrevTx_ = true; return; }
+    if (autoAgcPrevTx_) { autoAgcPrevTx_ = false; autoAgcEmaSeeded_ = false; }
+
     const double floor = agcFloorProvider_();
     if (!std::isfinite(floor)) return;
-    applyAutoAgcThresh(floor, autoAgcMarginDb_);
+
+    // EMA-smooth the floor (jitter only — the ceiling in applyAutoAgcThresh is
+    // the real bug fix).  Self-heal domain shifts (rate / mode / passband /
+    // P1<->P2 / band all move the floor's value or meaning) by reseeding on a
+    // large jump, so no external reset hooks are needed.
+    if (!autoAgcEmaSeeded_
+        || std::abs(floor - autoAgcFloorEma_) > kAutoAgcFloorJumpDb) {
+        autoAgcFloorEma_  = floor;
+        autoAgcEmaSeeded_ = true;
+    } else {
+        autoAgcFloorEma_ += kAutoAgcFloorEmaAlpha * (floor - autoAgcFloorEma_);
+    }
+    applyAutoAgcThresh(autoAgcFloorEma_, autoAgcMarginDb_);
 }
 
 void WdspEngine::setAgcMode(const QString &mode)
