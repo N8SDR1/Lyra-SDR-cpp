@@ -2363,11 +2363,6 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
     if (lyra::wire::prn != nullptr) lyra::wire::set_drive_level(byte);
     lyra::wire::SetTXFixedGainRun(0, 1);
     lyra::wire::SetTXFixedGain(0, rv, rv);
-    // Publish the emitted byte for the P2/Brick transport (it sends THIS, not
-    // the raw setpoint, so PA-gain/cap/digital all compose on the Brick).
-    // Signal on change → P2RxBridge re-syncs the Brick drive mid-TX.
-    if (emittedDriveByte_.exchange(byte, std::memory_order_relaxed) != byte)
-        emit txDriveByteChanged(byte);
 
     // Amp-cap live indicator for the TX-panel CAP chip.  Recomputed here
     // because this is the one chokepoint every drive / PA-gain / band / cap

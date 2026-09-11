@@ -843,13 +843,6 @@ public:
     // TX-0c-pa-drive — drive DAC level (Q_PROPERTY getter).  Raw 0..255
     // wire value; UI converts to/from 0..100 %.  Reads the wire atomic.
     int     txDriveLevel() const { return txDriveLevel_.load(std::memory_order_relaxed); }
-    // The drive-DAC byte actually EMITTED by applyTxPower_ (0..255) AFTER
-    // per-band PA-gain shaping + watts-cap + digital-mode reduction + CW
-    // fold.  This is the P1 wire value (`set_drive_level`); the P2/Brick
-    // transport must send THIS (not the raw txDriveLevel setpoint) so PA gain
-    // / watts-cap compose identically on the Brick.  -1 = applyTxPower_ has
-    // not run yet (caller falls back to the setpoint).
-    int     emittedDriveByte() const { return emittedDriveByte_.load(std::memory_order_relaxed); }
     // TX power model Stage 3 — per-band "PA Gain By Band" (Thetis port).
     // gbb is a per-band multiplier in the RadioVolume formula (default
     // 100 = neutral).  The operator measures each band into a dummy load
@@ -1521,11 +1514,6 @@ signals:
     // TX-0c-pa-drive — operator-tunable drive DAC level changed (via
     // Settings SpinBox or persistence reload).  Raw 0..255 wire value.
     void txDriveLevelChanged(int level);
-    // Emitted by applyTxPower_ whenever the emitted drive-DAC byte changes
-    // (drive / PA-gain / band / cap / digital-mode / mode edge).  The P2
-    // bridge re-syncs the Brick's drive on this so PA-gain/cap edits reach
-    // the wire mid-TX, not just on a setpoint change.
-    void txDriveByteChanged(int byte);
     // TX-0c-tune — tune-tone armed state changed (via TX panel button,
     // operator unarm, or the moxActiveChanged(false) safety auto-clear).
     void tuneEnabledChanged(bool on);
@@ -1822,8 +1810,6 @@ private:
     std::atomic<bool>    p2PowerActive_{false};
     std::atomic<double>  pushedFwdW_{std::numeric_limits<double>::quiet_NaN()};
     std::atomic<double>  pushedRevW_{std::numeric_limits<double>::quiet_NaN()};
-    // Last drive byte emitted by applyTxPower_ (-1 = not computed yet).
-    std::atomic<int>     emittedDriveByte_{-1};
     // Stage 2b2: txSeq_ retired — metis_write_frame() owns the wire
     // sequence counter via the TU-scope MetisOutBoundSeqNum, shared
     // with the priming path for PureSignal-correct posture.

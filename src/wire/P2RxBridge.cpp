@@ -265,14 +265,6 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                     if (open_ && stream_ && stream_->moxActive())
                         syncTxIntentToSession(true);
                 });
-        // Re-sync on the EMITTED drive byte too, so a PA-gain / watts-cap /
-        // band change (which re-runs applyTxPower_ without a setpoint change)
-        // reaches the Brick's drive mid-TX.
-        connect(stream_, &lyra::ipc::HL2Stream::txDriveByteChanged, this,
-                [this](int) {
-                    if (open_ && stream_ && stream_->moxActive())
-                        syncTxIntentToSession(true);
-                });
     }
 
     // IQ-rate follow: the Display panel's rate switch reopens the WDSP
@@ -350,16 +342,8 @@ void P2RxBridge::syncTxIntentToSession(bool on) {
     const int limitPct = txOnAirValidated_
         ? 100 : std::clamp(txDriveLimitPercent_, 0, 100);
     const int capRaw = (limitPct * 255 + 50) / 100;
-    // Use the byte applyTxPower_ actually EMITTED (PA-gain / watts-cap /
-    // digital-mode already composed in), NOT the raw setpoint — so the Brick
-    // honours the PA-Gain tab like HL2 does.  -1 = applyTxPower_ hasn't run
-    // yet → fall back to the setpoint (never worse than the old behaviour).
-    int base = 0;
-    if (stream_) {
-        const int emitted = stream_->emittedDriveByte();
-        base = (emitted >= 0) ? emitted : stream_->txDriveLevel();
-    }
-    const int drive = std::min(base, capRaw);
+    const int drive = stream_
+        ? std::min(stream_->txDriveLevel(), capRaw) : 0;
     const bool pa = stream_ && stream_->paEnabled();
     auto *s = session_;
     QMetaObject::invokeMethod(s, [s, on, pa, drive, capRaw]() {
