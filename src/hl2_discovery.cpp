@@ -60,6 +60,20 @@ void HL2Discovery::rememberRadio(const QString &ip, const QString &mac,
     s.setValue(QStringLiteral("numRxs"), numRxs);
     s.setValue(QStringLiteral("protocol"), protocol);
     s.endGroup();
+
+    // Also keep a cumulative known-IP list so the directed-unicast leg of
+    // future sweeps can re-find this radio across a subnet change (the Thetis
+    // cross-subnet mechanism).  Append-unique (move-to-most-recent), cap 16.
+    // Written only on the main/UI thread (mainwindow.cpp, settingsdialog.cpp);
+    // knownRadioIps() reads it on the worker thread — single-writer, and the
+    // whole-StringList setValue is atomic, so no torn read / lost update.
+    if (!ip.isEmpty()) {
+        QStringList ips = s.value(QStringLiteral("knownRadios/ips")).toStringList();
+        ips.removeAll(ip);
+        ips.append(ip);
+        while (ips.size() > 16) ips.removeFirst();
+        s.setValue(QStringLiteral("knownRadios/ips"), ips);
+    }
 }
 
 QVariantMap HL2Discovery::savedRadio() const {
@@ -92,6 +106,11 @@ void HL2Discovery::forgetRadio(const QString &ip) {
     const bool savedMatch = (s.value(QStringLiteral("ip")).toString() == ip);
     s.endGroup();
     if (savedMatch) s.remove(QStringLiteral("lastRadio"));
+    // Drop it from the cumulative directed-unicast known-IP list too, so a
+    // removed radio stops being probed every sweep.
+    QStringList known = s.value(QStringLiteral("knownRadios/ips")).toStringList();
+    if (known.removeAll(ip) > 0)
+        s.setValue(QStringLiteral("knownRadios/ips"), known);
     // Clear the auto-connect IP if it points here, so next launch
     // doesn't reconnect to the radio the operator just removed.
     if (s.value(QStringLiteral("radio/lastIp")).toString() == ip)
@@ -177,6 +196,24 @@ QList<HL2Discovery::LocalIf> HL2Discovery::localIPv4Interfaces() const {
     return out;
 }
 
+QStringList HL2Discovery::knownRadioIps() const {
+    QSettings s;
+    QStringList raw = s.value(QStringLiteral("knownRadios/ips")).toStringList();
+    raw << s.value(QStringLiteral("lastRadio/ip")).toString();
+    raw << s.value(QStringLiteral("radio/lastIp")).toString();
+
+    QStringList out;
+    for (const QString &ip : raw) {
+        const QString t = ip.trimmed();
+        if (t.isEmpty() || out.contains(t)) continue;
+        QHostAddress a;
+        if (!a.setAddress(t) ||
+            a.protocol() != QAbstractSocket::IPv4Protocol) continue;
+        out.append(t);
+    }
+    return out;
+}
+
 bool HL2Discovery::parseReply(const QByteArray &data,
                               const QHostAddress &sender,
                               RadioInfo &out) const {
@@ -241,10 +278,14 @@ bool HL2Discovery::parseReply(const QByteArray &data,
 }
 
 void HL2Discovery::scan(double timeoutSeconds, int attempts) {
+    deadline_.stop();          // defensive: a scan() arriving mid-sweep
+    attemptTimer_.stop();
     foundMacs_.clear();
     totalFound_ = 0;
     sockets_.clear();
     socketBroadcast_.clear();
+    // Directed-unicast targets for this sweep (Thetis cross-subnet parity).
+    sweepKnownIps_ = knownRadioIps();
     attemptsRemaining_ = std::max(0, attempts - 1);
 
     const QList<LocalIf> ifaces = localIPv4Interfaces();
@@ -286,6 +327,11 @@ void HL2Discovery::scan(double timeoutSeconds, int attempts) {
         return;
     }
 
+    if (!sweepKnownIps_.isEmpty()) {
+        emit logLine(QStringLiteral("  directed-unicast leg: %1 known IP(s)")
+                     .arg(sweepKnownIps_.size()));
+    }
+
     // First broadcast immediately, then schedule retries at half the
     // total timeout window (so a 2-attempt 1.5s scan retries at 0.75s).
     sendBroadcastFromAllSockets();
@@ -324,6 +370,17 @@ void HL2Discovery::sendBroadcastFromAllSockets() {
         if (!b.isNull() && b != limited) {
             sock->writeDatagram(pktP1, b, kDiscoveryPort);
             sock->writeDatagram(pktP2, b, kDiscoveryPort);
+        }
+        // (3) Directed unicast to each known radio IP from THIS NIC (Thetis
+        // per-NIC fan-out): finds a fixed-IP / different-subnet radio the
+        // broadcast can't, and tries every interface so an ambiguous target
+        // isn't lost to the wrong egress.  Replies land on this socket's
+        // onReadyRead + the shared foundMacs_ de-dup.
+        for (const QString &ipStr : sweepKnownIps_) {
+            QHostAddress target;
+            if (!target.setAddress(ipStr)) continue;
+            sock->writeDatagram(pktP1, target, kDiscoveryPort);
+            sock->writeDatagram(pktP2, target, kDiscoveryPort);
         }
     }
 }
@@ -368,6 +425,7 @@ void HL2Discovery::onSweepDeadline() {
     attemptTimer_.stop();
     sockets_.clear();
     socketBroadcast_.clear();
+    sweepKnownIps_.clear();
     emit logLine(QStringLiteral("Discovery complete: %1 radio(s) found")
                  .arg(totalFound_));
     emit scanFinished(totalFound_);
