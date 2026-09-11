@@ -3641,6 +3641,11 @@ QWidget *SettingsDialog::buildHardwareTab() {
         if (prefs_) {
             auto *sbBox = new QCheckBox(
                 tr("Space bar keys PTT (push-to-talk)"), grp);
+            // NoFocus: this checkbox's whole subject IS the space bar.  If it
+            // can take keyboard focus, Space toggles it (standard QCheckBox) —
+            // so the operator trying to set the option just flips it on/off
+            // endlessly.  Mouse-click still toggles it; Space never lands here.
+            sbBox->setFocusPolicy(Qt::NoFocus);
             sbBox->setChecked(prefs_->spaceBarPttEnabled());
             sbBox->setToolTip(tr(
                 "When ON, holding the space bar transmits and releasing "

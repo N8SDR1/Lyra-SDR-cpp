@@ -550,6 +550,13 @@ Rectangle {
         // I/Q stream but the gateware DAC scales it to inaudible.
         Button {
             id: tunBtn
+            // Qt.NoFocus: a Button with keyboard focus activates on Space
+            // (emits clicked) — which would key TX via the spacebar even with
+            // "Space bar keys PTT" UNCHECKED (that feature lives wholly in
+            // MainWindow::eventFilter).  Keep this off so only the real gated
+            // feature can key from Space.  Mouse-click unaffected.  (Precedent:
+            // BandPanel.qml.)
+            focusPolicy: Qt.NoFocus
             // NOT checkable: `checked` stays a pure one-way reflection of
             // Stream.tuneEnabled (wire truth) so the auto-clear on MOX-drop
             // shows immediately.  Click = toggle command (arm / release).
@@ -607,6 +614,7 @@ Rectangle {
         // honest through the ~65 ms keydown window.
         Button {
             id: twoToneBtn
+            focusPolicy: Qt.NoFocus   // see tunBtn: stop Space-activation keying TX
             checkable: false
             implicitWidth: 72
             implicitHeight: 26
@@ -644,6 +652,7 @@ Rectangle {
 
         Button {
             id: moxBtn
+            focusPolicy: Qt.NoFocus   // see tunBtn: stop Space-activation keying TX
             // NOT checkable: `checked` stays a pure one-way reflection of
             // Stream.moxActive (wire truth); the lamp already reads moxActive
             // directly, so this just keeps the control from severing it.
