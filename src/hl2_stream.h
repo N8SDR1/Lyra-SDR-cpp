@@ -72,6 +72,7 @@
 #include <QString>
 #include <QTimer>
 #include <atomic>
+#include <limits>
 #include <complex>
 #include <condition_variable>
 #include <cstdint>
@@ -800,6 +801,16 @@ public:
     // RAW for the SWR ratio + CW-keying detect, where a trim would be wrong.)
     double  fwdPowerCalW() const;
     double  revPowerW()  const;
+    // P2/Brick forward+reverse power ingest.  The P1/HL2 path decodes fwd/rev
+    // from the EP6 `prn` telemetry inside fwdPowerW()/revPowerW(); the P2 wire
+    // has no `prn` fwd/rev, so the P2RxBridge computes coupler watts from the
+    // P2 status frame and pushes them here.  fwdPowerW()/revPowerW() prefer
+    // these ONLY while a P2 source is active (setPowerTelemetry seen, not yet
+    // cleared); on P1 the flag never sets → the working HL2 `prn` formula runs
+    // byte-for-byte unchanged.  Written on the P2 status thread, read on the
+    // UI thread (lock-free atomics).
+    void    setPowerTelemetry(double fwdW, double revW);
+    void    clearPowerTelemetry();   // P2 session teardown → fall back to prn
     // TX-0c-fsm — true while the radio is wire-level keyed (post-keydown
     // settle, pre-keyup-clear).  Read by the UI red-on-air indicator.
     bool    moxActive()  const { return moxActive_; }
@@ -832,6 +843,13 @@ public:
     // TX-0c-pa-drive — drive DAC level (Q_PROPERTY getter).  Raw 0..255
     // wire value; UI converts to/from 0..100 %.  Reads the wire atomic.
     int     txDriveLevel() const { return txDriveLevel_.load(std::memory_order_relaxed); }
+    // The drive-DAC byte actually EMITTED by applyTxPower_ (0..255) AFTER
+    // per-band PA-gain shaping + watts-cap + digital-mode reduction + CW
+    // fold.  This is the P1 wire value (`set_drive_level`); the P2/Brick
+    // transport must send THIS (not the raw txDriveLevel setpoint) so PA gain
+    // / watts-cap compose identically on the Brick.  -1 = applyTxPower_ has
+    // not run yet (caller falls back to the setpoint).
+    int     emittedDriveByte() const { return emittedDriveByte_.load(std::memory_order_relaxed); }
     // TX power model Stage 3 — per-band "PA Gain By Band" (Thetis port).
     // gbb is a per-band multiplier in the RadioVolume formula (default
     // 100 = neutral).  The operator measures each band into a dummy load
@@ -1503,6 +1521,11 @@ signals:
     // TX-0c-pa-drive — operator-tunable drive DAC level changed (via
     // Settings SpinBox or persistence reload).  Raw 0..255 wire value.
     void txDriveLevelChanged(int level);
+    // Emitted by applyTxPower_ whenever the emitted drive-DAC byte changes
+    // (drive / PA-gain / band / cap / digital-mode / mode edge).  The P2
+    // bridge re-syncs the Brick's drive on this so PA-gain/cap edits reach
+    // the wire mid-TX, not just on a setpoint change.
+    void txDriveByteChanged(int byte);
     // TX-0c-tune — tune-tone armed state changed (via TX panel button,
     // operator unarm, or the moxActiveChanged(false) safety auto-clear).
     void tuneEnabledChanged(bool on);
@@ -1794,6 +1817,13 @@ private:
     std::atomic<qint64>  txTotalDg_{0};
     std::atomic<qint64>  txWindowDg_{0};
     std::atomic<qint64>  txSendErrors_{0};
+    // P2/Brick pushed power telemetry (see setPowerTelemetry).  Default
+    // inactive → fwdPowerW()/revPowerW() use the P1 `prn` formula.
+    std::atomic<bool>    p2PowerActive_{false};
+    std::atomic<double>  pushedFwdW_{std::numeric_limits<double>::quiet_NaN()};
+    std::atomic<double>  pushedRevW_{std::numeric_limits<double>::quiet_NaN()};
+    // Last drive byte emitted by applyTxPower_ (-1 = not computed yet).
+    std::atomic<int>     emittedDriveByte_{-1};
     // Stage 2b2: txSeq_ retired — metis_write_frame() owns the wire
     // sequence counter via the TU-scope MetisOutBoundSeqNum, shared
     // with the priming path for PureSignal-correct posture.

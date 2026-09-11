@@ -143,6 +143,12 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                         ? fwd : fwdPowerW_ + 0.35 * (fwd - fwdPowerW_);
                     revPowerW_ = std::isnan(revPowerW_)
                         ? rev : revPowerW_ + 0.35 * (rev - revPowerW_);
+                    // Feed the P2 coupler watts into HL2Stream's power model
+                    // so the PA-Gain tab's Calibrate / Full-Output / watts-cap
+                    // (which read stream_->fwdPowerW()) work on the Brick.
+                    // P1/HL2 never reaches here — its prn path is unchanged.
+                    if (stream_)
+                        stream_->setPowerTelemetry(fwdPowerW_, revPowerW_);
                 }
 
                 // Saturn status byte 4 bit 0 is physical PTT OR keyer
@@ -259,6 +265,14 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                     if (open_ && stream_ && stream_->moxActive())
                         syncTxIntentToSession(true);
                 });
+        // Re-sync on the EMITTED drive byte too, so a PA-gain / watts-cap /
+        // band change (which re-runs applyTxPower_ without a setpoint change)
+        // reaches the Brick's drive mid-TX.
+        connect(stream_, &lyra::ipc::HL2Stream::txDriveByteChanged, this,
+                [this](int) {
+                    if (open_ && stream_ && stream_->moxActive())
+                        syncTxIntentToSession(true);
+                });
     }
 
     // IQ-rate follow: the Display panel's rate switch reopens the WDSP
@@ -336,8 +350,16 @@ void P2RxBridge::syncTxIntentToSession(bool on) {
     const int limitPct = txOnAirValidated_
         ? 100 : std::clamp(txDriveLimitPercent_, 0, 100);
     const int capRaw = (limitPct * 255 + 50) / 100;
-    const int drive = stream_
-        ? std::min(stream_->txDriveLevel(), capRaw) : 0;
+    // Use the byte applyTxPower_ actually EMITTED (PA-gain / watts-cap /
+    // digital-mode already composed in), NOT the raw setpoint — so the Brick
+    // honours the PA-Gain tab like HL2 does.  -1 = applyTxPower_ hasn't run
+    // yet → fall back to the setpoint (never worse than the old behaviour).
+    int base = 0;
+    if (stream_) {
+        const int emitted = stream_->emittedDriveByte();
+        base = (emitted >= 0) ? emitted : stream_->txDriveLevel();
+    }
+    const int drive = std::min(base, capRaw);
     const bool pa = stream_ && stream_->paEnabled();
     auto *s = session_;
     QMetaObject::invokeMethod(s, [s, on, pa, drive, capRaw]() {
@@ -720,6 +742,7 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     paA_     = std::numeric_limits<double>::quiet_NaN();
     fwdPowerW_ = std::numeric_limits<double>::quiet_NaN();
     revPowerW_ = std::numeric_limits<double>::quiet_NaN();
+    if (stream_) stream_->clearPowerTelemetry();
     modelLabel_ = hw ? QString::fromLatin1(hw->displayName) : QString();
     if (hw)
         emit logLine(QStringLiteral(
@@ -822,6 +845,7 @@ void P2RxBridge::close() {
     paA_     = std::numeric_limits<double>::quiet_NaN();
     fwdPowerW_ = std::numeric_limits<double>::quiet_NaN();
     revPowerW_ = std::numeric_limits<double>::quiet_NaN();
+    if (stream_) stream_->clearPowerTelemetry();
     hasPowerTelemetry_ = false;
     adcOverloadTier_ = 0;
     adcOverloadMask_ = 0;

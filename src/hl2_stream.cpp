@@ -1742,6 +1742,12 @@ double HL2Stream::paCurrentA() const {
     return ((3.26 * (raw / 4096.0)) / 50.0) / 0.04 / (1000.0 / 1270.0);
 }
 double HL2Stream::fwdPowerW() const {
+    // P2/Brick: the P2 wire has no `prn` fwd/rev, so the P2RxBridge pushes
+    // coupler watts via setPowerTelemetry().  Prefer it while a P2 source is
+    // active; otherwise (all P1/HL2 operation) fall through to the working
+    // `prn` formula unchanged.
+    if (p2PowerActive_.load(std::memory_order_relaxed))
+        return pushedFwdW_.load(std::memory_order_relaxed);
     // Stage 2b2: read `prn->tx[0].fwd_power` direct (Ep6RecvThread
     // writes from slot 0x08 C3:C4 per networkproto1.c:507).
     if (lyra::wire::prn == nullptr) return kNaN;
@@ -1752,12 +1758,28 @@ double HL2Stream::fwdPowerW() const {
     return (v > 0.0) ? (v * v) / 1.5 : 0.0;
 }
 double HL2Stream::revPowerW() const {
+    if (p2PowerActive_.load(std::memory_order_relaxed))
+        return pushedRevW_.load(std::memory_order_relaxed);
     // Stage 2b2: read `prn->tx[0].rev_power` direct (Ep6RecvThread
     // writes from slot 0x10 C1:C2 per networkproto1.c:511).
     if (lyra::wire::prn == nullptr) return kNaN;
     const int raw = lyra::wire::prn->tx[0].rev_power;
     const double v = (raw - 6.0) / 4095.0 * 3.3;
     return (v > 0.0) ? (v * v) / 1.5 : 0.0;
+}
+void HL2Stream::setPowerTelemetry(double fwdW, double revW) {
+    // Called by the P2RxBridge on each P2 status frame that carries coupler
+    // power.  Publishes fwd/rev, then marks the P2 source active so the
+    // getters prefer it (release so the values are visible before the flag).
+    pushedFwdW_.store(fwdW, std::memory_order_relaxed);
+    pushedRevW_.store(revW, std::memory_order_relaxed);
+    p2PowerActive_.store(true, std::memory_order_release);
+}
+void HL2Stream::clearPowerTelemetry() {
+    // P2 session teardown / profile reconfigure — stop preferring the pushed
+    // values so fwdPowerW()/revPowerW() fall back to the P1 `prn` formula
+    // (keeps the working HL2 model intact after a P2 -> P1 rig switch).
+    p2PowerActive_.store(false, std::memory_order_release);
 }
 double HL2Stream::fwdPowerCalW() const {
     // Raw formula watts × the current TX band's PWR-meter trim.  This is the
@@ -2341,6 +2363,11 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
     if (lyra::wire::prn != nullptr) lyra::wire::set_drive_level(byte);
     lyra::wire::SetTXFixedGainRun(0, 1);
     lyra::wire::SetTXFixedGain(0, rv, rv);
+    // Publish the emitted byte for the P2/Brick transport (it sends THIS, not
+    // the raw setpoint, so PA-gain/cap/digital all compose on the Brick).
+    // Signal on change → P2RxBridge re-syncs the Brick drive mid-TX.
+    if (emittedDriveByte_.exchange(byte, std::memory_order_relaxed) != byte)
+        emit txDriveByteChanged(byte);
 
     // Amp-cap live indicator for the TX-panel CAP chip.  Recomputed here
     // because this is the one chokepoint every drive / PA-gain / band / cap
