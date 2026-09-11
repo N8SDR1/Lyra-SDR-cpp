@@ -2767,6 +2767,23 @@ void WdspEngine::setTxMuted(bool m)
 
 void WdspEngine::applyTxMuted_(bool m)
 {
+    // Unkey-thump root fix (reference pattern: Thetis stops the RX DSP across
+    // TX so its pipeline holds nothing).  The RX RXA chain keeps running
+    // through TX (feedIq is not MOX-gated) while the front end is deaf
+    // (ATT-on-TX), so the WDSP AGC var_gain PUMPS toward max during the keyed
+    // window; the old hard un-mute then revealed that pumped gain as a
+    // swelling thump — and a LONGER resume delay only gave it more time to
+    // pump (why the delay knob never fixed it).  Freeze the AGC to OFF/fixed
+    // on keydown so var_gain can't pump; restore the operator's mode on
+    // un-mute, which reinits WDSP's AGC from baseline (not the pumped max) so
+    // the resumed RX converges up cleanly instead of thumping down.  Output is
+    // zero-gain while muted, so the OFF fixed-gain value is inaudible during TX.
+    // Called on the main thread (moxActiveChanged / rxResumeTimer_); SetRXAAGCMode
+    // is already called main-thread during live RX (pushAgcMode), so safe.
+    if (opened_ && wdsp_ && wdsp_->api().SetRXAAGCMode) {
+        if (m) wdsp_->api().SetRXAAGCMode(channel_, kAgcModeOff);
+        else   pushAgcMode();   // restore operator AGC mode + fresh var_gain
+    }
     const bool prev = txMuted_.exchange(m, std::memory_order_relaxed);
     if (prev != m) emit txMutedChanged();
 }
