@@ -39,6 +39,7 @@ int main(int argc, char **argv) {
     safety.operatorArmed = true;
     safety.sessionRunning = true;
     safety.iqPrimed = true;
+    safety.transportRunning = true;
     safety.telemetryHealthy = true;
     safety.watchdogEnabled = true;
     state = P2TxSafetyGate::evaluate(hostileIntent, safety);
@@ -46,10 +47,11 @@ int main(int argc, char **argv) {
                      state.drive == 255,
                  "healthy armed state clamps and passes TX intent");
 
-    const std::array<bool P2TxSafetyInputs::*, 5> prerequisites{{
+    const std::array<bool P2TxSafetyInputs::*, 6> prerequisites{{
         &P2TxSafetyInputs::operatorArmed,
         &P2TxSafetyInputs::sessionRunning,
         &P2TxSafetyInputs::iqPrimed,
+        &P2TxSafetyInputs::transportRunning,
         &P2TxSafetyInputs::telemetryHealthy,
         &P2TxSafetyInputs::watchdogEnabled,
     }};
@@ -131,9 +133,9 @@ int main(int argc, char **argv) {
                  "TX IQ packet is exactly 1444 bytes");
     const QByteArray expectedPrefix = QByteArray::fromHex(
         "01020304"
-        "8000017fffff"
-        "c00000400000"
-        "8000017fffff");
+        "7fffff800001"
+        "400000c00000"
+        "7fffff800001");
     ok &= expect(iqPacket.first(expectedPrefix.size()) == expectedPrefix,
                  "TX IQ sequence, Q/I order, rounding, and saturation match");
     ok &= expect(iqPacket.mid(expectedPrefix.size()) ==

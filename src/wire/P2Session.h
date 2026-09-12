@@ -162,6 +162,11 @@ public:
     void setRxInput(P2RxInput input) { rxInput_ = input; }
     void setHpfBypass(bool on) { hpfBypass_ = on; }
     void setAdcAttenuation(int adc, int db);
+    // Same operator ATT-on-TX toggle as the P1 path (Settings → TX).
+    // Overlay is applied at packet-build time; the stored RX attenuation
+    // is not mutated. Protection is active only while the safety gate
+    // authorises transmit WITH PA enabled.
+    void setAttOnTx(bool enabled, int db);
     void setTxProducerSink(P2TxPump::InputSink sink) {
         txProducerTerminal_ = std::move(sink);
         // The pump ticks the 48 kHz modulator-input cadence; feedTxProducer
@@ -196,9 +201,16 @@ public:
     QByteArray diagnosticDdcSpecificPacket() const {
         return buildDdcSpecificPacket();
     }
+    QByteArray diagnosticDucSpecificPacket() const {
+        return buildDucSpecificPacket();
+    }
     QByteArray diagnosticGeneralPacket() const {
         return buildGeneralPacket();
     }
+    // Golden-packet tests only: mark every safety prerequisite healthy and
+    // optionally latch transmit intent, without opening a socket or waiting
+    // on live telemetry.
+    void diagnosticArmHealthyTx(bool transmit, bool pa, int drive);
 
     // RX-audio return to the RADIO's speaker (G2 on-board amp):
     // 48 kHz stereo int16 → 260 B packets (4 B incrementing seq +
@@ -263,6 +275,9 @@ private:
     QByteArray buildGeneralPacket() const;
     QByteArray buildHighPriorityPacket(bool run) const;
     QByteArray buildDdcSpecificPacket() const;
+    QByteArray buildDucSpecificPacket() const;
+    void sendDucSpecificIfOpen();
+    quint8 overlayAdcAttByte(int adcIndex, bool keyedWithPa) const;
     void parseStatus(const QByteArray &d);
     void parseIqFrame(int ddc, const QByteArray &d);
     void parseMic(const QByteArray &d);
@@ -346,6 +361,8 @@ private:
     P2RxInput    rxInput_      = P2RxInput::Trx;
     bool         hpfBypass_    = false;
     std::array<quint8, 2> adcAttenuation_{};
+    bool         attOnTxEnabled_ = true;
+    int          attOnTxDb_      = 31;
     quint32      spkrSeq_      = 0;               // speaker stream sequence
     QByteArray   spkrStage_;                      // partial-packet staging
     // Every RF-bearing packet field is derived from these values through

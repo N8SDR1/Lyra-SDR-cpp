@@ -309,9 +309,14 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
         pkt[1430] = char{0x01};
         pkt[1432] = char{0x08};
         pkt[1433] = char{0x04};
+        // DDC0 frequency word tracks the DUC while keyed so a cross-band
+        // TX VFO still produces RF on radios whose TX path samples DDC0.
+        // DDC0 stays disabled; only the phase word is overlaid.
+        wrBeU32(pkt.data() + 9, phaseWord(ducFreqHz_));
     }
-    pkt[1442] = static_cast<char>(adcAttenuation_[1]); // ADC2 ATT
-    pkt[1443] = static_cast<char>(adcAttenuation_[0]); // ADC1 ATT
+    const bool keyedWithPa = transmit && tx.paEnabled;
+    pkt[1442] = static_cast<char>(overlayAdcAttByte(1, keyedWithPa));
+    pkt[1443] = static_cast<char>(overlayAdcAttByte(0, keyedWithPa));
     return pkt;
 }
 
@@ -324,6 +329,61 @@ void P2Session::setAdcAttenuation(int adc, int db) {
     if (adc < 0 || adc >= static_cast<int>(adcAttenuation_.size())) return;
     adcAttenuation_[static_cast<std::size_t>(adc)] =
         static_cast<quint8>(std::clamp(db, 0, 31));
+    sendDucSpecificIfOpen();
+}
+
+void P2Session::setAttOnTx(bool enabled, int db) {
+    attOnTxEnabled_ = enabled;
+    attOnTxDb_ = std::clamp(db, 0, 31);
+    sendDucSpecificIfOpen();
+    if (!open_)
+        return;
+    if (P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit)
+        applyTxControlNow();
+}
+
+quint8 P2Session::overlayAdcAttByte(int adcIndex, bool keyedWithPa) const {
+    if (keyedWithPa && attOnTxEnabled_)
+        return static_cast<quint8>(std::clamp(attOnTxDb_, 0, 31));
+    if (adcIndex < 0 ||
+        adcIndex >= static_cast<int>(adcAttenuation_.size()))
+        return 0;
+    return adcAttenuation_[static_cast<std::size_t>(adcIndex)];
+}
+
+QByteArray P2Session::buildDucSpecificPacket() const {
+    P2DucConfig cfg = ducConfig_;
+    const auto tx = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
+    const bool keyedWithPa = tx.transmit && tx.paEnabled;
+    const quint8 a0 = overlayAdcAttByte(0, keyedWithPa);
+    const quint8 a1 = overlayAdcAttByte(1, keyedWithPa);
+    cfg.txAttenuationDb[0] = a0;
+    cfg.txAttenuationDb[1] = a1;
+    cfg.txAttenuationDb[2] = a0;
+    return P2TxPackets::encodeDucSpecific(cfg);
+}
+
+void P2Session::sendDucSpecificIfOpen() {
+    if (!open_)
+        return;
+    sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_, kPortDucConfig);
+}
+
+void P2Session::diagnosticArmHealthyTx(bool transmit, bool pa, int drive) {
+    txSafety_.operatorArmed = true;
+    txSafety_.sessionRunning = true;
+    txSafety_.iqPrimed = true;
+    txSafety_.transportRunning = true;
+    txSafety_.telemetryHealthy = true;
+    txSafety_.watchdogEnabled = true;
+    txSafety_.faultLatched = false;
+    if (transmit) {
+        txIntent_.transmitRequested = true;
+        txIntent_.paRequested = pa;
+        txIntent_.drive = std::clamp(drive, 0, 255);
+    } else {
+        txIntent_ = {};
+    }
 }
 
 void P2Session::setTxOperatorArmed(bool armed) {
@@ -412,6 +472,7 @@ void P2Session::applyTxControlNow() {
                             radioAddr_, kPortHpToSdr);
         sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
     }
+    sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_, kPortDucConfig);
 }
 
 void P2Session::emitTxState(const QString &detail) {
@@ -522,8 +583,7 @@ void P2Session::open(const QString &ip) {
     // On a clean start the radio isn't streaming yet, so this is a no-op.
     sock_.writeDatagram(buildHighPriorityPacket(false), radioAddr_,
                         kPortHpToSdr);
-    sock_.writeDatagram(P2TxPackets::encodeDucSpecific(ducConfig_),
-                        radioAddr_, kPortDucConfig);
+    sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_, kPortDucConfig);
     sock_.writeDatagram(buildDdcSpecificPacket(), radioAddr_, kPortDdcConfig);
     sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_, kPortHpToSdr);
     hpTickCount_ = 0;
@@ -582,10 +642,19 @@ void P2Session::onHpTick() {
     txSafety_.transportRunning = txWriter_.isRunning();
     sock_.writeDatagram(buildHighPriorityPacket(true),
                         radioAddr_, kPortHpToSdr);
+    const bool transmitting =
+        P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit;
+    if (transmitting)
+        sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_,
+                            kPortDucConfig);
     // Periodic DDC-specific refresh (see kDdcRefreshTicks rationale).
-    if (++hpTickCount_ % kDdcRefreshTicks == 0)
+    if (++hpTickCount_ % kDdcRefreshTicks == 0) {
         sock_.writeDatagram(buildDdcSpecificPacket(),
                             radioAddr_, kPortDdcConfig);
+        if (!transmitting)
+            sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_,
+                                kPortDucConfig);
+    }
 
     // Low-power-bench diagnostic (~1/s while keyed): the actual wire drive
     // byte (pkt[345], 0-255) + the live DUC-IQ peak (~1.0 = full-scale).

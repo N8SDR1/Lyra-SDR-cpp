@@ -265,6 +265,10 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                     if (open_ && stream_ && stream_->moxActive())
                         syncTxIntentToSession(true);
                 });
+        connect(stream_, &lyra::ipc::HL2Stream::attOnTxEnabledChanged, this,
+                [this](bool) { pushAttOnTxToSession(); });
+        connect(stream_, &lyra::ipc::HL2Stream::attOnTxDbChanged, this,
+                [this](int) { pushAttOnTxToSession(); });
     }
 
     // IQ-rate follow: the Display panel's rate switch reopens the WDSP
@@ -511,6 +515,14 @@ void P2RxBridge::pushFrontEndToSession() {
         s->setHpfBypass(bypass);
         s->setTrxAntenna(ant);
     });
+}
+
+void P2RxBridge::pushAttOnTxToSession() {
+    if (!open_ || !session_ || !stream_) return;
+    auto *s = session_;
+    const bool en = stream_->attOnTxEnabled();
+    const int db = stream_->attOnTxDb();
+    QMetaObject::invokeMethod(s, [s, en, db]() { s->setAttOnTx(en, db); });
 }
 
 void P2RxBridge::setRxAttenuationDb(int db) {
@@ -772,15 +784,19 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     const int input = rxInput_;
     const bool bypass = hpfBypass_;
     const int bandAnt = trxAntenna_;
+    const bool attOnTxEn = stream_ ? stream_->attOnTxEnabled() : true;
+    const int attOnTxDb = stream_ ? stream_->attOnTxDb() : 31;
     QMetaObject::invokeMethod(s, [s, ip, correctedHz, correctedTx, rate,
                                   bandAnt, p2hw,
-                                  att, adc, input, bypass]() {
+                                  att, adc, input, bypass,
+                                  attOnTxEn, attOnTxDb]() {
         s->setTxProducerSink([](const double *iq, int samples) {
             return feedP2TxCmasterInput(iq, samples);
         });
         s->setProfile(p2hw);
         s->setTrxAntenna(bandAnt);
         s->setAdcAttenuation(adc, att);
+        s->setAttOnTx(attOnTxEn, attOnTxDb);
         s->setDdcAdc(0, adc);
         s->setRxInput(static_cast<P2RxInput>(input));
         s->setHpfBypass(bypass);

@@ -815,6 +815,7 @@ add_executable(test_p2_g2_profile EXCLUDE_FROM_ALL
     src/wire/P2TxPump.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
+    scratch/p2_tx_cmaster_test_stubs.cpp
 )
 target_include_directories(test_p2_g2_profile PRIVATE src)
 target_link_libraries(test_p2_g2_profile PRIVATE Qt6::Core Qt6::Network)
@@ -838,6 +839,7 @@ add_executable(test_p2_tx_packets EXCLUDE_FROM_ALL
     src/wire/P2TxPump.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
+    scratch/p2_tx_cmaster_test_stubs.cpp
 )
 target_include_directories(test_p2_tx_packets PRIVATE src)
 target_link_libraries(test_p2_tx_packets PRIVATE Qt6::Core Qt6::Network)

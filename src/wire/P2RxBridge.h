@@ -197,6 +197,7 @@ private:
     void restoreFrontEndForBand(const QString &band);
     void persistFrontEndValue(const QString &name, const QVariant &value);
     void pushFrontEndToSession();
+    void pushAttOnTxToSession();
     void activateTxProducerSeam();
     void deactivateTxProducerSeam();
     void syncTxIntentToSession(bool on);

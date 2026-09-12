@@ -26,8 +26,11 @@ int main(int argc, char **argv) {
     bool ok = true;
     const auto *g2 = p2ProfileForModel(QStringLiteral("ANAN-G2"));
     ok &= expect(g2 != nullptr, "ANAN-G2 resolves to a P2 profile");
-    ok &= expect(p2ProfileForModel(QStringLiteral("BRICK-SDR2")) == nullptr,
-                 "unverified/non-Alex model does not inherit Saturn");
+    ok &= expect(p2ProfileForModel(QStringLiteral("BRICK-SDR2")) ==
+                     p2ProfileForModel(QStringLiteral("BRICK-SDR")),
+                 "BRICK-SDR2 alias maps to the Brick profile");
+    ok &= expect(p2ProfileForModel(QStringLiteral("BRICK-SDR")) != g2,
+                 "Brick profile is not the Saturn/G2 profile");
 
     P2Session session;
     session.setProfile(g2);
@@ -117,6 +120,76 @@ int main(int argc, char **argv) {
         unverified.diagnosticHighPriorityPacket(true);
     ok &= expect(noProfile.mid(1432, 4) == QByteArray(4, char{0}),
                  "unverified model emits no Saturn Alex words");
+
+    {
+        P2Session att;
+        att.setProfile(g2);
+        att.setAdcAttenuation(0, 12);
+        att.setAdcAttenuation(1, 7);
+        att.setAttOnTx(true, 31);
+        const QByteArray rxHp = att.diagnosticHighPriorityPacket(true);
+        ok &= expect(static_cast<quint8>(rxHp[1442]) == 7 &&
+                         static_cast<quint8>(rxHp[1443]) == 12,
+                     "G2 RX ATT unchanged while not keyed");
+        att.diagnosticArmHealthyTx(true, true, 64);
+        const QByteArray txHp = att.diagnosticHighPriorityPacket(true);
+        ok &= expect(static_cast<quint8>(txHp[1442]) == 31 &&
+                         static_cast<quint8>(txHp[1443]) == 31,
+                     "keyed+PA overlays ATT-on-TX on HP 1442/1443");
+        const QByteArray duc = att.diagnosticDucSpecificPacket();
+        ok &= expect(static_cast<quint8>(duc[58]) == 31 &&
+                         static_cast<quint8>(duc[59]) == 31,
+                     "keyed+PA DUC-specific ATT matches HP overlay");
+        att.setAttOnTx(false, 31);
+        const QByteArray txOff = att.diagnosticHighPriorityPacket(true);
+        ok &= expect(static_cast<quint8>(txOff[1442]) == 7 &&
+                         static_cast<quint8>(txOff[1443]) == 12,
+                     "ATT-on-TX off leaves live RX ATT while keyed");
+        att.setAttOnTx(true, 31);
+        att.diagnosticArmHealthyTx(true, false, 64);
+        const QByteArray noPa = att.diagnosticHighPriorityPacket(true);
+        ok &= expect(static_cast<quint8>(noPa[1442]) == 7 &&
+                         static_cast<quint8>(noPa[1443]) == 12,
+                     "keyed without PA does not overlay ATT-on-TX");
+    }
+
+    {
+        P2Session gKeyed;
+        gKeyed.setProfile(g2);
+        gKeyed.setDdcFrequencyHz(0, 7'100'000u);
+        gKeyed.setDucFrequencyHz(14'100'000u);
+        gKeyed.diagnosticArmHealthyTx(true, true, 64);
+        const QByteArray pkt = gKeyed.diagnosticHighPriorityPacket(true);
+        ok &= expect(qFromBigEndian<quint32>(
+                         reinterpret_cast<const uchar *>(pkt.constData() + 9)) ==
+                         248'162'987u,
+                     "G2 keyed DDC0 stays on the RX dial");
+    }
+
+    {
+        const auto *brick = p2ProfileForModel(QStringLiteral("BRICK-SDR"));
+        ok &= expect(brick != nullptr && brick->fixedTxFrontEnd,
+                     "Brick profile uses a fixed TX front-end");
+        P2Session b;
+        b.setProfile(brick);
+        b.setDdcFrequencyHz(0, 7'100'000u);
+        b.setDucFrequencyHz(14'100'000u);
+        const QByteArray rx = b.diagnosticHighPriorityPacket(true);
+        ok &= expect(qFromBigEndian<quint32>(
+                         reinterpret_cast<const uchar *>(rx.constData() + 9)) ==
+                         248'162'987u,
+                     "Brick RX DDC0 stays on the RX dial");
+        b.diagnosticArmHealthyTx(true, true, 64);
+        const QByteArray tx = b.diagnosticHighPriorityPacket(true);
+        ok &= expect(qFromBigEndian<quint32>(
+                         reinterpret_cast<const uchar *>(tx.constData() + 9)) ==
+                         492'830'720u,
+                     "Brick keyed DDC0 follows the DUC");
+        ok &= expect(qFromBigEndian<quint32>(
+                         reinterpret_cast<const uchar *>(tx.constData() + 329)) ==
+                         492'830'720u,
+                     "Brick keyed DUC phase word");
+    }
 
     std::printf(ok ? "PASS: P2 G2 golden packets\n"
                    : "FAIL: P2 G2 golden packets\n");
