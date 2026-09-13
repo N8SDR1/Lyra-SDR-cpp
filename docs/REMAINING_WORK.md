@@ -1,5 +1,15 @@
 # lyra-cpp — Remaining Work
 
+> **Historical snapshot, frozen at v0.7.0 (2026-06-29).** Several items below
+> have since shipped (VOX, voice keyer, CW TX, BrickSDR2 Protocol 2 RX+TX,
+> 2-tone, per-band PA including 11m). For the live operator picture use
+> [Feature Status](wiki/Feature-Status.md), [Roadmap](wiki/Roadmap.md), and
+> [KNOWN_ISSUES.md](../KNOWN_ISSUES.md). Tree version is **v0.24.0**.
+>
+> **Still actually open (2026-09):** RX2 / SPLIT · PureSignal · VAC2 ·
+> Linux / macOS · ANAN family as first-class P2 radios · other P1 boards
+> that need a tester.
+
 What's still open as of **v0.7.0** (2026-06-29). The list keeps shrinking —
 the big TX bring-up, the native DSP rack, CW transmit + decoder, Profiles,
 VAC, the panadapter/tuning UI, Spots, the Tuner memory, and the FM transmit

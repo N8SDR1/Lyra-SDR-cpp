@@ -1,5 +1,11 @@
 # Lyra-cpp — Pending Tasks
 
+> **Historical snapshot, frozen 2026-06-03.** Do not treat the checklists
+> below as current — CW, VOX, the voice keyer, TX profiles, and Brick P2
+> have all moved on. Live status: [Feature Status](wiki/Feature-Status.md),
+> [Roadmap](wiki/Roadmap.md), [REMAINING_WORK.md](REMAINING_WORK.md)
+> (also frozen; see its banner). Tree version is **v0.24.0**.
+
 **Snapshot:** 2026-06-03 EOD
 **Status:** 28 pending · 0 in-progress · 71 completed (since project start)
 **Author:** Rick Langford (N8SDR)

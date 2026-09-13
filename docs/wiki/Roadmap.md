@@ -21,12 +21,13 @@ for a cleaner, stronger signal with less IMD. Requires the HL2 PureSignal
 hardware mod. (A **2-tone test generator** ships alongside it as the tune-up
 companion.)
 
-### 🗺️ HPSDR Protocol 2 + ANAN family
+### ✅ Protocol 2 on BrickSDR2 · 🗺️ ANAN family still planned
 
-Add HPSDR **Protocol 2** so the **ANAN** family (G2, G2-1K, 7000DLE, 8000, …)
-becomes first-class, alongside the existing HL2 Protocol-1 path. Other HPSDR
-Protocol-1 boards are planned too — those mostly need a **tester with the
-hardware** to bring live.
+HPSDR **Protocol 2** is live on the **BrickSDR2** (RX + TX, including radio
+mic → modulator, analog drive, watts-cap, ATT-on-TX). Making the **ANAN**
+family (G2, G2-1K, 7000DLE, 8000, …) first-class is still roadmap work —
+same protocol family, different DDC/PA/filter models, and it needs a tester
+with the hardware. Other HPSDR Protocol-1 boards are planned the same way.
 
 ## Platforms
 
@@ -40,7 +41,8 @@ these are real roadmap items, not "maybe someday."
 
 - 🗺️ **VAC2** — a second independent virtual-audio channel (e.g. a logger's
   audio separate from your digital-mode app)
-- 🗺️ **2-tone test generator** — the PureSignal / linearity tune-up tool
+- ✅ **2-tone test generator** — on the TX panel (linearity / dummy-load
+  tune-up); PureSignal still uses it as a companion when PS lands
 - 🗺️ Per-profile independent RX/TX filter lows
 - 🗺️ Continued polish across the DSP, UI, and metering as testers report back
 

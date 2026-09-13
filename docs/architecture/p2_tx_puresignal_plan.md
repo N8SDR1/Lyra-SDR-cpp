@@ -1,8 +1,8 @@
 # P2 TX + PureSignal — catch-up plan (solo, Lyra-native)
 
-Status: PLAN (2026-09-05). Owner: N8SDR. Supersedes the "wait on Jerry"
-posture — the P2 collaborator (KD4YAL) has had no activity since
-2026-08-02, so the remaining P2 TX + PureSignal work is taken in-house.
+Status: T0 + Brick **T1 largely done** (2026-09, operator-benched dummy-load
+RF). T2/T3 PureSignal still open. Owner: N8SDR. Supersedes the "wait on
+Jerry" posture — P2 TX on Brick is in-house.
 
 ## 0. Method (unchanged, proven)
 
@@ -29,22 +29,21 @@ Already shipped / present:
 - **P1/HL2 TX**: SSB + CW + FM, on-air, first-RF bench-passed (v0.4.1+).
   TXA chain via bundled WDSP; MOX/PTT FSM; ATT-on-TX; TX power model;
   TX protection; voice-keyer/VOX/clip-player scaffolding (`src/tx/`).
-- **P2 TX RF-inert foundation** (`jerry/g2-p2-tx`, needs integration):
-  bounded DUC-IQ transport, TX pacing, safe DUC setup, WDSP-TX-IQ →
-  bounded P2 FIFO, fail-closed G2 P2 TX bench path, guarded two-tone
-  test. `P2RxBridge` exposes `txProducerSeam`, `ducFifoSamples`,
-  `txDriveLimitPercent`, `activateTxProducerSeam`.
-- **PureSignal scaffolding** (`src/ps/`): `CalcCffi`, `IqcCffi`,
-  `IqcLifecycle`, `PsCalcThread` — WDSP calcc/iqc cffi + lifecycle
-  skeleton, not yet wired live.
+- **P2 TX on BrickSDR2 (T1):** live RF — DUC I/Q, analog drive on HP [345],
+  watts-cap / CAP learn, ATT-on-TX, DDC0-follows-DUC while keyed, radio
+  mic → modulator (see `p2_tx_mic_modulation.md`). Two-tone on the TX
+  panel. ANAN G2/Saturn still need per-model bring-up (not Brick-complete
+  ≠ ANAN-complete).
+- **PureSignal:** WDSP calcc/iqc APIs are bound; `src/ps/` is still stubs,
+  not a live linearizer. T2/T3 below remain the work.
 - **TX design docs**: `tx1_ssb_design.md`, `cw_tx_design.md`,
   `fm_tx_design.md`, `tx_power_model_design.md`, `tx_protection_design.md`,
   `tx_audio_path_reference.md`, `STAGE_7_TX_WIRE_DESIGN.md`,
   `tx_research.md`.
 
-The remaining work is therefore: **(A)** finish P2 TX to real RF on
-G2/Saturn/Brick, **(B)** bring PureSignal live, **(C)** decide the WDSP
-2.00 upgrade, **(D)** consolidate branches.
+The remaining work is therefore: **(A)** ANAN/G2/Saturn P2 TX as first-class
+(Brick T1 is done), **(B)** bring PureSignal live, **(C)** decide the WDSP
+2.00 upgrade, **(D)** consolidate branches when T2/T3 are stable.
 
 ## 2. Licensing posture (locked)
 
@@ -72,7 +71,7 @@ gate passes. RF-producing stages are HARD-gated (dummy load, then amp).
   two-tone test; `src/ps/` PS cffi scaffolding.
 - ⇒ Proceed straight to T1.
 
-### T1 — P2 TX SSB to real RF (G2 / Saturn / Brick)
+### T1 — P2 TX SSB to real RF (G2 / Saturn / Brick) — ✅ Brick done; ANAN open
 - Complete the DUC-IQ → P2 wire path so keying produces a real carrier:
   MOX edge → TX-freq (RIT-free) → PA-enable → nonzero TX I/Q, mirroring
   the P1 first-RF sequence but over P2 (study deskHPSDR P2 TX + the
