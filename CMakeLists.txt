@@ -720,12 +720,23 @@ if(WIN32)
     if(WINDEPLOYQT_EXE)
         add_custom_command(TARGET lyra POST_BUILD
             COMMAND "${WINDEPLOYQT_EXE}"
-                --no-translations --no-compiler-runtime
+                --no-translations --compiler-runtime
+                --skip-plugin-types qmltooling
                 --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/src/qml"
                 "$<TARGET_FILE:lyra>"
-            COMMENT "windeployqt: bundling Qt runtime DLLs next to lyra.exe"
+            COMMENT "windeployqt: bundling Qt + MSVC runtime DLLs next to lyra.exe"
             VERBATIM)
     endif()
+    # Qt 6.11 windeployqt --compiler-runtime often no-ops on VS 2026 (VC145)
+    # CRT layout.  Copy the redistributable CRT next to lyra.exe so a clean
+    # PC without a system VC++ install can still launch.  Needs vcvars
+    # (VCToolsRedistDir) at build time.
+    add_custom_command(TARGET lyra POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DDEST_DIR=$<TARGET_FILE_DIR:lyra>"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_msvc_crt.cmake"
+        COMMENT "Bundling app-local MSVC CRT next to lyra.exe"
+        VERBATIM)
 endif()
 
 # MSVC: enable /utf-8 (sane source encoding) and the standards-

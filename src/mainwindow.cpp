@@ -1777,6 +1777,8 @@ void MainWindow::buildMenus() {
                "<p>Author: <b>Rick Langford (N8SDR)</b><br>"
                "With <b>Brent Crier (N9BC)</b> and "
                "<b>Timmy Davis (KC8TYK)</b><br>"
+               "Development assistance: <b>Cursor Grok 4.6</b> "
+               "(SpaceXAI / Cursor)<br>"
                "Repository: <a href='https://github.com/N8SDR1/Lyra-SDR-cpp'>"
                "github.com/N8SDR1/Lyra-SDR-cpp</a><br>"
                "License: <b>GPL v3 or later</b></p>"

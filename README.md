@@ -16,7 +16,8 @@ up rewrite using the architecture the project should have started with.
 > https://github.com/ramdor/Thetis) for the TX baseline ChannelMaster
 > architecture.  Both upstream projects are GPL v3+; per-file copyright
 > headers are preserved in every ported file.  See [NOTICE.md](NOTICE.md)
-> and [CREDITS.md](CREDITS.md) for full attribution.
+> and [CREDITS.md](CREDITS.md) for full attribution (including testers
+> and development assistance from Cursor Grok 4.6).
 
 > ## ⚠️ Platform support — Windows only (for now)
 >

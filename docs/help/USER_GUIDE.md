@@ -4462,12 +4462,15 @@ the GPL-licensed components it depends on:
 - **Timmy Davis (KC8TYK)** — tester (v0.1 tester flight).
 - **W5UDX** — DSP2024P Plate Reverb presets and verification (lands
   with the Plate Reverb in v0.2.1).
+- **Cursor Grok 4.6** (SpaceXAI / Cursor) — coding assistant for
+  implementation and debug pairing on the native C++ rebuild.
 
 ### License
 
 **GPL v3 or later.** Source repository:
 [github.com/N8SDR1/Lyra-SDR-cpp](https://github.com/N8SDR1/Lyra-SDR-cpp).
-Full license text: `LICENSE` / `NOTICE.md` in the source tree. See
+Full license text: `LICENSE` / `NOTICE.md` in the install folder
+(and the source tree). See
 the **About Lyra** dialog (**Help → About Lyra…**) for the version
 + build date of the running binary.
 
