@@ -3709,12 +3709,16 @@ future refinement, not something worth rushing into the safety path.
 > band. This is deliberate: a cap can never *silently* mis-limit your power.
 > If you arm before a band has a **Full Output** reference, that band runs a
 > safe conservative **~30 % drive** fallback (power reads LOW) until you
-> calibrate it. When the cap is actively holding power down a **CAP** chip
-> shows on the TX panel: amber **CAP ~30%** = uncalibrated fallback (low),
-> cyan **CAP nW** = holding a calibrated band at your set watts. If you don't
-> run an amplifier, just leave the cap unticked and Lyra transmits at full
-> drive. *(Upgrading from an older version keeps an existing cap armed, so
-> you never lose amp protection on update.)*
+> calibrate it. While Max cap is armed, a **CAP** chip stays on the TX panel
+> on every band (including at low Drive): amber **CAP learn** = not yet
+> TUN-locked, cyan **CAP nW** = locked at your set watts. The chip stays
+> fully visible when Drive is under the lock — RF may drop, but the learned
+> ceiling does **not** follow Drive back up. Raising the slider past the
+> lock while keyed must not flash full output; RF stays at the capped watts.
+> If you
+> don't run an amplifier, just leave the cap unticked and Lyra transmits at
+> full drive. *(Upgrading from an older version keeps an existing cap armed,
+> so you never lose amp protection on update.)*
 
 ---
 

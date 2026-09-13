@@ -486,6 +486,9 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
             if (!hasKey && cap > 0.0)
                 s.setValue(QStringLiteral("tx/capArmed"), true);
         }
+        // Seed CAP-chip status on RX (applyTxPower_ is a no-op on the wire
+        // until prn exists; the status emit still runs).
+        applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
     }
     // TX-1 component 5a — load operator-tuned TR-sequencing + fade
     // durations from QSettings (tx/trSeq/<key>).  Defaults match the
@@ -2304,53 +2307,66 @@ void HL2Stream::tickCapServo_(double fwdW) {
         persist();
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
     }
-    // Throttle so the PWR meter settles between steps.
-    if (++capServoTicks_ < kCapServoStepTicks) return;
-    capServoTicks_ = 0;
-    // Ceiling is the limiter during TUN. A leftover fold of live drive
-    // (MOX-then-Tune, or a watts fold before TUN armed) parks watts at
-    // the fold floor even as this servo raises capCeilRaw_.
+    // Leftover fold: never restore the pre-fold peak while the cap is
+    // locked (that slam is the SS-amp overdrive). Honour the persisted
+    // Drive slider, clamped to the ceiling. Once locked, just drop the
+    // fold flag — Drive is the operator's, the ceiling is the limiter.
+    const bool settledNow = capServoSettled_[band].load(std::memory_order_relaxed);
     if (swrFolded_) {
-        swrFolded_ = false;
-        applyDriveLevelNoPersist(swrFoldPreDrive_);
+        if (settledNow)
+            swrFolded_ = false;
+        else
+            restoreFoldedDriveSafely_();
     }
     // SWR's 1 W floor is for ratio noise, not "is RF present enough to
     // learn." 20 m / 40 m parked at ~0.3 W never climbed while that
     // return gated the walk. NaN (no meter yet) still waits.
-    if (!std::isfinite(fwdW)) return;
-    bool settled = capServoSettled_[band].load(std::memory_order_relaxed);
-    // Unlatch only when RF is nowhere near the cap (fold leftover ~0.3 W).
-    // 80 % treated a DAC-straddle park at 2.5 W as "too low" and restarted
-    // the climb → overshoot 3.1–3.2 → chip flicker CAP learn ↔ CAP.
-    if (fwdW < capW * 0.40 && settled) {
-        settled = false;
-        capServoSettled_[band].store(false, std::memory_order_relaxed);
-        persist();
-    }
+    if (!std::isfinite(fwdW))
+        return;
+    const bool settled = capServoSettled_[band].load(std::memory_order_relaxed);
+    const int requestedRaw = txDriveLevel_.load(std::memory_order_relaxed);
+    // Pressing = Drive/Tune is at or above the locked ceiling. Low Drive
+    // under a lock is operator intent (dim chip, less RF) — do NOT unlatch
+    // or climb the ceiling, or the next Drive slam emits full RF before
+    // the meter can pull it back.
+    const bool pressing = requestedRaw >= ceil;
+    // Throttle so the PWR meter settles between steps.
+    if (++capServoTicks_ < kCapServoStepTicks) return;
+    capServoTicks_ = 0;
     // Coarse analog step can straddle the cap (2.5 W under / 3.2 W over).
-    // OVER → small step down, latch, PARK. Never climb again for this cap.
-    // Near the cap, climb with the same small step so we land ~2.7–2.9 W
-    // instead of jumping the gap.
+    // OVER while still asking for the lock → small step down, latch, PARK.
+    // Climb only while still learning AND the operator is pressing into
+    // the ceiling AND the meter is under the cap.
     const int fine = kCapServoStepRaw;
     const int climbStep = (fwdW >= capW * 0.85) ? fine : coarse;
-    if (fwdW > capW && ceil > 1) {
+    if (fwdW > capW && ceil > 1 && pressing) {
         capCeilRaw_[band].store(std::max(1, ceil - fine),
                                 std::memory_order_relaxed);
         capServoSettled_[band].store(true, std::memory_order_relaxed);
         persist();
-        applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
-    } else if (fwdW >= capW * 0.97) {
+        applyTxPower_(requestedRaw);
+    } else if (fwdW >= capW * 0.97 && pressing) {
         if (!settled) {
             capServoSettled_[band].store(true, std::memory_order_relaxed);
             persist();
-            applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+            applyTxPower_(requestedRaw);
         }
-    } else if (!settled && ceil < hardMax) {
-        capCeilRaw_[band].store(std::min(hardMax, ceil + climbStep),
+    } else if (!settled && pressing && requestedRaw > ceil && ceil < hardMax) {
+        capCeilRaw_[band].store(std::min({hardMax, requestedRaw, ceil + climbStep}),
                                 std::memory_order_relaxed);
         persist();
-        applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+        applyTxPower_(requestedRaw);
     }
+}
+
+void HL2Stream::restoreFoldedDriveSafely_() {
+    if (!swrFolded_) return;
+    swrFolded_ = false;
+    const int stored = std::clamp(
+        QSettings().value(lyra::rig::scope::rigKey(QStringLiteral("tx/driveLevel")),
+                          0).toInt(),
+        0, 255);
+    applyDriveLevelNoPersist(std::min(stored, wattsDriveCeilingRaw_()));
 }
 
 void HL2Stream::applyTxPower_(int requestedRaw) {
@@ -2432,22 +2448,24 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
 
     // Amp-cap live indicator for the TX-panel CAP chip.  Recomputed here
     // because this is the one chokepoint every drive / PA-gain / band / cap
-    // change flows through.  Only "actively limiting" (ceiling below the
-    // requested drive) shows a chip: 2 = cap ON but this band has not
-    // finished TUN learning (starts at a safe seed, then walks up),
-    // the trap); 1 = cap ON and holding a calibrated band at the set watts.
+    // change flows through.  Armed → always 1 (locked this band) or 2
+    // (still learning).  capLimiting is the Drive/Tune-vs-ceiling dim bit.
     int newCapStatus = 0;
+    bool newLimiting = false;
     const double capW = maxOutputW_.load(std::memory_order_relaxed);
-    if (capW > 0.0 && ceiling < requestedRaw) {
+    if (capW > 0.0 && capArmed_.load(std::memory_order_relaxed)) {
         const int cband = lyra::paPowerBandIndexForFreq(
             static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
         newCapStatus = (cband >= 0 && cband < kNumPaGainBands
                         && capTunedFor_(cband, capW)
                         && capServoSettled_[cband].load(std::memory_order_relaxed))
                            ? 1 : 2;
+        newLimiting = (ceiling < requestedRaw);
     }
     if (capStatus_.exchange(newCapStatus, std::memory_order_relaxed) != newCapStatus)
         emit capStatusChanged();
+    if (capLimiting_.exchange(newLimiting, std::memory_order_relaxed) != newLimiting)
+        emit capLimitingChanged();
 }
 
 void HL2Stream::setP2DrivePath(bool on) {
@@ -2819,10 +2837,7 @@ void HL2Stream::setTuneEnabled(bool on) {
     // Tune left the servo walking a ceiling the folded drive never reached.
     // Restore the operator set point so the cap ceiling is the only limiter.
     if (on && moxActive_) {
-        if (swrFolded_) {
-            swrFolded_ = false;
-            applyDriveLevelNoPersist(swrFoldPreDrive_);
-        }
+        restoreFoldedDriveSafely_();
         if (swrProtectTripped_) {
             swrProtectTripped_ = false;
             emit swrProtectTrippedChanged(false);
@@ -4591,10 +4606,7 @@ void HL2Stream::armSwrProtect() {
     // Fold restore (manual re-arm / never auto-recover): if a prior
     // transmission folded the drive down, hand the operator's stored
     // drive set point back on this fresh key-down.
-    if (swrFolded_) {
-        swrFolded_ = false;
-        applyDriveLevelNoPersist(swrFoldPreDrive_);
-    }
+    restoreFoldedDriveSafely_();
     swrTicks_ = 0;
     swrOverTicks_ = 0;
     wattsOverTicks_ = 0;

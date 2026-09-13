@@ -5619,10 +5619,11 @@ QWidget *SettingsDialog::buildPaGainTab() {
         tr("“Cap tuned” marks:  green ✓ = this band is locked to your cap; "
            "red — = not tuned for the current cap yet.  Note that changing "
            "the cap value clears every ✓ — re-key TUN on each band to "
-           "re-learn (that is expected, not lost calibration).  While you "
-           "transmit, the TX panel also shows a live CAP chip (amber = "
-           "uncalibrated ~30% fallback, cyan = holding a tuned band at your "
-           "cap), so you can see the cap's state at a glance."),
+           "re-learn (that is expected, not lost calibration).  While Max "
+           "cap is armed, the TX panel shows a CAP chip on every band "
+           "(amber = still learning, cyan = locked).  Full brightness means "
+           "the cap is cutting Drive/Tune; dim means the slider is already "
+           "under the ceiling."),
         capGrp);
     capTicks->setWordWrap(true);
     capTicks->setProperty("paDir", true);

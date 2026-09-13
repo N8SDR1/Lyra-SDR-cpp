@@ -373,21 +373,21 @@ Rectangle {
             ToolTip.visible: (hovered && !pressed) && Prefs.tooltipsEnabled
         }
 
-        // ── Amp-cap (Max Output) active indicator ───────────────────
-        // Sibling of the ATT/PROT lamps, but VISIBLE ONLY when the watts
-        // cap is actively holding TX power down on the current band — an
-        // invisible Layout item takes zero space, so the panel stays clean
-        // the rest of the time.  Amber "CAP learn" = cap armed, this band
-        // hasn't finished TUN learning. Cyan "CAP nW" = cap holding
-        // a calibrated band at the set watts. Informational only —
-        // the cap lives in Settings → PA Gain.
+        // ── Amp-cap (Max Output) indicator ──────────────────────────
+        // Visible whenever Max cap is armed — never hide it when Drive is
+        // low (that was the "lamp gone" bug). Amber "CAP learn" = this
+        // band hasn't finished TUN learning. Cyan "CAP nW" = locked for
+        // the set watts. Opacity stays full so the chip doesn't vanish
+        // on the dark TX panel when Drive is under the lock.
         Rectangle {
             id: capChip
-            visible: Stream.capStatus > 0
-            readonly property bool uncal: Stream.capStatus === 2
+            visible: Stream.capArmed && Stream.capLimitW > 0
+            readonly property bool uncal: Stream.capStatus !== 1
+            readonly property bool limiting: Stream.capLimiting
             Layout.preferredWidth: 76    // "CAP learn" / "CAP nW"
             Layout.preferredHeight: 26
             radius: 4
+            opacity: 1.0
             color: uncal ? "#3a2a10" : "#12252e"
             border.color: uncal ? "#ffb020" : root.cAccent
             border.width: 2
@@ -402,14 +402,22 @@ Rectangle {
             HoverHandler { id: capHov }
             ToolTip.visible: capHov.hovered && Prefs.tooltipsEnabled
             ToolTip.delay: 800
-            ToolTip.text: capChip.uncal
-                ? qsTr("Max Output is armed but this band has not finished "
-                       + "TUN learning. Keep Tune keyed into a dummy load — "
-                       + "power should climb to the cap, then this chip "
-                       + "turns cyan. Or turn the cap off in Settings → PA Gain.")
-                : qsTr("Max Output cap is holding this band at your set limit "
-                       + "(%1 W).  Adjust or disable in Settings → PA Gain.")
-                      .arg(Math.round(Stream.capLimitW))
+            ToolTip.text: {
+                const armed = capChip.uncal
+                    ? qsTr("Max Output is armed but this band has not finished "
+                           + "TUN learning. Keep Tune keyed into a dummy load — "
+                           + "power should climb to the cap, then this chip "
+                           + "turns cyan. Or turn the cap off in Settings → PA Gain.")
+                    : qsTr("Max Output cap is locked for this band at your set "
+                           + "limit (%1 W). Raising Drive above that lock does "
+                           + "not raise RF. Adjust or disable in Settings → PA Gain.")
+                          .arg(Math.round(Stream.capLimitW))
+                return capChip.limiting
+                    ? armed
+                    : armed + "\n\n" + qsTr("Dim: Drive/Tune is under the locked "
+                                            + "ceiling — RF may drop, the cap "
+                                            + "value itself stays put.")
+            }
         }
 
         Item { Layout.fillWidth: true }   // right half of the gap → TUN + MOX stay right

@@ -205,13 +205,16 @@ class HL2Stream : public QObject {
                NOTIFY txDisplayActiveChanged)
     // Amp watts-cap live status, for the TX-panel CAP chip.  Recomputed on
     // the ACTIVE TX band inside applyTxPower_ (the one chokepoint every
-    // drive / PA-gain / band / cap change routes through).  0 = cap off, or
-    // on but not actively limiting → chip hidden.  1 = cap ON and holding a
-    // CALIBRATED band at the set watts.  2 = cap ON but this band is NOT
-    // calibrated, so TX is clamped to the conservative ~30 % fallback (the
-    // "cap set to 6 W but the radio only makes 3 W" trap Pierre HS0ZRT hit).
-    // capLimitW is the set cap in watts (for the chip's "CAP nW" text).
+    // drive / PA-gain / band / cap change routes through).  0 = cap off or
+    // not armed.  1 = armed, this band locked for the set watts (cyan).
+    // 2 = armed, this band has not finished TUN learning (amber).
+    // Chip visibility is capArmed && capLimitW (not capStatus — status can
+    // stay 0 on RX until the next drive write).  capLimiting is true only
+    // when the ceiling is below the Drive/Tune request (chip draws full;
+    // otherwise it dims).  capLimitW is the set cap in watts.
+    Q_PROPERTY(bool   capArmed READ capArmed NOTIFY capArmedChanged)
     Q_PROPERTY(int    capStatus READ capStatus NOTIFY capStatusChanged)
+    Q_PROPERTY(bool   capLimiting READ capLimiting NOTIFY capLimitingChanged)
     Q_PROPERTY(double capLimitW READ maxOutputW NOTIFY maxOutputWChanged)
     // TX-0c-pa-debug — host-side TX safety timeout.  Auto-clears MOX
     // (via requestMox(false)) if the radio stays keyed continuously
@@ -901,9 +904,12 @@ public:
         const int m = txMode_.load(std::memory_order_relaxed);
         return m == 3 || m == 4;
     }
-    // Amp-cap live indicator status (see the capStatus Q_PROPERTY): 0 hidden,
-    // 1 holding a calibrated band, 2 uncalibrated → ~30 % fallback clamp.
+    // Amp-cap live indicator (see the capStatus Q_PROPERTY): 0 off, 1 locked
+    // for this band, 2 still learning.  capLimiting: ceiling is binding.
     int     capStatus() const { return capStatus_.load(std::memory_order_relaxed); }
+    bool    capLimiting() const {
+        return capLimiting_.load(std::memory_order_relaxed);
+    }
     // Stage B — has this band been auto-tuned (TUN servo locked) for the
     // CURRENT cap?  For the PA Gain tab's per-band "tuned" indicator.
     bool    capTunedForBand(int idx) const;
@@ -1575,6 +1581,7 @@ signals:
     void maxOutputWChanged(double watts);   // Stage 3b — watts Max cap
     void capArmedChanged(bool on);          // cap arm gate (2026-07-03)
     void capStatusChanged();                // TX-panel CAP chip (0/1/2)
+    void capLimitingChanged();              // chip full vs dim (ceiling binding)
     // Fires once per auto-cut (distinct from txTimeoutFired) so the UI
     // can toast "TX cut: SWR x.x:1".
     void swrProtectCut(const QString& reason);
@@ -1750,6 +1757,10 @@ private:
     // un-tuned band, + the TUN auto-learn servo.
     int    wattsFallbackCeilingRaw_(int band, double capW) const;
     void   tickCapServo_(double fwdW);
+    // Clear a watts/SWR fold and restore Drive from the persisted slider,
+    // clamped to the locked watts ceiling — never the pre-fold peak if the
+    // operator has since turned Drive down.
+    void   restoreFoldedDriveSafely_();
     bool   capTunedFor_(int band, double capW) const;
     // Recompute the OC pattern (frame-0 C2) from the current band +
     // filter-board-enabled state.  Main thread only.  `transmitting`
@@ -1972,6 +1983,7 @@ private:
     // capStatus Q_PROPERTY).  Recomputed at the drive chokepoint so it
     // tracks every drive / PA-gain / band / cap change with no extra timer.
     std::atomic<int>     capStatus_{0};
+    std::atomic<bool>    capLimiting_{false};
     // Stage B — per-band AUTO-LEARNED drive ceiling for the watts cap.
     // The TUN servo walks this UP from the conservative fallback until the
     // PWR meter reaches the cap, then locks it (approach-from-below = never
