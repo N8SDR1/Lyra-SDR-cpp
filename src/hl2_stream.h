@@ -843,6 +843,17 @@ public:
     // TX-0c-pa-drive — drive DAC level (Q_PROPERTY getter).  Raw 0..255
     // wire value; UI converts to/from 0..100 %.  Reads the wire atomic.
     int     txDriveLevel() const { return txDriveLevel_.load(std::memory_order_relaxed); }
+    // Drive byte actually emitted by applyTxPower_ after digital-mode cut,
+    // watts-cap ceiling, family volume, and (HL2 P1 only) CW fold.  P2 HP
+    // analog drive [345] must read this, not the operator slider.
+    int     txWireDriveByte() const {
+        return txEmittedDriveByte_.load(std::memory_order_relaxed);
+    }
+    // When true, applyTxPower_ uses the P2 analog-drive formula (linear
+    // 0..255 byte, no HL2 16-step DAC divisor) and keeps IQ fixed-gain at
+    // unity so watts live on HP [345] only.  Set by the P2 bridge on
+    // open/close.  Does not change the operator slider.
+    void    setP2DrivePath(bool on);
     // TX power model Stage 3 — per-band "PA Gain By Band" (Thetis port).
     // gbb is a per-band multiplier in the RadioVolume formula (default
     // 100 = neutral).  The operator measures each band into a dummy load
@@ -1941,13 +1952,15 @@ private:
     std::atomic<double>  ctuneDispSpanHz_{0.0}; // #174 CTUNE Stage2 — display span (Hz, from WdspEngine.spanHz; 0=unknown→full IQ)
     std::atomic<int>     ctuneFiltLoHz_{0};   // #174 CTUNE Stage2 — signed RX filter low edge (Hz)
     std::atomic<int>     ctuneFiltHiHz_{3000};// #174 CTUNE Stage2 — signed RX filter high edge (Hz)
-    std::atomic<int>     txDriveLevel_{0};      // 0..255; 0x12 C1 (16 steps)
-    // TX power model Stage 3 — per-band "PA Gain By Band" (Thetis port).
-    // 11 HF/6m bands (amateurBands() order, 160m..6m); default 100 =
+    std::atomic<int>     txDriveLevel_{0};      // 0..255 operator setpoint
+    std::atomic<int>     txEmittedDriveByte_{0}; // applyTxPower_ output (wire)
+    std::atomic<bool>    p2DrivePath_{false};   // P2 analog drive vs HL2 P1
+    // TX power model Stage 3 — per-band "PA Gain By Band".
+    // amateurBands() 160m..6m plus 11m (kPaPowerBandElevenM). Default 100 =
     // neutral.  Atomic per element: read on the power chokepoint
     // (applyTxPower_), written by the PA Gain Settings tab.  Loaded from
     // QSettings pa_gain/<band>/gain in the ctor.
-    static constexpr int    kNumPaGainBands = 11;
+    static constexpr int    kNumPaGainBands = 12;  // == lyra::kPaPowerBandCount
     static constexpr double kPaGainDefault  = 100.0;
     std::atomic<double>  paGainByBand_[kNumPaGainBands];
     // Stage 3b — per-band measured full output (W); 0 = not measured.
@@ -1989,8 +2002,13 @@ private:
     std::atomic<int>     capturedDrive_[kNumPaGainBands];
     int                  capServoTicks_ = 0;   // throttle (let the meter settle)
     static constexpr int    kCapServoStepTicks = 3;    // step every 3 ticks (150 ms)
-    static constexpr int    kCapServoStepRaw   = 3;    // ~1.2 % drive per step
-    static constexpr double kWattsFallbackExp  = 2.0;  // conservative un-tuned-band exp
+    static constexpr int    kCapServoStepRaw   = 3;    // P1 ~1.2 % drive per step
+    static constexpr int    kCapServoStepRawP2 = 12;   // P2 analog: ~5 % / 150 ms
+    static constexpr double kWattsFallbackExp  = 2.0;  // HL2 P1: under-shoot vs ~drive^2
+    // P2 analog HP [345] is closer to linear watts vs byte. Square-law seed
+    // overshoots the cap (e.g. 3 W / 17 W → ~42 % → ~7 W) and trips fold.
+    static constexpr double kWattsFallbackExpP2 = 1.0;
+    static constexpr double kWattsFallbackHeadroomP2 = 0.85;
     // Last TX band applyTxPower_ ran for — so a freq dial tick only
     // re-applies the power when the band (gbb) actually changed.
     std::atomic<int>     lastTxBand_{-2};

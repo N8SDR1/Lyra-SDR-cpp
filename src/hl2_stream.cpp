@@ -417,10 +417,10 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     // operator measures + nudges each band on the PA Gain Settings tab.
     {
         QSettings s;
-        const auto &bands = lyra::amateurBands();
         for (int i = 0; i < kNumPaGainBands; ++i) {
-            const QString band = i < int(bands.size())
-                ? QString::fromUtf8(bands[i].name) : QString::number(i);
+            const char *nm = lyra::paPowerBandName(i);
+            const QString band = (nm && nm[0])
+                ? QString::fromUtf8(nm) : QString::number(i);
             // pa_gain/* + meter/pwrTrim/* are PER-RIG TX power + meter
             // calibration (rig/<id>/…); a Brick must not read the HL2's cal.
             paGainByBand_[i].store(
@@ -1788,7 +1788,7 @@ double HL2Stream::fwdPowerCalW() const {
     // freq (== RX freq in simplex).  No band / no trim -> raw.
     const double raw = fwdPowerW();
     if (std::isnan(raw)) return raw;
-    const int band = lyra::bandIndexForFreq(
+    const int band = lyra::paPowerBandIndexForFreq(
         static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
     const double t = (band >= 0 && band < kNumPaGainBands)
                          ? pwrTrimByBand_[band].load(std::memory_order_relaxed)
@@ -1908,7 +1908,7 @@ void HL2Stream::pushEffectiveTxFreq() {
     // TX power model Stage 3 — the per-band PA Gain (gbb) changes when the
     // TX band changes, so re-apply the power with the new band's gbb.  Only
     // on an actual band change, so a freq dial tick within a band is free.
-    const int newBand = lyra::bandIndexForFreq(static_cast<int>(eff));
+    const int newBand = lyra::paPowerBandIndexForFreq(static_cast<int>(eff));
     if (newBand != lastTxBand_.exchange(newBand, std::memory_order_relaxed))
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
     // The TX-analyzer crop offset (NCO − RX centre) changed — refresh the
@@ -2155,12 +2155,16 @@ double HL2Stream::radioVolumeFor_(int requestedRaw) const {
     // (default 100 = neutral).  93.75 is the HL2 16-step DAC correction
     // (Thetis comment: "jump in steps of 16 but getting 6").
     const double pct = requestedRaw * 100.0 / 255.0;
-    const int band = lyra::bandIndexForFreq(
+    const int band = lyra::paPowerBandIndexForFreq(
         static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
     const double gbb = (band >= 0 && band < kNumPaGainBands)
                            ? paGainByBand_[band].load(std::memory_order_relaxed)
                            : kPaGainDefault;
-    const double rv = pct * (gbb / 100.0) / 93.75;
+    // HL2 P1: 93.75 is the 16-step DAC correction. P2 analog drive is a
+    // full 0..255 byte — skipping that divisor so 100 % + GBB 100 → 255.
+    const double denom = p2DrivePath_.load(std::memory_order_relaxed)
+                             ? 100.0 : 93.75;
+    const double rv = pct * (gbb / 100.0) / denom;
     return rv < 0.0 ? 0.0 : (rv > 1.0 ? 1.0 : rv);
 }
 
@@ -2173,11 +2177,17 @@ int HL2Stream::wattsFallbackCeilingRaw_(int band, double capW) const {
     // under the cap on every band.  The TUN servo then walks this up to the
     // exact cap.  No Full Output measured → a safe-low fixed 30 % drive
     // (the cap can't be honoured without a reference, so stay quiet).
+    // P2 analog [345] is nearer linear: use exponent 1.0 plus headroom so
+    // the first TUN starts under the cap instead of overshooting into fold.
     if (band < 0 || band >= kNumPaGainBands) return 255;
     const double fullW = fullOutputWByBand_[band].load(std::memory_order_relaxed);
     if (fullW <= 0.0) return (255 * 30) / 100;       // no reference → safe-low
     if (capW >= fullW) return 255;                   // cap above full → no clamp
-    const double ceilPct = 100.0 * std::pow(capW / fullW, 1.0 / kWattsFallbackExp);
+    const bool p2 = p2DrivePath_.load(std::memory_order_relaxed);
+    const double exp = p2 ? kWattsFallbackExpP2 : kWattsFallbackExp;
+    double ceilPct = 100.0 * std::pow(capW / fullW, 1.0 / exp);
+    if (p2)
+        ceilPct *= kWattsFallbackHeadroomP2;
     const int raw = static_cast<int>(std::lround(ceilPct * 255.0 / 100.0));
     return raw < 1 ? 1 : (raw > 255 ? 255 : raw);
 }
@@ -2190,7 +2200,11 @@ bool HL2Stream::capTunedFor_(int band, double capW) const {
 }
 
 bool HL2Stream::capTunedForBand(int idx) const {
-    return capTunedFor_(idx, maxOutputW_.load(std::memory_order_relaxed));
+    // Green ✓ only after the servo parked under the cap — a first-tick seed
+    // stores capCeilCapW_ but is not a learned ceiling yet.
+    if (idx < 0 || idx >= kNumPaGainBands) return false;
+    return capTunedFor_(idx, maxOutputW_.load(std::memory_order_relaxed))
+        && capServoSettled_[idx].load(std::memory_order_relaxed);
 }
 
 int HL2Stream::wattsDriveCeilingRaw_() const {
@@ -2204,7 +2218,7 @@ int HL2Stream::wattsDriveCeilingRaw_() const {
     // uncalibrated cap can never silently hold power at the ~30 % fallback.
     if (!capActive_()) return 255;
     const double capW = maxOutputW_.load(std::memory_order_relaxed);
-    const int band = lyra::bandIndexForFreq(
+    const int band = lyra::paPowerBandIndexForFreq(
         static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
     if (band < 0 || band >= kNumPaGainBands) return 255;
     if (capTunedFor_(band, capW))
@@ -2218,21 +2232,27 @@ void HL2Stream::tickCapServo_(double fwdW) {
     // reaches the cap, then locking it.  Approach-from-below = the output
     // only ever rises TOWARD the cap, never overshoots → SS-amp-safe.  The
     // locked per-band ceiling is then used statically (incl. SSB), so it
-    // caps voice peaks without chasing them.  Requires a Full Output
-    // reference (so the start + the runaway bound are sane).
+    // caps voice peaks without chasing them.
+    // P1 uses Full Output as a cube-root runaway bound. P2 analog [345]
+    // is meter-governed: a Full Output ratio as hardMax (255·cap/full·1.20)
+    // pins bands whose Full Output is missing or overstated (3 W / 100 W
+    // → hardMax ~9 → ~0.3 W) and never latches settled (chip stays
+    // "CAP learn"). P2 walks to 255; the meter + TUN fold-skip is the cap.
     if (!capActive_()) return;     // arm gate (2026-07-03)
     const double capW = maxOutputW_.load(std::memory_order_relaxed);
     if (capW <= 0.0) return;
-    const int band = lyra::bandIndexForFreq(
+    const int band = lyra::paPowerBandIndexForFreq(
         static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
     if (band < 0 || band >= kNumPaGainBands) return;
     const double fullW = fullOutputWByBand_[band].load(std::memory_order_relaxed);
-    if (fullW <= 0.0 || capW >= fullW) return;       // need a reference; cap≥full = no cap
+    if (fullW > 0.0 && capW >= fullW) return;        // cap ≥ full → no clamp to learn
+    const bool p2 = p2DrivePath_.load(std::memory_order_relaxed);
+    if (!p2 && fullW <= 0.0) return;                 // P1 cube-root bound needs a reference
 
     const auto persist = [this, band]() {
-        const auto &bands = lyra::amateurBands();
-        const QString b = band < int(bands.size())
-            ? QString::fromUtf8(bands[band].name) : QString::number(band);
+        const char *nm = lyra::paPowerBandName(band);
+        const QString b = (nm && nm[0])
+            ? QString::fromUtf8(nm) : QString::number(band);
         QSettings s;
         s.setValue(lyra::rig::scope::rigKey(
                        QStringLiteral("pa_gain/%1/capCeilRaw").arg(b)),
@@ -2258,46 +2278,79 @@ void HL2Stream::tickCapServo_(double fwdW) {
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
         return;
     }
+    // Runaway bound if the meter under-reads. HL2 P1: cube-root (shallower
+    // than the real curve, so it still reaches the cap). P2 analog: the
+    // meter is the cap — Full Output is only the seed, not a pin.
+    int hardMax = p2 ? 255
+        : static_cast<int>(std::lround(255.0 * std::cbrt(capW / fullW)));
+    if (hardMax < 1) hardMax = 1;
+    if (hardMax > 255) hardMax = 255;
+    const int coarse = p2 ? kCapServoStepRawP2 : kCapServoStepRaw;
+    int ceil = capCeilRaw_[band].load(std::memory_order_relaxed);
+    if (ceil > hardMax) {
+        ceil = hardMax;
+        capCeilRaw_[band].store(hardMax, std::memory_order_relaxed);
+        persist();
+        applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+    }
+    const int fallback = wattsFallbackCeilingRaw_(band, capW);
+    // A leftover seed below the fallback is only a climb restart while
+    // still learning. After we park under the cap, yanking ceil back to
+    // the seed unlatches and hunts (2.5 ↔ 3.2 W chip flicker).
+    if (ceil < fallback
+        && !capServoSettled_[band].load(std::memory_order_relaxed)) {
+        ceil = fallback;
+        capCeilRaw_[band].store(fallback, std::memory_order_relaxed);
+        persist();
+        applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+    }
     // Throttle so the PWR meter settles between steps.
     if (++capServoTicks_ < kCapServoStepTicks) return;
     capServoTicks_ = 0;
-    if (!(fwdW >= swrFwdFloorW_)) return;            // NaN / below floor → wait
-    // Runaway bound: never walk above the LEAST-conservative sane estimate
-    // (a drive^3 ceiling) even if the meter under-reads — caps the over-drive
-    // to a sensible value (the real curve is always shallower than cube, so
-    // this never blocks reaching the true cap).
-    const int hardMax = static_cast<int>(std::lround(
-        255.0 * std::cbrt(capW / fullW)));
-    int ceil = capCeilRaw_[band].load(std::memory_order_relaxed);
-    const bool settled = capServoSettled_[band].load(std::memory_order_relaxed);
-    // Coarse-DAC straddle: the HL2 drive DAC has ~16 steps, so one servo step
-    // can swing the output ~0.5 W.  A cap can fall BETWEEN two hardware steps
-    // (e.g. 3.35 W under / 3.93 W over a 3.5 W cap) — chasing the exact cap
-    // then just hunts across the gap and the meter shows the over-cap peaks.
-    // Rule: OVER the cap → step down AND latch "settled" so we PARK on the
-    // step just under the cap and never climb back over it.  Only climb while
-    // genuinely below the cap and NOT yet settled.  Re-arm the climb if the
-    // reading falls well under the cap (a real change — band/thermal/drive),
-    // so a legitimately under-driven band can still reach the cap.
+    // Ceiling is the limiter during TUN. A leftover fold of live drive
+    // (MOX-then-Tune, or a watts fold before TUN armed) parks watts at
+    // the fold floor even as this servo raises capCeilRaw_.
+    if (swrFolded_) {
+        swrFolded_ = false;
+        applyDriveLevelNoPersist(swrFoldPreDrive_);
+    }
+    // SWR's 1 W floor is for ratio noise, not "is RF present enough to
+    // learn." 20 m / 40 m parked at ~0.3 W never climbed while that
+    // return gated the walk. NaN (no meter yet) still waits.
+    if (!std::isfinite(fwdW)) return;
+    bool settled = capServoSettled_[band].load(std::memory_order_relaxed);
+    // Unlatch only when RF is nowhere near the cap (fold leftover ~0.3 W).
+    // 80 % treated a DAC-straddle park at 2.5 W as "too low" and restarted
+    // the climb → overshoot 3.1–3.2 → chip flicker CAP learn ↔ CAP.
+    if (fwdW < capW * 0.40 && settled) {
+        settled = false;
+        capServoSettled_[band].store(false, std::memory_order_relaxed);
+        persist();
+    }
+    // Coarse analog step can straddle the cap (2.5 W under / 3.2 W over).
+    // OVER → small step down, latch, PARK. Never climb again for this cap.
+    // Near the cap, climb with the same small step so we land ~2.7–2.9 W
+    // instead of jumping the gap.
+    const int fine = kCapServoStepRaw;
+    const int climbStep = (fwdW >= capW * 0.85) ? fine : coarse;
     if (fwdW > capW && ceil > 1) {
-        capCeilRaw_[band].store(std::max(1, ceil - kCapServoStepRaw),
+        capCeilRaw_[band].store(std::max(1, ceil - fine),
                                 std::memory_order_relaxed);
         capServoSettled_[band].store(true, std::memory_order_relaxed);
         persist();
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
-    } else if (fwdW < capW * 0.80 && settled) {
-        // Fell well under the cap after settling → conditions changed; unlatch
-        // so the climb below can re-converge to the new under-cap step.
-        capServoSettled_[band].store(false, std::memory_order_relaxed);
-        persist();
-    } else if (fwdW < capW * 0.97 && ceil < hardMax && !settled) {
-        capCeilRaw_[band].store(std::min(hardMax, ceil + kCapServoStepRaw),
+    } else if (fwdW >= capW * 0.97) {
+        if (!settled) {
+            capServoSettled_[band].store(true, std::memory_order_relaxed);
+            persist();
+            applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+        }
+    } else if (!settled && ceil < hardMax) {
+        capCeilRaw_[band].store(std::min(hardMax, ceil + climbStep),
                                 std::memory_order_relaxed);
         persist();
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
     }
-    // else: parked on the highest step at/under the cap (settled), or already
-    // in [cap·0.97, cap], or pinned at hardMax — locked.
 }
 
 void HL2Stream::applyTxPower_(int requestedRaw) {
@@ -2347,7 +2400,11 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
     // uses the postgen tone through y2_i (fixed gain ACTIVE, not the keyed
     // carrier), so capped TUN in CW mode sits a touch under the cap — safe;
     // refine with a CW-keyed servo learn (option B) if the operator wants it.
-    const bool cwFold = capActive_()
+    const bool p2Path = p2DrivePath_.load(std::memory_order_relaxed);
+    // CW fold is HL2 P1 only: that gateware substitutes a keyed carrier and
+    // bypasses IQ fixed-gain. P2 streams host I/Q; copying the fold would
+    // under-drive Brick/ANAN and fight PureSignal's later IQ tap.
+    const bool cwFold = !p2Path && capActive_()
         && (txMode_.load(std::memory_order_relaxed) == 3      // WDSP CWL
          || txMode_.load(std::memory_order_relaxed) == 4);    // WDSP CWU
     // rv*rv folds the fine gain into the coarse byte; kCwCapHeadroom is a
@@ -2360,25 +2417,42 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
     constexpr double kCwCapHeadroom = 0.85;
     const double byteRv = cwFold ? rv * rv * kCwCapHeadroom : rv;
     const int    byte = static_cast<int>(std::lround(255.0 * byteRv));
-    if (lyra::wire::prn != nullptr) lyra::wire::set_drive_level(byte);
+    const int emitted = byte < 0 ? 0 : (byte > 255 ? 255 : byte);
+    txEmittedDriveByte_.store(emitted, std::memory_order_relaxed);
+    if (lyra::wire::prn != nullptr)
+        lyra::wire::set_drive_level(emitted);
     lyra::wire::SetTXFixedGainRun(0, 1);
-    lyra::wire::SetTXFixedGain(0, rv, rv);
+    // P2: analog drive [345] is the watts lever. Keep IQ gain at unity so
+    // the cap/PA-gain byte is not fighting a second scaler (and so a later
+    // PureSignal tap can own this stage without a dual-path fight).
+    if (p2Path)
+        lyra::wire::SetTXFixedGain(0, 1.0, 1.0);
+    else
+        lyra::wire::SetTXFixedGain(0, rv, rv);
 
     // Amp-cap live indicator for the TX-panel CAP chip.  Recomputed here
     // because this is the one chokepoint every drive / PA-gain / band / cap
     // change flows through.  Only "actively limiting" (ceiling below the
-    // requested drive) shows a chip: 2 = cap ON but this band is NOT
-    // TUN-calibrated → clamped to the conservative ~30 % fallback (LOW power,
+    // requested drive) shows a chip: 2 = cap ON but this band has not
+    // finished TUN learning (starts at a safe seed, then walks up),
     // the trap); 1 = cap ON and holding a calibrated band at the set watts.
     int newCapStatus = 0;
     const double capW = maxOutputW_.load(std::memory_order_relaxed);
     if (capW > 0.0 && ceiling < requestedRaw) {
-        const int cband = lyra::bandIndexForFreq(
+        const int cband = lyra::paPowerBandIndexForFreq(
             static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
-        newCapStatus = capTunedFor_(cband, capW) ? 1 : 2;
+        newCapStatus = (cband >= 0 && cband < kNumPaGainBands
+                        && capTunedFor_(cband, capW)
+                        && capServoSettled_[cband].load(std::memory_order_relaxed))
+                           ? 1 : 2;
     }
     if (capStatus_.exchange(newCapStatus, std::memory_order_relaxed) != newCapStatus)
         emit capStatusChanged();
+}
+
+void HL2Stream::setP2DrivePath(bool on) {
+    p2DrivePath_.store(on, std::memory_order_relaxed);
+    applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
 }
 
 double HL2Stream::paGainForBand(int idx) const {
@@ -2389,15 +2463,14 @@ double HL2Stream::paGainForBand(int idx) const {
 void HL2Stream::setPaGainForBand(int idx, double gain) {
     if (idx < 0 || idx >= kNumPaGainBands) return;
     paGainByBand_[idx].store(gain, std::memory_order_relaxed);
-    const auto &bands = lyra::amateurBands();
+    const char *nm = lyra::paPowerBandName(idx);
     QSettings().setValue(
         lyra::rig::scope::rigKey(QStringLiteral("pa_gain/%1/gain")
-            .arg(idx < int(bands.size()) ? QString::fromUtf8(bands[idx].name)
-                                         : QString::number(idx))),
+            .arg((nm && nm[0]) ? QString::fromUtf8(nm) : QString::number(idx))),
         gain);
     // Re-apply live if this is the band we're transmitting on, so the
     // operator sees the dummy-load power move as they nudge the number.
-    const int cur = lyra::bandIndexForFreq(
+    const int cur = lyra::paPowerBandIndexForFreq(
         static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
     if (cur == idx)
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
@@ -2411,14 +2484,13 @@ double HL2Stream::fullOutputForBand(int idx) const {
 void HL2Stream::setFullOutputForBand(int idx, double watts) {
     if (idx < 0 || idx >= kNumPaGainBands) return;
     fullOutputWByBand_[idx].store(watts, std::memory_order_relaxed);
-    const auto &bands = lyra::amateurBands();
+    const char *nm = lyra::paPowerBandName(idx);
     QSettings().setValue(
         lyra::rig::scope::rigKey(QStringLiteral("pa_gain/%1/fullW")
-            .arg(idx < int(bands.size()) ? QString::fromUtf8(bands[idx].name)
-                                         : QString::number(idx))),
+            .arg((nm && nm[0]) ? QString::fromUtf8(nm) : QString::number(idx))),
         watts);
     // Re-apply if this band is live — the watts ceiling just changed.
-    const int cur = lyra::bandIndexForFreq(
+    const int cur = lyra::paPowerBandIndexForFreq(
         static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
     if (cur == idx)
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
@@ -2466,9 +2538,9 @@ void HL2Stream::clearCapLearnForBand(int idx) {
     capCeilRaw_[idx].store(-1, std::memory_order_relaxed);
     capCeilCapW_[idx].store(-1.0, std::memory_order_relaxed);
     capServoSettled_[idx].store(false, std::memory_order_relaxed);
-    const auto &bands = lyra::amateurBands();
-    const QString b = idx < int(bands.size())
-        ? QString::fromUtf8(bands[idx].name) : QString::number(idx);
+    const char *nm = lyra::paPowerBandName(idx);
+    const QString b = (nm && nm[0])
+        ? QString::fromUtf8(nm) : QString::number(idx);
     QSettings s;
     s.setValue(lyra::rig::scope::rigKey(
                    QStringLiteral("pa_gain/%1/capCeilRaw").arg(b)), -1);
@@ -2477,7 +2549,7 @@ void HL2Stream::clearCapLearnForBand(int idx) {
     s.setValue(lyra::rig::scope::rigKey(
                    QStringLiteral("pa_gain/%1/capSettled").arg(b)), false);
     // Re-apply if this band is live so a stale locked ceiling stops biting now.
-    const int cur = lyra::bandIndexForFreq(
+    const int cur = lyra::paPowerBandIndexForFreq(
         static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
     if (cur == idx)
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
@@ -2742,6 +2814,24 @@ void HL2Stream::setTuneEnabled(bool on) {
               kTuneCwPitchHz);
     }
     emit tuneEnabledChanged(on);
+    // TUN while already keyed: a prior watts/SWR fold cut live drive and
+    // lit PROT. armSwrProtect only runs on the MOX-on edge, so MOX-then-
+    // Tune left the servo walking a ceiling the folded drive never reached.
+    // Restore the operator set point so the cap ceiling is the only limiter.
+    if (on && moxActive_) {
+        if (swrFolded_) {
+            swrFolded_ = false;
+            applyDriveLevelNoPersist(swrFoldPreDrive_);
+        }
+        if (swrProtectTripped_) {
+            swrProtectTripped_ = false;
+            emit swrProtectTrippedChanged(false);
+        }
+        if (!swrProtectReason_.isEmpty()) {
+            swrProtectReason_.clear();
+            emit swrProtectReasonChanged(swrProtectReason_);
+        }
+    }
     // P4.b TUN display-honesty: tell the panadapter the NCO−dial offset so
     // its TX-state crop renders the carrier at the dial (on the marker).
     emit txAnalyzerOffsetChanged(txAnalyzerOffsetHz());
@@ -4540,7 +4630,7 @@ void HL2Stream::evalSwrProtect() {
     // so "Calibrate this band" can compute the trim (and, at full drive, set
     // Full Output) off a held sample without a second key-down.
     if (fwd >= swrFwdFloorW_) {
-        const int cb = lyra::bandIndexForFreq(
+        const int cb = lyra::paPowerBandIndexForFreq(
             static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
         if (cb >= 0 && cb < kNumPaGainBands) {
             const double prev = capturedRawW_[cb].load(std::memory_order_relaxed);
@@ -4552,20 +4642,17 @@ void HL2Stream::evalSwrProtect() {
     }
 
     // Stage 3b-2 — REACTIVE watts cap (GROSS backstop to the predictive
-    // cap).  Runs on EVERY band, even during a deliberate tune (TUN is the
-    // over-drive case), independent of the SWR-protect enable: fold the
-    // drive when measured forward power sits well over the cap for the
-    // dwell.  The PREDICTIVE cap already lands a MEASURED band right at the
-    // cap, so the threshold must clear that landing (+ PWR-meter ballistic/
-    // noise) or it false-trips on a normal at-cap carrier.  30 % margin: a
-    // measured band at the cap never trips; an UNMEASURED band running full
-    // (~2× the cap or more) still folds.  This is a coarse net for an
-    // unmeasured band / a wildly-wrong Full Output, NOT a fine limiter.
-    // Gated on the arm (2026-07-03): the reactive fold only runs when the cap
-    // is actually engaged, so an un-armed cap value never folds the drive.
+    // cap). Independent of the SWR-protect enable. On SSB/voice this folds
+    // when measured forward power sits well over the cap (unmeasured band
+    // or a wildly-wrong Full Output). During TUN the servo is the limiter
+    // (walk-from-below); folding here halved operator drive, lit PROT, and
+    // on P2 a drive-refresh while keyed could latch a TX fault. Skip fold
+    // while TUN is armed so the first pass on an un-learned band can learn.
     constexpr double kWattsCapMargin = 1.30;
     const double capW = maxOutputW_.load(std::memory_order_relaxed);
-    if (capActive_() && fwdCal >= swrFwdFloorW_ && fwdCal > capW * kWattsCapMargin) {
+    const bool tunLearn = tuneEnabled_.load(std::memory_order_relaxed);
+    if (!tunLearn && capActive_() && fwdCal >= swrFwdFloorW_
+        && fwdCal > capW * kWattsCapMargin) {
         if (++wattsOverTicks_ * kSwrEvalIntervalMs >= swrDwellMs_) {
             foldWattsProtect(fwdCal, capW);
             return;
@@ -4575,10 +4662,9 @@ void HL2Stream::evalSwrProtect() {
     }
 
     // Stage B — in TUN with the cap on, AUTO-LEARN this band's drive ceiling
-    // (walk it up to the cap from below + lock).  Runs only in tune (SSB uses
-    // the locked ceiling statically); the reactive fold above stays dormant
-    // because the servo keeps fwd at/under the cap, well below cap·1.30.
-    if (capActive_() && tuneEnabled_.load(std::memory_order_relaxed))
+    // (walk it up to the cap from below + lock). SSB uses the locked ceiling
+    // statically.
+    if (capActive_() && tunLearn)
         tickCapServo_(fwdCal);
 
     // #169 SWR protect — operator opt-out for a deliberate ATU tune carrier

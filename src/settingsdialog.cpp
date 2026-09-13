@@ -5448,13 +5448,15 @@ QWidget *SettingsDialog::buildPaGainTab() {
     grid->addWidget(new QLabel(tr("Cap tuned"),       grp), 0, 3);
 
     constexpr int kPaSpinW = 96;   // plenty for "100.0" + the up/down arrows
-    const auto &bands = lyra::amateurBands();
-    const int n = static_cast<int>(bands.size());
-    auto *tunedLabels = new QVector<QLabel *>();   // Stage B — live "tuned" marks
-    auto *fullSpins   = new QVector<QDoubleSpinBox *>();  // for the cap-uncalibrated warning
-    for (int i = 0; i < n; ++i) {
+    const int nPa = lyra::kPaPowerBandCount;
+    const auto paOrder = lyra::paPowerBandDisplayOrder();
+    auto *tunedLabels = new QVector<QLabel *>(nPa, nullptr);
+    auto *fullSpins   = new QVector<QDoubleSpinBox *>(nPa, nullptr);
+    for (int row = 0; row < nPa; ++row) {
+        const int i = paOrder[static_cast<size_t>(row)];
         grid->addWidget(
-            new QLabel(QString::fromUtf8(bands[i].name), grp), i + 1, 0);
+            new QLabel(QString::fromUtf8(lyra::paPowerBandName(i)), grp),
+            row + 1, 0);
 
         auto *gainSpin = new QDoubleSpinBox(grp);
         gainSpin->setRange(0.0, 200.0);   // Thetis range; 100 = neutral
@@ -5462,7 +5464,7 @@ QWidget *SettingsDialog::buildPaGainTab() {
         gainSpin->setSingleStep(1.0);
         gainSpin->setFixedWidth(kPaSpinW);
         gainSpin->setValue(stream_ ? stream_->paGainForBand(i) : 100.0);
-        grid->addWidget(gainSpin, i + 1, 1);
+        grid->addWidget(gainSpin, row + 1, 1);
         connect(gainSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
                 this, [this, i](double v) {
                     if (stream_) stream_->setPaGainForBand(i, v);
@@ -5477,20 +5479,20 @@ QWidget *SettingsDialog::buildPaGainTab() {
         fullSpin->setFixedWidth(kPaSpinW);
         fullSpin->setSpecialValueText(tr("—"));   // 0 shows as "not measured"
         fullSpin->setValue(stream_ ? stream_->fullOutputForBand(i) : 0.0);
-        grid->addWidget(fullSpin, i + 1, 2);
+        grid->addWidget(fullSpin, row + 1, 2);
         connect(fullSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
                 this, [this, i](double v) {
                     if (stream_) stream_->setFullOutputForBand(i, v);
                 });
-        fullSpins->append(fullSpin);
+        (*fullSpins)[i] = fullSpin;
 
         // Stage B — per-band "is the cap auto-tuned for the current cap?"
         // indicator; refreshed live so the operator watches each band turn
         // ✓ as they TUN it.
         auto *tuned = new QLabel(grp);
         tuned->setMinimumWidth(56);
-        tunedLabels->append(tuned);
-        grid->addWidget(tuned, i + 1, 3);
+        (*tunedLabels)[i] = tuned;
+        grid->addWidget(tuned, row + 1, 3);
 
         // Per-row Clear (operator ask 2026-07-03) — wipe this band's PA-Gain
         // calibration: PA Gain → 100, Full Output → 0 (which also drops the
@@ -5504,7 +5506,7 @@ QWidget *SettingsDialog::buildPaGainTab() {
                     if (fullSpin) fullSpin->setValue(0.0);
                     if (stream_)  stream_->clearCapLearnForBand(i);
                 });
-        grid->addWidget(clrPa, i + 1, 4);
+        grid->addWidget(clrPa, row + 1, 4);
     }
     rightCol->addWidget(grp);
 
@@ -5651,7 +5653,7 @@ QWidget *SettingsDialog::buildPaGainTab() {
     auto refreshCapUncal = [capChk, capUncal, fullSpins, armChk]() {
         bool anyMeasured = false;
         for (auto *fs : *fullSpins)
-            if (fs->value() > 0.0) { anyMeasured = true; break; }
+            if (fs && fs->value() > 0.0) { anyMeasured = true; break; }
         const bool capOn = capChk->isChecked();
         const bool armed = armChk->isChecked();
         // Arm a FRESH cap only after ≥1 band is calibrated (the foolproof
@@ -5666,9 +5668,11 @@ QWidget *SettingsDialog::buildPaGainTab() {
     refreshCapUncal();
     connect(capChk, &QCheckBox::toggled, this,
             [refreshCapUncal](bool) { refreshCapUncal(); });
-    for (auto *fs : *fullSpins)
+    for (auto *fs : *fullSpins) {
+        if (!fs) continue;
         connect(fs, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [refreshCapUncal](double) { refreshCapUncal(); });
+    }
     rightCol->addStretch(1);
     // Max Output spans the FULL width UNDER the two columns (operator ask
     // 2026-07-03 — balances the page vs stacking it under the right column).
@@ -5702,7 +5706,10 @@ QWidget *SettingsDialog::buildPaGainTab() {
                "•  Turn the Max cap OFF while calibrating — an armed cap "
                "holds the drive down and spoils the reading.\n"
                "•  Not in CW — CW won't make a steady tune carrier; use "
-               "SSB / AM / FM."),
+               "SSB / AM / FM.\n"
+               "•  Split OFF — RF follows VFO B, but Calibrate stamps the "
+               "RX band. A leftover split TX (e.g. 20 m) makes every band "
+               "look the same."),
             mcGrp);
         mcWarn->setWordWrap(true);
         mcWarn->setProperty("lyraWarn", true);
@@ -5755,25 +5762,27 @@ QWidget *SettingsDialog::buildPaGainTab() {
         mcGrid->addWidget(new QLabel(tr("Band"),     mcGrp), 0, 0);
         mcGrid->addWidget(new QLabel(tr("Mid-band"), mcGrp), 0, 1);
         mcGrid->addWidget(new QLabel(tr("Trim"),     mcGrp), 0, 2);
-        const auto &pbands = lyra::amateurBands();
-        const int   pn     = static_cast<int>(pbands.size());
-        auto *trimLabels = new QVector<QLabel *>();
-        for (int i = 0; i < pn; ++i) {
+        const int pn = lyra::kPaPowerBandCount;
+        const auto pOrder = lyra::paPowerBandDisplayOrder();
+        auto *trimLabels = new QVector<QLabel *>(pn, nullptr);
+        for (int row = 0; row < pn; ++row) {
+            const int i = pOrder[static_cast<size_t>(row)];
             mcGrid->addWidget(
-                new QLabel(QString::fromUtf8(pbands[i].name), mcGrp), i + 1, 0);
-            const double midMHz = (pbands[i].low + pbands[i].high) / 2.0 / 1e6;
+                new QLabel(QString::fromUtf8(lyra::paPowerBandName(i)), mcGrp),
+                row + 1, 0);
+            const double midMHz = lyra::paPowerBandMidHz(i) / 1e6;
             mcGrid->addWidget(
                 new QLabel(QStringLiteral("%1 MHz").arg(midMHz, 0, 'f', 3), mcGrp),
-                i + 1, 1);
+                row + 1, 1);
             auto *tl = new QLabel(mcGrp);
             tl->setMinimumWidth(96);
-            trimLabels->append(tl);
-            mcGrid->addWidget(tl, i + 1, 2);
+            (*trimLabels)[i] = tl;
+            mcGrid->addWidget(tl, row + 1, 2);
             auto *clr = new QPushButton(tr("Clear"), mcGrp);
             clr->setFixedWidth(64);
             connect(clr, &QPushButton::clicked, this,
                     [this, i]() { if (stream_) stream_->setPwrTrimForBand(i, 1.0); });
-            mcGrid->addWidget(clr, i + 1, 3);
+            mcGrid->addWidget(clr, row + 1, 3);
         }
         mcBox->addLayout(mcGrid);
         leftCol->addWidget(mcGrp);
@@ -5788,10 +5797,28 @@ QWidget *SettingsDialog::buildPaGainTab() {
             if (!stream_) return;
             // Amber for every refusal below; flipped to green on a real cal.
             mcResult->setStyleSheet(QStringLiteral("color:#e5a54e;"));
-            const int b = lyra::bandIndexForFreq(
+            const int b = lyra::paPowerBandIndexForFreq(
                               static_cast<int>(stream_->rx1FreqHz()));
             if (b < 0) {
-                mcResult->setText(tr("Tune to an amateur band first."));
+                mcResult->setText(tr("Tune to an amateur band or 11 m first."));
+                return;
+            }
+            // Guard — Split: RF is VFO B, but this stamps the RX (VFO A) band.
+            if (stream_->splitEnabled()) {
+                auto nameOf = [](int idx) -> QString {
+                    if (idx < 0 || idx >= lyra::kPaPowerBandCount)
+                        return QStringLiteral("?");
+                    return QString::fromUtf8(lyra::paPowerBandName(idx));
+                };
+                const int txB = lyra::paPowerBandIndexForFreq(
+                    static_cast<int>(stream_->txFreqHz()));
+                const QString msg = tr(
+                    "Split is on — RF is on VFO B (%1), but Calibrate would "
+                    "write %2. Turn Split off, TUN the band you mean, then "
+                    "calibrate.")
+                    .arg(nameOf(txB), nameOf(b));
+                mcResult->setText(msg);
+                QMessageBox::warning(this, tr("Split is on"), msg);
                 return;
             }
             // Guard — CW won't make a steady tune carrier.
@@ -5817,9 +5844,9 @@ QWidget *SettingsDialog::buildPaGainTab() {
             const double entered = mcSpin->value();
             stream_->setPwrTrimForBand(b, entered / raw);
             mcResult->setStyleSheet(QStringLiteral("color:#4ccf6b;"));  // success
-            const auto &bs = lyra::amateurBands();
-            const QString bn = b < int(bs.size())
-                ? QString::fromUtf8(bs[b].name) : QString::number(b);
+            const QString bn = (b >= 0 && b < lyra::kPaPowerBandCount)
+                ? QString::fromUtf8(lyra::paPowerBandName(b))
+                : QString::number(b);
             // At FULL drive (255) the entered watts IS this band's Full Output
             // — set it too (feeds the amp cap).  Writing the spin fires its
             // valueChanged → setFullOutputForBand + the cap-gate refresh.
@@ -5876,7 +5903,21 @@ QWidget *SettingsDialog::buildPaGainTab() {
                 static const char *kChipGreen =
                     "background:#12252e; border:2px solid #4ccf6b; border-radius:4px;"
                     "color:#4ccf6b; font-weight:700; padding:3px 10px;";
-                if (stream_->txModeIsCw()) {
+                if (stream_->splitEnabled()) {
+                    const int txB = lyra::paPowerBandIndexForFreq(
+                        static_cast<int>(stream_->txFreqHz()));
+                    const QString txBn = (txB >= 0 && txB < lyra::kPaPowerBandCount)
+                        ? QString::fromUtf8(lyra::paPowerBandName(txB))
+                        : QStringLiteral("?");
+                    mcDrive->setText(
+                        tr("⚠ Split is on — RF is on VFO B (%1). Turn Split "
+                           "off before you calibrate, or every band will get "
+                           "that same watt-meter reading.")
+                            .arg(txBn));
+                    mcDrive->setStyleSheet(amber);
+                    mcChip->setText(tr("⚠  SPLIT ON — TX %1").arg(txBn));
+                    mcChip->setStyleSheet(QString::fromLatin1(kChipRed));
+                } else if (stream_->txModeIsCw()) {
                     mcDrive->setText(tr("⚠ You're in CW — switch to SSB / AM / FM "
                         "to calibrate (CW won't make a steady tune carrier)."));
                     mcDrive->setStyleSheet(amber);
@@ -5895,16 +5936,27 @@ QWidget *SettingsDialog::buildPaGainTab() {
                     mcChip->setStyleSheet(QString::fromLatin1(kChipGreen));
                 }
             }
-            const int    b     = lyra::bandIndexForFreq(
+            const int    b     = lyra::paPowerBandIndexForFreq(
                                      static_cast<int>(stream_->rx1FreqHz()));
+            const int    txB   = lyra::paPowerBandIndexForFreq(
+                                     static_cast<int>(stream_->txFreqHz()));
             const bool   keyed = stream_->moxActive() || stream_->cwKeyingActive();
-            const auto  &bs    = lyra::amateurBands();
-            if (b < 0) {
+            auto nameOf = [](int idx) -> QString {
+                if (idx < 0 || idx >= lyra::kPaPowerBandCount)
+                    return QStringLiteral("?");
+                return QString::fromUtf8(lyra::paPowerBandName(idx));
+            };
+            if (stream_->splitEnabled()) {
                 mcLive->setText(
-                    tr("Tune to an amateur band, TUN a full-drive carrier, "
-                       "then Calibrate."));
+                    tr("Split on — RX %1, TX %2. Turn Split off, then TUN "
+                       "and Calibrate.")
+                        .arg(nameOf(b), nameOf(txB)));
+            } else if (b < 0) {
+                mcLive->setText(
+                    tr("Tune to an amateur band or 11 m, TUN a full-drive "
+                       "carrier, then Calibrate."));
             } else {
-                const QString bn   = QString::fromUtf8(bs[b].name);
+                const QString bn   = nameOf(b);
                 const double  live = stream_->fwdPowerW();
                 if (keyed && !std::isnan(live) && live >= 0.25) {
                     const bool full = stream_->txDriveLevel() >= 255;
@@ -5930,8 +5982,9 @@ QWidget *SettingsDialog::buildPaGainTab() {
                 }
             }
             for (int i = 0; i < trimLabels->size(); ++i) {
-                const double t   = stream_->pwrTrimForBand(i);
-                QLabel      *lab = (*trimLabels)[i];
+                QLabel *lab = (*trimLabels)[i];
+                if (!lab) continue;
+                const double t = stream_->pwrTrimForBand(i);
                 if (std::abs(t - 1.0) < 1e-3) {
                     lab->setText(tr("—"));
                     lab->setStyleSheet(QString());
@@ -5958,8 +6011,9 @@ QWidget *SettingsDialog::buildPaGainTab() {
     auto refresh = [this, tunedLabels, capChk]() {
         const bool capOn = capChk->isChecked();
         for (int i = 0; i < tunedLabels->size(); ++i) {
-            const bool tuned = capOn && stream_ && stream_->capTunedForBand(i);
             QLabel *lab = (*tunedLabels)[i];
+            if (!lab) continue;
+            const bool tuned = capOn && stream_ && stream_->capTunedForBand(i);
             lab->setText(capOn ? (tuned ? tr("✓") : tr("—")) : QString());
             // Green ✓ = locked at the cap; red — = not yet tuned for this cap.
             lab->setStyleSheet(

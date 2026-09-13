@@ -347,7 +347,7 @@ void P2RxBridge::syncTxIntentToSession(bool on) {
         ? 100 : std::clamp(txDriveLimitPercent_, 0, 100);
     const int capRaw = (limitPct * 255 + 50) / 100;
     const int drive = stream_
-        ? std::min(stream_->txDriveLevel(), capRaw) : 0;
+        ? std::min(stream_->txWireDriveByte(), capRaw) : 0;
     const bool pa = stream_ && stream_->paEnabled();
     auto *s = session_;
     QMetaObject::invokeMethod(s, [s, on, pa, drive, capRaw]() {
@@ -786,10 +786,13 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     const int bandAnt = trxAntenna_;
     const bool attOnTxEn = stream_ ? stream_->attOnTxEnabled() : true;
     const int attOnTxDb = stream_ ? stream_->attOnTxDb() : 31;
+    auto *st = stream_;
+    if (st)
+        st->setP2DrivePath(true);
     QMetaObject::invokeMethod(s, [s, ip, correctedHz, correctedTx, rate,
                                   bandAnt, p2hw,
                                   att, adc, input, bypass,
-                                  attOnTxEn, attOnTxDb]() {
+                                  attOnTxEn, attOnTxDb, st]() {
         s->setTxProducerSink([](const double *iq, int samples) {
             return feedP2TxCmasterInput(iq, samples);
         });
@@ -806,6 +809,11 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
         // dial-update path continues to track later changes.
         s->setDucFrequencyHz(correctedTx);
         s->enableDdc(0, rate);
+        if (st) {
+            s->setWireDriveProvider([st]() {
+                return st->txWireDriveByte();
+            });
+        }
         s->open(ip);
     });
 
@@ -834,8 +842,12 @@ void P2RxBridge::close() {
     // same router sink.  The session thread is a pure event loop, so
     // this returns in microseconds.  Main-thread-only caller (would
     // deadlock if ever called on the session thread itself).
-    QMetaObject::invokeMethod(s, &P2Session::close,
-                              Qt::BlockingQueuedConnection);
+    QMetaObject::invokeMethod(s, [s]() {
+        s->setWireDriveProvider({});
+        s->close();
+    }, Qt::BlockingQueuedConnection);
+    if (stream_)
+        stream_->setP2DrivePath(false);
     deactivateTxProducerSeam();
     open_    = false;
     running_ = false;

@@ -75,6 +75,7 @@
 #include <QTimer>
 #include <array>
 #include <cstdint>
+#include <functional>
 
 namespace lyra::wire {
 
@@ -192,6 +193,10 @@ public:
     // effective-drive evaluation.
     void setTxDriveCeiling(int ceilingByte);
     void setTransmitIntent(bool on, bool paRequested, int drive);
+    // Live analog-drive byte for HP [345].  Read at packet-build so a
+    // watts-cap servo can update the wire without queuing a new intent.
+    // Empty provider keeps the safety-gate drive (tests / fail-closed).
+    void setWireDriveProvider(std::function<int()> provider);
     void restartTxTransportRxState();
 
     // Golden-packet test seam: exact production encoders, no I/O.
@@ -274,6 +279,7 @@ private slots:
 private:
     QByteArray buildGeneralPacket() const;
     QByteArray buildHighPriorityPacket(bool run) const;
+    int analogDriveByte_(const P2TxEffectiveState &tx) const;
     QByteArray buildDdcSpecificPacket() const;
     QByteArray buildDucSpecificPacket() const;
     void sendDucSpecificIfOpen();
@@ -369,6 +375,7 @@ private:
     // P2TxSafetyGate. Session open/reset leaves them fail-closed.
     P2TxIntent       txIntent_;
     P2TxSafetyInputs txSafety_;
+    std::function<int()> wireDriveProvider_;
     P2DucConfig      ducConfig_;
     QString          txStateDetail_;
 

@@ -377,17 +377,15 @@ Rectangle {
         // Sibling of the ATT/PROT lamps, but VISIBLE ONLY when the watts
         // cap is actively holding TX power down on the current band — an
         // invisible Layout item takes zero space, so the panel stays clean
-        // the rest of the time.  Amber "CAP ~30%" = the trap: cap on but
-        // this band isn't TUN-calibrated, so Lyra clamps to a safe ~30 %
-        // drive and power reads LOW (Pierre HS0ZRT's 6 W-cap-but-3 W-out).
-        // Cyan "CAP nW" = cap holding a calibrated band at the set watts
-        // (working as intended).  Purely informational (not a toggle) —
+        // the rest of the time.  Amber "CAP learn" = cap armed, this band
+        // hasn't finished TUN learning. Cyan "CAP nW" = cap holding
+        // a calibrated band at the set watts. Informational only —
         // the cap lives in Settings → PA Gain.
         Rectangle {
             id: capChip
             visible: Stream.capStatus > 0
             readonly property bool uncal: Stream.capStatus === 2
-            Layout.preferredWidth: 68    // sized to match the ATT/PROT lamps
+            Layout.preferredWidth: 76    // "CAP learn" / "CAP nW"
             Layout.preferredHeight: 26
             radius: 4
             color: uncal ? "#3a2a10" : "#12252e"
@@ -395,7 +393,7 @@ Rectangle {
             border.width: 2
             Text {
                 anchors.centerIn: parent
-                text: capChip.uncal ? qsTr("CAP ~30%")
+                text: capChip.uncal ? qsTr("CAP learn")
                                     : qsTr("CAP %1W").arg(Math.round(Stream.capLimitW))
                 color: capChip.uncal ? "#ffcf6b" : root.cAccent
                 font.bold: true
@@ -405,10 +403,10 @@ Rectangle {
             ToolTip.visible: capHov.hovered && Prefs.tooltipsEnabled
             ToolTip.delay: 800
             ToolTip.text: capChip.uncal
-                ? qsTr("Max Output cap is ON but this band isn't calibrated, "
-                       + "so TX is limited to a safe ~30% drive — your power "
-                       + "reads LOW.  Fix: Settings → PA Gain → measure Full "
-                       + "Output + TUN each band, or turn the cap off there.")
+                ? qsTr("Max Output is armed but this band has not finished "
+                       + "TUN learning. Keep Tune keyed into a dummy load — "
+                       + "power should climb to the cap, then this chip "
+                       + "turns cyan. Or turn the cap off in Settings → PA Gain.")
                 : qsTr("Max Output cap is holding this band at your set limit "
                        + "(%1 W).  Adjust or disable in Settings → PA Gain.")
                       .arg(Math.round(Stream.capLimitW))
@@ -567,7 +565,8 @@ Rectangle {
             font.bold: true
             font.pixelSize: 12
             checked: Stream.tuneEnabled
-            enabled: !P2Bridge.running || P2Bridge.txBenchArmed
+            enabled: !P2Bridge.running
+                     || (P2Bridge.txBenchArmed && !P2Bridge.txFaultLatched)
             onClicked: {
                 if (!Stream.tuneEnabled) {
                     // Arming: set tone first so the very first EP2 frame
@@ -622,7 +621,8 @@ Rectangle {
             font.bold: true
             font.pixelSize: 12
             checked: Stream.twoToneEnabled
-            enabled: (!P2Bridge.running || P2Bridge.txBenchArmed)
+            enabled: (!P2Bridge.running
+                      || (P2Bridge.txBenchArmed && !P2Bridge.txFaultLatched))
                      && (!Stream.tuneEnabled || Stream.twoToneEnabled)
             onClicked: {
                 if (!Stream.twoToneEnabled) {
@@ -663,7 +663,8 @@ Rectangle {
             font.bold: true
             font.pixelSize: 12
             checked: Stream.moxActive
-            enabled: !P2Bridge.running || P2Bridge.txBenchArmed
+            enabled: !P2Bridge.running
+                     || (P2Bridge.txBenchArmed && !P2Bridge.txFaultLatched)
             onClicked: Stream.requestMox(!Stream.moxActive)
             background: Rectangle {
                 // Three-way state: moxActive (wire MOX live) → red;

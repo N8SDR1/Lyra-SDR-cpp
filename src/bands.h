@@ -15,6 +15,7 @@
 #include <QString>
 #include <QVariantList>
 
+#include <array>
 #include <vector>
 
 namespace lyra {
@@ -43,6 +44,18 @@ int bandIndexForFreq(int hz);
 int broadcastBandIndexForFreq(int hz);
 // Index of the CB band whose [low,high] contains hz, else -1.
 int cbBandIndexForFreq(int hz);
+
+// PA Gain / Full Output / cap-learn / PWR-trim table: the 11 amateur
+// bands (indices 0..10, same order as amateurBands) plus 11m as index 11.
+// Band-panel highlight stays amateur-only; this is the TX-power table.
+constexpr int kPaPowerBandCount   = 12;
+constexpr int kPaPowerBandElevenM = 11;
+const char *paPowerBandName(int idx);
+int         paPowerBandIndexForFreq(int hz);
+int         paPowerBandMidHz(int idx);
+// Visual grid: 160…12, then 11m, then 10m, 6m. Values are storage indices
+// (11m stays kPaPowerBandElevenM so 10m/6m QSettings slots do not shift).
+std::array<int, kPaPowerBandCount> paPowerBandDisplayOrder();
 
 // N2ADR HL2 filter-board OC pattern for amateur band <bandIndex>.
 // Returns the 7-bit J16 open-collector pattern (pin N -> bit 1<<(N-1));

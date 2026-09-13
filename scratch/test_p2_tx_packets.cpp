@@ -317,6 +317,38 @@ int main(int argc, char **argv) {
                      static_cast<quint8>(hp[345]) == 0,
                  "production session keeps watchdog on and RF off");
 
+    session.diagnosticArmHealthyTx(true, true, 255);
+    const QByteArray hpIntent =
+        session.diagnosticHighPriorityPacket(true);
+    ok &= expect(static_cast<quint8>(hpIntent[345]) == 255,
+                 "uncapped slider intent reaches analog drive");
+
+    session.setWireDriveProvider([]() { return 80; });
+    const QByteArray hpEmitted =
+        session.diagnosticHighPriorityPacket(true);
+    ok &= expect(static_cast<quint8>(hpEmitted[345]) == 80,
+                 "live emitted byte overrides slider intent at HP build");
+
+    session.setTxDriveCeiling(100);
+    const QByteArray hpCeil =
+        session.diagnosticHighPriorityPacket(true);
+    ok &= expect(static_cast<quint8>(hpCeil[345]) == 80,
+                 "safety ceiling does not raise a lower emitted byte");
+
+    session.setWireDriveProvider([]() { return 200; });
+    const QByteArray hpCeilWin =
+        session.diagnosticHighPriorityPacket(true);
+    ok &= expect(static_cast<quint8>(hpCeilWin[345]) == 100,
+                 "safety ceiling still wins over a higher emitted byte");
+
+    session.setWireDriveProvider({});
+    session.setTxDriveCeiling(255);
+    session.diagnosticArmHealthyTx(false, false, 0);
+    const QByteArray hpOff =
+        session.diagnosticHighPriorityPacket(true);
+    ok &= expect(static_cast<quint8>(hpOff[345]) == 0,
+                 "RF-off after provider clear stays zero analog drive");
+
     std::printf(ok ? "PASS: P2 TX safety and golden packets\n"
                    : "FAIL: P2 TX safety and golden packets\n");
     return ok ? 0 : 1;

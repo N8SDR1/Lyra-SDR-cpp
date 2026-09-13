@@ -6,6 +6,7 @@
 #include "P2TxCmaster.h"   // setP2TxCmasterChannelRunning — run the TXA channel with the DUC transport
 
 #include <QtEndian>
+#include <QTimer>
 #include <algorithm>
 #include <cmath>
 
@@ -274,7 +275,7 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
         wrBeU32(pkt.data() + 9 + i * 4,
                 phaseWord(ddcFreqHz_[i]));      // DDC freq, phase word (BE)
     wrBeU32(pkt.data() + 329, phaseWord(ducFreqHz_));  // DUC (TX) phase word
-    pkt[345] = static_cast<char>(tx.drive);
+    pkt[345] = static_cast<char>(analogDriveByte_(tx));
     // [1396..99] client control word + CAT port 0.
     // [1400..03] xvtr/mute/OC/user outputs 0.
     // [1428..31] Alex1 words 0 (no second Alex; the fw>=12 TXANT
@@ -403,6 +404,21 @@ void P2Session::setTxOperatorArmed(bool armed) {
               "P2 TX: bench interlock disarmed; transmit/PA/drive forced off"));
 }
 
+int P2Session::analogDriveByte_(const P2TxEffectiveState &tx) const {
+    if (!tx.transmit || !tx.paEnabled)
+        return 0;
+    int drive = static_cast<int>(tx.drive);
+    if (wireDriveProvider_) {
+        const int emitted = std::clamp(wireDriveProvider_(), 0, 255);
+        drive = std::min(emitted, static_cast<int>(txSafety_.driveCeiling));
+    }
+    return drive;
+}
+
+void P2Session::setWireDriveProvider(std::function<int()> provider) {
+    wireDriveProvider_ = std::move(provider);
+}
+
 void P2Session::setTxDriveCeiling(int ceilingByte) {
     txSafety_.driveCeiling =
         static_cast<std::uint8_t>(std::clamp(ceilingByte, 0, 255));
@@ -413,9 +429,12 @@ void P2Session::setTxDriveCeiling(int ceilingByte) {
 void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
     // RX status is only ~5 Hz and can pause during harmless Windows/Qt
     // scheduling stalls. Do not strand the receive-only transport for
-    // that. A key request, however, requires fresh telemetry at the
-    // instant RF is requested; stale status becomes a latched TX fault.
-    if (on && (!statusAge_.isValid() || statusAge_.elapsed() > 1000)) {
+    // that. A *new* key request requires fresh telemetry; a drive/PA
+    // refresh while already keyed must not latch (Settings paint + cap
+    // fold used to re-enter here and lock Tune until Lyra restarted).
+    const bool alreadyKeyed = txIntent_.transmitRequested;
+    if (on && !alreadyKeyed
+        && (!statusAge_.isValid() || statusAge_.elapsed() > 1000)) {
         txSafety_.telemetryHealthy = false;
         latchTxFault(QStringLiteral(
             "MOX/PTT rejected because status telemetry is stale"));
@@ -427,6 +446,13 @@ void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
         txIntent_.drive = std::clamp(drive, 0, 255);
     } else {
         txIntent_ = {};
+        if (txSafety_.faultLatched) {
+            // Host unkey (including a watts-cap cut) — re-prime so Tune
+            // works without restarting the app. Fail-closed while keyed.
+            QTimer::singleShot(0, this, [this]() {
+                restartTxTransportRxState();
+            });
+        }
     }
 
     txSafety_.transportRunning = txWriter_.isRunning();
@@ -484,7 +510,7 @@ void P2Session::emitTxState(const QString &detail) {
         txWriter_.isRunning() && txSafety_.iqPrimed &&
             !txSafety_.faultLatched,
         txSafety_.operatorArmed, effective.transmit, effective.paEnabled,
-        effective.drive, txSafety_.faultLatched, txStateDetail_);
+        analogDriveByte_(effective), txSafety_.faultLatched, txStateDetail_);
 }
 
 void P2Session::sendSpeakerAudio(const qint16 *lr, int nframes) {
@@ -597,6 +623,7 @@ void P2Session::open(const QString &ip) {
 
 void P2Session::close() {
     if (!open_) return;
+    wireDriveProvider_ = {};
     hpTimer_.stop();
     stopTxTransport();
     txIntent_ = {};
@@ -770,15 +797,15 @@ void P2Session::stopTxTransport() {
 }
 
 void P2Session::restartTxTransportRxState() {
-    // A controlled RX sample-rate rebuild can stall the event loop longer
-    // than the TX transport's deadline. It is safe to clear/re-prime only
-    // while no transmit intent exists; real TX faults stay latched.
+    // Re-prime only while no transmit intent exists (RX rate rebuild, or
+    // host unkey after a latched fault). Never clear a fault while keyed.
     if (!open_ || !running_ || txIntent_.transmitRequested)
         return;
     stopTxTransport();
     txSafety_.faultLatched = false;
     txStateDetail_ = QStringLiteral("Re-priming TX transport");
     startTxTransportRxState();
+    emitTxState();
 }
 
 void P2Session::latchTxFault(const QString &reason) {
