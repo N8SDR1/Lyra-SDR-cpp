@@ -9,9 +9,8 @@ Quick answers to common questions and fixes. For full detail see the
 ## General
 
 **What hardware does Lyra support?**
-Hermes Lite 2 and 2+ over HPSDR Protocol 1. (Dual receiver / RX2 and
-PureSignal are on the roadmap.) Other ANAN / HPSDR radios aren't supported
-yet.
+Hermes Lite 2 and 2+ over HPSDR Protocol 1, and **BrickSDR2** over Protocol 2.
+(Dual receiver / RX2, PureSignal, and ANAN family radios are on the roadmap.)
 
 **Is it free? What's the license?**
 Yes — GPL v3+ (compatible with the WDSP DSP engine it uses). See
@@ -101,8 +100,11 @@ stays on RX during CW so you still see the keyed carrier.
 
 **I'm running an amplifier — anything to set first?**
 Yes — configure **TR‑sequencing** and the **RF‑delay / ATT‑on‑TX**
-protections before keying into an amp. Read
-**[User Guide → external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**.
+protections before keying into an amp. Per-band **PA Gain / Full Output (W)**
+and the optional **watts cap** live on **Settings → PA Gain** (including a
+dedicated **11m** slot). Read
+**[User Guide → external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**
+and **[Settings → PA Gain](User-Guide#settings--pa-gain)**.
 
 **JTDX won't connect over TCI (but MSHV does).**
 Fixed in current versions (the TCI audio handshake now echoes the ack JTDX
