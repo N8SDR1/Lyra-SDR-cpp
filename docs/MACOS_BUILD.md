@@ -55,6 +55,39 @@ The result is `build/lyra.app`. The build stages `libwdsp.dylib` into
 ./build/lyra.app/Contents/MacOS/lyra
 ```
 
+## 5. Package (optional)
+
+The bundle from step 3 resolves Qt from the Homebrew prefix, so it only runs
+on a machine that has that exact Qt. To make it self-contained:
+
+```bash
+tools/package_macos.sh
+```
+
+This stages Qt and the QML modules with `macdeployqt`, relocates the FFTW the
+WDSP engine needs, and re-signs the bundle — then **asserts** the result
+rather than assuming it: exactly one `LC_RPATH`
+(`@executable_path/../Frameworks`), zero absolute Homebrew references
+anywhere in the bundle, and a signature carrying the real bundle identifier.
+
+The failure it exists to prevent is subtle. `macdeployqt` rewrites the main
+binary's Qt references but leaves CMake's Homebrew rpath in place, so the
+bundled Qt *plugins* — which reference Qt as `@rpath/QtCore.framework/…` —
+still resolve to Homebrew. Qt then loads **twice**, registering duplicate
+Objective-C classes, and the app dies on launch. The bundle looks complete;
+only running it reveals the problem. Hence `BUILD_RPATH` in CMakeLists.txt
+and the assertions in the script.
+
+Verify a packaged bundle by running it from outside the build tree — that is
+the only real test of self-containment:
+
+```bash
+ditto build/lyra.app /tmp/lyra-test/lyra.app && open /tmp/lyra-test/lyra.app
+```
+
+Signing is ad-hoc by default; set `SIGN_ID` to a Developer ID for something
+distributable. Notarisation and DMG creation are not covered here.
+
 First launch performs a one-time FFTW "wisdom" build (an `FFTW_PATIENT`
 plan search tuned to your CPU). It takes **about 3.5 minutes on an M5**
 and shows a progress notice; the result is cached under
@@ -125,8 +158,15 @@ ported files at essentially zero.
 
 ## What is not verified
 
-No Hermes Lite 2 was connected during this work, so **RX and TX against
-real hardware are unvalidated on macOS.** What has been confirmed:
+**RX against a real Hermes Lite 2 works.** Confirmed 2026-09-08 against an
+HL2 (firmware 7.4) at 192.168.10.146: discovery, connection, a ~5.25 MB/s
+EP6 stream at 192 kHz, a live panadapter, and an S-meter reading real
+signals. (An earlier revision of this document said no radio had been
+connected — that was wrong; the rig record shows one present since
+2026-08-10.)
+
+**TX against real hardware is still unvalidated on macOS.** Other confirmed
+items:
 
 * WDSP builds native arm64 and runs — the full RXA chain
   (`OpenChannel` → `SetRXAMode` → `fexchange0`) produces correctly

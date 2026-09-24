@@ -758,6 +758,20 @@ if(APPLE)
         # The HL2 is reached over the LAN; declaring this keeps the
         # local-network permission prompt attributable to Lyra.
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MacOSXBundleInfo.plist.in"
+
+        # Resolve inside the bundle FIRST.  Without this the only rpath is the
+        # Qt prefix CMake links against (/opt/homebrew/opt/qt/lib), and after
+        # macdeployqt stages Qt into Contents/Frameworks the bundled plugins
+        # and QML modules — which reference Qt as @rpath/QtCore.framework/... —
+        # still resolve to the Homebrew copy.  Qt then loads TWICE, registering
+        # duplicate Objective-C classes ("may cause spurious casting failures
+        # and mysterious crashes"), and the app dies on launch.
+        #
+        # A shipping reference for the target state: deskHPSDR.app carries
+        # exactly one LC_RPATH, @executable_path/../Frameworks/, and zero
+        # absolute Homebrew references.  tools/package_macos.sh asserts both.
+        BUILD_RPATH   "@executable_path/../Frameworks"
+        INSTALL_RPATH "@executable_path/../Frameworks"
     )
 endif()
 
