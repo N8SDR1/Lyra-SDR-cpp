@@ -368,6 +368,19 @@ Rectangle {
                     border.color: opName.activeFocus ? root.cAccent : "#2a4a5a" }
                 onTextEdited: CwMacros.opName = text
             }
+            Button {
+                id: clearContact
+                implicitWidth: 40; implicitHeight: 24; text: qsTr("Clr")
+                onClicked: { CwMacros.hisCall = ""; CwMacros.opName = "" }
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Clear His call + Name")
+                background: Rectangle { radius: 4; color: "#1c252b"
+                    border.color: clearContact.hovered ? root.cAccent : "#3a5060" }
+                contentItem: Text { text: clearContact.text; color: root.cMuted
+                    font.pixelSize: 12
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter }
+            }
             Label { text: qsTr("RST"); color: root.cMuted; font.pixelSize: 11 }
             TextField {
                 id: rst

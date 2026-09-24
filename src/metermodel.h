@@ -152,6 +152,14 @@ private:
     // The normalized position of the S9 boundary — renderers paint the
     // over-S9 region red.  Tracks the HF/VHF scale (S9 shifts at 30 MHz).
     Q_PROPERTY(double normAtS9 READ normAtS9 NOTIFY updated)
+    // Live antenna SWR for panels outside the meter (e.g. the Tuner panel),
+    // source-selected the SAME way the SWR meter is: P2 bridge fwd/rev when a
+    // Protocol-2 rig is running, HL2Stream fwd/rev otherwise.  Returns −1 when
+    // there is no usable reading (below the fwd-power guard / NaN), else the
+    // raw SWR ratio (capped at 99.9).  The Tuner panel binds this instead of
+    // Stream.fwdPowerW/revPowerW directly, which are HL2-only and read zero
+    // on a P2 rig.  Refreshes on the meter tick (NOTIFY updated).
+    Q_PROPERTY(double liveSwr READ liveSwr NOTIFY updated)
     // Operator-selectable visual style: 0 = Horizon Arc (default),
     // 1 = Plasma Bar, 2 = Vertical Ladder.  `style` is the RX (default)
     // style; `txStyle` is used on TX when `separateStyle` is on.  The
@@ -289,6 +297,7 @@ public:
     QString dbmText()  const { return dbmText_; }
     QVariantList history() const { return history_; }
     double  normAtS9() const;
+    double  liveSwr()  const;
     // Calibrated instantaneous RX S-meter dBm — the SAME calibration the
     // on-screen meter is built from (WDSP RXA_S_PK + operator calDb trim −
     // current LNA gain).  Exposed so the TCI server broadcasts a real,

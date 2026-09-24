@@ -117,6 +117,13 @@ struct P2HardwareProfile {
     // ladder.  When true, buildHighPriorityPacket asserts that constant
     // (OC + Alex relay bytes) only while transmit is active.
     bool fixedTxFrontEnd = false;
+    // TX SSB has been on-air validated on real RF for this model (not just
+    // a dummy-load bench).  When true, the P2 front end drops the transient
+    // "Arm P2 TX / dummy-load-only" bench interlock and keys off Enable PA +
+    // MOX + Drive exactly like the HL2 path — the rig auto-arms on every
+    // healthy connect and no per-P2 drive ceiling is applied.  A model whose
+    // TX is not yet proven on the air keeps the manual arm interlock.
+    bool txOnAirValidated = false;
 };
 
 // The selected/saved marketed model chooses runtime front-end policy.
