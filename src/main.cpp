@@ -168,7 +168,7 @@ int main(int argc, char *argv[])
     if (!lyra::ui::acquireSingleInstance(argc, argv,
                                          QStringLiteral("default"),
                                          &siServerName))
-        return 0;   // another Lyra is already running — it has been raised
+        return 0;   // live primary answered the raise pipe (user was told)
 
     // Qt RHI backend selection.  Lyra targets Vulkan as the
     // primary graphics path per FEATURES.md §0 (cross-vendor /
@@ -576,6 +576,12 @@ int main(int argc, char *argv[])
         [wdspEngine](int n, const double* iq) {
             wdspEngine->feedIq(iq, n);
         });
+    lyra::wire::register_sink(
+        lyra::wire::router_instance(0),
+        /*port=*/2, /*call_idx=*/0, /*ctrl_word=*/0,
+        [wdspEngine](int n, const double* iq) {
+            wdspEngine->feedIqRx2(iq, n);
+        });
 
     // Step 5: RX audio → HL2 onboard-codec (AK4951) jack is handled
     // inside WdspEngine now — dispatchAudioFrame → OutBound(0) → the
@@ -766,6 +772,10 @@ int main(int argc, char *argv[])
     // FSM QTimers in HL2Stream), slot also lives on the main thread.
     QObject::connect(stream, &lyra::ipc::HL2Stream::moxActiveChanged,
                      wdspEngine, &lyra::dsp::WdspEngine::setTxMuted);
+    QObject::connect(stream, &lyra::ipc::HL2Stream::subEnabledChanged,
+                     wdspEngine, [stream, wdspEngine]() {
+                         wdspEngine->setSubEnabled(stream->subEnabled());
+                     });
 
     // #158 DL-4 — mute RX out of the VAC mixer during TX (reference
     // SetIVACmox what-flag gating; RX→VAC silent on the air, the no-feedback
@@ -926,21 +936,38 @@ int main(int argc, char *argv[])
     // track operator changes.
     {
         // TX mic-source gate: exactly one of {codec mic, TCI, VAC1} drives TX.
-        //   "tci"   → use_tci_audio (TciTxBridge)
-        //   "micpc" → use_vac_audio (#158 Stage 4: VAC-in / PC mic / digital)
-        //   else    → HL2 codec EP6 mic (both overrides off)
-        // SetTX{TCI,Vac}Audio are interlocked; the VAC inbound cb is
-        // null-guarded so selecting VAC with VAC1 disabled is safe (falls
-        // back to the codec mic).
-        auto applyTxAudioSource = [prefs]() {
+        //   "tci"   → use_tci_audio (TciTxBridge).  NEVER stolen by VAC
+        //             auto-digital — TCI CAT + TCI TX audio (MSHV / JTDX /
+        //             WSJT-X TCI) must keep working if the operator picked
+        //             TCI, and a client `trx:0,true,tci` still flips here.
+        //   "micpc" → use_vac_audio (VAC-in / PC mic / Fldigi-over-cable)
+        //   auto-digital + DIGU/DIGL + a VAC Input device selected + not
+        //             TCI → also use_vac_audio without rewriting the picker
+        //             (YO8RFS: VAC RX worked, TX silent on the codec jack).
+        // If use_vac_audio is set but the VAC inbound cb is null, CMaster
+        // zeros the mic buffer — it does NOT fall back to codec.
+        auto applyTxAudioSource = [prefs, wdspEngine]() {
             const QString src = prefs->micSource();
             const bool tci = (src == QStringLiteral("tci"));
-            const bool vac = (src == QStringLiteral("micpc"));
+            const QString vacIn = wdspEngine->vac1InputDeviceName();
+            const bool vacInLive = !vacIn.isEmpty()
+                && vacIn != QLatin1String("(none)");
+            const bool autoDigVacTx =
+                !tci && vacInLive
+                && wdspEngine->vac1AutoDigital()
+                && wdspEngine->mode().startsWith(QLatin1String("DIG"),
+                                                 Qt::CaseInsensitive);
+            const bool vac = !tci
+                && (src == QStringLiteral("micpc") || autoDigVacTx);
             lyra::wire::SetTXTCIAudio(0, tci ? 1 : 0);
             lyra::wire::SetTXVacAudio(0, vac ? 1 : 0);
             if (!tci) lyra::tci::TciTxBridge::instance().clear();
         };
         QObject::connect(prefs, &lyra::ui::Prefs::micSourceChanged,
+                         prefs, applyTxAudioSource);
+        QObject::connect(wdspEngine, &lyra::dsp::WdspEngine::modeChanged,
+                         prefs, applyTxAudioSource);
+        QObject::connect(wdspEngine, &lyra::dsp::WdspEngine::vac1Changed,
                          prefs, applyTxAudioSource);
         applyTxAudioSource();   // seed initial state
     }
@@ -1411,7 +1438,13 @@ int main(int argc, char *argv[])
             // only — no IQ flows through it yet (Step 3d wires the RX
             // worker -> fexchange0).  The engine's destructor closes
             // the channel at app exit.
+            // RX2 demod/filter must be primed before openRx2() (setSubEnabled
+            // → openRx2 uses the engine's current modeRx2 / bandwidthRx2).
+            wdspEngine->setModeRx2(prefs->modeRx2());
+            wdspEngine->setBandwidthRx2(prefs->rx2Bandwidth());
             wdspEngine->openRx1();
+            if (stream->subEnabled())
+                wdspEngine->setSubEnabled(true);
 
             // P0.d (2026-06-12) — create_xmtr(), the verbatim
             // reference body (cmaster.c:112-253).
@@ -1838,6 +1871,14 @@ int main(int argc, char *argv[])
                 QObject::connect(prefs, &lyra::ui::Prefs::modeChanged,
                                  wdspEngine, [prefs, wdspEngine]() {
                     wdspEngine->setMode(prefs->mode());
+                });
+                QObject::connect(prefs, &lyra::ui::Prefs::modeRx2Changed,
+                                 wdspEngine, [prefs, wdspEngine]() {
+                    wdspEngine->setModeRx2(prefs->modeRx2());
+                });
+                QObject::connect(prefs, &lyra::ui::Prefs::rx2BandwidthChanged,
+                                 wdspEngine, [prefs, wdspEngine]() {
+                    wdspEngine->setBandwidthRx2(prefs->rx2Bandwidth());
                 });
 
                 // Digital-mode TX-drive reduction — forward the operator

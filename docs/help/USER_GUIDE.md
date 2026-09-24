@@ -3085,12 +3085,16 @@ end-to-end digital-mode wiring see
 [Digital modes over VAC](#digital-modes-over-vac-virtual-audio-cable); the
 controls here are:
 
-- **Enable VAC1 (RX→PC and PC→TX)** — master switch; powers both
-  directions at once.
+- **Enable VAC1 (RX→PC and PC→TX)** — master switch; powers the VAC
+  engine (receive into the cable, and the input path if you also arm it
+  as the mic). **Enable is not the same as “TX from VAC.”**
+- **Use VAC1 as TX source** — same as **Settings → TX → Mic source =
+  PC Soundcard (VAC1)**. Greyed out when Mic source is **TCI** so a
+  logger/digital app using TCI audio is not stolen.
 - **Auto-enable for digital modes (disable for others)** — when ticked,
-  VAC1 turns on automatically when you switch to a digital mode
-  (DIGU / DIGL) and off for every other mode, so moving into a digital
-  setup opens the cable for you.
+  VAC1 turns on automatically **only** for DIGU / DIGL and **off** for
+  every other mode (including USB). USB with this ticked will **stop**
+  VAC even if Enable looks on.
 - **Driver** — the audio backend (PortAudio host API: **WASAPI**,
   DirectSound, MME, or WDM-KS) the VAC devices live under. **WASAPI is the
   right choice for virtual cables.** Changing the driver repopulates the
@@ -3970,7 +3974,10 @@ the band, and route the audio over VAC.
 2. **Settings → TX → Mic + ALC → Mic source = "PC Soundcard (VAC1)".**
    **This is the step that catches people.** Without it the TX chain reads
    a different source (the codec mic, or TCI) and you get **no power out**
-   even though everything else looks right.
+   even though RX on the cable works. You can also tick **Use VAC1 as TX
+   source** on the Audio tab (it is disabled when Mic source is TCI).
+   Stay on **DIGU / DIGL** if Auto-enable for digital is on — USB turns
+   VAC off.
 3. **TCI for control:** keep your TCI client connected for PTT/frequency
    (Settings → Network). In MSHV's audio panel, point **Output** at the TX
    cable and **Input** at the RX cable (the reverse of Lyra), and pick the

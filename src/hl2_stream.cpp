@@ -264,6 +264,22 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     if (splitEnabled_.load(std::memory_order_relaxed))
         txFreqHz_.store(vfoBHz_.load(std::memory_order_relaxed),
                         std::memory_order_relaxed);
+    // SUB / RX2 — default OFF (zero extra DSP; DDC1 mirrors RX1).
+    subEnabled_.store(
+        QSettings().value(QStringLiteral("rx/subEnabled"), false).toBool(),
+        std::memory_order_relaxed);
+    rx2FreqHz_.store(
+        QSettings().value(QStringLiteral("rx/rx2FreqHz"), persistedRxHz).toUInt(),
+        std::memory_order_relaxed);
+    focusedRx_.store(std::clamp(
+        QSettings().value(QStringLiteral("rx/focusedRx"), 1).toInt(), 1, 2),
+        std::memory_order_relaxed);
+    if (!subEnabled_.load(std::memory_order_relaxed))
+        focusedRx_.store(1, std::memory_order_relaxed);
+    if (subEnabled_.load(std::memory_order_relaxed)
+        && splitEnabled_.load(std::memory_order_relaxed))
+        rx2FreqHz_.store(vfoBHz_.load(std::memory_order_relaxed),
+                         std::memory_order_relaxed);
     // RIT/XIT offsets (persisted; default disabled / 0).  Restored before
     // the first send so a persisted offset is applied from come-up.
     ritEnabled_.store(
@@ -1275,7 +1291,7 @@ void HL2Stream::open(const QString &ip) {
         const int rxHz =
             static_cast<int>(rx1FreqHz_.load(std::memory_order_relaxed));
         lyra::wire::set_rx_freq(0, rxHz);   // DDC0 RX1 (case 2/8/9)
-        lyra::wire::set_rx_freq(1, rxHz);   // DDC1 (case 3 — RX1-mirror until RX2)
+        writeDdc1Hz(rxHz);                  // DDC1: RX1-mirror unless SUB on
         lyra::wire::set_tx_freq(            // TX NCO + DDC2/3 mirror (case 1/5/6)
             txDdsHzForTune(txFreqHz_.load(std::memory_order_relaxed)));  // #105 CW carrier offset (carrier, not DDS)
         lyra::wire::set_rx_step_attn_db(    // LNA gain (case 11 !XmitBit)
@@ -1991,14 +2007,14 @@ void HL2Stream::pushEffectiveRxFreq() {
         }
         const int ci = static_cast<int>(center);
         lyra::wire::set_rx_freq(0, ci);  // DDC0 locked
-        lyra::wire::set_rx_freq(1, ci);  // DDC1 locked (until RX2)
+        writeDdc1Hz(ci);                 // DDC1: independent when SUB on
         const double shift = kCtuneShiftSign
             * static_cast<double>(eff - static_cast<qint64>(center));
         emit rxShiftHzChanged(shift);
     } else {
         const int hzi = static_cast<int>(eff);
         lyra::wire::set_rx_freq(0, hzi);  // DDC0 (case 2/8/9)
-        lyra::wire::set_rx_freq(1, hzi);  // DDC1 (case 3 — until RX2)
+        writeDdc1Hz(hzi);                 // DDC1: RX1-mirror unless SUB on
         // CTUNE off: non-CTUNE path stays byte-identical — no shift emit
         // here.  The one disengage shift-off is emitted from setCtuneCenterHz.
     }
@@ -2080,6 +2096,15 @@ void HL2Stream::setXitOffsetHz(int hz) {
         pushEffectiveTxFreq();
 }
 
+void HL2Stream::writeDdc1Hz(int ddc0Hz) {
+    if (subEnabled_.load(std::memory_order_relaxed)) {
+        lyra::wire::set_rx_freq(
+            1, static_cast<int>(rx2FreqHz_.load(std::memory_order_relaxed)));
+    } else {
+        lyra::wire::set_rx_freq(1, ddc0Hz);
+    }
+}
+
 void HL2Stream::setSplitEnabled(bool on) {
     const bool prev = splitEnabled_.exchange(on, std::memory_order_relaxed);
     if (prev == on)
@@ -2091,6 +2116,15 @@ void HL2Stream::setSplitEnabled(bool on) {
                   .arg(on ? QStringLiteral("VFO B") : QStringLiteral("VFO A")));
     // Re-point the TX NCO (+ PS-feedback DDCs) at the new source.
     pushEffectiveTxFreq();
+    // SUB + SPLIT: RX2 listens on VFO B (pile-up / hear-your-TX).
+    if (on && subEnabled_.load(std::memory_order_relaxed)) {
+        const quint32 b = vfoBHz_.load(std::memory_order_relaxed);
+        if (rx2FreqHz_.exchange(b, std::memory_order_relaxed) != b) {
+            QSettings().setValue(QStringLiteral("rx/rx2FreqHz"), b);
+            emit rx2FreqChanged();
+        }
+        pushEffectiveRxFreq();
+    }
 }
 
 void HL2Stream::setVfoBHz(quint32 hz) {
@@ -2104,6 +2138,68 @@ void HL2Stream::setVfoBHz(quint32 hz) {
     // VFO B only affects the wire while split is on (it IS the TX freq then).
     if (splitEnabled_.load(std::memory_order_relaxed))
         pushEffectiveTxFreq();
+    if (subEnabled_.load(std::memory_order_relaxed)
+        && splitEnabled_.load(std::memory_order_relaxed)) {
+        if (rx2FreqHz_.exchange(hz, std::memory_order_relaxed) != hz) {
+            QSettings().setValue(QStringLiteral("rx/rx2FreqHz"), hz);
+            emit rx2FreqChanged();
+        }
+        pushEffectiveRxFreq();
+    }
+}
+
+void HL2Stream::setSubEnabled(bool on) {
+    const bool prev = subEnabled_.exchange(on, std::memory_order_relaxed);
+    if (prev == on)
+        return;
+    QSettings().setValue(QStringLiteral("rx/subEnabled"), on);
+    if (!on && focusedRx_.load(std::memory_order_relaxed) != 1) {
+        focusedRx_.store(1, std::memory_order_relaxed);
+        QSettings().setValue(QStringLiteral("rx/focusedRx"), 1);
+        emit focusedRxChanged();
+    }
+    if (on && splitEnabled_.load(std::memory_order_relaxed)) {
+        const quint32 b = vfoBHz_.load(std::memory_order_relaxed);
+        if (rx2FreqHz_.exchange(b, std::memory_order_relaxed) != b) {
+            QSettings().setValue(QStringLiteral("rx/rx2FreqHz"), b);
+            emit rx2FreqChanged();
+        }
+    }
+    emit subEnabledChanged();
+    emit logLine(QStringLiteral("SUB %1")
+                     .arg(on ? QStringLiteral("on") : QStringLiteral("off")));
+    pushEffectiveRxFreq();
+}
+
+void HL2Stream::setRx2FreqHz(quint32 hz) {
+    const quint32 prev = rx2FreqHz_.exchange(hz, std::memory_order_relaxed);
+    if (prev == hz)
+        return;
+    QSettings().setValue(QStringLiteral("rx/rx2FreqHz"), hz);
+    emit rx2FreqChanged();
+    emit logLine(QStringLiteral("RX2 -> %1 Hz (%2 MHz)")
+                     .arg(hz).arg(hz / 1.0e6, 0, 'f', 6));
+    if (subEnabled_.load(std::memory_order_relaxed)
+        && splitEnabled_.load(std::memory_order_relaxed)) {
+        if (vfoBHz_.exchange(hz, std::memory_order_relaxed) != hz) {
+            QSettings().setValue(QStringLiteral("tx/vfoBHz"), hz);
+            emit vfoBHzChanged();
+            pushEffectiveTxFreq();
+        }
+    }
+    if (subEnabled_.load(std::memory_order_relaxed))
+        pushEffectiveRxFreq();
+}
+
+void HL2Stream::setFocusedRx(int rx) {
+    rx = (rx == 2) ? 2 : 1;
+    if (!subEnabled_.load(std::memory_order_relaxed))
+        rx = 1;
+    const int prev = focusedRx_.exchange(rx, std::memory_order_relaxed);
+    if (prev == rx)
+        return;
+    QSettings().setValue(QStringLiteral("rx/focusedRx"), rx);
+    emit focusedRxChanged();
 }
 
 // ---------------------------------------------------------------

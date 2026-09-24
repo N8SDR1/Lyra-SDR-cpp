@@ -18,7 +18,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.24.1
+    VERSION 0.24.2
     DESCRIPTION "Lyra — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
@@ -88,6 +88,7 @@ qt_add_executable(lyra
     src/wdsp_native.cpp
     src/wdsp_engine.h
     src/wdsp_engine.cpp
+    src/wdsp_engine_rx2.cpp
     src/mic_source.h
     src/mic_source.cpp
     src/win_perf.cpp

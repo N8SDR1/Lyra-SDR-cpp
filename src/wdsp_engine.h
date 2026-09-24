@@ -110,6 +110,9 @@ class WdspEngine : public QObject {
     Q_PROPERTY(double volume      READ volume      NOTIFY volumeChanged)
     Q_PROPERTY(double volumeDb    READ volumeDb    NOTIFY volumeChanged)
     Q_PROPERTY(bool   muted       READ muted       NOTIFY mutedChanged)
+    Q_PROPERTY(double volumeRx2   READ volumeRx2   NOTIFY volumeRx2Changed)
+    Q_PROPERTY(double volumeDbRx2 READ volumeDbRx2 NOTIFY volumeRx2Changed)
+    Q_PROPERTY(bool   mutedRx2    READ mutedRx2    NOTIFY mutedRx2Changed)
     // Auto-mute-on-TX (task #26): when the wire MOX bit settles true,
     // RX1 audio is force-muted so the operator doesn't self-deafen
     // off their own TX coupling.  Separate from the operator's manual
@@ -160,6 +163,14 @@ class WdspEngine : public QObject {
     // pitch) by the same rules applyModeFilter pushes to WDSP.
     Q_PROPERTY(double passbandLowHz  READ passbandLowHz  NOTIFY passbandChanged)
     Q_PROPERTY(double passbandHighHz READ passbandHighHz NOTIFY passbandChanged)
+    Q_PROPERTY(QString modeRx2 READ modeRx2 WRITE setModeRx2 NOTIFY modeRx2Changed)
+    Q_PROPERTY(int bandwidthRx2 READ bandwidthRx2 WRITE setBandwidthRx2
+               NOTIFY bandwidthRx2Changed)
+    Q_PROPERTY(double passbandLowHzRx2  READ passbandLowHzRx2
+               NOTIFY passbandRx2Changed)
+    Q_PROPERTY(double passbandHighHzRx2 READ passbandHighHzRx2
+               NOTIFY passbandRx2Changed)
+    Q_PROPERTY(int markerOffsetHzRx2 READ markerOffsetHzRx2 NOTIFY modeRx2Changed)
     // CW tone pitch (Hz).  In CW the displayed VFO is the signal CARRIER;
     // the DDS is offset by ±pitch so the carrier lands in the pitch-
     // centred filter (standard HF SDR convention).
@@ -343,6 +354,9 @@ public:
     double volume() const { return volume_.load(std::memory_order_relaxed); }
     double volumeDb() const;   // slider position -> dB (for UI readout)
     bool   muted()  const { return muted_.load(std::memory_order_relaxed); }
+    double volumeRx2() const { return volumeRx2_.load(std::memory_order_relaxed); }
+    double volumeDbRx2() const;
+    bool   mutedRx2() const { return mutedRx2_.load(std::memory_order_relaxed); }
     bool   txMuted() const { return txMuted_.load(std::memory_order_relaxed); }
     bool   autoMuteOnTx() const { return autoMuteOnTx_.load(std::memory_order_relaxed); }
     int    rxResumeDelayMs() const { return rxResumeDelayMs_.load(std::memory_order_relaxed); }
@@ -456,6 +470,8 @@ public:
     // setAudioOutputDevice: switch output device live (restarts sink).
     Q_INVOKABLE void setVolume(double v);
     Q_INVOKABLE void setMuted(bool m);
+    Q_INVOKABLE void setVolumeRx2(double v);
+    Q_INVOKABLE void setMutedRx2(bool m);
     // Auto-mute-on-TX driver: setTxMuted is wired to HL2Stream's
     // moxActiveChanged(bool) signal in main.cpp — fires true at the end
     // of the keydown TR-delay (wire MOX bit settled) and false at the
@@ -655,6 +671,13 @@ public:
 
     int  bandwidth() const { return bw_; }
     Q_INVOKABLE void setBandwidth(int hz);
+    QString modeRx2() const { return modeRx2_; }
+    Q_INVOKABLE void setModeRx2(const QString &m);
+    int  bandwidthRx2() const { return bwRx2_; }
+    Q_INVOKABLE void setBandwidthRx2(int hz);
+    double passbandLowHzRx2()  const { return passbandLowHzRx2_; }
+    double passbandHighHzRx2() const { return passbandHighHzRx2_; }
+    int  markerOffsetHzRx2() const { return cwMarkerOffsetForMode(modeRx2_); }
     // IQ sample rate (Hz).  Switching reopens the WDSP channel +
     // analyzer at the new rate (panadapter span follows).  Safe to call
     // while running — serialised against feedIq via channelMtx_.
@@ -749,6 +772,8 @@ public:
     // `edgeOffsetHz` (offset from the tuned centre) in the current mode.
     // The panadapter edge-drag calls this, then writes Prefs.rxBandwidth.
     Q_INVOKABLE int bandwidthForEdge(double edgeOffsetHz) const;
+    Q_INVOKABLE int bandwidthForModeEdge(const QString &mode,
+                                         double edgeOffsetHz) const;
     Q_INVOKABLE QStringList audioOutputDevices() const;
     Q_INVOKABLE void setAudioOutputDevice(int index);
 
@@ -802,8 +827,9 @@ public:
     Q_INVOKABLE void setVac1RxGainDb(double db);
     Q_INVOKABLE void setVac1AutoDigital(bool on);
     // VAC-in (PC → TX): input device + TX gain (reference "Gain TX (dB)" →
-    // vac_preamp).  The captured PC audio reaches TX only when the mic-source
-    // selector picks "PC Soundcard (VAC1)" (use_vac_audio).
+    // vac_preamp).  TX also arms when Auto-enable for digital modes is on,
+    // mode is DIGU/DIGL, a VAC Input device is selected, AND Mic source is
+    // not TCI (TCI CAT + TCI audio is left alone).
     QString vac1InputDeviceName() const   { return vac1InName_; }
     double  vac1TxGainDb() const          { return vac1TxGainDb_; }
     Q_INVOKABLE QStringList vac1InputDevices() const;
@@ -880,11 +906,23 @@ public:
     // automatically on destruction.
     Q_INVOKABLE void closeRx1();
 
+    // Second RX (WDSP channel 2 = xrouter source 2 / DDC1). Opened only
+    // while SUB is on. Channel 1 is reserved (DDC2/3 PureSignal).
+    Q_INVOKABLE bool openRx2();
+    Q_INVOKABLE void closeRx2();
+    Q_INVOKABLE void setSubEnabled(bool on);
+    void feedIqRx2(const double *iq, int nframes);
+
 signals:
     void runningChanged();
     void levelsChanged();
     void volumeChanged();
     void mutedChanged();
+    void volumeRx2Changed();
+    void mutedRx2Changed();
+    void modeRx2Changed();
+    void bandwidthRx2Changed();
+    void passbandRx2Changed();
     void txMutedChanged();
     void autoMuteOnTxChanged();
     void rxResumeDelayMsChanged();
@@ -1030,7 +1068,11 @@ private:
     void resetBinaural();
     // Passband edges (Hz offsets from centre) for mode_ + bw_ + pitch.
     void computePassband(double *lo, double *hi) const;
+    void computePassband(const QString &mode, int bw,
+                         double *lo, double *hi) const;
     void recomputePassband();   // store + emit passbandChanged
+    void applyModeFilterRx2();
+    void recomputePassbandRx2();
 
     // ── Task #44 Phase 2 — analyzer (re)config helpers ───────────────
     // Both factor the SetAnalyzer + detector/average mode setup that
@@ -1075,7 +1117,19 @@ private:
     // on the RX worker thread — so a rate change can't tear the channel
     // down mid-process.
     std::mutex  channelMtx_;
+    std::mutex  rx2Mtx_;
     int         channel_ = 0;
+    int         rx2Channel_ = 2;
+    bool        rx2Opened_ = false;
+    bool        subWanted_ = false;
+    bool        nbCreatedRx2_ = false;
+    int         fexErrRx2_ = 0;
+    std::atomic<bool> subMixActive_{false};
+    std::atomic<bool> haveRx2_{false};
+    std::vector<double> rx2Accum_;
+    std::vector<double> rx2OutBuf_;
+    std::vector<double> rx2NbBuf_;
+    std::vector<double> rx2L_;
     int         outSize_ = 0;
     bool        opened_  = false;
     bool        running_ = false;
@@ -1161,6 +1215,8 @@ private:
     // restored from QSettings in the ctor (default UNMUTED).
     std::atomic<double> volume_{0.65};
     std::atomic<bool>   muted_{false};
+    std::atomic<double> volumeRx2_{0.65};
+    std::atomic<bool>   mutedRx2_{false};
     // Auto-mute-on-TX (task #26).  txMuted_ tracks the live wire MOX bit
     // (false at boot; toggled by HL2Stream::moxActiveChanged).  Not
     // persisted — pure transient.  autoMuteOnTx_ is the operator's
@@ -1205,6 +1261,10 @@ private:
     // (UI setters + openRx1).  Default USB 2.4 kHz; CW centres on pitch.
     QString mode_       = QStringLiteral("USB");
     int     bw_         = 2400;
+    QString modeRx2_    = QStringLiteral("USB");
+    int     bwRx2_      = 2400;
+    double  passbandLowHzRx2_  = 200.0;
+    double  passbandHighHzRx2_ = 2400.0;
     double  cwPitchHz_  = 600.0;
     // Task #53 — shared RX+TX filter low edge (operator-tunable).
     // Default 100 Hz; setFilterLowHz clamps to [0, 500].

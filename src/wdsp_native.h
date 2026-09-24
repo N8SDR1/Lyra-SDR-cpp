@@ -103,6 +103,7 @@ using fn_SetRXAAGCThresh_t     = void (*)(int channel, double thresh,
                                           double size, double rate);
 using fn_SetRXAAGCSlope_t      = void (*)(int channel, int slope);
 using fn_SetRXAPanelGain1_t    = void (*)(int channel, double gain);
+using fn_SetRXAPanelPan_t      = void (*)(int channel, double pan);
 // RX meter read-back: GetRXAMeter(channel, meterType) → value.
 // meterType 0 = RXA_S_PK (peak signal strength, dBm-ish), 1 = RXA_S_AV.
 // The in-passband S-meter source standard HF SDR apps read.
@@ -421,6 +422,7 @@ struct WdspApi {
     fn_SetRXAAGCThresh_t     SetRXAAGCThresh     = nullptr;
     fn_SetRXAAGCSlope_t      SetRXAAGCSlope      = nullptr;
     fn_SetRXAPanelGain1_t    SetRXAPanelGain1    = nullptr;
+    fn_SetRXAPanelPan_t      SetRXAPanelPan      = nullptr;
     fn_GetRXAMeter_t         GetRXAMeter         = nullptr;
     fn_GetRXAAGCTop_t        GetRXAAGCTop        = nullptr;
     fn_SetRXAEMNRRun_t        SetRXAEMNRRun        = nullptr;

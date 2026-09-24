@@ -558,6 +558,11 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     volume_.store(std::clamp(
         s.value(QStringLiteral("audio/volume"), 0.65).toDouble(), 0.0, 1.0),
         std::memory_order_relaxed);
+    volumeRx2_.store(std::clamp(
+        s.value(QStringLiteral("audio/volumeRx2"), 0.65).toDouble(), 0.0, 1.0),
+        std::memory_order_relaxed);
+    mutedRx2_.store(s.value(QStringLiteral("audio/mutedRx2"), false).toBool(),
+                    std::memory_order_relaxed);
     afGainDb_ = std::clamp(
         s.value(QStringLiteral("audio/afGainDb"), 0.0).toDouble(), 0.0, 40.0);
     balance_.store(std::clamp(
@@ -1235,6 +1240,8 @@ bool WdspEngine::openRx1()
     // so a sample-rate reopen rebuilds at the new audio_size/audio_rate.
     applyVacEnvOnce();
     rebuildVac1();
+    if (subWanted_)
+        openRx2();
     return true;
 }
 
@@ -1243,6 +1250,7 @@ void WdspEngine::closeRx1()
     if (!opened_) {
         return;  // idempotent
     }
+    closeRx2();
     // #158 Stage 3 — tear down VAC1 FIRST: clears vac1Active_ under
     // vacMtx_ (so the mix thread stops feeding xvacOUT), stops IvacAudio
     // (joins the sink → no more rmatchOUT drains), then destroy_ivac
@@ -1919,28 +1927,25 @@ void WdspEngine::setZoom(double z)
 
 void WdspEngine::computePassband(double *lo, double *hi) const
 {
+    computePassband(mode_, bw_, lo, hi);
+}
+
+void WdspEngine::computePassband(const QString &mode, int bwHz,
+                                 double *lo, double *hi) const
+{
     // Per-mode passband edges (offsets from the tuned centre), matching
     // old Lyra's _wdsp_filter_for.  These map onto the HL2 mirrored
     // baseband so the sideband comes out correct (§14.2).
-    //
-    // Task #53 — the asymmetric SSB/DIG low edge is now operator-
-    // tunable via filterLow_ (was hardcoded 0).  USB/DIGU get the
-    // low cut at +filterLow_ (positive baseband side); LSB/DIGL
-    // mirror to -filterLow_.  filterLow_=0 reproduces the
-    // pre-Task-#53 behaviour exactly (low cut at the carrier
-    // centre).  CW filters are pitch-centred, low edge doesn't
-    // apply meaningfully — left unchanged.  AM/DSB/FM are
-    // symmetric around DC — also left unchanged.
-    const double bw   = static_cast<double>(bw_);
+    const double bw   = static_cast<double>(bwHz);
     const double half = bw / 2.0;
     const double flo  = filterLow_;   // 0..500 Hz operator-tunable
-    if (mode_ == QLatin1String("USB") || mode_ == QLatin1String("DIGU")) {
+    if (mode == QLatin1String("USB") || mode == QLatin1String("DIGU")) {
         *lo = flo;                *hi = bw;
-    } else if (mode_ == QLatin1String("LSB") || mode_ == QLatin1String("DIGL")) {
+    } else if (mode == QLatin1String("LSB") || mode == QLatin1String("DIGL")) {
         *lo = -bw;                *hi = -flo;
-    } else if (mode_ == QLatin1String("CWU")) {
+    } else if (mode == QLatin1String("CWU")) {
         *lo = cwPitchHz_ - half;  *hi = cwPitchHz_ + half;
-    } else if (mode_ == QLatin1String("CWL")) {
+    } else if (mode == QLatin1String("CWL")) {
         *lo = -cwPitchHz_ - half; *hi = -cwPitchHz_ + half;
     } else {                       // AM / DSB / FM (symmetric around DC)
         *lo = -half;              *hi = half;
@@ -2060,8 +2065,14 @@ void WdspEngine::applyDspFilterTypes()
     const WdspApi &api = wdsp_->api();
     const DspFamily fam = dspFamilyForMode(mode_);
     const int fi = static_cast<int>(fam);
-    if (api.RXASetMP)
+    if (api.RXASetMP) {
         api.RXASetMP(channel_, dspFiltMp_[fi][0] ? 1 : 0);
+        if (rx2Opened_) {
+            const DspFamily fam2 = dspFamilyForMode(modeRx2_);
+            const int fi2 = static_cast<int>(fam2);
+            api.RXASetMP(rx2Channel_, dspFiltMp_[fi2][0] ? 1 : 0);
+        }
+    }
     // CW TX is keyer/firmware — no TXA filter to set (reference parity).
     // The TXA channel (chid 1) is created lazily by create_xmtr() at
     // stream-connect; calling TXASetMP before that = AV on a null txa[1].
@@ -2077,20 +2088,24 @@ void WdspEngine::setTxaChannelOpen(bool open)
 
 int WdspEngine::bandwidthForEdge(double edgeOffsetHz) const
 {
+    return bandwidthForModeEdge(mode_, edgeOffsetHz);
+}
+
+int WdspEngine::bandwidthForModeEdge(const QString &mode,
+                                     double edgeOffsetHz) const
+{
     const double a = std::abs(edgeOffsetHz);
     double bw;
-    if (mode_ == QLatin1String("USB") || mode_ == QLatin1String("DIGU") ||
-        mode_ == QLatin1String("LSB") || mode_ == QLatin1String("DIGL")) {
+    if (mode == QLatin1String("USB") || mode == QLatin1String("DIGU") ||
+        mode == QLatin1String("LSB") || mode == QLatin1String("DIGL")) {
         bw = a;                                   // asymmetric: edge = cutoff
-    } else if (mode_ == QLatin1String("CWU")) {
+    } else if (mode == QLatin1String("CWU")) {
         bw = 2.0 * std::abs(edgeOffsetHz - cwPitchHz_);
-    } else if (mode_ == QLatin1String("CWL")) {
+    } else if (mode == QLatin1String("CWL")) {
         bw = 2.0 * std::abs(edgeOffsetHz + cwPitchHz_);
     } else {                                       // symmetric around DC
         bw = 2.0 * a;
     }
-    // Upper cap matches setBandwidth()'s 20 kHz ceiling so a dragged AM/DSB
-    // passband edge can reach the wide (16/20 k) AM presets, not stop at 12 k.
     return std::clamp(static_cast<int>(bw + 0.5), 50, 20000);
 }
 
@@ -2150,6 +2165,8 @@ void WdspEngine::setCwPitchHz(int hz)
     QSettings().setValue(QStringLiteral("dsp/cwPitchHz"), hz);
     recomputePassband();   // CW filter recentres on the new pitch
     applyModeFilter();
+    recomputePassbandRx2();
+    applyModeFilterRx2();
     pushApfState();        // APF peak tracks the CW pitch
     emit cwPitchChanged();
     emit markerOffsetChanged();   // VFO↔DDS offset changed (CW modes)
@@ -2305,6 +2322,8 @@ void WdspEngine::setFilterLowHz(int hz)
     filterLow_ = static_cast<double>(hz);
     recomputePassband();   // SSB/DIG passband shifts; CW/AM/DSB/FM unaffected
     applyModeFilter();
+    recomputePassbandRx2();
+    applyModeFilterRx2();
 }
 
 void WdspEngine::setMode(const QString &m)
@@ -2707,6 +2726,26 @@ void WdspEngine::setVolume(double v)
     emit volumeChanged();
 }
 
+double WdspEngine::volumeDbRx2() const
+{
+    return posToDb(volumeRx2_.load(std::memory_order_relaxed));
+}
+
+void WdspEngine::setVolumeRx2(double v)
+{
+    v = std::clamp(v, 0.0, 1.0);
+    volumeRx2_.store(v, std::memory_order_relaxed);
+    QSettings().setValue(QStringLiteral("audio/volumeRx2"), v);
+    emit volumeRx2Changed();
+}
+
+void WdspEngine::setMutedRx2(bool m)
+{
+    mutedRx2_.store(m, std::memory_order_relaxed);
+    QSettings().setValue(QStringLiteral("audio/mutedRx2"), m);
+    emit mutedRx2Changed();
+}
+
 // #90 TX monitor — operator MON toggle + level.  Stage 1 stores + persists;
 // dispatchAudioFrame consumes monEnabled_/monVolume_ on the audio thread in
 // Stage 3 (when MOX is up + MON on, emit the post-rack monitor tap scaled by
@@ -2781,8 +2820,17 @@ void WdspEngine::applyTxMuted_(bool m)
     // Called on the main thread (moxActiveChanged / rxResumeTimer_); SetRXAAGCMode
     // is already called main-thread during live RX (pushAgcMode), so safe.
     if (opened_ && wdsp_ && wdsp_->api().SetRXAAGCMode) {
-        if (m) wdsp_->api().SetRXAAGCMode(channel_, kAgcModeOff);
-        else   pushAgcMode();   // restore operator AGC mode + fresh var_gain
+        if (m) {
+            wdsp_->api().SetRXAAGCMode(channel_, kAgcModeOff);
+            if (rx2Opened_)
+                wdsp_->api().SetRXAAGCMode(rx2Channel_, kAgcModeOff);
+        } else {
+            pushAgcMode();   // restore operator AGC mode + fresh var_gain
+        }
+    }
+    if (rx2Opened_ && wdsp_ && wdsp_->api().SetChannelState) {
+        // Stop RX2 with RX1 on keydown (PS mixer garbage on DDC1 while keyed).
+        wdsp_->api().SetChannelState(rx2Channel_, m ? 0 : 1, 0);
     }
     const bool prev = txMuted_.exchange(m, std::memory_order_relaxed);
     if (prev != m) emit txMutedChanged();
@@ -2827,8 +2875,12 @@ void WdspEngine::setAfGainDb(double db)
     QSettings().setValue(QStringLiteral("audio/afGainDb"), db);
     {   // push to WDSP live (serialise against feedIq's fexchange0)
         std::lock_guard<std::mutex> lk(channelMtx_);
-        if (opened_ && wdsp_ && wdsp_->api().SetRXAPanelGain1)
-            wdsp_->api().SetRXAPanelGain1(channel_, std::pow(10.0, db / 20.0));
+        if (opened_ && wdsp_ && wdsp_->api().SetRXAPanelGain1) {
+            const double g = std::pow(10.0, db / 20.0);
+            wdsp_->api().SetRXAPanelGain1(channel_, g);
+            if (rx2Opened_)
+                wdsp_->api().SetRXAPanelGain1(rx2Channel_, g);
+        }
     }
     emit afGainChanged();
 }
@@ -2851,23 +2903,21 @@ void WdspEngine::pushNrState()
     if (!opened_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
     if (!api.SetRXAEMNRRun) return;   // EMNR not resolved -> nothing to push
-    // Mode 1..4 (UI) -> WDSP gain_method 0..3.
-    if (api.SetRXAEMNRgainMethod)
-        api.SetRXAEMNRgainMethod(channel_, std::clamp(nrMode_, 1, 4) - 1);
-    if (api.SetRXAEMNRnpeMethod)
-        api.SetRXAEMNRnpeMethod(channel_, std::clamp(npeMethod_, 0, 1));
-    if (api.SetRXAEMNRaeRun)
-        api.SetRXAEMNRaeRun(channel_, aepfEnabled_ ? 1 : 0);
-    // AEPF also engages WDSP's post-filter ("post2") — the dedicated
-    // anti-musical-noise stage that stock WDSP leaves off.  Params stay
-    // at WDSP's gentle create defaults (0.15/0.15/5.0/0.12); MMSE-LSA
-    // upstream keeps the voice natural, so the extra stage removes
-    // musical artifacts without a robotic character.
-    if (api.SetRXAEMNRpost2Run)
-        api.SetRXAEMNRpost2Run(channel_, aepfEnabled_ ? 1 : 0);
-    if (api.SetRXAEMNRPosition)
-        api.SetRXAEMNRPosition(channel_, 1);   // after AGC (standard position)
-    api.SetRXAEMNRRun(channel_, nrEnabled_ ? 1 : 0);
+    auto apply = [&](int ch) {
+        if (api.SetRXAEMNRgainMethod)
+            api.SetRXAEMNRgainMethod(ch, std::clamp(nrMode_, 1, 4) - 1);
+        if (api.SetRXAEMNRnpeMethod)
+            api.SetRXAEMNRnpeMethod(ch, std::clamp(npeMethod_, 0, 1));
+        if (api.SetRXAEMNRaeRun)
+            api.SetRXAEMNRaeRun(ch, aepfEnabled_ ? 1 : 0);
+        if (api.SetRXAEMNRpost2Run)
+            api.SetRXAEMNRpost2Run(ch, aepfEnabled_ ? 1 : 0);
+        if (api.SetRXAEMNRPosition)
+            api.SetRXAEMNRPosition(ch, 1);
+        api.SetRXAEMNRRun(ch, nrEnabled_ ? 1 : 0);
+    };
+    apply(channel_);
+    if (rx2Opened_) apply(rx2Channel_);
 }
 
 void WdspEngine::pushAgcMode()
@@ -2880,33 +2930,21 @@ void WdspEngine::pushAgcMode()
     else if (agcMode_ == QLatin1String("fast")) mode = kAgcModeFast;
     else if (agcMode_ == QLatin1String("slow")) mode = kAgcModeSlow;
     else                                        mode = kAgcModeMed;
-    api.SetRXAAGCMode(channel_, mode);
-    // Set the time constants EXPLICITLY per mode (the standard per-mode
-    // values) so Fast/Med/Slow are unmistakably distinct — the audible
-    // difference is mostly the HANG (Fast/Med = none, Slow = 1 s hold)
-    // plus the decay rate.  SetRXAAGCMode sets WDSP internal defaults
-    // too, but pushing them ourselves removes any doubt about the values.
-    // (Off = FIXD/fixed gain — decay/hang are irrelevant, left alone.)
-    //
-    // Operator-reported "AGC OFF louder than FAST/MED/SLOW" (#76A):
-    // mode 0 / FIXD applies fixed_gain as a static multiplier instead
-    // of envelope-tracked gain.  WDSP create-time default is 1000.0
-    // linear (+60 dB) which produces the backwards-loudness.  Push
-    // kAgcFixedGainDb on EVERY mode change regardless of current mode
-    // so a subsequent flip to OFF inherits the +20 dB reference-match
-    // value instead of WDSP's hot default.  Inert when mode != FIXD;
-    // a no-op when SetRXAAGCFixed didn't resolve (null guard).
-    if (api.SetRXAAGCFixed) {
-        api.SetRXAAGCFixed(channel_, kAgcFixedGainDb);
-    }
-    if (mode != kAgcModeOff) {
-        int decayMs = 250, hangMs = 0, hangThr = 100;   // med
-        if (mode == kAgcModeFast)      { decayMs =  50; hangMs =    0; hangThr = 100; }
-        else if (mode == kAgcModeSlow) { decayMs = 500; hangMs = 1000; hangThr =   0; }
-        if (api.SetRXAAGCDecay)         api.SetRXAAGCDecay(channel_, decayMs);
-        if (api.SetRXAAGCHang)          api.SetRXAAGCHang(channel_, hangMs);
-        if (api.SetRXAAGCHangThreshold) api.SetRXAAGCHangThreshold(channel_, hangThr);
-    }
+    auto apply = [&](int ch) {
+        api.SetRXAAGCMode(ch, mode);
+        if (api.SetRXAAGCFixed)
+            api.SetRXAAGCFixed(ch, kAgcFixedGainDb);
+        if (mode != kAgcModeOff) {
+            int decayMs = 250, hangMs = 0, hangThr = 100;
+            if (mode == kAgcModeFast)      { decayMs =  50; hangMs =    0; hangThr = 100; }
+            else if (mode == kAgcModeSlow) { decayMs = 500; hangMs = 1000; hangThr =   0; }
+            if (api.SetRXAAGCDecay)         api.SetRXAAGCDecay(ch, decayMs);
+            if (api.SetRXAAGCHang)          api.SetRXAAGCHang(ch, hangMs);
+            if (api.SetRXAAGCHangThreshold) api.SetRXAAGCHangThreshold(ch, hangThr);
+        }
+    };
+    apply(channel_);
+    if (rx2Opened_) apply(rx2Channel_);
 }
 
 void WdspEngine::setNrEnabled(bool on)
@@ -2959,13 +2997,15 @@ void WdspEngine::pushAgcThresh()
 {
     if (!opened_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
-    if (api.SetRXAAGCSlope) {
-        api.SetRXAAGCSlope(channel_, kAgcSlope);
-    }
-    if (api.SetRXAAGCThresh) {
-        api.SetRXAAGCThresh(channel_, agcThreshDb_, kAgcThreshFftSize,
-                            static_cast<double>(cfg_.inRate));
-    }
+    auto apply = [&](int ch) {
+        if (api.SetRXAAGCSlope)
+            api.SetRXAAGCSlope(ch, kAgcSlope);
+        if (api.SetRXAAGCThresh)
+            api.SetRXAAGCThresh(ch, agcThreshDb_, kAgcThreshFftSize,
+                                static_cast<double>(cfg_.inRate));
+    };
+    apply(channel_);
+    if (rx2Opened_) apply(rx2Channel_);
 }
 
 // No-persist core: clamp/store/push + emit, no QSettings write.  The latch
@@ -3134,9 +3174,13 @@ void WdspEngine::pushAnfState()
     if (!opened_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
     if (!api.SetRXAANFRun) return;
-    if (api.SetRXAANFVals)            // carrier-null defaults (taps/delay/gain/leak)
-        api.SetRXAANFVals(channel_, 64, 16, 1.0e-3, 1.0e-7);
-    api.SetRXAANFRun(channel_, anfEnabled_ ? 1 : 0);
+    auto apply = [&](int ch) {
+        if (api.SetRXAANFVals)
+            api.SetRXAANFVals(ch, 64, 16, 1.0e-3, 1.0e-7);
+        api.SetRXAANFRun(ch, anfEnabled_ ? 1 : 0);
+    };
+    apply(channel_);
+    if (rx2Opened_) apply(rx2Channel_);
 }
 
 void WdspEngine::pushLmsState()
@@ -3144,14 +3188,17 @@ void WdspEngine::pushLmsState()
     if (!opened_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
     if (!api.SetRXAANRRun) return;
-    if (api.SetRXAANRVals) {
-        // strength 0..1 -> taps 32..128 + adapt rate (gain) 8e-5..16e-4.
-        const double s    = std::clamp(lmsStrength_, 0.0, 1.0);
-        const int    taps = 32 + static_cast<int>(std::lround(96.0 * s));
-        const double gain = 8.0e-5 + (16.0e-4 - 8.0e-5) * s;
-        api.SetRXAANRVals(channel_, taps, 16, gain, 1.0e-7);
-    }
-    api.SetRXAANRRun(channel_, lmsEnabled_ ? 1 : 0);
+    auto apply = [&](int ch) {
+        if (api.SetRXAANRVals) {
+            const double s    = std::clamp(lmsStrength_, 0.0, 1.0);
+            const int    taps = 32 + static_cast<int>(std::lround(96.0 * s));
+            const double gain = 8.0e-5 + (16.0e-4 - 8.0e-5) * s;
+            api.SetRXAANRVals(ch, taps, 16, gain, 1.0e-7);
+        }
+        api.SetRXAANRRun(ch, lmsEnabled_ ? 1 : 0);
+    };
+    apply(channel_);
+    if (rx2Opened_) apply(rx2Channel_);
 }
 
 void WdspEngine::setAnfEnabled(bool on)
@@ -3318,37 +3365,36 @@ void WdspEngine::pushSquelchState()
 {
     if (!opened_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
-    const bool fm  = (mode_ == QLatin1String("FM"));
-    const bool am  = (mode_ == QLatin1String("AM") ||
-                      mode_ == QLatin1String("SAM") ||
-                      mode_ == QLatin1String("DSB"));
-    const bool ssb = !fm && !am;   // USB/LSB/CWU/CWL/DIGU/DIGL/SPEC
     const bool on  = squelchEnabled_;
     const double t = std::clamp(squelchThreshold_, 0.0, 1.0);
 
-    // SSQL — SSB/CW/DIG voice-presence squelch.  *0.65 scale puts the
-    // WU2O-tested-good default (~0.16) at a comfortable slider zone; the
-    // tau pair gives a snappy unmute + a hang that doesn't clamp between
-    // syllables (bench-tunable).
-    if (api.SetRXASSQLRun) {
-        if (api.SetRXASSQLTauMute)   api.SetRXASSQLTauMute(channel_, 0.7);
-        if (api.SetRXASSQLTauUnMute) api.SetRXASSQLTauUnMute(channel_, 0.1);
-        if (api.SetRXASSQLThreshold) api.SetRXASSQLThreshold(channel_, t * 0.65);
-        api.SetRXASSQLRun(channel_, (on && ssb) ? 1 : 0);
-    }
-    // FM squelch (noise-level threshold; log map so the slider feels even).
-    if (api.SetRXAFMSQRun) {
-        if (api.SetRXAFMSQThreshold)
-            api.SetRXAFMSQThreshold(channel_, std::pow(10.0, -2.0 * t));
-        api.SetRXAFMSQRun(channel_, (on && fm) ? 1 : 0);
-    }
-    // AM squelch (carrier-level threshold, ~-160..-30 dB; short tail).
-    if (api.SetRXAAMSQRun) {
-        if (api.SetRXAAMSQMaxTail)   api.SetRXAAMSQMaxTail(channel_, 0.5);
-        if (api.SetRXAAMSQThreshold)
-            api.SetRXAAMSQThreshold(channel_, -160.0 + t * 130.0);
-        api.SetRXAAMSQRun(channel_, (on && am) ? 1 : 0);
-    }
+    auto apply = [&](int ch, const QString &mode) {
+        const bool fm  = (mode == QLatin1String("FM"));
+        const bool am  = (mode == QLatin1String("AM") ||
+                          mode == QLatin1String("SAM") ||
+                          mode == QLatin1String("DSB"));
+        const bool ssb = !fm && !am;
+        if (api.SetRXASSQLRun) {
+            if (api.SetRXASSQLTauMute)   api.SetRXASSQLTauMute(ch, 0.7);
+            if (api.SetRXASSQLTauUnMute) api.SetRXASSQLTauUnMute(ch, 0.1);
+            if (api.SetRXASSQLThreshold) api.SetRXASSQLThreshold(ch, t * 0.65);
+            api.SetRXASSQLRun(ch, (on && ssb) ? 1 : 0);
+        }
+        if (api.SetRXAFMSQRun) {
+            if (api.SetRXAFMSQThreshold)
+                api.SetRXAFMSQThreshold(ch, std::pow(10.0, -2.0 * t));
+            api.SetRXAFMSQRun(ch, (on && fm) ? 1 : 0);
+        }
+        if (api.SetRXAAMSQRun) {
+            if (api.SetRXAAMSQMaxTail)   api.SetRXAAMSQMaxTail(ch, 0.5);
+            if (api.SetRXAAMSQThreshold)
+                api.SetRXAAMSQThreshold(ch, -160.0 + t * 130.0);
+            api.SetRXAAMSQRun(ch, (on && am) ? 1 : 0);
+        }
+    };
+    apply(channel_, mode_);
+    if (haveRx2_.load(std::memory_order_relaxed))
+        apply(rx2Channel_, modeRx2_);
 }
 
 void WdspEngine::setSquelchEnabled(bool on)
@@ -3376,18 +3422,19 @@ void WdspEngine::setSquelchThreshold(double t)
 
 void WdspEngine::pushNbState()
 {
-    if (!opened_ || !nbCreated_ || !wdsp_) return;
+    if (!opened_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
-    if (api.SetEXTNOBThreshold) {
-        // strength 0..1 -> threshold 12..2.5 (light..heavy).  LOWER
-        // threshold = more aggressive blanking; clamp to the working
-        // 1.5..50 range (light≈10, heavy≈3 ported from the Python tree).
-        double th = 12.0 - 9.5 * std::clamp(nbStrength_, 0.0, 1.0);
-        th = std::clamp(th, 1.5, 50.0);
-        api.SetEXTNOBThreshold(channel_, th);
-    }
-    if (api.SetEXTNOBRun)
-        api.SetEXTNOBRun(channel_, nbEnabled_ ? 1 : 0);
+    double th = 12.0 - 9.5 * std::clamp(nbStrength_, 0.0, 1.0);
+    th = std::clamp(th, 1.5, 50.0);
+    auto apply = [&](int ch, bool created) {
+        if (!created) return;
+        if (api.SetEXTNOBThreshold)
+            api.SetEXTNOBThreshold(ch, th);
+        if (api.SetEXTNOBRun)
+            api.SetEXTNOBRun(ch, nbEnabled_ ? 1 : 0);
+    };
+    apply(channel_, nbCreated_);
+    apply(rx2Channel_, nbCreatedRx2_);
 }
 
 void WdspEngine::setNbEnabled(bool on)
@@ -3419,14 +3466,18 @@ void WdspEngine::pushApfState()
     if (!opened_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
     if (!api.SetRXABiQuadRun) return;
-    const bool cw = (mode_ == QLatin1String("CWU") ||
-                     mode_ == QLatin1String("CWL"));
-    // Peak centred on the CW pitch, ~75 Hz wide, operator-set gain (dB→linear).
-    if (api.SetRXABiQuadFreq)      api.SetRXABiQuadFreq(channel_, cwPitchHz_);
-    if (api.SetRXABiQuadBandwidth) api.SetRXABiQuadBandwidth(channel_, 75.0);
-    if (api.SetRXABiQuadGain)
-        api.SetRXABiQuadGain(channel_, std::pow(10.0, apfGainDb_ / 20.0));
-    api.SetRXABiQuadRun(channel_, (apfEnabled_ && cw) ? 1 : 0);
+    auto apply = [&](int ch, const QString &mode) {
+        const bool cw = (mode == QLatin1String("CWU") ||
+                         mode == QLatin1String("CWL"));
+        if (api.SetRXABiQuadFreq)      api.SetRXABiQuadFreq(ch, cwPitchHz_);
+        if (api.SetRXABiQuadBandwidth) api.SetRXABiQuadBandwidth(ch, 75.0);
+        if (api.SetRXABiQuadGain)
+            api.SetRXABiQuadGain(ch, std::pow(10.0, apfGainDb_ / 20.0));
+        api.SetRXABiQuadRun(ch, (apfEnabled_ && cw) ? 1 : 0);
+    };
+    apply(channel_, mode_);
+    if (haveRx2_.load(std::memory_order_relaxed))
+        apply(rx2Channel_, modeRx2_);
 }
 
 void WdspEngine::setApfEnabled(bool on)
@@ -4288,12 +4339,10 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
         }
     }
 
-    // #59 RX EQ — shape the post-RXA receive audio (mono-dup L==R) BEFORE all
-    // tees (jack / PC sink / TCI / VAC), the way the reference EQs inside RXA.
-    // `audio` is const + feeds every consumer, so EQ a mutable copy and
-    // repoint the local pointer at it.  Gated: engine present, operator not
-    // bypassing (the panel ON/OFF, any mode), and not a digital mode
-    // (DIGU/DIGL stay flat for the decoders).  Analyzer fed pre/post (panel).
+    // #59 RX EQ — shape post-RXA audio BEFORE tees.  Single-RX is
+    // mono-dup (L==R); SUB has RX1 on L and RX2 on R — EQ those
+    // independently.  processMonoDup copies L onto R and would wipe RX2.
+    const bool subMix = subMixActive_.load(std::memory_order_relaxed);
     if (auto *rxeq = rxEq_.load(std::memory_order_acquire);
         rxeq && nframes > 0 && !rxeq->bypassed() &&
         !rxEqModeBypass_.load(std::memory_order_relaxed)) {
@@ -4307,8 +4356,13 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
             thread_local double preBuf[kRxEqMaxBlk];
             for (int k = 0; k < nframes; ++k)
                 preBuf[k] = rxEqBuf_[static_cast<size_t>(2 * k)];
-            rxeq->processMonoDup(rxEqBuf_.data(), nframes);
+            if (subMix)
+                rxeq->processStereoIndependent(rxEqBuf_.data(), nframes);
+            else
+                rxeq->processMonoDup(rxEqBuf_.data(), nframes);
             rxan->feed(preBuf, rxEqBuf_.data(), nframes);
+        } else if (subMix) {
+            rxeq->processStereoIndependent(rxEqBuf_.data(), nframes);
         } else {
             rxeq->processMonoDup(rxEqBuf_.data(), nframes);
         }
@@ -4404,6 +4458,11 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
     const bool   vacMuted   = muted_.load(std::memory_order_relaxed) &&
                               muteWillMuteVac_.load(std::memory_order_relaxed);
     const double vacGain    = vacMuted ? 0.0 : vacVolGain;
+    const bool vacMuteVac = muteWillMuteVac_.load(std::memory_order_relaxed);
+    const double vacGainRx2 = (mutedRx2_.load(std::memory_order_relaxed)
+                               && vacMuteVac)
+        ? 0.0
+        : posToGain(volumeRx2_.load(std::memory_order_relaxed));
     if (vac1Active_.load(std::memory_order_relaxed)) {
         std::lock_guard<std::mutex> lk(vacMtx_);
         if (vac1Active_.load(std::memory_order_relaxed) &&
@@ -4419,8 +4478,17 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
             if (static_cast<int>(vacRxScaled_.size()) != vacN2) {
                 vacRxScaled_.assign(static_cast<size_t>(vacN2), 0.0);
             }
-            for (int i = 0; i < vacN2; ++i) {
-                vacRxScaled_[static_cast<size_t>(i)] = audio[i] * vacGain;
+            if (subMix) {
+                for (int f = 0; f < nframes; ++f) {
+                    vacRxScaled_[static_cast<size_t>(2 * f + 0)] =
+                        audio[2 * f + 0] * vacGain;
+                    vacRxScaled_[static_cast<size_t>(2 * f + 1)] =
+                        audio[2 * f + 1] * vacGainRx2;
+                }
+            } else {
+                for (int i = 0; i < vacN2; ++i) {
+                    vacRxScaled_[static_cast<size_t>(i)] = audio[i] * vacGain;
+                }
             }
             lyra::wire::xvacOUT(kVac1Id, /*stream*/1, vacRxScaled_.data());
             // #90 Route 2 — feed the TX monitor into VAC stream-2 (mixer
@@ -4483,6 +4551,19 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
             const double m = monScratch_[static_cast<size_t>(f)] * monGain;
             l = m;
             r = m;
+        } else if (subMix) {
+            // SUB: L = RX1, R = RX2.  Per-RX Vol/Mute, then Bal pans 1 vs 2.
+            // Skip BIN (that is a single-RX Hilbert nicety).
+            const bool m2 = mutedRx2_.load(std::memory_order_relaxed);
+            const double gL = (m_manual || m_tx)
+                ? 0.0
+                : posToGain(volume_.load(std::memory_order_relaxed));
+            const double gR = (m2 || m_tx)
+                ? 0.0
+                : posToGain(volumeRx2_.load(std::memory_order_relaxed));
+            const double hl2 = hl2Out_ ? kHl2OutAtten : 1.0;
+            l = audio[static_cast<size_t>(2 * f + 0)] * gL * hl2 * lBal;
+            r = audio[static_cast<size_t>(2 * f + 1)] * gR * hl2 * rBal;
         } else {
             l = audio[static_cast<size_t>(2 * f + 0)] * gain;
             r = audio[static_cast<size_t>(2 * f + 1)] * gain;
@@ -4683,6 +4764,37 @@ void WdspEngine::feedIq(const double *iq, int nframes)
         }
         const double db = (peak > 0.0) ? 20.0 * std::log10(peak) : -200.0;
         audioDbFs_.store(db, std::memory_order_relaxed);
+
+        // SUB stereo: RX1 stays left; RX2's demod (L of its stereo pair)
+        // becomes the right channel.  Per-RX volume is applied later in
+        // dispatchAudioFrame.  Lock order: channelMtx_ (held here) then
+        // rx2Mtx_.  SUB-off: haveRx2_ is false → this is a no-op.
+        if (haveRx2_.load(std::memory_order_acquire) &&
+            !txMuted_.load(std::memory_order_relaxed)) {
+            std::lock_guard<std::mutex> lk(rx2Mtx_);
+            if (rx2Opened_ &&
+                rx2OutBuf_.size() >= static_cast<size_t>(2 * outSize_)) {
+                for (int i = 0; i < outSize_; ++i)
+                    outBuf_[static_cast<size_t>(2 * i + 1)] =
+                        rx2OutBuf_[static_cast<size_t>(2 * i + 0)];
+                double rPeak = 0.0;
+                for (int i = 0; i < outSize_; ++i) {
+                    const double a = std::fabs(
+                        rx2OutBuf_[static_cast<size_t>(2 * i + 0)]);
+                    if (a > rPeak) rPeak = a;
+                }
+                static thread_local qint64 s_lastRx2LogMs = 0;
+                const qint64 now = QDateTime::currentMSecsSinceEpoch();
+                if (now - s_lastRx2LogMs >= 1000) {
+                    s_lastRx2LogMs = now;
+                    const double rdb =
+                        (rPeak > 0.0) ? 20.0 * std::log10(rPeak) : -200.0;
+                    emitLog(QStringLiteral(
+                        "[wdsp] RX2 audio peak %1 dBFS (right ear / Vol2)")
+                                .arg(rdb, 0, 'f', 1));
+                }
+            }
+        }
 
         // TCI audio stream tap MOVED to dispatchAudioFrame (#90 Route 3) so
         // all monitor routes drain the one ring on one thread.  The

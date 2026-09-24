@@ -1178,7 +1178,7 @@ void TciServer::sendInit(QWebSocket *ws) {
     sendTo(ws, QStringLiteral("device:%1").arg(dev));
     sendTo(ws, QStringLiteral("receive_only:false"));
     sendTo(ws, QStringLiteral("trx_count:1"));
-    sendTo(ws, QStringLiteral("channels_count:1"));   // RX1 only (no RX2 yet) — reference sendInit spelling
+    sendTo(ws, QStringLiteral("channels_count:2"));   // RX1 + RX2 (SUB); TCI ch1 = RX2
     sendTo(ws, QStringLiteral("vfo_limits:%1,%2").arg(kVfoLo).arg(kVfoHi));
     sendTo(ws, QStringLiteral("if_limits:%1,%2").arg(-half).arg(half));
     sendTo(ws, QStringLiteral("modulations_list:") + modulationsList());
@@ -1216,6 +1216,8 @@ void TciServer::sendInit(QWebSocket *ws) {
     if (sendInitialState_) {
         const qint64 carrier = hz + marker;
         sendTo(ws, QStringLiteral("dds:0,%1").arg(hz));        // DDS centre
+        if (stream_)
+            sendTo(ws, QStringLiteral("dds:1,%1").arg(stream_->rx2FreqHz()));
         sendTo(ws, QStringLiteral("vfo:0,0,%1").arg(carrier)); // operating carrier (VFO A)
         const qint64 vfobCarrier =
             (stream_ ? qint64(stream_->vfoBHz()) : hz) + marker;
@@ -1228,10 +1230,16 @@ void TciServer::sendInit(QWebSocket *ws) {
     // 2385-2507) so a client relying on the connect seed for mode/run isn't
     // left blind when send-initial-state is off.
     sendTo(ws, QStringLiteral("modulation:0,%1").arg(mode));
+    if (prefs_)
+        sendTo(ws, QStringLiteral("modulation:1,%1")
+                       .arg(toTciMode(prefs_->modeRx2())));
     if (engine_) {
         sendTo(ws, QStringLiteral("rx_filter_band:0,%1,%2")
                        .arg(qRound(engine_->passbandLowHz()))
                        .arg(qRound(engine_->passbandHighHz())));
+        sendTo(ws, QStringLiteral("rx_filter_band:1,%1,%2")
+                       .arg(qRound(engine_->passbandLowHzRx2()))
+                       .arg(qRound(engine_->passbandHighHzRx2())));
         {   // Thetis sendVolume: one-decimal (F1), skip out-of-[-60,0].
             const double v = engine_->volumeDb();
             if (v >= -60.0 && v <= 0.0)
@@ -1240,6 +1248,22 @@ void TciServer::sendInit(QWebSocket *ws) {
         sendTo(ws, QStringLiteral("mute:%1")
                        .arg(engine_->muted() ? QStringLiteral("true")
                                              : QStringLiteral("false")));
+        {
+            const double v0 = engine_->volumeDb();
+            if (v0 >= -60.0 && v0 <= 0.0)
+                sendTo(ws, QStringLiteral("rx_volume:0,0,%1")
+                               .arg(QString::number(v0, 'f', 1)));
+            const double v1 = engine_->volumeDbRx2();
+            if (v1 >= -60.0 && v1 <= 0.0)
+                sendTo(ws, QStringLiteral("rx_volume:1,0,%1")
+                               .arg(QString::number(v1, 'f', 1)));
+        }
+        sendTo(ws, QStringLiteral("rx_mute:0,%1")
+                       .arg(engine_->muted() ? QStringLiteral("true")
+                                             : QStringLiteral("false")));
+        sendTo(ws, QStringLiteral("rx_mute:1,%1")
+                       .arg(engine_->mutedRx2() ? QStringLiteral("true")
+                                                : QStringLiteral("false")));
     }
     const bool keyed = stream_ && stream_->moxActive();
     sendTo(ws, QStringLiteral("split_enable:0,%1")               // Thetis sendSplit(0,VFOSplit)
@@ -1418,9 +1442,14 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         bool okc = false; const int ch = args.size() >= 1 ? parseChannel(args[0], &okc) : -1;
         if (!okc) return;
         if (args.size() >= 2) {
-            if (ch == 0 && stream_) { bool f=false; qint64 v=args[1].toLongLong(&f);
-                if (f) stream_->setRx1FreqHz(quint32(v)); }
+            bool f=false; qint64 v=args[1].toLongLong(&f);
+            if (f && stream_) {
+                if (ch == 0) stream_->setRx1FreqHz(quint32(v));
+                else if (ch == 1) stream_->setRx2FreqHz(quint32(v));
+            }
         } else if (ch == 0) sendTo(ws, QStringLiteral("dds:0,%1").arg(curHz));
+        else if (ch == 1 && stream_)
+            sendTo(ws, QStringLiteral("dds:1,%1").arg(stream_->rx2FreqHz()));
         return;
     }
     if (cmd == QStringLiteral("VFO")) {
@@ -1495,10 +1524,17 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
             // Skip the set on an UNKNOWN mode token (fromTciMode returns "") —
             // as Thetis ignores an unrecognized modulation instead of applying it.
             const QString lm = fromTciMode(args[1], curHz);
-            if (ch == 0 && prefs_ && !lm.isEmpty()) prefs_->setMode(lm);
+            if (prefs_ && !lm.isEmpty()) {
+                if (ch == 0) prefs_->setMode(lm);
+                else if (ch == 1) prefs_->setModeRx2(lm);
+            }
         } else if (ch == 0) {
             const QString m = prefs_ ? toTciMode(prefs_->mode()) : QStringLiteral("USB");
             sendTo(ws, QStringLiteral("modulation:0,%1").arg(m));
+        } else if (ch == 1) {
+            const QString m = prefs_ ? toTciMode(prefs_->modeRx2())
+                                     : QStringLiteral("USB");
+            sendTo(ws, QStringLiteral("modulation:1,%1").arg(m));
         }
         return;
     }
@@ -1508,11 +1544,22 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         if (args.size() >= 3 && engine_) {
             bool a=false,b=false; const qint64 lo=args[1].toLongLong(&a);
             const qint64 hi=args[2].toLongLong(&b);
-            if (a && b && ch == 0) engine_->setBandwidth(int(qAbs(hi - lo)));
+            if (a && b) {
+                const int bw = int(qAbs(hi - lo));
+                if (ch == 0) engine_->setBandwidth(bw);
+                else if (ch == 1) {
+                    if (prefs_) prefs_->setRx2Bandwidth(bw);
+                    engine_->setBandwidthRx2(bw);
+                }
+            }
         } else if (ch == 0 && engine_) {
             sendTo(ws, QStringLiteral("rx_filter_band:0,%1,%2")
                            .arg(qRound(engine_->passbandLowHz()))
                            .arg(qRound(engine_->passbandHighHz())));
+        } else if (ch == 1 && engine_) {
+            sendTo(ws, QStringLiteral("rx_filter_band:1,%1,%2")
+                           .arg(qRound(engine_->passbandLowHzRx2()))
+                           .arg(qRound(engine_->passbandHighHzRx2())));
         }
         return;
     }
@@ -1531,21 +1578,34 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         return;
     }
     if (cmd == QStringLiteral("RX_VOLUME")) {
-        bool okc=false; const int ch = args.size()>=2 ? parseChannel(args[1],&okc) : -1;
+        // rx_volume:<rx>,0,<db> — args[0] is the RX index (0=RX1, 1=RX2).
+        bool okc=false; const int rx = args.size()>=1 ? parseChannel(args[0],&okc) : -1;
         if (!okc) return;
         if (args.size() >= 3 && engine_) { bool f=false; double db=args[2].toDouble(&f);
-            if (f && ch==0) engine_->setVolume(dbToLinear(db)); }
-        else if (ch==0 && engine_)
+            if (f) {
+                if (rx == 0) engine_->setVolume(dbToLinear(db));
+                else if (rx == 1) engine_->setVolumeRx2(dbToLinear(db));
+            }
+        } else if (rx == 0 && engine_)
             sendTo(ws, QStringLiteral("rx_volume:0,0,%1").arg(qRound(engine_->volumeDb())));
+        else if (rx == 1 && engine_)
+            sendTo(ws, QStringLiteral("rx_volume:1,0,%1").arg(qRound(engine_->volumeDbRx2())));
         return;
     }
     if (cmd == QStringLiteral("RX_MUTE")) {
         bool okc=false; const int ch = args.size()>=1 ? parseChannel(args[0],&okc) : -1;
         if (!okc) return;
-        if (args.size() >= 2 && engine_) { if (ch==0) engine_->setMuted(parseBool(args[1])); }
+        if (args.size() >= 2 && engine_) {
+            if (ch == 0) engine_->setMuted(parseBool(args[1]));
+            else if (ch == 1) engine_->setMutedRx2(parseBool(args[1]));
+        }
         else if (ch==0 && engine_)
             sendTo(ws, QStringLiteral("rx_mute:0,%1")
                        .arg(engine_->muted() ? QStringLiteral("true") : QStringLiteral("false")));
+        else if (ch==1 && engine_)
+            sendTo(ws, QStringLiteral("rx_mute:1,%1")
+                       .arg(engine_->mutedRx2() ? QStringLiteral("true")
+                                                : QStringLiteral("false")));
         return;
     }
     if (cmd == QStringLiteral("CW_PITCH")) {

@@ -62,6 +62,13 @@ struct RadioCapabilities {
     int         protocol   = 0;          // 1 = HPSDR Protocol 1, 2 = Protocol 2
     int         maxReceivers = 0;        // logical DDC / receiver count
                                          //   (discovery numRxs is authoritative per unit)
+    int         nRx = 1;                 // operator receivers (SUB/RX2), not wire DDC count
+    bool        independentBand = false; // true = two ADCs (ANAN). Brick:
+                                         // two VFOs on one ADC via SUB/DDC1.
+    bool        diversityCapable = false;
+    bool        psDdcReserved = false;   // DDC2/DDC3 (or P2 PS DDC) reserved for PureSignal
+    int         psDdcFirst = 2;          // first PS-reserved DDC index
+    int         psDdcCount = 2;          // consecutive reserved DDC count
     int         adcBits    = 0;          // 12 (HL2) | 14 (Brick / ANAN-class)
 
     // Physical mic-in + audio-out jacks on the unit.

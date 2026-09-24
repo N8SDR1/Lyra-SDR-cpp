@@ -226,13 +226,14 @@ until the gate passes.
   24-bit — different from P1's EP6 slot layout. The unpack is new code.
   (Normalization constant is a Stage-3 bench detail: deskHPSDR builds a
   24-bit-aligned int × `1/2²³`; confirm the net ±1 scaling on our unit.)
-- **🔴 Sequence rule — unit-test it.** Control packets (general, HP) send
-  sequence **always zero**; only data streams increment. The radio must
-  not dedupe control on sequence — and the hardened p2app's own
-  regression notes cite a **real bug** where a client that deduped
-  control-on-sequence **froze frequency / drive updates after the first
-  packet**. Whatever P2 composer lands gets a unit test asserting
-  control-sequence stays 0 and repeated same-sequence control is applied.
+- **🔴 Sequence rule — unit-test it.** General + HP stay sequence
+  **always zero** (only IQ/mic/TX data streams increment those). The
+  radio must not dedupe *those* on sequence — a client that deduped
+  HP/general froze frequency / drive after the first packet.
+  **Exception (Brick / deskHPSDR): DDC-specific (`receive_specific` to
+  `:1025`) increments a dedicated counter.** Firmware that ignores a
+  later DDC-enable when seq stays 0 is why SUB/DDC1 can sit at 0 pkt/s
+  while DDC0 on 1035 is healthy. Do not "fix" DDC-specific back to seq 0.
 
 ---
 

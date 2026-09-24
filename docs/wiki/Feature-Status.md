@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.24.1** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.24.2** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
@@ -9,7 +9,8 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 ## Radio &amp; connection
 
 - ✅ HPSDR **Protocol 1** discovery (multi-NIC, subnet-directed broadcast) + **Add by IP** for fixed-IP / cross-subnet radios
-- ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator)
+- ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator); discovery firmware shown as **v10.6**-style (deskHPSDR-parity), not “fw v0”
+- ✅ **SUB / RX2 on BrickSDR2** — second DDC, second pan/waterfall overlay, independent VFO; click the off-span **◀ RX2 / RX2 ▶** emblem to jump the pan to that receiver
 - ✅ Multi-radio list, auto-connect to the last radio, installer firewall rules (connect without admin rights)
 - ✅ **Stale-IP** guard (won't freeze trying to reach a radio that moved)
 
@@ -28,7 +29,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 
 - ✅ **SSB** (USB / LSB), **AM** (proper carrier + both sidebands), **SAM**, **DSB** (suppressed carrier), **FM** (deviation / pre-emphasis / CTCSS)
 - ✅ **CW** — internal iambic keyer (paddle / straight key), keyboard send, **CWX**, contest **macro bank** ({CALL}/{RST}/{NAME}…), QSK / semi / manual break-in, adjustable sidetone
-- ✅ **Digital** via **TCI** and **virtual audio cable (VAC1)** — WSJT-X / MSHV / JTDX / FLDigi / VarAC, or drive Lyra from your logger
+- ✅ **Digital** via **TCI** and **virtual audio cable (VAC1)** — WSJT-X / MSHV / JTDX / FLDigi / VarAC, or drive Lyra from your logger. VAC **Enable** is RX; **Mic source = VAC1** (or **Use VAC1 as TX source**) is TX. TCI audio and VAC TX are mutually exclusive.
 - ✅ TX power / drive, separate **tune drive**, AM carrier level, mic gain + **20 dB mic boost**; Protocol 2 uses analog drive (HP [345]) plus per-band **PA Gain / Full Output / CAP**, including a dedicated **11m** slot
 - ✅ Always-on **ALC** + operator **Leveler**, **PHROT** phase rotator
 - ✅ **Waterfall callsign ID** — paints your call in the SSB passband (ham bands only)
@@ -73,7 +74,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 
 ## Not yet — see the Roadmap 🗺️
 
-- 🗺️ **RX2** dual receiver (stereo split, focus model, SPLIT)
+- 🗺️ **SPLIT** pile-up polish (SUB/RX2 is already live on BrickSDR2)
 - 🗺️ **PureSignal** adaptive predistortion
 - 🗺️ **ANAN family** (G2 / G2-1K / 7000DLE / 8000, …) as first-class Protocol 2 radios — the P2 wire is live on BrickSDR2; ANAN models still need per-family bring-up
 - 🗺️ **VAC2** (second virtual-audio channel)

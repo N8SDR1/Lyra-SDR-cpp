@@ -62,7 +62,8 @@ Full detail on the **[Supported Radios](Supported-Radios)** page.
 
 ✅ Full **receive** (all modes, the complete WDSP noise/filter toolkit, RX EQ,
 captured-noise reduction, CTUN, RIT) · ✅ Full **transmit** — SSB / AM / SAM /
-DSB / FM / CW plus digital over TCI & VAC · ✅ a **native TX audio rack**
+DSB / FM / CW plus digital over TCI & VAC · ✅ **SUB / RX2 on BrickSDR2** ·
+✅ a **native TX audio rack**
 (8-band EQ, multiband Combinator, plate reverb, speech processing, voice
 keyer, VOX, TX profiles) · ✅ **CW** send + on-screen **CW decode** · ✅
 **DX spots**, **frequency calibration**, **tuner memory**, **CAT / TCI /
@@ -84,7 +85,7 @@ gear — all native, all in front of the WDSP transmitter:
 
 ## On the roadmap
 
-🗺️ **RX2** dual receiver · 🗺️ **PureSignal** adaptive predistortion · 🗺️
+🗺️ **SPLIT** pile-up polish · 🗺️ **PureSignal** adaptive predistortion · 🗺️
 **ANAN family** as first-class Protocol 2 radios · 🗺️ **Linux, then macOS** ·
 plus a second virtual-audio channel (VAC2).
 

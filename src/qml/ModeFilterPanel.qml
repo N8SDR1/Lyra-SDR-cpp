@@ -116,6 +116,11 @@ Rectangle {
     // Prefs.mode → WdspEngine.mode binding lives on the Tuning dock now
     // (it owns the Mode picker).
     Binding { target: WdspEngine; property: "bandwidth"; value: Prefs.rxBandwidth }
+    Binding { target: WdspEngine; property: "bandwidthRx2"; value: Prefs.rx2Bandwidth }
+
+    readonly property bool rx2Focus: Stream.subEnabled && Stream.focusedRx === 2
+    readonly property string rxMode: rx2Focus ? Prefs.modeRx2 : Prefs.mode
+    readonly property int rxBw: rx2Focus ? Prefs.rx2Bandwidth : Prefs.rxBandwidth
     // TX Component 8c — TX BW push lives in C++ main.cpp (a
     // QObject::connect on Prefs::txBandwidthChanged → Stream.setTxBwHz)
     // so it fires regardless of whether this QML panel is loaded.
@@ -144,16 +149,22 @@ Rectangle {
             color: "#2a4a5a"
         }
 
-        Label { text: qsTr("RX BW"); color: "#cccccc"; font.bold: true }
+        Label {
+            text: root.rx2Focus ? qsTr("RX2 BW") : qsTr("RX BW")
+            color: "#cccccc"; font.bold: true
+        }
         LyraComboBox {
             id: bwCombo
             Layout.preferredWidth: 120
-            // Rebuilds on mode change (per-mode presets) AND on bandwidth
-            // change, so a dragged non-preset BW shows as "(custom)".
-            model: root.bwModel(Prefs.mode, Prefs.rxBandwidth)
-            currentIndex: root.bwCurrentIndex(Prefs.mode, Prefs.rxBandwidth)
-            onActivated: Prefs.rxBandwidth =
-                root.bwValueAt(Prefs.mode, Prefs.rxBandwidth, currentIndex)
+            model: root.bwModel(root.rxMode, root.rxBw)
+            currentIndex: root.bwCurrentIndex(root.rxMode, root.rxBw)
+            onActivated: {
+                var v = root.bwValueAt(root.rxMode, root.rxBw, currentIndex)
+                if (root.rx2Focus)
+                    Prefs.rx2Bandwidth = v
+                else
+                    Prefs.rxBandwidth = v
+            }
         }
 
         // TX Component 8c — 🔗 RX↔TX BW lock.  Sits BETWEEN the RX and

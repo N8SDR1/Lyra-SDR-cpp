@@ -17,18 +17,23 @@
 //     ChannelMaster/network.c — the reference P2 client whose
 //     behavior p2app is regression-tested against.
 //
-// Wire model (matches Thetis): ONE UDP socket carries the whole
-// session.  All control goes out radio-bound to fixed destination
-// ports (1024 general, 1027 high-priority); every radio->PC stream
-// comes back to OUR source port and is demultiplexed by the RADIO's
-// source port (1025 = HP status, 1026 = mic, 1035+n = DDC IQ).  The
-// radio captures our address from the general packet (reply_addr in
-// p2app) — so everything must be sent from this one socket.
+// Wire model (deskHPSDR / Thetis): ONE UDP socket carries the whole
+// session. Bind that socket to the local IPv4 on the radio's NIC
+// (deskHPSDR `interface_address`), not AnyIPv4:0 — Windows treats
+// each radio source port (1035 DDC0, 1036 DDC1) as a separate flow
+// when the socket is wildcard-bound. All control goes out radio-bound
+// to fixed destination ports (1024 general, 1027 high-priority);
+// every radio->PC stream comes back to OUR source port and is
+// demultiplexed by the RADIO's source port (1025 = HP status,
+// 1026 = mic, 1035+n = DDC IQ). The radio captures our address from
+// the general packet (reply_addr) — so everything must be sent from
+// this one socket.
 //
 // Sequence-number rule (Thetis_P2_Compatibility_Regression_Checklist):
-// control packets (general, HP) are sent with sequence ALWAYS ZERO —
-// only data streams increment.  The radio's control decoders must not
-// (and per the checklist do not) dedupe on it.
+// general + HP stay sequence ALWAYS ZERO.  DDC-specific (receive_specific)
+// is the exception: deskHPSDR increments rx_specific_sequence on every
+// send so a firmware that keys config apply off that counter actually
+// takes a DDC1 enable after DDC0-only.  Speaker/mic/IQ data increment.
 //
 // Packet layouts (offsets per protocol2_command.c / OutHighPriority.c):
 //   General to radio, 60 B -> port 1024:
@@ -153,9 +158,19 @@ public:
     // if the session is open).  Source defaults to ADC1 and is selectable.
     void enableDdc(int ddc, quint16 rateKhz);
     void disableDdc(int ddc);
+    // SUB on Hermes/Brick2: enable DDC1 only (radio source UDP 1036).
+    // Do not shotgun DDC2/DDC3 — those are PS-reserved on this family,
+    // and dest-port listeners on 1036–1038 stole DDC0 (14:15 bench).
+    void armSubSecondaryDdcs(quint16 rateKhz, quint32 freqHz);
+    void disarmSubSecondaryDdcs();
+    bool shouldFeedRx2(int ddc);
     void setDdcAdc(int ddc, int adc);
     quint32 iqFrameCount() const { return iqFrameCount_; }
     quint32 iqSeqErrors()  const { return iqSeqErrors_;  }
+    // Hermes-class Brick2 at 48 kHz: IQ is ~29 dB hotter than 192 kHz.
+    // deskHPSDR `p2_iq_sample_gain` (new_protocol.c). Saturn (2 ADC)
+    // stays 1.0. Applied at IQ unpack, not on the wire.
+    double iqSampleScale() const;
 
     // nullptr is an explicit no/unverified-front-end state.
     void setProfile(const P2HardwareProfile *p) { profile_ = p; }
@@ -281,12 +296,22 @@ private:
     QByteArray buildHighPriorityPacket(bool run) const;
     int analogDriveByte_(const P2TxEffectiveState &tx) const;
     QByteArray buildDdcSpecificPacket() const;
+    void sendDdcSpecificToRadio(bool logConfig);
+    void finishOpenHandshake();
     QByteArray buildDucSpecificPacket() const;
     void sendDucSpecificIfOpen();
     quint8 overlayAdcAttByte(int adcIndex, bool keyedWithPa) const;
     void parseStatus(const QByteArray &d);
     void parseIqFrame(int ddc, const QByteArray &d);
     void parseMic(const QByteArray &d);
+    // Windows stateful firewall: IQ arrives FROM radio:1035+n with no
+    // prior host send to that port, so inbound can be dropped while
+    // 1025/1026 (we send to those) still work. A 1-byte datagram TO
+    // 1035+n opens the return path for that DDC.
+    void punchDdcIqFirewall(int ddc);
+    void punchEnabledDdcIqFirewalls();
+    void scheduleDdc1FirewallPunch();
+    void ingestRadioDatagram(quint16 senderPort, const QByteArray &buf);
     void startTxTransportRxState();
     void stopTxTransport();
     void latchTxFault(const QString &reason);
@@ -311,7 +336,8 @@ private:
     quint32      lastStatusSeq_ = 0;
     quint32      statusCount_   = 0;
     QElapsedTimer statusAge_;
-    int          hpTickCount_   = 0;     // paces the DDC-specific refresh
+    int          hpTickCount_   = 0;     // paces DDC-specific / general refresh
+    quint32      openEpoch_     = 0;     // invalidates delayed open handshake
     std::array<quint32, 10> ddcFreqHz_{};
     quint32      ducFreqHz_  = 14'100'000;
     // Phase C receive-stream config + per-DDC sequence tracking.
@@ -323,6 +349,12 @@ private:
     quint32      iqFrameCount_ = 0;
     quint32      iqSeqErrors_  = 0;
     bool         warnedNoIq_   = false;  // one-shot firewall-blocked-RX hint
+    std::array<quint32, 10> ddcIqCount_{};  // frames since last 1 s report
+    bool         warnedNoDdc1Iq_ = false;   // SUB on, DDC0 flowing, DDC1 silent
+    int          subIqLatchDdc_ = -1;       // 1 once a real src-1036 frame feeds RX2
+    bool         ddc1IqOkLogged_ = false;   // one-shot once DDC1 pkt/s > 0
+    int          ddc1IqLogLeft_  = 0;       // 1 s DDC0/DDC1 reports while silent
+    int          unmatchedIqLogLeft_ = 0;   // radio UDP that is not 1444@1035+
     // S2a mic-receive diagnostic (radio->host front-panel mic, port 1026).
     // Decode + peak/rate tracking only; NOT yet fed to the modulator.
     quint32      micPktCount_  = 0;      // packets since the last 1 s report
@@ -369,6 +401,7 @@ private:
     std::array<quint8, 2> adcAttenuation_{};
     bool         attOnTxEnabled_ = true;
     int          attOnTxDb_      = 31;
+    quint32      ddcSpecificSeq_ = 0;             // DDC-specific (receive_specific)
     quint32      spkrSeq_      = 0;               // speaker stream sequence
     QByteArray   spkrStage_;                      // partial-packet staging
     // Every RF-bearing packet field is derived from these values through
@@ -414,15 +447,12 @@ private:
     // HP cadence: Thetis-like periodic refresh.  Must stay well under
     // p2app's 1 s activity timeout; 100 ms gives 10x margin.
     static constexpr int     kHpPeriodMs     = 100;
-    // DDC-specific refresh every N HP ticks (5 s).  Dual purpose: the
-    // config resend is Thetis-compatible control behavior, AND it
-    // keeps the host firewall's UDP flow state for radio:1025 open so
-    // the status stream (radio SOURCE port 1025 -> us) keeps passing
-    // without an inbound firewall rule.  Windows expires UDP flow
-    // state at ~60 s; 5 s is a 12x margin.  Bench-proven 2026-07-18:
-    // without any traffic TO :1025, zero status packets arrive on a
-    // default-firewall Windows host even though the radio is sending.
-    static constexpr int     kDdcRefreshTicks = 50;
+    // Receive-specific every 200 ms (2 × HP). Firmware that applies a
+    // second DDC enable off this counter never sees it if we wait 5 s.
+    // General every 800 ms (8 × HP). Status-port firewall keep-alive
+    // still holds (Windows UDP flow ~60 s).
+    static constexpr int     kDdcRefreshTicks     = 2;
+    static constexpr int     kGeneralRefreshTicks = 8;
 };
 
 } // namespace lyra::wire

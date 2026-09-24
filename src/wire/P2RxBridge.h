@@ -194,6 +194,7 @@ private:
     // (dial + RIT), and DUC = effective TX carrier (VFO B/XIT when enabled).
     // Called whenever the relevant tuning state changes.
     void pushDialToSession();
+    void syncRx2Ddc();
     void restoreFrontEndForBand(const QString &band);
     void persistFrontEndValue(const QString &name, const QVariant &value);
     void pushFrontEndToSession();

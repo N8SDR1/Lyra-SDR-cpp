@@ -64,6 +64,11 @@ struct RigProfile {
     // ISO-8601; "" on a rig created before these fields existed.
     QString     firstSeen;
     QString     lastSeen;
+    // Last discovery firmware / DDC count (0 = never probed).  Lets
+    // Settings → Hardware show deskHPSDR-style fw without a fresh sweep.
+    int         codeVersion = 0;
+    int         betaVersion = 0;
+    int         numRxs      = 0;
 
     bool isValid() const { return !rigId.isEmpty(); }
 };

@@ -62,8 +62,9 @@ A full receive **and transmit** SDR transceiver for HPSDR radios — the
 Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 (Protocol 2) — native
 C++ end to end.  Lyra transmits every voice mode (SSB / AM / DSB /
 SAM / FM) plus CW and digital via TCI, and ships a complete native TX audio
-processing rack.  (Still on the roadmap: dual receiver / RX2 and PureSignal
-— see below.)
+processing rack. Dual receive (**SUB / RX2**) is live on **BrickSDR2**.
+Still on the roadmap: SPLIT pile-up polish, dual RX on Hermes Lite 2
+Protocol 1, and PureSignal — see below.
 
 * **Radio** — HPSDR Protocol 1 + Protocol 2 discovery (multi-NIC, dual
   limited + subnet-directed broadcast) + **Add by IP** unicast probe for

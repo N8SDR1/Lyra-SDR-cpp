@@ -226,6 +226,12 @@ class Prefs : public QObject {
     Q_PROPERTY(QString mode READ mode WRITE setMode NOTIFY modeChanged)
     Q_PROPERTY(int rxBandwidth READ rxBandwidth WRITE setRxBandwidth
                NOTIFY rxBandwidthChanged)
+    // Second receiver (SUB). Independent of Prefs.mode / rxBandwidth —
+    // those stay RX1 and TX. RX2 BW never mirrors to TX.
+    Q_PROPERTY(QString modeRx2 READ modeRx2 WRITE setModeRx2
+               NOTIFY modeRx2Changed)
+    Q_PROPERTY(int rx2Bandwidth READ rx2Bandwidth WRITE setRx2Bandwidth
+               NOTIFY rx2BandwidthChanged)
     // TX Component 8c — TX filter bandwidth (Hz) for the CURRENT mode.
     // Per-mode just like rxBandwidth.  For SSB the value is the high
     // edge (low fixed at 200 Hz via TxChannel::open() default until a
@@ -566,6 +572,10 @@ public:
     void    setMode(const QString &m);
     int  rxBandwidth() const;            // bandwidth for the current mode
     void setRxBandwidth(int hz);
+    QString modeRx2() const { return modeRx2_; }
+    void    setModeRx2(const QString &m);
+    int  rx2Bandwidth() const;
+    void setRx2Bandwidth(int hz);
     // TX Component 8c — current-mode TX bandwidth, mirroring rxBandwidth.
     int  txBandwidth() const;
     void setTxBandwidth(int hz);
@@ -725,6 +735,8 @@ signals:
     void zoomChanged();
     void modeChanged();
     void rxBandwidthChanged();
+    void modeRx2Changed();
+    void rx2BandwidthChanged();
     void txBandwidthChanged();
     void bwLockedChanged();
     void filterLowChanged();
@@ -839,11 +851,13 @@ private:
     bool    optionsPanelsGrouped_ = false;
     double  zoom_;
     QString mode_;
+    QString modeRx2_;
     // Bandwidth memory keyed by mode FAMILY (bwFamilyKey): USB/LSB share
     // one "SSB" slot, CWU/CWL "CW", DIGU/DIGL "Digital" (AM/SAM/DSB/FM
     // stand alone).  A sideband flip changes no remembered bandwidth.
     // (Hash name kept for churn; the KEY is now the family, not the mode.)
     QHash<QString, int> bwByMode_;   // per-family RX bandwidth memory
+    QHash<QString, int> bwByModeRx2_;
     // TX Component 8c — per-family TX bandwidth memory + the RX↔TX
     // lock flag.  Defaults come from defaultBandwidthFor() if the
     // operator hasn't picked a TX BW for that family yet (fresh install).

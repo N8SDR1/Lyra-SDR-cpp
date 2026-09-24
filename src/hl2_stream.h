@@ -137,6 +137,12 @@ class HL2Stream : public QObject {
     // path — so PS, whenever it lands, samples the split VFO unchanged.
     Q_PROPERTY(bool    splitEnabled READ splitEnabled WRITE setSplitEnabled NOTIFY splitEnabledChanged)
     Q_PROPERTY(quint32 vfoBHz       READ vfoBHz       WRITE setVfoBHz       NOTIFY vfoBHzChanged)
+    // SUB / RX2 — second DDC on the same ADC (HL2 + Brick).  Default OFF:
+    // DDC1 keeps mirroring RX1 (SUB-off wire identity).  When on, DDC1
+    // follows rx2FreqHz (VFO B if SPLIT is also on).  focusedRx is 1 or 2.
+    Q_PROPERTY(bool    subEnabled READ subEnabled WRITE setSubEnabled NOTIFY subEnabledChanged)
+    Q_PROPERTY(quint32 rx2FreqHz  READ rx2FreqHz  WRITE setRx2FreqHz  NOTIFY rx2FreqChanged)
+    Q_PROPERTY(int     focusedRx  READ focusedRx  WRITE setFocusedRx  NOTIFY focusedRxChanged)
     // RIT (RX incremental tuning) + XIT (TX incremental tuning) — signed
     // Hz offsets folded into the RX-NCO / TX-NCO writes respectively.
     Q_PROPERTY(bool    ritEnabled  READ ritEnabled  WRITE setRitEnabled  NOTIFY ritChanged)
@@ -729,6 +735,9 @@ public:
     quint32 rx1FreqHz()         const { return rx1FreqHz_.load(std::memory_order_relaxed); }
     bool    splitEnabled()      const { return splitEnabled_.load(std::memory_order_relaxed); }
     quint32 vfoBHz()            const { return vfoBHz_.load(std::memory_order_relaxed); }
+    bool    subEnabled()        const { return subEnabled_.load(std::memory_order_relaxed); }
+    quint32 rx2FreqHz()         const { return rx2FreqHz_.load(std::memory_order_relaxed); }
+    int     focusedRx()         const { return focusedRx_.load(std::memory_order_relaxed); }
     // Effective TX carrier the wire NCO is set to (0x02/0x08/0x0a).  Tracks
     // vfoBHz_ under SPLIT, else rx1FreqHz_ — so an out-of-band TX check reads
     // the actual transmit frequency, including split operation.
@@ -1139,6 +1148,9 @@ public slots:
     // the split TX VFO and re-pushes the TX NCO when split is on.
     void setSplitEnabled(bool on);
     void setVfoBHz(quint32 hz);
+    void setSubEnabled(bool on);
+    void setRx2FreqHz(quint32 hz);
+    void setFocusedRx(int rx);
     // RIT/XIT — RIT offsets only the RX DDC NCO (via pushEffectiveRxFreq);
     // XIT offsets only the TX NCO (via pushEffectiveTxFreq, so PureSignal
     // tracks the XIT-shifted TX for free).  Both persisted; clamped ±9999 Hz.
@@ -1478,6 +1490,9 @@ signals:
     void rx1FreqChanged();
     void splitEnabledChanged();
     void vfoBHzChanged();
+    void subEnabledChanged();
+    void rx2FreqChanged();
+    void focusedRxChanged();
     void ritChanged();   // RIT enable and/or offset
     void xitChanged();   // XIT enable and/or offset
     void ctuneChanged();           // #174 CTUNE engage / locked-centre changed
@@ -1725,6 +1740,9 @@ private:
     // — the single RX-NCO writer, mirror of pushEffectiveTxFreq.  Called by
     // setRx1FreqHz (every dial gesture) and the RIT setters.
     void pushEffectiveRxFreq();
+    // DDC1: RX1-mirror when SUB is off (byte-identical); independent
+    // rx2FreqHz when SUB is on.  ddc0Hz is the already-computed DDC0 NCO.
+    void writeDdc1Hz(int ddc0Hz);
     // #170a — the Max-TX-drive cap as a raw 0..255 ceiling (100 % → 255).
     // Header-safe integer rounding (no <cmath>/<algorithm> dependency);
     // maxDrivePct_ is already clamped 1..100 by its setter + the ctor.
@@ -1952,6 +1970,9 @@ private:
     // mirror in setRx1FreqHz, now gated on !splitEnabled_).
     std::atomic<bool>    splitEnabled_{false};
     std::atomic<quint32> vfoBHz_{7074000};
+    std::atomic<bool>    subEnabled_{false};
+    std::atomic<quint32> rx2FreqHz_{7074000};
+    std::atomic<int>     focusedRx_{1};
     // RIT/XIT — signed Hz offsets, ±9999 Hz, default disabled / 0.  RIT
     // folds into the RX DDC NCO (pushEffectiveRxFreq); XIT into the TX NCO
     // (pushEffectiveTxFreq → set_tx_freq, so PS tracks the XIT-shifted TX).

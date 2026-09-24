@@ -61,6 +61,9 @@ public:
     // pairs (buffer = 2*nframes doubles).  Same RT-safe coeff publish +
     // bypass/makeup as process().
     void processMonoDup(double *interleaved, int nframes);
+    // SUB stereo: EQ L and R independently (RX1 left, RX2 right).  Do not
+    // use processMonoDup here — that copies L onto R and wipes RX2.
+    void processStereoIndependent(double *interleaved, int nframes);
     // Cheap audio-thread check so the RX path can skip the EQ copy+filter
     // entirely when the operator bypassed it (the panel ON/OFF, any mode).
     bool bypassed() const { return bypass_.load(std::memory_order_relaxed); }
@@ -91,7 +94,8 @@ private:
     std::atomic<bool> stageDirty_{false};
 
     std::array<Coeffs, kNumBands> active_{};     // audio-thread coeffs
-    std::array<State,  kNumBands> state_{};       // audio-thread filter state
+    std::array<State,  kNumBands> state_{};       // L / mono-dup state
+    std::array<State,  kNumBands> stateR_{};      // R lane (SUB only)
 };
 
 }  // namespace lyra::dsp

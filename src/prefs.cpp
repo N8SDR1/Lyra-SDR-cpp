@@ -90,7 +90,9 @@ constexpr auto kDspGrouped = "visuals/dspPanelsGrouped";
 constexpr auto kOptGrouped = "visuals/optionsPanelsGrouped";
 constexpr auto kZoom   = "panadapter/zoom";
 constexpr auto kRxMode = "modefilter/mode";
+constexpr auto kRxModeRx2 = "modefilter/modeRx2";
 constexpr auto kBwPrefix = "modefilter/bw/";   // + <MODE>
+constexpr auto kBwPrefixRx2 = "modefilter/bw_rx2/";   // + <FAMILY>
 // TX Component 8c — per-mode TX bandwidth + the lock flag.  Prefix
 // mirrors kBwPrefix so a future Settings sweep can read both with
 // one wildcard.
@@ -253,6 +255,7 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     optionsPanelsGrouped_ = s.value(kOptGrouped, false).toBool();
     zoom_             = std::clamp(s.value(kZoom, 1.0).toDouble(), 1.0, 32.0);
     mode_             = s.value(kRxMode, QStringLiteral("USB")).toString();
+    modeRx2_          = s.value(kRxModeRx2, QStringLiteral("USB")).toString();
     // Per-FAMILY RX bandwidth (bwFamilyKey): USB/LSB share "SSB", etc.
     // Load the family key; if absent, migrate a legacy per-exact-mode
     // value (older installs stored "<prefix>USB" / "LSB" / …).  Families
@@ -263,6 +266,13 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
         QVariant v = s.value(QString(kBwPrefix) + fam);   // new family key
         if (!v.isValid()) v = s.value(QString(kBwPrefix) + m);  // legacy exact-mode
         if (v.isValid()) bwByMode_.insert(fam, v.toInt());
+    }
+    for (const QString &m : kModes) {
+        const QString fam = bwFamilyKey(m);
+        if (bwByModeRx2_.contains(fam)) continue;
+        QVariant v = s.value(QString(kBwPrefixRx2) + fam);
+        if (!v.isValid()) v = s.value(QString(kBwPrefixRx2) + m);
+        if (v.isValid()) bwByModeRx2_.insert(fam, v.toInt());
     }
     // TX Component 8c — per-family TX bandwidth, same family-collapse +
     // legacy migration as RX BW.
@@ -1016,6 +1026,31 @@ void Prefs::setMode(const QString &m) {
     // TX Component 8c — TX BW is ALSO per-mode (separate dict); mode
     // flip changes the effective TX BW too.
     emit txBandwidthChanged();
+}
+
+void Prefs::setModeRx2(const QString &m) {
+    if (m.isEmpty() || m == modeRx2_) {
+        return;
+    }
+    modeRx2_ = m;
+    QSettings().setValue(kRxModeRx2, m);
+    emit modeRx2Changed();
+    emit rx2BandwidthChanged();
+}
+
+int Prefs::rx2Bandwidth() const {
+    return bwByModeRx2_.value(bwFamilyKey(modeRx2_),
+                              defaultBandwidthFor(modeRx2_));
+}
+
+void Prefs::setRx2Bandwidth(int hz) {
+    if (hz <= 0 || hz == rx2Bandwidth()) {
+        return;
+    }
+    const QString key = bwFamilyKey(modeRx2_);
+    bwByModeRx2_.insert(key, hz);
+    QSettings().setValue(QString(kBwPrefixRx2) + key, hz);
+    emit rx2BandwidthChanged();
 }
 
 void Prefs::setRxBandwidth(int hz) {

@@ -511,11 +511,25 @@ QWidget *SettingsDialog::buildAudioTab() {
             tr("Auto-enable for digital modes (disable for others)"), grp);
         vacAuto->setChecked(engine_->vac1AutoDigital());
         vacAuto->setToolTip(tr(
-            "When ON, VAC1 turns on automatically whenever you switch to a "
-            "digital mode (DIGU / DIGL) and off for all other modes — the "
-            "Enable checkbox above is then the moot baseline.  Leave OFF if "
-            "you drive digital modes a different way (e.g. TCI)."));
+            "When ON, VAC1's RX path turns on in DIGU / DIGL and off for "
+            "other modes.  VAC TX (PC → radio) only follows this if a VAC "
+            "Input device is selected AND Mic source is not TCI.  If the "
+            "digital app uses TCI for CAT and TX audio, leave this OFF or "
+            "set Mic source to TCI — do not also route VAC into TX."));
         vf->addRow(vacAuto);
+
+        auto *vacAsTx = new QCheckBox(
+            tr("Use VAC1 as TX source (required to transmit through the cable)"),
+            grp);
+        vacAsTx->setChecked(prefs_ && prefs_->micSource() == QLatin1String("micpc"));
+        vacAsTx->setEnabled(!(prefs_ && prefs_->micSource() == QLatin1String("tci")));
+        vacAsTx->setToolTip(tr(
+            "Same as Settings → TX → Mic source = PC Soundcard (VAC1).  "
+            "Tick this for Fldigi / WSJT-X / VarAC over a virtual cable.  "
+            "Do NOT tick this if the digital app sends TX audio over TCI "
+            "(set Mic source to TCI instead).  TCI and VAC TX are "
+            "mutually exclusive — TCI always wins when the picker is TCI."));
+        vf->addRow(vacAsTx);
 
         // #158 DL-3 — "Driver" (PortAudio host API) picker, Thetis-faithful.
         // Selecting a driver repopulates the Output/Input device combos with
@@ -676,6 +690,32 @@ QWidget *SettingsDialog::buildAudioTab() {
                 [this](bool on) { engine_->setVac1Enabled(on); });
         connect(vacAuto, &QCheckBox::toggled, engine_,
                 [this](bool on) { engine_->setVac1AutoDigital(on); });
+        connect(vacAsTx, &QCheckBox::toggled, this, [this](bool on) {
+            if (!prefs_) return;
+            const QString cur = prefs_->micSource();
+            // Never yank TCI — a digital app using TCI audio + CAT would
+            // go silent on TX if this box stole the picker.
+            if (cur == QLatin1String("tci"))
+                return;
+            if (on) {
+                if (cur != QLatin1String("micpc"))
+                    prefs_->setMicSource(QStringLiteral("micpc"));
+            } else if (cur == QLatin1String("micpc")) {
+                prefs_->setMicSource(QStringLiteral("mic1"));
+            }
+        });
+        if (prefs_) {
+            connect(prefs_, &Prefs::micSourceChanged, vacAsTx, [this, vacAsTx]() {
+                const QString src = prefs_ ? prefs_->micSource() : QString();
+                const bool tci = src == QLatin1String("tci");
+                const bool on  = src == QLatin1String("micpc");
+                vacAsTx->setEnabled(!tci);
+                if (vacAsTx->isChecked() != on) {
+                    QSignalBlocker b(vacAsTx);
+                    vacAsTx->setChecked(on);
+                }
+            });
+        }
         // #158 DL-3 — Driver (host-API) change → persist + repopulate the
         // device combos for the new host API (preserve selection by name).
         connect(vacDriver, &QComboBox::activated, engine_,
@@ -2691,25 +2731,51 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     break;
                 }
             }
+            QString boardName = board;
             if (!it)
                 it = new QListWidgetItem(list);
+            else {
+                // Discovery names a Brick as Hermes (board_id=1) unless
+                // the MAC is 02:B2/02:B3. Keep the catalog/operator
+                // Brick label; firmware still updates from the reply.
+                const QString prev =
+                    it->data(Qt::UserRole + 2).toString();
+                if (!prev.isEmpty() &&
+                    prev.contains(QStringLiteral("Brick"),
+                                  Qt::CaseInsensitive) &&
+                    boardName.compare(QStringLiteral("Hermes"),
+                                  Qt::CaseInsensitive) == 0) {
+                    boardName = prev;
+                }
+            }
+            // A registry seed with unknown firmware must not wipe a
+            // live discovery (or a previously persisted probe).
+            if (codeVer == 0 && numRxs == 0 && it->data(Qt::UserRole + 3).isValid()) {
+                const int oldCv = it->data(Qt::UserRole + 3).toInt();
+                const int oldNr = it->data(Qt::UserRole + 6).toInt();
+                if (oldCv != 0 || oldNr != 0) {
+                    codeVer = oldCv;
+                    betaVer = it->data(Qt::UserRole + 4).toInt();
+                    numRxs  = oldNr;
+                }
+            }
             if (protocol == 2) {
-                // Protocol 2 (Saturn / ANAN G2 / Brick): DDC count in
-                // place of "rx"; fw = FPGA version from the P2 reply.
-                // Opens via the P2 bridge like any other radio.
+                // deskHPSDR discovery.c: v{code/10}.{code%10}[.beta]
+                const QString fw =
+                    lyra::ipc::HL2Discovery::formatFirmware(2, codeVer, betaVer);
                 it->setText(
-                    tr("%1  —  %2  (P2, fw v%3, %4 DDC)%5")
-                        .arg(ip, board).arg(codeVer).arg(numRxs)
+                    tr("%1  —  %2  (P2, fw %3, %4 DDC)%5")
+                        .arg(ip, boardName, fw).arg(numRxs)
                         .arg(busy ? tr("  [BUSY]") : QString()));
             } else {
                 it->setText(
                     tr("%1  —  %2  (gw v%3.%4, %5 rx)%6")
-                        .arg(ip, board).arg(codeVer).arg(betaVer).arg(numRxs)
+                        .arg(ip, boardName).arg(codeVer).arg(betaVer).arg(numRxs)
                         .arg(busy ? tr("  [BUSY]") : QString()));
             }
             it->setData(Qt::UserRole,     ip);
             it->setData(Qt::UserRole + 1, mac);
-            it->setData(Qt::UserRole + 2, board);
+            it->setData(Qt::UserRole + 2, boardName);
             it->setData(Qt::UserRole + 3, codeVer);
             it->setData(Qt::UserRole + 4, betaVer);
             it->setData(Qt::UserRole + 5, busy);
@@ -2733,7 +2799,8 @@ QWidget *SettingsDialog::buildHardwareTab() {
             addRadio(rp.lastIp, rp.mac,
                      d ? QString::fromLatin1(d->displayName)
                        : (rp.label.isEmpty() ? tr("saved radio") : rp.label),
-                     0, 0, false, 0, protocol);
+                     rp.codeVersion, rp.betaVersion, false, rp.numRxs,
+                     protocol);
         }
 
         // Show the remembered radio on open so the operator sees what
@@ -2997,14 +3064,22 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (p1Running)
                 status->setText(tr("Connected to %1").arg(stream_->targetIp()));
             else if (p2Running)
-                status->setText(tr("Connected to %1 (Saturn / ANAN G2, "
-                                   "Protocol 2 — RX)").arg(p2_->targetIp()));
+                status->setText(
+                    tr("Connected to %1 (%2, Protocol 2 — RX)")
+                        .arg(p2_->targetIp(),
+                             p2_->modelLabel().isEmpty()
+                                 ? tr("Protocol 2 radio")
+                                 : p2_->modelLabel()));
             else if (p2Open)
                 status->setText(tr("Opening %1 (Protocol 2)… click Close "
                                    "to abort.").arg(p2_->targetIp()));
             markConnected();
         };
         refresh();
+        // Unicast discovery while connected: fills FPGA fw / DDC from
+        // the live P2 reply (deskHPSDR reads the same bytes [13]/[20]/[23]).
+        if (discovery_ && p2_ && p2_->isOpen())
+            discovery_->probe(p2_->targetIp());
         connect(list, &QListWidget::currentRowChanged, radioBox,
                 [refresh](int) { refresh(); });
 
@@ -3015,9 +3090,26 @@ QWidget *SettingsDialog::buildHardwareTab() {
                         discovery_->scan(1.5, 2);
                     });
             connect(discovery_, &lyra::ipc::HL2Discovery::radioFound, radioBox,
-                    [addRadio](QString ip, QString mac, QString board,
+                    [this, addRadio](QString ip, QString mac, QString board,
                                int cv, int bv, bool busy, int nr, int proto) {
                         addRadio(ip, mac, board, cv, bv, busy, nr, proto);
+                        const QString rigId =
+                            lyra::rig::registry::rigIdForMac(mac);
+                        if (!rigId.isEmpty()) {
+                            auto p = lyra::rig::registry::rig(rigId);
+                            if (p.isValid()) {
+                                p.lastIp      = ip;
+                                p.codeVersion = cv;
+                                p.betaVersion = bv;
+                                p.numRxs      = nr;
+                                lyra::rig::registry::upsertRig(p);
+                            }
+                        }
+                        if (discovery_ && p2_ && p2_->isOpen() &&
+                            ip == p2_->targetIp()) {
+                            discovery_->rememberRadio(
+                                ip, mac, board, cv, bv, busy, nr, proto);
+                        }
                     });
             connect(discovery_, &lyra::ipc::HL2Discovery::scanFinished, radioBox,
                     [status](int count) {
@@ -3058,6 +3150,18 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 lyra::rig::registry::ensureRig(
                     mac, lyra::rig::registry::familyForDiscovery(proto, board),
                     QString(), ip);
+                {
+                    const QString rigId =
+                        lyra::rig::registry::rigIdForMac(mac);
+                    auto p = lyra::rig::registry::rig(rigId);
+                    if (p.isValid()) {
+                        p.codeVersion = it->data(Qt::UserRole + 3).toInt();
+                        p.betaVersion = it->data(Qt::UserRole + 4).toInt();
+                        p.numRxs      = it->data(Qt::UserRole + 6).toInt();
+                        p.lastIp      = ip;
+                        lyra::rig::registry::upsertRig(p);
+                    }
+                }
 
                 // If this radio carries a DIFFERENT per-rig profile than the
                 // one currently loaded, opening it under the wrong profile is
@@ -3093,6 +3197,16 @@ QWidget *SettingsDialog::buildHardwareTab() {
                         // MAC selects the radio's Layer-2 profile
                         // (model + antenna) inside the bridge.
                         p2_->open(ip, mac);
+                        if (discovery_) {
+                            discovery_->rememberRadio(
+                                ip, mac, board,
+                                it->data(Qt::UserRole + 3).toInt(),
+                                it->data(Qt::UserRole + 4).toInt(),
+                                it->data(Qt::UserRole + 5).toBool(),
+                                it->data(Qt::UserRole + 6).toInt(),
+                                proto);
+                            discovery_->probe(ip);
+                        }
                         status->setText(
                             tr("Opening %1 (Protocol 2) — RX only for now.")
                                 .arg(ip));
@@ -6424,9 +6538,7 @@ QWidget *SettingsDialog::buildTxTab() {
         //   Mic In  — HL2/HL2+ codec mic (the v0.2.0..v0.2.2 default)
         //   TCI     — inbound TX_AUDIO_STREAM from a digital-modes
         //             TCI client (MSHV / JTDX / FlDigi / etc.)
-        //   Line In / VAC1 / VAC2 — pending v0.2.x (disabled but
-        //             visible so the dropdown layout is final;
-        //             tooltip explains each).
+        //   PC Soundcard (VAC1) — live (#158); VAC2 still pending.
         //
         // Token strings match the TCI v2 §3.3 TRX source-token enum
         // so a TCI client that sends `trx:0,true,tci` automatically
@@ -6456,10 +6568,11 @@ QWidget *SettingsDialog::buildTxTab() {
                 if (idx >= 0) combo->setCurrentIndex(idx);
             }
             combo->setToolTip(tr(
-                "TX audio source.  Pick TCI for digital modes — your TCI "
-                "client (MSHV / JTDX / FlDigi) streams audio over the TCI "
-                "WebSocket and bypasses the mic.  Line In / VAC1 / VAC2 "
-                "are spec'd in v0.2.x; hover any entry for its status."));
+                "TX audio source.  Mic In = radio codec jack.  TCI = a "
+                "TCI client streams TX audio.  PC Soundcard (VAC1) = "
+                "virtual cable / USB mic from Settings → Audio (VAC1 "
+                "Input device) — required for Fldigi / WSJT-X over VAC.  "
+                "VAC2 is not shipped yet."));
             connect(combo, qOverload<int>(&QComboBox::currentIndexChanged),
                     grp, [this, combo](int) {
                 if (!prefs_) return;

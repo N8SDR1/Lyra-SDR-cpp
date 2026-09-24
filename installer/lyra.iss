@@ -16,7 +16,7 @@
 ; Keep AppVersion in sync with CMake project(VERSION) / LYRA_VERSION.
 
 #define AppName     "Lyra"
-#define AppVersion  "0.24.1"
+#define AppVersion  "0.24.2"
 #define AppPublisher "Rick Langford (N8SDR)"
 #define AppURL      "https://github.com/N8SDR1/Lyra-SDR-cpp"
 #define AppExe      "lyra.exe"
@@ -108,9 +108,12 @@ Name: "{autodesktop}\Lyra"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
 ; Windows Firewall inbound allow-rules for lyra.exe.  Without these a
-; non-elevated launch can't see the radio's discovery reply (unsolicited
+; non-elevated process can't see the radio's discovery reply (unsolicited
 ; inbound UDP) and the operator is forced to "run as administrator" to
-; connect.  Two protocols:
+; *connect*.  The app itself must still launch as a normal user (no
+; requireAdministrator).  "Only launches as Administrator" is a different
+; bug: leftover lyra.exe / mixed integrity vs the single-instance lock.
+; Two protocols:
 ;   UDP -- the HL2 discovery reply + EP6 RX stream (HPSDR Protocol 1).
 ;          This is the one that fixes the "needs admin" connection problem.
 ;   TCP -- the TCI/CAT server, so a logger/client on ANOTHER LAN machine

@@ -8,11 +8,12 @@ page.
 
 ## Major features
 
-### 🗺️ RX2 — dual receiver
+### ✅ SUB / RX2 on BrickSDR2 · 🗺️ SPLIT pile-up polish
 
-A second receiver: watch two frequencies at once, stereo-split audio
-(one receiver in each ear), a focus model for which VFO the controls follow,
-and **SPLIT** operation for working DX pile-ups. RIT/XIT extend per-receiver.
+**BrickSDR2** already runs a second receiver (DDC1): two VFOs, a second
+pan/waterfall overlay, and audio, including split-band and an off-span jump
+to the other RX. Still planned: **SPLIT** pile-up UX (dedicated TX marker /
+tri-state SUB–SPLIT) and dual RX on Hermes Lite 2 Protocol 1.
 
 ### 🗺️ PureSignal — adaptive predistortion
 
@@ -56,9 +57,10 @@ features above and may change shape or timing.
 Run a radio at one location from a Lyra somewhere else, over the internet — a
 purpose-built **Lyra-to-Lyra** link that carries the DSP, compressed audio, and
 spectrum, with the operating position's controls driving the remote radio. This
-is an early idea, not a dated feature: it sits **behind RX2 and PureSignal**,
-and would only ship with **mandatory authentication, encryption, and fail-safe
-transmit** — a dropped or degraded link must never leave the transmitter keyed.
+is an early idea, not a dated feature: it sits **behind SPLIT polish and
+PureSignal**, and would only ship with **mandatory authentication, encryption,
+and fail-safe transmit** — a dropped or degraded link must never leave the
+transmitter keyed.
 
 ## Want to influence it?
 

@@ -12,7 +12,7 @@ as testers come on board.
 |---|---|
 | **Hermes Lite 2 (HL2)** | ✅ Full RX + TX over Protocol 1. Audio to/from the PC (see [First Voice Setup](First-Voice-Setup)). |
 | **Hermes Lite 2+ (HL2+, AK4951 codec)** | ✅ Full RX + TX over Protocol 1. Adds the on-board **mic + headphone jacks** — plug a headset straight into the radio, no PC audio setup needed. |
-| **BrickSDR2** | ✅ Full RX + TX over Protocol 2. Radio mic modulates SSB/AM/FM; TUN / two-tone / analog drive / watts-cap / ATT-on-TX are live. Dummy-load first. |
+| **BrickSDR2** | ✅ Full RX + TX over Protocol 2, including **SUB / RX2** (second DDC, split-band). Radio mic modulates SSB/AM/FM; TUN / two-tone / analog drive / watts-cap / ATT-on-TX are live. Dummy-load first. Dual RX needs current Brick2 FPGA. Discovery firmware is shown as **v10.6**-style. |
 
 All connect over a **wired Ethernet** link and are found automatically by
 Lyra's discovery (or **Add by IP** for a fixed address / different subnet).

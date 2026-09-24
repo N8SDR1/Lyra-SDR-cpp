@@ -113,6 +113,13 @@ public:
                                    bool busy, int numRxs, int protocol = 1);
     Q_INVOKABLE QVariantMap savedRadio() const;
 
+    // Operator-facing firmware string, matching deskHPSDR discovery.c:
+    //   P1: "v{code}.{beta}"  (HL2 gateware, e.g. v74.0)
+    //   P2: "v{code/10}.{code%10}" plus ".{beta}" when beta is set
+    //       (FPGA 106 → v10.6; 21 with beta 18 → v2.1.18).
+    static QString formatFirmware(int protocol, int codeVersion,
+                                  int betaVersion);
+
     // Remove a radio from persistence: clears the remembered record
     // (lastRadio group) AND the auto-connect IP (radio/lastIp) when
     // either matches <ip>, so a radio the operator removes from the

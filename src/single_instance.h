@@ -34,6 +34,13 @@
 
 #include <functional>
 
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#endif
+
 namespace lyra::ui {
 
 // Key namespace: distinct from any other app's, and NOT sharing the QSettings
@@ -112,6 +119,12 @@ inline bool acquireSingleInstance(int argc, char **argv,
     // tell the caller to exit.  A minimal, short-lived QCoreApplication gives
     // QLocalSocket its event dispatcher; we exit before any QApplication is
     // built, so there is never a second QCoreApplication in the real run.
+    //
+    // If the lock exists but the raise pipe does not answer, this is NOT a
+    // live primary — typical cases: a leftover lock from a Run-as-admin
+    // copy the standard user cannot talk to, or a TX-zombie process with
+    // no UI.  Exiting silently looks like "Lyra only launches as
+    // Administrator".  Start anyway.
     QCoreApplication ping(argc, argv);
     QLocalSocket sock;
     sock.connectToServer(key);
@@ -120,8 +133,18 @@ inline bool acquireSingleInstance(int argc, char **argv,
         sock.flush();
         sock.waitForBytesWritten(400);
         sock.disconnectFromServer();
+#ifdef _WIN32
+        MessageBoxW(nullptr,
+                    L"Lyra is already running. That window has been brought "
+                    L"to the front.\n\nIf you do not see it, check the taskbar "
+                    L"or Task Manager for lyra.exe (including a leftover "
+                    L"copy started as Administrator).",
+                    L"Lyra",
+                    MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+#endif
+        return false;
     }
-    return false;
+    return true;
 }
 
 // Primary-side: listen for future launches' "raise" pings and run `onRaise`

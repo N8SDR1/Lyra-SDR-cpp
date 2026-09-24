@@ -352,6 +352,7 @@ bool WdspNative::resolveSymbols() {
     resolve(api_.SetRXAAGCThresh,     "SetRXAAGCThresh");
     resolve(api_.SetRXAAGCSlope,      "SetRXAAGCSlope");
     resolve(api_.SetRXAPanelGain1,    "SetRXAPanelGain1");
+    resolve(api_.SetRXAPanelPan,      "SetRXAPanelPan");
     resolve(api_.GetRXAMeter,         "GetRXAMeter");
     resolve(api_.GetRXAAGCTop,        "GetRXAAGCTop");
     resolve(api_.SetRXAEMNRRun,        "SetRXAEMNRRun");

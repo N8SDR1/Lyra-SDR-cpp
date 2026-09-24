@@ -6,7 +6,7 @@ for the Hermes Lite 2 / 2+ (Protocol 1) and the **BrickSDR2** (Protocol 2)
 expectations so you know what's a real bug versus a feature that simply
 hasn't landed yet. (Pin or link this in Discord.)
 
-Current tree: **v0.24.1**. Always grab the latest from the
+Current tree: **v0.24.2**. Always grab the latest from the
 [Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases).
 
 > **What already works** (so you don't wonder): full RX DSP, and **transmit
@@ -28,8 +28,10 @@ Current tree: **v0.24.1**. Always grab the latest from the
 
 These are on the roadmap, not broken:
 
-* **Dual receiver (RX2)** — single receiver today; a second receiver with
-  stereo-split audio and SPLIT pile-up operation is planned.
+* **SPLIT pile-up polish** — **SUB / RX2 is live on BrickSDR2** (second
+  DDC, second pan/waterfall overlay, independent VFO, off-span jump).
+  Full SPLIT pile-up UX (dedicated TX marker / tri-state SUB-SPLIT) is
+  still planned. Dual RX on Hermes Lite 2 Protocol 1 is not this release.
 * **PureSignal** — adaptive pre-distortion (linearizer) is on the roadmap,
   not present yet.
 * **Second virtual audio cable (VAC2)** — Lyra bridges one virtual audio

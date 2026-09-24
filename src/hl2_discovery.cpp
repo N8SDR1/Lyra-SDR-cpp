@@ -76,6 +76,19 @@ void HL2Discovery::rememberRadio(const QString &ip, const QString &mac,
     }
 }
 
+QString HL2Discovery::formatFirmware(int protocol, int codeVersion,
+                                     int betaVersion) {
+    if (protocol == 2) {
+        QString s = QStringLiteral("v%1.%2")
+                        .arg(codeVersion / 10)
+                        .arg(codeVersion % 10);
+        if (betaVersion > 0)
+            s += QStringLiteral(".%1").arg(betaVersion);
+        return s;
+    }
+    return QStringLiteral("v%1.%2").arg(codeVersion).arg(betaVersion);
+}
+
 QVariantMap HL2Discovery::savedRadio() const {
     QSettings s;
     s.beginGroup(QStringLiteral("lastRadio"));
@@ -217,6 +230,9 @@ QStringList HL2Discovery::knownRadioIps() const {
 bool HL2Discovery::parseReply(const QByteArray &data,
                               const QHostAddress &sender,
                               RadioInfo &out) const {
+    // deskHPSDR new_discovery.c skips 1444-byte IQ frames that can land
+    // on the discovery socket while a P2 radio is already streaming.
+    if (data.size() == 1444) return false;
     if (data.size() < 24) return false;
     const auto u = reinterpret_cast<const std::uint8_t*>(data.constData());
 
@@ -267,10 +283,24 @@ bool HL2Discovery::parseReply(const QByteArray &data,
             u[5], u[6], u[7], u[8], u[9], u[10]);
         out.boardId     = u[11];
         out.boardName   = boardNameP2(out.boardId);
-        out.codeVersion = u[13];              // FPGA firmware version
+        // deskHPSDR (new_discovery.c): Brick2 = MAC 02:B2:xx,
+        // Brick3 = 02:B3:xx. Protocol is still Hermes / Angelia class;
+        // the MAC names the product so the operator sees Brick, not a
+        // generic board id. Other MACs (incl. N8SDR 00:1c:c0:…) keep
+        // the board table name; P2 Hermes still maps to BrickP2.
+        if (u[5] == 0x02 && u[6] == 0xB2)
+            out.boardName = QStringLiteral("Brick2");
+        else if (u[5] == 0x02 && u[6] == 0xB3)
+            out.boardName = QStringLiteral("Brick3");
+        out.codeVersion = u[13];              // FPGA firmware (deskHPSDR software_version)
         out.isBusy      = (u[4] == 0x03);
         if (data.size() > 20) out.numRxs      = u[20];   // DDC count
-        if (data.size() > 23) out.betaVersion = u[23];   // p2app sw version
+        if (data.size() > 23) out.betaVersion = u[23];   // beta / p2app
+        // deskHPSDR hard-sets supported_receivers = 2 for every P2
+        // device and does not trust a zero [20] for the UI. Brick
+        // Hermes-class replies have been seen with [20]=0.
+        if (out.numRxs <= 0)
+            out.numRxs = 2;
         return true;
     }
 
@@ -409,12 +439,14 @@ void HL2Discovery::onReadyRead() {
         foundMacs_.insert(info.mac);
         ++totalFound_;
         emit logLine(QStringLiteral(
-            "  FOUND: %1  %2  %3  P%8  gw=v%4.%5  busy=%6  rxs=%7")
-            .arg(info.ip, info.mac, info.boardName)
-            .arg(info.codeVersion).arg(info.betaVersion)
+            "  FOUND: %1  %2  %3  P%5  fw=%4  busy=%6  rxs=%7")
+            .arg(info.ip, info.mac, info.boardName,
+                 formatFirmware(info.protocol, info.codeVersion,
+                                info.betaVersion))
+            .arg(info.protocol)
             .arg(info.isBusy ? QStringLiteral("yes")
                               : QStringLiteral("no"))
-            .arg(info.numRxs).arg(info.protocol));
+            .arg(info.numRxs));
         emit radioFound(info.ip, info.mac, info.boardName,
                         info.codeVersion, info.betaVersion,
                         info.isBusy, info.numRxs, info.protocol);
@@ -479,11 +511,13 @@ void HL2Discovery::onProbeReadyRead() {
         // No foundMacs_ dedup here (that's sweep bookkeeping) — the UI
         // de-dupes/updates by IP, so re-emitting is harmless.
         emit logLine(QStringLiteral(
-            "  PROBE FOUND: %1  %2  %3  P%8  gw=v%4.%5  busy=%6  rxs=%7")
-            .arg(info.ip, info.mac, info.boardName)
-            .arg(info.codeVersion).arg(info.betaVersion)
+            "  PROBE FOUND: %1  %2  %3  P%5  fw=%4  busy=%6  rxs=%7")
+            .arg(info.ip, info.mac, info.boardName,
+                 formatFirmware(info.protocol, info.codeVersion,
+                                info.betaVersion))
+            .arg(info.protocol)
             .arg(info.isBusy ? QStringLiteral("yes") : QStringLiteral("no"))
-            .arg(info.numRxs).arg(info.protocol));
+            .arg(info.numRxs));
         emit radioFound(info.ip, info.mac, info.boardName,
                         info.codeVersion, info.betaVersion,
                         info.isBusy, info.numRxs, info.protocol);
