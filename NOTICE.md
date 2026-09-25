@@ -261,4 +261,5 @@ are compatible with Lyra-cpp's GPL v3+.
 top of the upstream open-source work credited above.  See
 [CREDITS.md](CREDITS.md) for the full contributor list
 including testers, field reports, and development assistance
-from **Cursor Grok 4.6** (SpaceXAI / Cursor).
+from **Cursor Grok 4.6** ([@cursoragent](https://github.com/cursoragent),
+SpaceXAI / Cursor).
