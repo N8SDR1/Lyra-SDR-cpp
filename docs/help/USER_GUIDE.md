@@ -75,6 +75,7 @@ not programmers — if you can click a menu, you can use this.
   - [USB-BCD (linear-amp band switching)](#usb-bcd-linear-amp-band-switching)
 - [Settings → Audio](#settings--audio)
   - [Virtual Audio Cable (VAC1)](#virtual-audio-cable-vac1)
+  - [Virtual Audio Cable (VAC2)](#virtual-audio-cable-vac2)
 - [Settings → DSP (filter type)](#settings--dsp-filter-type)
 - [Settings → TX (Mic + ALC + Leveler + TR sequencing + cos² fade)](#settings--tx-mic--alc--leveler-tr-sequencing--cos-fade)
 - [Settings → VOX (voice-operated transmit)](#settings--vox-voice-operated-transmit)
@@ -3298,6 +3299,23 @@ controls here are:
 > [Digital modes over VAC](#digital-modes-over-vac-virtual-audio-cable)
 > section walks the whole setup, including the no-power fix.
 
+### Virtual Audio Cable (VAC2)
+
+VAC2 is a **second** full-duplex cable, independent of VAC1, and carries
+**RX2** audio. Typical use: digital app on VAC1 (RX1) and a logger or
+second decoder on VAC2 (RX2). Enable **SUB** so VAC2 has RX2; with SUB
+off the cable stays open but **silent**.
+
+- **Enable VAC2** — starts the second PortAudio stream (`vac2/*` keys).
+- **Use VAC2 as TX source** — same as **Mic source = PC Soundcard (VAC2)**.
+  Mutually exclusive with VAC1 TX and with **TCI** audio (TCI always wins).
+- Device / gain / buffer / latency / Combine / Mute-will-mute — same
+  meanings as VAC1, on a separate device pair (e.g. CABLE-C / CABLE-D).
+
+If both VAC1 and VAC2 have **Auto-enable for digital** on, TX prefers
+**VAC1**. VAC2 TX is used when you pick **PC Soundcard (VAC2)** or when
+only VAC2 auto-digital is live.
+
 ---
 
 ## Settings → DSP (filter type)
@@ -3373,7 +3391,7 @@ Mic source → Mic Boost (+20 dB HW) → Mic Gain (SW) → Leveler (optional) �
 
 | Knob | Default | What it controls |
 |---|---|---|
-| **Mic source** | Mic In (codec) | Picks the audio source driving the TX chain. **Mic In** = the HL2 / HL2+ codec mic input (the v0.2.x default; this is the hand-mic / headset-mic / desk-mic path). **TCI** = inbound TX_AUDIO_STREAM from a digital-modes TCI client (MSHV / JTDX / FlDigi); pick this for digital-mode operation so the client's modulator audio replaces the hand-mic. **PC Soundcard (VAC1)** routes TX audio captured from a PC audio cable (a Virtual Audio Cable) into the TX chain — pick this to transmit digital modes whose audio comes over a soundcard/VAC instead of TCI (see [Digital modes over VAC](#digital-modes-over-vac-virtual-audio-cable)); it needs VAC1 enabled with an input device on Settings → Audio. **Line In / VAC2** anchor entries are visible for layout but reserved for a later release. A TCI client that sends `TRX:0,true,tci` auto-selects TCI — the picker tracks it. |
+| **Mic source** | Mic In (codec) | Picks the audio source driving the TX chain. **Mic In** = the HL2 / HL2+ codec mic input (the v0.2.x default; this is the hand-mic / headset-mic / desk-mic path). **TCI** = inbound TX_AUDIO_STREAM from a digital-modes TCI client (MSHV / JTDX / FlDigi); pick this for digital-mode operation so the client's modulator audio replaces the hand-mic. **PC Soundcard (VAC1)** / **(VAC2)** route TX audio from Settings → Audio VAC1 or VAC2 (see [Digital modes over VAC](#digital-modes-over-vac-virtual-audio-cable)). VAC2 needs **SUB** for RX2 audio into the cable. TCI audio and VAC TX are exclusive — TCI always wins. A TCI client that sends `TRX:0,true,tci` auto-selects TCI — the picker tracks it. |
 | **Mic Boost** | OFF | HL2 hardware +20 dB analog mic preamp (codec PGA, single bit on the wire — C0 0x12 C2 bit 0). Pure hardware boost ahead of the digital chain. Enable when your hand mic / headset mic is genuinely too quiet to hit the modulator at a reasonable level even with the Mic Gain slider near max. Hardware is 2-state (off / +20 dB); intermediate trim comes from Mic Gain stacked on top. **Only affects the codec mic input** — PC mic / TCI sources bypass the codec PGA entirely, so this checkbox has no effect on those routes. Persisted across launches. |
 | **Mic Gain** | 0 dB | The mic-into-modulator gain (WDSP TXA PanelGain1 — TXA chain stage #3, before phrot / EQ / leveler / CFCOMP / bandpass / compressor / OSCtrl / ALC). **Bidirectionally bound with the TxPanel front-UI slider** — slider for quick QSO-time adjustments, spin-box here for typed precision. 0 dB = WDSP unity; +10 to +20 dB typical SSB; +25 to +35 dB ESSB with headroom. Range −90 dB to +40 dB matches the reference's Default TX profile. **Stacks on top of Mic Boost** — if Mic Boost is ON, the modulator sees Mic Boost +20 dB + Mic Gain combined. |
 | **ALC Max Gain** ⚠ | 3 (LINEAR) | The ALC (Automatic Level Control) max-gain ceiling — the always-on output limiter that catches peaks the leveler and compressor didn't bound, **before** the I/Q reaches the wire. **LINEAR amplitude factor (NOT dB) — units corrected in §15.27**: 1 = unity (limiter cannot amplify, only attenuate); 3 = the verified reference's default = 3× amplitude headroom = +9.54 dB of allowed amplification before the ALC pulls down. Earlier Lyra builds shipped this property as dB and called `dbToLin(3.0) = 1.413` — capping the ceiling at 47% of the reference's value and producing a ~6 dB power deficit on continuous mic-input tones (the §15.27 / #79 root cause; fixed 2026-06-03). Range 0..120 LINEAR matches the reference spinner exactly. Operator tuning: lower (1–2) for tighter splatter protection at the cost of headroom; higher (5–20) for ESSB-style program-level headroom. |
@@ -4140,12 +4158,17 @@ clients you prefer to run by soundcard, or any setup where TCI handles
 That's the recommended split for MSHV: let TCI key the radio and follow
 the band, and route the audio over VAC.
 
+Operators who prefer TCI for **both** audio and rig control can skip VAC
+entirely. VAC is for apps that only speak soundcard (or a second decoder
+on RX2 via **VAC2**).
+
 > **VAC carries audio only — it does not key the radio.** Keying still
 > comes from TCI (or CAT). TCI *control* and TCI *audio* are independent;
 > using TCI to PTT does **not** mean you're using TCI audio.
 
-**You need two cables** (e.g. VB-Audio "CABLE" + "CABLE-B", or VAC's
-"Line 1" + "Line 2") — one for each direction:
+**You need two cables per VAC** (e.g. VB-Audio "CABLE" + "CABLE-B") — one
+for each direction. VAC2 uses a **second pair** (CABLE-C / CABLE-D) and
+needs **SUB** so RX2 is on the cable:
 
 | Direction | Lyra side (Settings → Audio → VAC1) | Client side |
 |---|---|---|

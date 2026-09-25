@@ -823,6 +823,286 @@ QWidget *SettingsDialog::buildAudioTab() {
         form->addRow(grp);
     }
 
+    // ── VAC2 — second full-duplex cable (RX2 / SUB) ────────────────
+    {
+        auto *grp = new QGroupBox(tr("Virtual Audio Cable (VAC2)"), page);
+        auto *vf  = new QFormLayout(grp);
+
+        auto *vacEnable = new QCheckBox(tr("Enable VAC2 (RX2→PC and PC→TX)"), grp);
+        vacEnable->setChecked(engine_->vac2Enabled());
+        vacEnable->setToolTip(tr(
+            "Second virtual-cable pair for RX2.  Enable SUB so VAC2 carries "
+            "RX2 audio; with SUB off the cable stays open but silent.\n"
+            "Required to transmit through VAC2 — tick this even if you only "
+            "use the TX direction."));
+        vf->addRow(vacEnable);
+
+        auto *vacAuto = new QCheckBox(
+            tr("Auto-enable for digital modes (disable for others)"), grp);
+        vacAuto->setChecked(engine_->vac2AutoDigital());
+        vacAuto->setToolTip(tr(
+            "When ON, VAC2 turns on in DIGU / DIGL.  VAC2 TX follows this "
+            "only if a VAC2 Input device is selected, Mic source is not TCI, "
+            "and VAC1 is not already claiming TX (VAC1 wins if both auto)."));
+        vf->addRow(vacAuto);
+
+        auto *vacAsTx = new QCheckBox(
+            tr("Use VAC2 as TX source"),
+            grp);
+        vacAsTx->setChecked(prefs_ && prefs_->micSource() == QLatin1String("micpc2"));
+        vacAsTx->setEnabled(!(prefs_ && prefs_->micSource() == QLatin1String("tci")));
+        vacAsTx->setToolTip(tr(
+            "Same as Settings → TX → Mic source = PC Soundcard (VAC2).  "
+            "Mutually exclusive with VAC1 TX and with TCI."));
+        vf->addRow(vacAsTx);
+
+        auto *vacDriver = new QComboBox(grp);
+        {
+            const QStringList apis = engine_->vac2HostApiNames();
+            const QList<int>  idxs = engine_->vac2HostApiPaIndices();
+            for (int i = 0; i < apis.size(); ++i)
+                vacDriver->addItem(apis[i], i < idxs.size() ? idxs[i] : -1);
+            const int sel = vacDriver->findText(engine_->vac2HostApiName());
+            vacDriver->setCurrentIndex(sel >= 0 ? sel : 0);
+        }
+        vacDriver->setToolTip(tr(
+            "Audio backend for VAC2 devices (typically WASAPI for VB-Audio / VAC)."));
+        vf->addRow(tr("Driver"), vacDriver);
+
+        const int curApi2 = vacDriver->currentData().toInt();
+
+        auto *vacDev = new QComboBox(grp);
+        vacDev->addItem(tr("(none)"));
+        vacDev->addItems(engine_->vac2OutputDevicesFor(curApi2));
+        {
+            const int i = vacDev->findText(engine_->vac2OutputDeviceName());
+            vacDev->setCurrentIndex(i >= 0 ? i : 0);
+        }
+        vacDev->setToolTip(tr(
+            "PC output for RX2 audio.  Use a second virtual cable, not the "
+            "same cable as VAC1, and not your speakers."));
+        vf->addRow(tr("Output device"), vacDev);
+
+        auto *vacGain = new QSpinBox(grp);
+        vacGain->setRange(-60, 20);
+        vacGain->setSingleStep(1);
+        vacGain->setSuffix(tr(" dB"));
+        vacGain->setValue(qRound(engine_->vac2RxGainDb()));
+        vacGain->setToolTip(tr("RX2 gain into the VAC2 cable (default 0 dB)."));
+        vf->addRow(tr("RX gain"), vacGain);
+
+        auto *vacInDev = new QComboBox(grp);
+        vacInDev->addItem(tr("(none)"));
+        vacInDev->addItems(engine_->vac2InputDevicesFor(curApi2));
+        {
+            const int i = vacInDev->findText(engine_->vac2InputDeviceName());
+            vacInDev->setCurrentIndex(i >= 0 ? i : 0);
+        }
+        vacInDev->setToolTip(tr(
+            "PC input used as TX mic when Mic source is VAC2."));
+        vf->addRow(tr("Input device"), vacInDev);
+
+        auto *vacTxGain = new QSpinBox(grp);
+        vacTxGain->setRange(-60, 20);
+        vacTxGain->setSingleStep(1);
+        vacTxGain->setSuffix(tr(" dB"));
+        vacTxGain->setValue(qRound(engine_->vac2TxGainDb()));
+        vacTxGain->setToolTip(tr("TX gain (preamp) on VAC2 inbound (default +3 dB)."));
+        vf->addRow(tr("TX gain"), vacTxGain);
+
+        auto *vacBuf = new QComboBox(grp);
+        struct BufChoice2 { int frames; const char *label; };
+        static const BufChoice2 kBufChoices2[] = {
+            {128,  "128 (~3 ms)"},   {256,  "256 (~5 ms)"},
+            {512,  "512 (~11 ms)"},  {1024, "1024 (~21 ms)"},
+            {2048, "2048 (~43 ms)"}, {4096, "4096 (~85 ms)"},
+            {8192, "8192 (~171 ms)"},
+        };
+        for (const auto &c : kBufChoices2)
+            vacBuf->addItem(QString::fromLatin1(c.label), c.frames);
+        {
+            const int i = vacBuf->findData(engine_->vac2VacSize());
+            vacBuf->setCurrentIndex(i >= 0 ? i : 4);
+        }
+        vacBuf->setToolTip(tr("PortAudio buffer block for VAC2 (same meaning as VAC1)."));
+        vf->addRow(tr("Buffer size"), vacBuf);
+
+        auto *vacLat = new QSpinBox(grp);
+        vacLat->setRange(5, 500);
+        vacLat->setSingleStep(5);
+        vacLat->setSuffix(tr(" ms"));
+        vacLat->setValue(engine_->vac2LatencyMs());
+        vacLat->setToolTip(tr("VAC2 ring latency each direction (default 120 ms)."));
+        vf->addRow(tr("Latency"), vacLat);
+
+        auto *vacMon = new QLabel(grp);
+        vacMon->setWordWrap(true);
+        vacMon->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+        vf->addRow(tr("Monitor"), vacMon);
+        auto refreshMon2 = [this, vacMon]() {
+            const QVariantMap d = engine_->vac2Diags();
+            if (!d.value(QStringLiteral("active")).toBool()) {
+                vacMon->setText(tr("VAC2 not running — enable it (and pick "
+                                   "devices) to see ring fill / overflow / "
+                                   "underflow."));
+                return;
+            }
+            vacMon->setText(tr("TO VAC: %1%% full · %2 ovf / %3 unf      "
+                               "FROM VAC: %4%% full · %5 ovf / %6 unf")
+                .arg(d.value(QStringLiteral("outPct")).toInt())
+                .arg(d.value(QStringLiteral("outOver")).toInt())
+                .arg(d.value(QStringLiteral("outUnder")).toInt())
+                .arg(d.value(QStringLiteral("inPct")).toInt())
+                .arg(d.value(QStringLiteral("inOver")).toInt())
+                .arg(d.value(QStringLiteral("inUnder")).toInt()));
+        };
+        refreshMon2();
+        auto *vacMonTimer = new QTimer(grp);
+        vacMonTimer->setInterval(500);
+        connect(vacMonTimer, &QTimer::timeout, vacMon, refreshMon2);
+        vacMonTimer->start();
+
+        auto *vacCombine = new QCheckBox(tr("Combine input (mono)"), grp);
+        vacCombine->setChecked(engine_->vac2CombineInput());
+        vacCombine->setToolTip(tr(
+            "Sum VAC2 left + right to mono before the transmitter. Leave ON "
+            "for a typical digital-mode cable."));
+        vf->addRow(QString(), vacCombine);
+
+        auto *vacMuteVac = new QCheckBox(tr("Mute will mute VAC"), grp);
+        vacMuteVac->setChecked(engine_->vac2MuteWillMuteVac());
+        vacMuteVac->setToolTip(tr(
+            "When ON, Mute-B also silences the VAC2 RX feed. Turn OFF so "
+            "the decoder keeps RX2 while you mute the room."));
+        vf->addRow(QString(), vacMuteVac);
+
+        connect(vacEnable, &QCheckBox::toggled, engine_,
+                [this](bool on) { engine_->setVac2Enabled(on); });
+        connect(vacAuto, &QCheckBox::toggled, engine_,
+                [this](bool on) { engine_->setVac2AutoDigital(on); });
+        connect(vacAsTx, &QCheckBox::toggled, this, [this](bool on) {
+            if (!prefs_) return;
+            const QString cur = prefs_->micSource();
+            if (cur == QLatin1String("tci"))
+                return;
+            if (on) {
+                if (cur != QLatin1String("micpc2"))
+                    prefs_->setMicSource(QStringLiteral("micpc2"));
+            } else if (cur == QLatin1String("micpc2")) {
+                prefs_->setMicSource(QStringLiteral("mic1"));
+            }
+        });
+        if (prefs_) {
+            connect(prefs_, &Prefs::micSourceChanged, vacAsTx, [this, vacAsTx]() {
+                const QString src = prefs_ ? prefs_->micSource() : QString();
+                const bool tci = src == QLatin1String("tci");
+                const bool on  = src == QLatin1String("micpc2");
+                vacAsTx->setEnabled(!tci);
+                if (vacAsTx->isChecked() != on) {
+                    QSignalBlocker b(vacAsTx);
+                    vacAsTx->setChecked(on);
+                }
+            });
+        }
+        connect(vacDriver, &QComboBox::activated, engine_,
+                [this, vacDriver, vacDev, vacInDev](int) {
+                    const int api = vacDriver->currentData().toInt();
+                    engine_->setVac2HostApi(vacDriver->currentText());
+                    auto repop = [this](QComboBox *c, const QStringList &devs) {
+                        const QString keep = c->currentText();
+                        c->blockSignals(true);
+                        c->clear();
+                        c->addItem(tr("(none)"));
+                        c->addItems(devs);
+                        const int i = c->findText(keep);
+                        c->setCurrentIndex(i >= 0 ? i : 0);
+                        c->blockSignals(false);
+                    };
+                    repop(vacDev,   engine_->vac2OutputDevicesFor(api));
+                    repop(vacInDev, engine_->vac2InputDevicesFor(api));
+                    engine_->setVac2OutputDeviceName(
+                        vacDev->currentIndex() <= 0 ? QString() : vacDev->currentText());
+                    engine_->setVac2InputDeviceName(
+                        vacInDev->currentIndex() <= 0 ? QString() : vacInDev->currentText());
+                });
+        connect(vacDev, &QComboBox::activated, engine_,
+                [this, vacDev](int idx) {
+                    engine_->setVac2OutputDeviceName(
+                        idx <= 0 ? QString() : vacDev->currentText());
+                });
+        connect(vacGain, qOverload<int>(&QSpinBox::valueChanged), engine_,
+                [this](int db) { engine_->setVac2RxGainDb(db); });
+        connect(vacInDev, &QComboBox::activated, engine_,
+                [this, vacInDev](int idx) {
+                    engine_->setVac2InputDeviceName(
+                        idx <= 0 ? QString() : vacInDev->currentText());
+                });
+        connect(vacTxGain, qOverload<int>(&QSpinBox::valueChanged), engine_,
+                [this](int db) { engine_->setVac2TxGainDb(db); });
+        connect(vacBuf, qOverload<int>(&QComboBox::activated), engine_,
+                [this, vacBuf](int) {
+                    engine_->setVac2VacSize(vacBuf->currentData().toInt());
+                });
+        connect(vacLat, qOverload<int>(&QSpinBox::valueChanged), engine_,
+                [this](int ms) { engine_->setVac2LatencyMs(ms); });
+        connect(vacCombine, &QCheckBox::toggled, engine_,
+                [this](bool on) { engine_->setVac2CombineInput(on); });
+        connect(vacMuteVac, &QCheckBox::toggled, engine_,
+                [this](bool on) { engine_->setVac2MuteWillMuteVac(on); });
+
+        connect(engine_, &lyra::dsp::WdspEngine::vac2Changed, grp,
+                [this, vacEnable, vacAuto, vacGain, vacTxGain, vacCombine,
+                 vacBuf, vacLat]() {
+                    if (const int bi = vacBuf->findData(engine_->vac2VacSize());
+                        bi >= 0 && vacBuf->currentIndex() != bi) {
+                        vacBuf->blockSignals(true);
+                        vacBuf->setCurrentIndex(bi);
+                        vacBuf->blockSignals(false);
+                    }
+                    if (vacLat->value() != engine_->vac2LatencyMs()) {
+                        vacLat->blockSignals(true);
+                        vacLat->setValue(engine_->vac2LatencyMs());
+                        vacLat->blockSignals(false);
+                    }
+                    if (vacEnable->isChecked() != engine_->vac2Enabled()) {
+                        vacEnable->blockSignals(true);
+                        vacEnable->setChecked(engine_->vac2Enabled());
+                        vacEnable->blockSignals(false);
+                    }
+                    if (vacAuto->isChecked() != engine_->vac2AutoDigital()) {
+                        vacAuto->blockSignals(true);
+                        vacAuto->setChecked(engine_->vac2AutoDigital());
+                        vacAuto->blockSignals(false);
+                    }
+                    const int gi = qRound(engine_->vac2RxGainDb());
+                    if (vacGain->value() != gi) {
+                        vacGain->blockSignals(true);
+                        vacGain->setValue(gi);
+                        vacGain->blockSignals(false);
+                    }
+                    const int ti = qRound(engine_->vac2TxGainDb());
+                    if (vacTxGain->value() != ti) {
+                        vacTxGain->blockSignals(true);
+                        vacTxGain->setValue(ti);
+                        vacTxGain->blockSignals(false);
+                    }
+                    if (vacCombine->isChecked() != engine_->vac2CombineInput()) {
+                        vacCombine->blockSignals(true);
+                        vacCombine->setChecked(engine_->vac2CombineInput());
+                        vacCombine->blockSignals(false);
+                    }
+                });
+
+        auto *vnote = new QLabel(tr(
+            "VAC2 is RX2's cable.  Turn SUB on so a second app hears RX2.  "
+            "Use a different virtual-cable pair from VAC1."), grp);
+        vnote->setWordWrap(true);
+        vnote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+        vf->addRow(vnote);
+
+        form->addRow(grp);
+    }
+
     // ── #89 — Voice keyer recording options ──────────────────────────
     if (voiceKeyer_) {
         auto *grp = new QGroupBox(tr("Voice keyer recording"), page);
@@ -6555,7 +6835,7 @@ QWidget *SettingsDialog::buildTxTab() {
         //   Mic In  — HL2/HL2+ codec mic (the v0.2.0..v0.2.2 default)
         //   TCI     — inbound TX_AUDIO_STREAM from a digital-modes
         //             TCI client (MSHV / JTDX / FlDigi / etc.)
-        //   PC Soundcard (VAC1) — live (#158); VAC2 still pending.
+        //   PC Soundcard (VAC1 / VAC2) — Settings → Audio cables.
         //
         // Token strings match the TCI v2 §3.3 TRX source-token enum
         // so a TCI client that sends `trx:0,true,tci` automatically
@@ -6586,10 +6866,9 @@ QWidget *SettingsDialog::buildTxTab() {
             }
             combo->setToolTip(tr(
                 "TX audio source.  Mic In = radio codec jack.  TCI = a "
-                "TCI client streams TX audio.  PC Soundcard (VAC1) = "
-                "virtual cable / USB mic from Settings → Audio (VAC1 "
-                "Input device) — required for Fldigi / WSJT-X over VAC.  "
-                "VAC2 is not shipped yet."));
+                "TCI client streams TX audio.  PC Soundcard (VAC1) / "
+                "(VAC2) = virtual cable from Settings → Audio.  TCI "
+                "audio and VAC TX are exclusive — TCI always wins."));
             connect(combo, qOverload<int>(&QComboBox::currentIndexChanged),
                     grp, [this, combo](int) {
                 if (!prefs_) return;

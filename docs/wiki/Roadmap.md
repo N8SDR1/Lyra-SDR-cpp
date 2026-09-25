@@ -47,8 +47,8 @@ these are real roadmap items, not "maybe someday."
 
 ## Smaller items on the list
 
-- 🗺️ **VAC2** — a second independent virtual-audio channel (e.g. a logger's
-  audio separate from your digital-mode app)
+- ✅ **VAC2** — second independent virtual-audio cable (RX2 / SUB); tester
+  bench. Profile store for VAC2 knobs still later.
 - ✅ **2-tone test generator** — on the TX panel (linearity / dummy-load
   tune-up); PureSignal still uses it as a companion when PS lands
 - 🗺️ Per-profile independent RX/TX filter lows

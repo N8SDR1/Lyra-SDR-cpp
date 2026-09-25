@@ -113,7 +113,8 @@ Use a **Virtual Audio Cable** (VAC) as the PC output, or **TCI**. See
 **[User Guide → Digital modes](User-Guide#digital-modes--getting-rx-audio-to-another-program)**.
 **Enable VAC1** starts the engine and RX→PC. Transmit from the cable also
 needs **Settings → TX → Mic source = PC Soundcard (VAC1)** (or **Use VAC1
-as TX source**) plus a VAC **Input** device. **TCI** as mic source is
+as TX source**) plus a VAC **Input** device. **VAC2** is the same pattern
+for RX2 (enable **SUB** so VAC2 has audio). **TCI** as mic source is
 exclusive — Lyra will not also arm VAC TX. If **Auto-enable for digital**
 is on, switch to **DIGU / DIGL**; USB turns that auto path off.
 

@@ -592,37 +592,29 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     // unless the operator previously chose a PC device.
     hl2Out_ = s.value(audioOutputKey(),
                       QStringLiteral("hl2")).toString() != QLatin1String("pc");
-    // #158 — VAC1 persisted state (Settings → Audio).  Applied at stream
-    // open (rebuildVac1 in openRx1) + live via the setters below.
-    vac_[0].enabled  = s.value(QStringLiteral("vac1/enabled"), false).toBool();
-    vac_[0].autoDigital = s.value(QStringLiteral("vac1/autoDigital"), false).toBool();
-    vac_[0].outName  = s.value(QStringLiteral("vac1/outputDevice")).toString();
-    vac_[0].inName   = s.value(QStringLiteral("vac1/inputDevice")).toString();
-    // #158 DL-3 — chosen PortAudio host API ("Driver"); empty → first WASAPI.
-    vac_[0].hostApiName = s.value(QStringLiteral("vac1/hostApi")).toString();
-    vac_[0].rxGainDb = std::clamp(
-        s.value(QStringLiteral("vac1/rxGainDb"), 0.0).toDouble(), -60.0, 20.0);
-    vac_[0].txGainDb = std::clamp(
-        s.value(QStringLiteral("vac1/txGainDb"), 3.0).toDouble(), -60.0, 20.0);
-    // VAC latency posture (#158 follow-up) — rmatchV ring depth (ms) + PA block
-    // size (frames).  Operator-tunable to squeeze ARQ turnaround (VarAC); also
-    // carried per-profile (schema v5).  Defaults = reference (120 ms / 2048).
-    vac_[0].latencyMs = std::clamp(
-        s.value(QStringLiteral("vac1/latencyMs"), 120).toInt(), 5, 500);
-    vac_[0].vacSize = std::clamp(
-        s.value(QStringLiteral("vac1/vacSize"), 2048).toInt(), 64, 8192);
-    // Mono-combine the captured VAC input (I=Q=L+R) before the TX modulator,
-    // matching the reference VAC "combine input" + the TCI mic convention
-    // (#67).  Default ON so a mic routed to either VAC channel reaches the
-    // SSB modulator; OFF feeds raw stereo L->I / R->Q.
-    vac_[0].combineInput = s.value(QStringLiteral("vac1/combineInput"), true).toBool();
-    // #161 — mute also silences the VAC RX feed (reference MuteWillMuteVAC1).
-    // Default ON so the operator mute behaves like the reference out of the box
-    // (digital ops who want the cable to keep flowing while muting the room
-    // turn it OFF in Settings → Audio).
-    vac_[0].muteWillMuteVac_.store(
-        s.value(QStringLiteral("vac1/muteWillMuteVac"), true).toBool(),
-        std::memory_order_relaxed);
+    // VAC1 / VAC2 persisted state (Settings → Audio).  Applied at stream
+    // open (rebuildVac in openRx1) + live via the setters.
+    for (int id = 0; id < kVacCount; ++id) {
+        const QString p = QStringLiteral("vac%1/").arg(id + 1);
+        VacState &v = vac_[id];
+        v.enabled  = s.value(p + QStringLiteral("enabled"), false).toBool();
+        v.autoDigital = s.value(p + QStringLiteral("autoDigital"), false).toBool();
+        v.outName  = s.value(p + QStringLiteral("outputDevice")).toString();
+        v.inName   = s.value(p + QStringLiteral("inputDevice")).toString();
+        v.hostApiName = s.value(p + QStringLiteral("hostApi")).toString();
+        v.rxGainDb = std::clamp(
+            s.value(p + QStringLiteral("rxGainDb"), 0.0).toDouble(), -60.0, 20.0);
+        v.txGainDb = std::clamp(
+            s.value(p + QStringLiteral("txGainDb"), 3.0).toDouble(), -60.0, 20.0);
+        v.latencyMs = std::clamp(
+            s.value(p + QStringLiteral("latencyMs"), 120).toInt(), 5, 500);
+        v.vacSize = std::clamp(
+            s.value(p + QStringLiteral("vacSize"), 2048).toInt(), 64, 8192);
+        v.combineInput = s.value(p + QStringLiteral("combineInput"), true).toBool();
+        v.muteWillMuteVac_.store(
+            s.value(p + QStringLiteral("muteWillMuteVac"), true).toBool(),
+            std::memory_order_relaxed);
+    }
     cwPitchHz_ = std::clamp(
         s.value(QStringLiteral("dsp/cwPitchHz"), 600).toInt(), 200, 1500);
     // RX DSP operator state (NR + AGC mode).  Defaults match old Lyra's
@@ -1240,6 +1232,7 @@ bool WdspEngine::openRx1()
     // so a sample-rate reopen rebuilds at the new audio_size/audio_rate.
     applyVacEnvOnce();
     rebuildVac1();
+    rebuildVac2();
     if (subWanted_)
         openRx2();
     return true;
@@ -1254,7 +1247,7 @@ void WdspEngine::closeRx1()
     // Tear down every VAC slot FIRST: clears active_ under that slot's
     // mtx_ (so the mix thread stops feeding xvacOUT), StopAudioIVAC,
     // then destroy_ivac — all before the channel/AAMix teardown below.
-    // V2-0/V2-1: only id 0 was ever started; teardownVac is idempotent.
+    // teardownVac is idempotent if that slot never started.
     for (int id = 0; id < kVacCount; ++id) {
         teardownVac(id);
     }
@@ -1666,11 +1659,6 @@ bool WdspEngine::vacShouldBeOn(int id) const
     if (id < 0 || id >= kVacCount) {
         return false;
     }
-    // V2-0/V2-1: VAC2 slot exists but is not started until Settings + RX2
-    // tee land in V2-2.
-    if (id != kVac1Id) {
-        return false;
-    }
     const VacState &v = vac_[id];
     if (v.autoDigital) {
         return mode_.startsWith(QLatin1String("DIG"), Qt::CaseInsensitive);
@@ -1877,12 +1865,16 @@ void WdspEngine::setVac1VacSize(int frames)
     emit vac1Changed();
 }
 
-QVariantMap WdspEngine::vac1Diags()
+QVariantMap WdspEngine::vacDiagsFor(int id)
 {
     QVariantMap m;
-    std::lock_guard<std::mutex> lk(vac_[0].mtx_);
-    const bool active = vac_[0].active_.load(std::memory_order_relaxed) &&
-                        lyra::wire::ivacGet(kVac1Id) != nullptr;
+    if (id < 0 || id >= kVacCount) {
+        m.insert(QStringLiteral("active"), false);
+        return m;
+    }
+    std::lock_guard<std::mutex> lk(vac_[id].mtx_);
+    const bool active = vac_[id].active_.load(std::memory_order_relaxed) &&
+                        lyra::wire::ivacGet(id) != nullptr;
     m.insert(QStringLiteral("active"), active);
     if (!active) {
         return m;
@@ -1891,16 +1883,26 @@ QVariantMap WdspEngine::vac1Diags()
                     const char *pctKey) {
         int under = 0, over = 0, ringsize = 0, nring = 0;
         double var = 1.0;
-        lyra::wire::getIVACdiags(kVac1Id, type, &under, &over, &var,
+        lyra::wire::getIVACdiags(id, type, &under, &over, &var,
                                  &ringsize, &nring);
         m.insert(QString::fromLatin1(uKey), under);
         m.insert(QString::fromLatin1(oKey), over);
         m.insert(QString::fromLatin1(pctKey),
                  ringsize > 0 ? (nring * 100 / ringsize) : 0);
     };
-    read(0, "outUnder", "outOver", "outPct");   // rmatchOUT = TO VAC (RX→cable)
-    read(1, "inUnder",  "inOver",  "inPct");    // rmatchIN  = FROM VAC (cable→TX)
+    read(0, "outUnder", "outOver", "outPct");
+    read(1, "inUnder",  "inOver",  "inPct");
     return m;
+}
+
+QVariantMap WdspEngine::vac1Diags()
+{
+    return vacDiagsFor(kVac1Id);
+}
+
+QVariantMap WdspEngine::vac2Diags()
+{
+    return vacDiagsFor(kVac2Id);
 }
 
 void WdspEngine::setVac1CombineInput(bool on)
@@ -1932,6 +1934,229 @@ void WdspEngine::setMuteWillMuteVac(bool on)
     // LIVE — dispatchAudioFrame reads vac_[0].muteWillMuteVac_ every block; nothing to
     // push to the engine.  Refresh the Settings mirror.
     emit vac1Changed();
+}
+
+void WdspEngine::setTxSourceVacId(int id)
+{
+    if (id != kVac1Id && id != kVac2Id) {
+        id = kVac1Id;
+    }
+    txSourceVacId_ = id;
+}
+
+bool WdspEngine::applyMicSourceToVacTx(const QString &src)
+{
+    const bool tci = (src == QLatin1String("tci"));
+    auto live = [](const QString &name) {
+        return !name.isEmpty() && name != QLatin1String("(none)");
+    };
+    const bool dig = mode().startsWith(QLatin1String("DIG"),
+                                       Qt::CaseInsensitive);
+    const bool auto1 = !tci && live(vac1InputDeviceName())
+        && vac1AutoDigital() && dig;
+    const bool auto2 = !tci && live(vac2InputDeviceName())
+        && vac2AutoDigital() && dig;
+    int vacId = kVac1Id;
+    bool vac = false;
+    if (!tci && src == QLatin1String("micpc")) {
+        vac = true;
+        vacId = kVac1Id;
+    } else if (!tci && src == QLatin1String("micpc2")) {
+        vac = true;
+        vacId = kVac2Id;
+    } else if (auto1) {
+        vac = true;
+        vacId = kVac1Id;
+    } else if (auto2) {
+        vac = true;
+        vacId = kVac2Id;
+    }
+    setTxSourceVacId(vacId);
+    return vac;
+}
+
+QStringList WdspEngine::vac2OutputDevices() const
+{
+    return paDevicesForHostApi(paHostApiIndexForName(vac_[1].hostApiName),
+                               /*wantOutput*/ true);
+}
+
+QStringList WdspEngine::vac2HostApiNames() const
+{
+    return vac1HostApiNames();
+}
+
+QList<int> WdspEngine::vac2HostApiPaIndices() const
+{
+    return vac1HostApiPaIndices();
+}
+
+QStringList WdspEngine::vac2OutputDevicesFor(int paHostApi) const
+{
+    return paDevicesForHostApi(paHostApi, /*wantOutput*/ true);
+}
+
+QStringList WdspEngine::vac2InputDevicesFor(int paHostApi) const
+{
+    return paDevicesForHostApi(paHostApi, /*wantOutput*/ false);
+}
+
+void WdspEngine::setVac2HostApi(const QString &name)
+{
+    if (vac_[1].hostApiName == name) {
+        return;
+    }
+    vac_[1].hostApiName = name;
+    QSettings().setValue(QStringLiteral("vac2/hostApi"), name);
+    if (vacShouldBeOn(kVac2Id)) {
+        rebuildVac2();
+    }
+    emit vac2Changed();
+}
+
+void WdspEngine::setVac2Enabled(bool on)
+{
+    if (vac_[1].enabled == on) {
+        return;
+    }
+    vac_[1].enabled = on;
+    QSettings().setValue(QStringLiteral("vac2/enabled"), on);
+    rebuildVac2();
+    emit vac2Changed();
+}
+
+void WdspEngine::setVac2AutoDigital(bool on)
+{
+    if (vac_[1].autoDigital == on) {
+        return;
+    }
+    vac_[1].autoDigital = on;
+    QSettings().setValue(QStringLiteral("vac2/autoDigital"), on);
+    rebuildVac2();
+    emit vac2Changed();
+}
+
+QStringList WdspEngine::vac2InputDevices() const
+{
+    return paDevicesForHostApi(paHostApiIndexForName(vac_[1].hostApiName),
+                               /*wantOutput*/ false);
+}
+
+void WdspEngine::setVac2InputDeviceName(const QString &name)
+{
+    if (vac_[1].inName == name) {
+        return;
+    }
+    vac_[1].inName = name;
+    QSettings().setValue(QStringLiteral("vac2/inputDevice"), name);
+    if (vacShouldBeOn(kVac2Id)) {
+        rebuildVac2();
+    }
+    emit vac2Changed();
+}
+
+void WdspEngine::setVac2TxGainDb(double db)
+{
+    db = std::clamp(db, -60.0, 20.0);
+    if (std::abs(db - vac_[1].txGainDb) < 1e-9) {
+        return;
+    }
+    vac_[1].txGainDb = db;
+    QSettings().setValue(QStringLiteral("vac2/txGainDb"), db);
+    {
+        std::lock_guard<std::mutex> lk(vac_[1].mtx_);
+        if (vac_[1].active_.load(std::memory_order_relaxed) &&
+            lyra::wire::ivacGet(kVac2Id)) {
+            lyra::wire::SetIVACpreamp(kVac2Id, std::pow(10.0, db / 20.0));
+        }
+    }
+    emit vac2Changed();
+}
+
+void WdspEngine::setVac2OutputDeviceName(const QString &name)
+{
+    if (vac_[1].outName == name) {
+        return;
+    }
+    vac_[1].outName = name;
+    QSettings().setValue(QStringLiteral("vac2/outputDevice"), name);
+    if (vacShouldBeOn(kVac2Id)) {
+        rebuildVac2();
+    }
+    emit vac2Changed();
+}
+
+void WdspEngine::setVac2RxGainDb(double db)
+{
+    db = std::clamp(db, -60.0, 20.0);
+    if (std::abs(db - vac_[1].rxGainDb) < 1e-9) {
+        return;
+    }
+    vac_[1].rxGainDb = db;
+    QSettings().setValue(QStringLiteral("vac2/rxGainDb"), db);
+    {
+        std::lock_guard<std::mutex> lk(vac_[1].mtx_);
+        if (vac_[1].active_.load(std::memory_order_relaxed) &&
+            lyra::wire::ivacGet(kVac2Id)) {
+            lyra::wire::SetIVACrxscale(kVac2Id, std::pow(10.0, db / 20.0));
+        }
+    }
+    emit vac2Changed();
+}
+
+void WdspEngine::setVac2LatencyMs(int ms)
+{
+    ms = std::clamp(ms, 5, 500);
+    if (ms == vac_[1].latencyMs) {
+        return;
+    }
+    vac_[1].latencyMs = ms;
+    QSettings().setValue(QStringLiteral("vac2/latencyMs"), ms);
+    if (vacShouldBeOn(kVac2Id)) {
+        rebuildVac2();
+    }
+    emit vac2Changed();
+}
+
+void WdspEngine::setVac2VacSize(int frames)
+{
+    frames = std::clamp(frames, 64, 8192);
+    if (frames == vac_[1].vacSize) {
+        return;
+    }
+    vac_[1].vacSize = frames;
+    QSettings().setValue(QStringLiteral("vac2/vacSize"), frames);
+    if (vacShouldBeOn(kVac2Id)) {
+        rebuildVac2();
+    }
+    emit vac2Changed();
+}
+
+void WdspEngine::setVac2CombineInput(bool on)
+{
+    if (vac_[1].combineInput == on) {
+        return;
+    }
+    vac_[1].combineInput = on;
+    QSettings().setValue(QStringLiteral("vac2/combineInput"), on);
+    {
+        std::lock_guard<std::mutex> lk(vac_[1].mtx_);
+        if (vac_[1].active_.load(std::memory_order_relaxed) &&
+            lyra::wire::ivacGet(kVac2Id)) {
+            lyra::wire::SetIVACcombine(kVac2Id, on ? 1 : 0);
+        }
+    }
+    emit vac2Changed();
+}
+
+void WdspEngine::setVac2MuteWillMuteVac(bool on)
+{
+    if (vac_[1].muteWillMuteVac_.load(std::memory_order_relaxed) == on) {
+        return;
+    }
+    vac_[1].muteWillMuteVac_.store(on, std::memory_order_relaxed);
+    QSettings().setValue(QStringLiteral("vac2/muteWillMuteVac"), on);
+    emit vac2Changed();
 }
 
 void WdspEngine::setZoom(double z)
@@ -2385,6 +2610,9 @@ void WdspEngine::setMode(const QString &m)
     // rebuildVac1 reconciles against vac1ShouldBeOn(); no-op if auto is off.
     if (vac_[0].autoDigital) {
         rebuildVac1();
+    }
+    if (vac_[1].autoDigital) {
+        rebuildVac2();
     }
     emit modeChanged();
     emit markerOffsetChanged();   // CW carrier offset flips with mode
@@ -4154,8 +4382,7 @@ void WdspEngine::txMonitorTapCb(int nsamples, double *buff)
 // slot's mtx_ and re-check active_ before xvacIN.  rebuildVac/teardownVac
 // flip active_ under mtx_ around create/resize/destroy of that id's
 // full-duplex ivac + rmatchIN ring, so this can never xvacIN a freed
-// or mid-rebuilt ring.  Which slot feeds TX is txSourceVacId_ (VAC1
-// until V2-3).
+// or mid-rebuilt ring.  Which slot feeds TX is txSourceVacId_.
 void WdspEngine::vacInboundCb(int nsamples, double *buff)
 {
     WdspEngine *self = g_aamixOutboundSelf;
@@ -4194,8 +4421,8 @@ void WdspEngine::vacInboundCb(int nsamples, double *buff)
     ++drnCalls;
     drnSamps += nsamples;
     if (drnSamps >= 48000) {
-        qInfo("[vac1] xvacIN drain (TX mic): %lld calls/s, peak %.4f",
-              drnCalls, drnPeak);
+        qInfo("[vac%d] xvacIN drain (TX mic): %lld calls/s, peak %.4f",
+              self->txSourceVacId_ + 1, drnCalls, drnPeak);
         drnCalls = 0; drnSamps = 0; drnPeak = 0.0;
     }
 }
@@ -4540,6 +4767,42 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
                 lyra::wire::xvacOUT(kVac1Id, /*stream*/2, vacMonStereo_.data());
             } else if (static_cast<int>(vacMonSilence_.size()) == 2 * nframes) {
                 lyra::wire::xvacOUT(kVac1Id, /*stream*/2,
+                                    vacMonSilence_.data());
+            }
+        }
+    }
+
+    // VAC2 RX-out tee — RX2 only (SUB right).  SUB off: cable stays open
+    // but silent so a second app does not lose the device.  Monitor stays
+    // on VAC1 (stream 2 = silence here).
+    if (vac_[kVac2Id].active_.load(std::memory_order_relaxed)) {
+        std::lock_guard<std::mutex> lk(vac_[kVac2Id].mtx_);
+        if (vac_[kVac2Id].active_.load(std::memory_order_relaxed) &&
+            nframes == outSize_) {
+            const int vacN2 = 2 * nframes;
+            if (static_cast<int>(vac_[kVac2Id].rxScaled_.size()) != vacN2) {
+                vac_[kVac2Id].rxScaled_.assign(static_cast<size_t>(vacN2), 0.0);
+            }
+            const bool muteVac2 =
+                vac_[kVac2Id].muteWillMuteVac_.load(std::memory_order_relaxed);
+            const double g2 = (mutedRx2_.load(std::memory_order_relaxed)
+                               && muteVac2)
+                ? 0.0
+                : posToGain(volumeRx2_.load(std::memory_order_relaxed));
+            if (subMix) {
+                for (int f = 0; f < nframes; ++f) {
+                    const double s = audio[2 * f + 1] * g2;
+                    vac_[kVac2Id].rxScaled_[static_cast<size_t>(2 * f + 0)] = s;
+                    vac_[kVac2Id].rxScaled_[static_cast<size_t>(2 * f + 1)] = s;
+                }
+            } else {
+                std::fill(vac_[kVac2Id].rxScaled_.begin(),
+                          vac_[kVac2Id].rxScaled_.end(), 0.0);
+            }
+            lyra::wire::xvacOUT(kVac2Id, /*stream*/1,
+                                vac_[kVac2Id].rxScaled_.data());
+            if (static_cast<int>(vacMonSilence_.size()) == 2 * nframes) {
+                lyra::wire::xvacOUT(kVac2Id, /*stream*/2,
                                     vacMonSilence_.data());
             }
         }

@@ -963,16 +963,7 @@ int main(int argc, char *argv[])
         auto applyTxAudioSource = [prefs, wdspEngine]() {
             const QString src = prefs->micSource();
             const bool tci = (src == QStringLiteral("tci"));
-            const QString vacIn = wdspEngine->vac1InputDeviceName();
-            const bool vacInLive = !vacIn.isEmpty()
-                && vacIn != QLatin1String("(none)");
-            const bool autoDigVacTx =
-                !tci && vacInLive
-                && wdspEngine->vac1AutoDigital()
-                && wdspEngine->mode().startsWith(QLatin1String("DIG"),
-                                                 Qt::CaseInsensitive);
-            const bool vac = !tci
-                && (src == QStringLiteral("micpc") || autoDigVacTx);
+            const bool vac = wdspEngine->applyMicSourceToVacTx(src);
             lyra::wire::SetTXTCIAudio(0, tci ? 1 : 0);
             lyra::wire::SetTXVacAudio(0, vac ? 1 : 0);
             if (!tci) lyra::tci::TciTxBridge::instance().clear();
@@ -982,6 +973,8 @@ int main(int argc, char *argv[])
         QObject::connect(wdspEngine, &lyra::dsp::WdspEngine::modeChanged,
                          prefs, applyTxAudioSource);
         QObject::connect(wdspEngine, &lyra::dsp::WdspEngine::vac1Changed,
+                         prefs, applyTxAudioSource);
+        QObject::connect(wdspEngine, &lyra::dsp::WdspEngine::vac2Changed,
                          prefs, applyTxAudioSource);
         applyTxAudioSource();   // seed initial state
     }

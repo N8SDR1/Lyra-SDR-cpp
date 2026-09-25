@@ -50,8 +50,8 @@ So you know what the pending list is filling in *around*:
 |---|---|
 | HL2/HL2+ codec mic (`Hl2Ep6MicSource`) | ✅ Live |
 | TCI inbound (`TciMicSource`) | ✅ Live |
-| **VAC1** (PC audio in) | ❌ Not built |
-| **VAC2** (second PC audio in) | ❌ Not built |
+| **VAC1** (PC audio in) | ✅ Live |
+| **VAC2** (second PC audio in, RX2) | ✅ Live (tester bench; not in profiles yet) |
 | **HL2 codec Line In** (analog) | ❌ Not built |
 
 ### RX

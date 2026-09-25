@@ -33,7 +33,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 
 - ✅ **SSB** (USB / LSB), **AM** (proper carrier + both sidebands), **SAM**, **DSB** (suppressed carrier), **FM** (deviation / pre-emphasis / CTCSS)
 - ✅ **CW** — internal iambic keyer (paddle / straight key), keyboard send, **CWX**, contest **macro bank** ({CALL}/{RST}/{NAME}…), QSK / semi / manual break-in, adjustable sidetone
-- ✅ **Digital** via **TCI** and **virtual audio cable (VAC1)** — WSJT-X / MSHV / JTDX / FLDigi / VarAC, or drive Lyra from your logger. VAC **Enable** is RX; **Mic source = VAC1** (or **Use VAC1 as TX source**) is TX. TCI audio and VAC TX are mutually exclusive.
+- ✅ **Digital** via **TCI** and **VAC1 / VAC2** — WSJT-X / MSHV / JTDX / FLDigi / VarAC, or a logger on a second cable. VAC **Enable** is RX; **Mic source = VAC1 or VAC2** is TX. VAC2 carries **RX2** (turn **SUB** on). TCI audio and VAC TX are mutually exclusive.
 - ✅ TX power / drive, separate **tune drive**, AM carrier level, mic gain + **20 dB mic boost**; Protocol 2 uses analog drive (HP [345]) plus per-band **PA Gain / Full Output / CAP**, including a dedicated **11m** slot
 - ✅ Always-on **ALC** + operator **Leveler**, **PHROT** phase rotator
 - ✅ **Waterfall callsign ID** — paints your call in the SSB passband (ham bands only)
@@ -80,7 +80,6 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 
 - 🗺️ **PureSignal** adaptive predistortion
 - 🗺️ **ANAN family** (G2 / G2-1K / 7000DLE / 8000, …) as first-class Protocol 2 radios — the P2 wire is live on BrickSDR2; ANAN models still need per-family bring-up
-- 🗺️ **VAC2** (second virtual-audio channel)
 - 🗺️ **Linux, then macOS**
 
 ---

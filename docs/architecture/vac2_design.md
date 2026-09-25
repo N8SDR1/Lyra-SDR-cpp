@@ -1,10 +1,11 @@
 # VAC2 — second virtual audio cable (#103) design
 
-**Status:** RX2/SUB is **shipped**. Engine **V2-0 + V2-1 in this pass**
-(`VacState vac_[2]`, `rebuildVac(id)` / `teardownVac(id)` / `vacShouldBeOn(id)`
-/ `txSourceVacId_`). **Only id 0 (VAC1) is started** until V2-2 Settings +
-RX2 tee. Public QML/Settings stay `vac1*`. WDSP 2.10 + PureSignal are **not**
-in this step (VAC2 on the current DLL; PS later).
+**Status:** V2-0 through V2-3 **shipped** — two IVAC slots, Settings VAC1 +
+VAC2, RX2 tee (`xvacOUT(1)`), Mic source **PC Soundcard (VAC2)** (`micpc2`).
+VAC2 RX is silent when SUB is off (cable stays open). One modulator: TCI
+wins; else explicit `micpc` / `micpc2`; else auto-digital (VAC1 preferred
+if both). Profile `vac2*` fields are **V2-4** (not in this pass).
+WDSP 2.10 + PureSignal are **not** in this step.
 **Scope:** #103. A second, fully-independent full-duplex VAC (RX-out **and**
 TX-in), mirroring VAC1, that carries **RX2's** audio to/from its own PC device
 pair — exactly Thetis's VAC2 (bound to the second receiver).
@@ -13,10 +14,9 @@ Operator: full-duplex like VAC1, VAC2 = RX2's cable.
 ## Dependency
 Thetis's VAC2 is the **second receiver's** audio cable (`cmaster.cs:924,
 941-944` — `VAC2Enabled` ties VAC2 to `RX2 = WDSP.id(2,0)`). Lyra **SUB/RX2 is
-shipped** (WDSP ch2, DDC1). Remaining work: Settings + RX2→VAC2 tee (V2-2) and
-VAC2-as-TX-source (V2-3).
-**This pass** lands V2-0/V2-1: VAC1 behavior-neutral; VAC2 slot exists but
-`vacShouldBeOn(1)` returns false until V2-2.
+shipped** (WDSP ch2, DDC1). VAC2 Settings + RX2 tee + VAC2-as-TX are live.
+**Remaining:** V2-4 Profile `vac2*` fields; V2-5 Brent/Timmy enable/disable
+crash-surface re-bench on **both** cables.
 
 ## HL2 PureSignal × VAC2 (when PS lands)
 On HL2, MOX+PS reroutes DDC1 to TX freq, so RX2 is not VFO B. **VAC2 RX must
@@ -88,18 +88,10 @@ the real work + risk; it is NOT a copy-paste.
    global, like VAC1).
 
 ## Build order
-- **V2-0** — **this pass** — `VacState vac_[2]` + indexed accessors; VAC1
-  sites `id=0`. Behavior-neutral until VAC1 bench.
-- **V2-1** — **this pass** — `rebuildVac(id)` / `teardownVac(id)` /
-  `vacShouldBeOn(id)` / inbound via `txSourceVacId_`. Still only id 0 started.
-- **V2-2** — Settings VAC2 group + `vac2/*` + `rebuildVac(1)` + VAC2 RX tee
-  from **RX2**. **VAC2 RX-out goes live.** Bench: VAC2 → a second app receives RX2.
-- **V2-3** — "PC Soundcard (VAC2)" mic source + `txSourceVacId_` arbitration.
-  **VAC2 TX goes live.** Bench: transmit from the VAC2 app.
+- **V2-0 … V2-3** — **shipped** (engine slots, Settings, RX2 tee, `micpc2`).
 - **V2-4** — Profile `vac2*` fields.
-- **V2-5** — USER_GUIDE + the **Brent/Timmy crash-surface re-bench**
-  (enable/disable + device-swap on BOTH VACs + profile flips, the exact
-  actions that used to crash) before release.
+- **V2-5** — USER_GUIDE polish + Brent/Timmy crash-surface re-bench
+  (enable/disable + device-swap on BOTH VACs + profile flips).
 
 ## Thetis grounding (verified 2026-06-19 — "follow Thetis")
 - `MAX_EXT_VACS = 16` (`ivac.h:34`) — engine handles far more than 2; VAC2 = id 1.

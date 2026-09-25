@@ -867,6 +867,47 @@ public:
     // no-op when VAC1 isn't live.
     void setVacMox(bool on);
 
+    // VAC2 (#103) — second full-duplex cable, RX2 audio. Independent
+    // devices/gains; TX uses this slot only when Mic source is VAC2
+    // (micpc2) or VAC2 auto-digital is the only live VAC TX path.
+    bool    vac2Enabled() const           { return vac_[kVac2Id].enabled; }
+    QString vac2OutputDeviceName() const  { return vac_[kVac2Id].outName; }
+    double  vac2RxGainDb() const          { return vac_[kVac2Id].rxGainDb; }
+    bool    vac2AutoDigital() const       { return vac_[kVac2Id].autoDigital; }
+    Q_INVOKABLE QStringList vac2OutputDevices() const;
+    Q_INVOKABLE QStringList vac2HostApiNames() const;
+    QList<int>              vac2HostApiPaIndices() const;
+    Q_INVOKABLE QStringList vac2OutputDevicesFor(int paHostApi) const;
+    Q_INVOKABLE QStringList vac2InputDevicesFor(int paHostApi) const;
+    QString                 vac2HostApiName() const { return vac_[kVac2Id].hostApiName; }
+    Q_INVOKABLE void        setVac2HostApi(const QString &name);
+    Q_INVOKABLE void setVac2Enabled(bool on);
+    Q_INVOKABLE void setVac2OutputDeviceName(const QString &name);
+    Q_INVOKABLE void setVac2RxGainDb(double db);
+    Q_INVOKABLE void setVac2AutoDigital(bool on);
+    QString vac2InputDeviceName() const   { return vac_[kVac2Id].inName; }
+    double  vac2TxGainDb() const          { return vac_[kVac2Id].txGainDb; }
+    Q_INVOKABLE QStringList vac2InputDevices() const;
+    Q_INVOKABLE void setVac2InputDeviceName(const QString &name);
+    Q_INVOKABLE void setVac2TxGainDb(double db);
+    int     vac2LatencyMs() const         { return vac_[kVac2Id].latencyMs; }
+    int     vac2VacSize() const           { return vac_[kVac2Id].vacSize; }
+    Q_INVOKABLE void setVac2LatencyMs(int ms);
+    Q_INVOKABLE void setVac2VacSize(int frames);
+    Q_INVOKABLE QVariantMap vac2Diags();
+    bool    vac2CombineInput() const      { return vac_[kVac2Id].combineInput; }
+    Q_INVOKABLE void setVac2CombineInput(bool on);
+    bool    vac2MuteWillMuteVac() const {
+        return vac_[kVac2Id].muteWillMuteVac_.load(std::memory_order_relaxed);
+    }
+    Q_INVOKABLE void setVac2MuteWillMuteVac(bool on);
+    int  txSourceVacId() const { return txSourceVacId_; }
+    void setTxSourceVacId(int id);
+    // TCI exclusive. Explicit micpc / micpc2 wins. Else auto-digital with
+    // a live Input device (VAC1 preferred if both). Sets txSourceVacId_.
+    // Returns true if the modulator should take VAC inbound (use_vac_audio).
+    bool applyMicSourceToVacTx(const QString &micSource);
+
     // #59 RX EQ — point the post-RXA audio at the RX EqModel's engine +
     // analyzer (nullptr to detach).  dispatchAudioFrame applies it (mono-dup,
     // L==R) before ALL RX tees, gated on the engine's own !bypassed() AND not
@@ -935,6 +976,7 @@ signals:
     void monVolumeChanged();
     void audioDeviceChanged();
     void vac1Changed();   // #158 — VAC1 enable / device / RX gain
+    void vac2Changed();   // #103 — VAC2 enable / device / RX gain
     void zoomChanged();
     void spanChanged();   // displayed span changed (rate OR zoom)
     void modeChanged();
@@ -1410,11 +1452,10 @@ private:
     // the verbatim wire/AAMix.h direct port.
     lyra::wire::AAMIX aaMix_ = nullptr;
 
-    // ── VAC (wire/Ivac) — V2-0/V2-1: two slots, only id 0 (VAC1) is
-    // started.  Public QML/Settings still speak vac1*; internals index
-    // vac_[id].  Per-id mtx_ serialises mix-thread xvacOUT / TX-pump
-    // xvacIN against main-thread rebuild/teardown.  VAC2 UI + second
-    // PortAudio stream land in V2-2.
+    // ── VAC (wire/Ivac) — two slots (VAC1 id 0, VAC2 id 1).  Per-id
+    // mtx_ serialises mix-thread xvacOUT / TX-pump xvacIN against
+    // main-thread rebuild/teardown.  VAC2 tees RX2 (SUB); TX uses one
+    // slot via txSourceVacId_ (micpc / micpc2 / auto-digital).
     static constexpr int kVacCount = 2;
     static constexpr int kVac1Id   = 0;
     static constexpr int kVac2Id   = 1;
@@ -1435,14 +1476,15 @@ private:
         std::vector<double> rxScaled_;
     };
     VacState vac_[kVacCount];
-    // Which VAC feeds the TX modulator.  VAC1 until V2-3; then the
-    // operator's source picker (one modulator).
+    // Which VAC feeds the TX modulator (one modulator; picker or auto-digital).
     int txSourceVacId_ = kVac1Id;
 
     void rebuildVac(int id);   // teardown then (re)start iff should-be-on
     void teardownVac(int id);  // StopAudioIVAC + destroy_ivac; idempotent
     void rebuildVac1()  { rebuildVac(kVac1Id); }
+    void rebuildVac2()  { rebuildVac(kVac2Id); }
     void teardownVac1() { teardownVac(kVac1Id); }
+    QVariantMap vacDiagsFor(int id);
     void applyVacEnvOnce();  // read LYRA_VAC1_OUT / _VAC_SIZE once (bench hook)
     bool vacShouldBeOn(int id) const;
     bool vac1ShouldBeOn() const { return vacShouldBeOn(kVac1Id); }
