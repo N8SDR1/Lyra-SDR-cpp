@@ -318,11 +318,32 @@ int main(int argc, char *argv[])
         // an env var.  Sticky (persisted) until the operator picks a backend
         // in Settings -> Visuals, which clears it.  An explicit LYRA_GRAPHICS
         // override is always honoured and never overridden (debug hatch).
+        //
+        // Same for a backend the operator PINNED in Settings (Vulkan / D3D /
+        // OpenGL).  The ladder exists for Auto (Qt-picked D3D11) on weak
+        // iGPUs.  A dedicated GPU with an explicit pick must not be yanked
+        // to OpenGL/software because an installer-kill, a restart before the
+        // 2 s timer, or deferred QML dock load left the sentinel set — that
+        // is a false crash, not a 9070 XT that cannot run Vulkan.  --safe
+        // remains the hatch if the pinned backend really will not start.
         const bool crashed =
             s.value(QStringLiteral("ui/gfxStartupPending"), false).toBool();
         const bool envForced =
             !qEnvironmentVariable("LYRA_GRAPHICS").trimmed().isEmpty();
-        int safeDepth = s.value(QStringLiteral("ui/gfxSafeDepth"), 0).toInt();
+        const QString savedBackend = s.value(QStringLiteral("ui/graphicsBackend"),
+                                             QStringLiteral("auto"))
+                                         .toString().trimmed().toLower();
+        const bool backendPinned = (savedBackend == QLatin1String("vulkan")
+                                    || savedBackend == QLatin1String("d3d12")
+                                    || savedBackend == QLatin1String("d3d11")
+                                    || savedBackend == QLatin1String("opengl"));
+        if (backendPinned) {
+            s.remove(QStringLiteral("ui/gfxSafeMode"));
+            s.remove(QStringLiteral("ui/gfxSafeDepth"));
+        }
+        int safeDepth = backendPinned
+            ? 0
+            : s.value(QStringLiteral("ui/gfxSafeDepth"), 0).toInt();
         const int prevSafeDepth = safeDepth;   // depth the PREVIOUS launch ran at
         // Consecutive-incomplete-start counter — reset to 0 by the +2s success
         // timer once the window survives.  Drives the layout-reset rung on the
@@ -333,13 +354,17 @@ int main(int argc, char *argv[])
             crashCount = std::min(crashCount + 1, 99);
             s.setValue(QStringLiteral("ui/startupCrashCount"), crashCount);
             // Graphics step-down (auto/D3D11 -> OpenGL -> software), UNLESS the
-            // operator pinned a backend via LYRA_GRAPHICS — we never fight an
-            // explicit choice.
-            if (!envForced) {
+            // operator pinned a backend via LYRA_GRAPHICS or Settings — we
+            // never fight an explicit choice.
+            if (!envForced && !backendPinned) {
                 safeDepth = std::min(safeDepth + 1, 2);   // 1 = OpenGL, 2 = Software
                 s.setValue(QStringLiteral("ui/gfxSafeDepth"), safeDepth);
                 s.setValue(QStringLiteral("ui/gfxSafeMode"), true);
                 gfxCrashRecovered = true;
+            } else if (backendPinned) {
+                qWarning("[gfx] previous start incomplete — keeping pinned "
+                         "backend '%s' (crash ladder is for Auto)",
+                         qPrintable(savedBackend));
             }
             // Layout-reset rung — restoreLayout() consumes ui/uiSafeReset and
             // comes up factory, keeping every non-layout setting.  A bad
@@ -356,7 +381,8 @@ int main(int argc, char *argv[])
             // graphics gate so a pinned-backend tester is never locked out of
             // the layout rescue; the !envForced qualifier on (a) keeps a
             // sticky-high safeDepth from short-circuiting (b)'s two-crash gate.
-            if ((!envForced && prevSafeDepth >= 2) || (envForced && crashCount >= 2)) {
+            if ((!envForced && !backendPinned && prevSafeDepth >= 2)
+                    || (envForced && crashCount >= 2)) {
                 s.setValue(QStringLiteral("ui/uiSafeReset"), true);
                 layoutResetThisLaunch = true;
             }
@@ -366,10 +392,11 @@ int main(int argc, char *argv[])
 
         QString be = qEnvironmentVariable("LYRA_GRAPHICS").trimmed().toLower();
         if (be.isEmpty())
-            be = s.value(QStringLiteral("ui/graphicsBackend"),
-                         QStringLiteral("auto")).toString().toLower();
-        // Safe mode overrides the auto/saved choice (never an env override).
-        if (!envForced && s.value(QStringLiteral("ui/gfxSafeMode"), false).toBool()) {
+            be = savedBackend;
+        // Safe mode overrides Auto (never an env override, never a pinned
+        // Settings backend).  backendPinned already cleared leftover keys.
+        if (!envForced && !backendPinned
+                && s.value(QStringLiteral("ui/gfxSafeMode"), false).toBool()) {
             be = (safeDepth >= 2) ? QStringLiteral("software")
                                   : QStringLiteral("opengl");
             gfxSafeBackend = be;
@@ -386,8 +413,10 @@ int main(int argc, char *argv[])
         // QQuickWidget swapchains (Intel UHD 128 MB field report: log
         // stops after USB-BCD open, never reaches "main window constructed").
         // Graphics-safe-mode recoveries skip MSAA for the same reason.
+        // Do NOT skip MSAA / force the basic render loop merely because a
+        // leftover gfxSafeMode flag is set while the operator is on Vulkan.
         if (be == QLatin1String("software")
-            || (!envForced
+            || (!envForced && !backendPinned
                 && s.value(QStringLiteral("ui/gfxSafeMode"), false).toBool()))
             skipMsaa = true;
         if (gfxCrashRecovered)
@@ -1028,6 +1057,12 @@ int main(int argc, char *argv[])
         p.vac1TxGainDb    = wdspEngine->vac1TxGainDb();
         p.vac1LatencyMs   = wdspEngine->vac1LatencyMs();   // v5 #158
         p.vac1VacSize     = wdspEngine->vac1VacSize();      // v5 #158
+        p.vac2Enabled     = wdspEngine->vac2Enabled();      // v6 #103 V2-4
+        p.vac2AutoDigital = wdspEngine->vac2AutoDigital();
+        p.vac2RxGainDb    = wdspEngine->vac2RxGainDb();
+        p.vac2TxGainDb    = wdspEngine->vac2TxGainDb();
+        p.vac2LatencyMs   = wdspEngine->vac2LatencyMs();
+        p.vac2VacSize     = wdspEngine->vac2VacSize();
         p.agcMode         = wdspEngine->agcMode();
         p.autoMuteOnTx    = wdspEngine->autoMuteOnTx();
         // #160: ALC ceiling + Leveler trio — operator runs leveler ON for
@@ -1064,12 +1099,13 @@ int main(int argc, char *argv[])
         prefs->setTxBandwidth(p.txBandwidth);
         prefs->setBwLocked(p.bwLocked);
         prefs->setFilterLow(p.filterLow);
-        // VAC (#158) — apply VAC config BEFORE micSource so the VAC1 engine
-        // is live (callback registered) when setMicSource arms use_vac_audio;
-        // else a micpc profile would arm the source against a null inbound cb
-        // (silent TX) until the next rebuild.  Gains/autoDigital first, then
-        // enable (final rebuild sees everything), then the source.  Devices
-        // stay global (Settings → Audio) — not profile fields.
+        // VAC (#158 / #103) — apply VAC1+VAC2 config BEFORE micSource so
+        // the matching engine is live (callback registered) when setMicSource
+        // arms use_vac_audio; else a micpc / micpc2 profile would arm the
+        // source against a null inbound cb (silent TX) until the next rebuild.
+        // Gains/latency/autoDigital first, then enable (final rebuild sees
+        // everything), then the source.  Devices stay global (Settings →
+        // Audio) — not profile fields.
         wdspEngine->setVac1RxGainDb(p.vac1RxGainDb);
         wdspEngine->setVac1TxGainDb(p.vac1TxGainDb);
         // Latency posture (v5 #158) BEFORE enable: while VAC is off these just
@@ -1080,6 +1116,12 @@ int main(int argc, char *argv[])
         wdspEngine->setVac1VacSize(p.vac1VacSize);
         wdspEngine->setVac1AutoDigital(p.vac1AutoDigital);
         wdspEngine->setVac1Enabled(p.vac1Enabled);
+        wdspEngine->setVac2RxGainDb(p.vac2RxGainDb);
+        wdspEngine->setVac2TxGainDb(p.vac2TxGainDb);
+        wdspEngine->setVac2LatencyMs(p.vac2LatencyMs);
+        wdspEngine->setVac2VacSize(p.vac2VacSize);
+        wdspEngine->setVac2AutoDigital(p.vac2AutoDigital);
+        wdspEngine->setVac2Enabled(p.vac2Enabled);
         prefs->setMicSource(p.micSource);   // fires the applyTciTxSource gate above
         stream->setMicGainDb(p.micGainDb);
         stream->setMicBoost(p.micBoost);
@@ -1156,6 +1198,10 @@ int main(int argc, char *argv[])
     QObject::connect(wdspEngine, &lyra::dsp::WdspEngine::agcModeChanged, profiles,
                      &lyra::profile::ProfileManager::refreshModified);
     QObject::connect(wdspEngine, &lyra::dsp::WdspEngine::autoMuteOnTxChanged, profiles,
+                     &lyra::profile::ProfileManager::refreshModified);
+    QObject::connect(wdspEngine, &lyra::dsp::WdspEngine::vac1Changed, profiles,
+                     &lyra::profile::ProfileManager::refreshModified);
+    QObject::connect(wdspEngine, &lyra::dsp::WdspEngine::vac2Changed, profiles,
                      &lyra::profile::ProfileManager::refreshModified);
 
     // applyDefaultAtStartup() is deferred to AFTER MainWindow is built (see

@@ -9022,16 +9022,20 @@ QWidget *SettingsDialog::buildVisualsTab() {
                    QStringLiteral("auto")).toString().toLower();
         const int idx = std::max(0, gfx->findData(cur));
         gfx->setCurrentIndex(idx);
-        connect(gfx, &QComboBox::currentIndexChanged, gfx, [gfx](int i) {
+        auto persistGfx = [gfx](int i) {
             QSettings s;
             s.setValue(QStringLiteral("ui/graphicsBackend"),
                        gfx->itemData(i).toString());
             // The operator is taking control, so leave graphics safe mode
             // (a prior startup crash may have forced OpenGL) — their pick is
-            // honoured next launch.
+            // honoured next launch.  activated() fires even when they
+            // re-choose the already-selected item (Vulkan→Vulkan), which
+            // currentIndexChanged does not.
             s.remove(QStringLiteral("ui/gfxSafeMode"));
             s.remove(QStringLiteral("ui/gfxSafeDepth"));
-        });
+        };
+        connect(gfx, &QComboBox::currentIndexChanged, gfx, persistGfx);
+        connect(gfx, &QComboBox::activated, gfx, persistGfx);
         gh->addWidget(gfx);
 
         auto *note = new QLabel(tr("Restart Lyra to apply"), gbox);
@@ -9045,11 +9049,27 @@ QWidget *SettingsDialog::buildVisualsTab() {
         // point back to this control (the notice at launch does too).
         if (QSettings().value(QStringLiteral("ui/gfxSafeMode"), false).toBool()) {
             auto *sm = new QLabel(
-                tr("⚠  Running in graphics safe mode after a startup problem — "
-                   "pick a backend above (then restart) to leave it."), page);
+                tr("⚠  Graphics safe mode is latched from an incomplete start "
+                   "(not a weak GPU).  Re-select the backend above, or click "
+                   "Leave safe mode, then restart — an already-selected Vulkan "
+                   "entry does not count as a change."), page);
             sm->setWordWrap(true);
             sm->setStyleSheet(QStringLiteral("QLabel{color:#ffb74d;}"));
             form->addRow(QString(), sm);
+            auto *leave = new QPushButton(tr("Leave safe mode"), page);
+            leave->setToolTip(tr("Clears the crash-ladder latch.  Restart Lyra "
+                                 "to run the backend selected above."));
+            connect(leave, &QPushButton::clicked, page, [leave, sm]() {
+                QSettings s;
+                s.remove(QStringLiteral("ui/gfxSafeMode"));
+                s.remove(QStringLiteral("ui/gfxSafeDepth"));
+                leave->setEnabled(false);
+                leave->setText(tr("Leave safe mode (cleared — restart Lyra)"));
+                sm->setText(tr("Safe mode cleared.  Restart Lyra to apply the "
+                               "backend selected above."));
+                sm->setStyleSheet(QStringLiteral("QLabel{color:#8fa0aa;}"));
+            });
+            form->addRow(QString(), leave);
         }
     }
 

@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
         Profile p;
         p.name = "X"; p.rxBandwidth = 2700; p.txBandwidth = 3100;
         p.bwLocked = true; p.filterLow = 50; p.micSource = "tci";
-        p.micGainDb = 4.5; p.micBoost = true; p.useTuneDrive = true;
+        p.micGainDb = 4.5; p.micBoost = true; p.tuneDriveMode = 1;
         p.tuneDrivePct = 25; p.txDriveLevel = 200; p.tciRxGainDb = -3.0;
         p.tciTxGainDb = 2.0; p.agcMode = "slow"; p.autoMuteOnTx = false;
         p.txTimeoutSec = 300; p.txTimeoutBypass = true;
@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
         QJsonObject plj;  plj["mix"] = 0.07;     plj["decayS"]   = 1.5;
         r.eq = eqj; r.plate = plj;
         Profile r2 = Profile::fromJson("R", r.toJson());
-        CHECK(r2.schemaVersion == 3);
+        CHECK(r2.schemaVersion == r.schemaVersion);
         CHECK(r.sameValues(r2));
         CHECK(r2.eq == eqj);
         CHECK(r2.plate == plj);
@@ -59,6 +59,23 @@ int main(int argc, char **argv) {
         Profile e; e.name = "E";
         CHECK(!e.toJson().contains("eq"));
         CHECK(!e.toJson().contains("plate"));
+
+        // v6 VAC2 (#103 V2-4): round-trip + dirty-detect + pre-v6 omit
+        // keeps defaults (enabled off).
+        Profile v; v.name = "V";
+        v.vac2Enabled = true; v.vac2AutoDigital = true;
+        v.vac2RxGainDb = -6.0; v.vac2TxGainDb = 1.5;
+        v.vac2LatencyMs = 40; v.vac2VacSize = 512;
+        Profile v2 = Profile::fromJson("V", v.toJson());
+        CHECK(v.sameValues(v2));
+        CHECK(v2.vac2Enabled && v2.vac2AutoDigital);
+        CHECK(v2.vac2LatencyMs == 40 && v2.vac2VacSize == 512);
+        Profile v3 = v2; v3.vac2Enabled = false;
+        CHECK(!v.sameValues(v3));
+        Profile preV6 = Profile::fromJson("Z", QJsonObject{});
+        CHECK(!preV6.vac2Enabled);
+        CHECK(preV6.vac2TxGainDb == 3.0);
+        CHECK(preV6.vac2LatencyMs == 120);
     }
 
     // --- temp QSettings (no registry/app pollution) ---

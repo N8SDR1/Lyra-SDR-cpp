@@ -4,6 +4,18 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-09-25 — v0.24.5 graphics pin + VAC2 profiles
+
+- **Graphics:** pinned Settings backend (vulkan/d3d12/d3d11/opengl) is
+  not overridden by the crash-ladder; first successful dock QML clears
+  `ui/gfxStartupPending`; Leave safe mode without combo toggle.
+- **VAC2 profiles:** schema 6 (enable/auto-digital/gains/latency/size);
+  devices remain GLOBAL; apply VAC2 before micSource.
+- Installer `dist/Lyra-Setup-0.24.5.exe`. Tag `v0.24.5`. Issues #14 / #16
+  stay open. Combo RST still held.
+
+---
+
 ## 2026-09-25 — v0.24.4 docks QML defer + VAC2 installer
 
 - **Hang #16:** `QQuickWidget::setSource` after first `showEvent`;

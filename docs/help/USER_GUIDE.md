@@ -1330,11 +1330,11 @@ Mic source**:
   onboard codec, AK4951 on HL2+). *The default for voice.*
 - **PC Soundcard (VAC1)** — audio from your **PC** (a USB/headset mic, or a
   program) via a virtual audio cable.
+- **PC Soundcard (VAC2)** — the second cable (RX2 audio; enable **SUB**).
 - **TCI (digital modes)** — audio streamed from a digital-mode program
   (MSHV, JTDX, WSJT-X, FLDigi…) over Lyra's TCI link; the mic is bypassed.
 
-*(VAC2 appears greyed out — planned for a later version.)* Only
-one source is live at a time — whatever's selected goes on the air.
+Only one source is live at a time — whatever's selected goes on the air.
 
 **Remembered per radio.** The mic source is saved **per rig**, so a
 Hermes Lite on its codec mic and a Brick on a PC mic each keep their own
@@ -2442,9 +2442,9 @@ VAC/digital setup as a unit — see
   their settings are **not yet swept into profiles** — that field lands
   with a future profile update, and older saved profiles migrate forward
   automatically. A separate monitor output remains **reserved** for the
-  same reason. (VAC is no longer reserved — it's stored as of v0.2.4. Audio
-  *device* names stay global station setup, not per-profile, since they're
-  machine-specific.)
+  same reason. (VAC1 and VAC2 enable, auto-digital, gains, and latency
+  are stored in the profile. Audio *device* names stay global station
+  setup, not per-profile, since they're machine-specific.)
 
 ### The Profiles dock (front panel — quick recall)
 
@@ -3315,6 +3315,10 @@ off the cable stays open but **silent**.
 If both VAC1 and VAC2 have **Auto-enable for digital** on, TX prefers
 **VAC1**. VAC2 TX is used when you pick **PC Soundcard (VAC2)** or when
 only VAC2 auto-digital is live.
+
+VAC2 **enable / auto-digital / gains / latency / buffer size** save with
+the active TX/RX profile (same as VAC1). Device names stay in Settings →
+Audio. Recalling a pre-VAC2 profile leaves VAC2 off.
 
 ---
 

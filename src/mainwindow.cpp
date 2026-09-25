@@ -1217,6 +1217,14 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
 void MainWindow::finishQuickSource(QQuickWidget *qw, const QString &qmlFile) {
     if (!qw) return;
     qw->setSource(QUrl(QStringLiteral("qrc:/qt/qml/Lyra/src/qml/") + qmlFile));
+    // First dock QML that builds is proof the chosen RHI is alive.  Clear
+    // the crash-ladder sentinel here (not only on frameSwapped / the 2 s
+    // timer) so a restart while later docks are still loading cannot be
+    // misread as a GPU crash.
+    if (!gfxSentinelCleared_ && qw->status() != QQuickWidget::Error) {
+        gfxSentinelCleared_ = true;
+        QSettings().setValue(QStringLiteral("ui/gfxStartupPending"), false);
+    }
     // Diagnostic: if a panel's QML fails to load, the QQuickWidget goes
     // blank — dump the errors so we don't have to guess.
     if (qw->status() == QQuickWidget::Error) {

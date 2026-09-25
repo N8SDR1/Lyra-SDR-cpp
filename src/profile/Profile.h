@@ -12,13 +12,13 @@
 // deferred fast-follow.  PA-enable / HW-PTT-input / space-bar PTT are
 // deliberately GLOBAL (safety / input-method), NOT profile fields.
 //
-// VAC carried (2026-06-14, #158 Stage 4): a profile holds vac1Enabled /
-// vac1AutoDigital / vac1RxGainDb / vac1TxGainDb so a digital/VAC profile
-// flips source+enable as a unit while a TCI profile keeps tci.  Bench-
-// confirmed: VAC TX needs micSource=micpc AND vac1 "on" together (the
-// selector arms use_vac_audio; without the engine up the TX inbound cb is
-// null → silent).  Devices stay GLOBAL station setup (machine-specific
-// routing), NOT profile fields.
+// VAC carried (2026-06-14, #158 Stage 4; v6 #103 V2-4): a profile holds
+// vac1* and vac2* enable / autoDigital / gains / latency so a digital
+// profile can flip RX1 cable + RX2 cable as a unit while a TCI profile
+// keeps tci.  VAC TX needs micSource=micpc (or micpc2) AND that slot
+// "on" together — otherwise use_vac_audio is armed against a null
+// inbound cb → silent.  Devices stay GLOBAL station setup (machine-
+// specific routing), NOT profile fields.
 
 #pragma once
 
@@ -29,12 +29,13 @@ namespace lyra::profile {
 
 struct Profile {
     QString name;
-    int     schemaVersion = 5;   // v2 (#160): ALC max gain + Leveler trio
+    int     schemaVersion = 6;   // v2 (#160): ALC max gain + Leveler trio
                                  // v3 (#49):  + native rack blobs (eq/speech/
                                  //            combinator/plate)
                                  // v4 (#107/#109/#93): + PHROT, FM deviation,
                                  //            CTCSS enable/tone, AM carrier %
-                                 // v5 (#158): + VAC ring-latency + buffer size
+                                 // v5 (#158): + VAC1 ring-latency + buffer size
+                                 // v6 (#103 V2-4): + VAC2 enable/gain/latency
 
     // --- TX/RX bandwidth ---
     // NOTE: the operating mode is deliberately NOT a profile field.
@@ -50,7 +51,7 @@ struct Profile {
     int     filterLow   = 0;   // Hz (shared low edge)
 
     // --- mic / source / drive ---
-    QString micSource = QStringLiteral("mic1");  // mic1 / tci (vac1/vac2 reserved)
+    QString micSource = QStringLiteral("mic1");  // mic1 / tci / micpc / micpc2
     double  micGainDb = 0.0;
     bool    micBoost  = false;
     int     tuneDriveMode = 0;       // #95: 0 slider / 1 tune / 2 fixed
@@ -72,11 +73,11 @@ struct Profile {
     // --- VAC (Virtual Audio Cable, #158) ---
     // Per-profile so a digital/VAC profile carries source(micpc)+enable
     // while a TCI profile keeps tci — flip profiles, not three settings.
-    // vac1Enabled MUST ride with micSource=micpc: the mic-source selector
-    // arms use_vac_audio, but with VAC1 not "on" the TX inbound cb is null
-    // → silent TX.  Devices stay GLOBAL station setup (Settings → Audio),
-    // NOT profile fields — machine-specific routing.  Defaults match the
-    // engine (rx 0 dB, tx +3 dB).
+    // vac1Enabled MUST ride with micSource=micpc (vac2Enabled with micpc2):
+    // the mic-source selector arms use_vac_audio, but with that slot not
+    // "on" the TX inbound cb is null → silent TX.  Devices stay GLOBAL
+    // station setup (Settings → Audio), NOT profile fields — machine-
+    // specific routing.  Defaults match the engine (rx 0 dB, tx +3 dB).
     bool    vac1Enabled     = false;
     bool    vac1AutoDigital = false;
     double  vac1RxGainDb    = 0.0;
@@ -89,6 +90,15 @@ struct Profile {
     // 2048); the engine setters clamp (latency 5..500 ms, size 64..8192).
     int     vac1LatencyMs   = 120;
     int     vac1VacSize     = 2048;
+    // VAC2 (#103 V2-4) — same posture as VAC1 for the RX2 cable.  Pre-v6
+    // profiles omit these keys → defaults (off / 0 dB RX / +3 dB TX /
+    // 120 ms / 2048).  Devices stay global, like VAC1.
+    bool    vac2Enabled     = false;
+    bool    vac2AutoDigital = false;
+    double  vac2RxGainDb    = 0.0;
+    double  vac2TxGainDb    = 3.0;
+    int     vac2LatencyMs   = 120;
+    int     vac2VacSize     = 2048;
 
     // --- DSP / dynamics ---
     QString agcMode = QStringLiteral("med");     // off/fast/med/slow

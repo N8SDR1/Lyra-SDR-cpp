@@ -4,7 +4,7 @@
 VAC2, RX2 tee (`xvacOUT(1)`), Mic source **PC Soundcard (VAC2)** (`micpc2`).
 VAC2 RX is silent when SUB is off (cable stays open). One modulator: TCI
 wins; else explicit `micpc` / `micpc2`; else auto-digital (VAC1 preferred
-if both). Profile `vac2*` fields are **V2-4** (not in this pass).
+if both). Profile `vac2*` fields are **V2-4 shipped** (schema v6).
 WDSP 2.10 + PureSignal are **not** in this step.
 **Scope:** #103. A second, fully-independent full-duplex VAC (RX-out **and**
 TX-in), mirroring VAC1, that carries **RX2's** audio to/from its own PC device
@@ -15,8 +15,8 @@ Operator: full-duplex like VAC1, VAC2 = RX2's cable.
 Thetis's VAC2 is the **second receiver's** audio cable (`cmaster.cs:924,
 941-944` — `VAC2Enabled` ties VAC2 to `RX2 = WDSP.id(2,0)`). Lyra **SUB/RX2 is
 shipped** (WDSP ch2, DDC1). VAC2 Settings + RX2 tee + VAC2-as-TX are live.
-**Remaining:** V2-4 Profile `vac2*` fields; V2-5 Brent/Timmy enable/disable
-crash-surface re-bench on **both** cables.
+**Remaining:** V2-5 Brent/Timmy enable/disable crash-surface re-bench
+on **both** cables.
 
 ## HL2 PureSignal × VAC2 (when PS lands)
 On HL2, MOX+PS reroutes DDC1 to TX freq, so RX2 is not VFO B. **VAC2 RX must
@@ -83,13 +83,14 @@ the real work + risk; it is NOT a copy-paste.
 7. **Settings UI:** a second VAC2 group mirroring VAC1 (Enable / auto-digital
    / Driver / Output / RX gain / Input / TX gain / Combine / Mute-will-mute),
    `vac2/*` QSettings keys.
-8. **Profile:** mirror the 4 fields → `vac2Enabled/vac2AutoDigital/
-   vac2RxGainDb/vac2TxGainDb` (capture/apply/sameValues/JSON; devices stay
-   global, like VAC1).
+8. **Profile:** **shipped (v6)** — `vac2Enabled/vac2AutoDigital/
+   vac2RxGainDb/vac2TxGainDb/vac2LatencyMs/vac2VacSize` (capture/apply/
+   sameValues/JSON; devices stay global, like VAC1). Apply VAC2 before
+   `micSource` so a `micpc2` profile has a live inbound cb.
 
 ## Build order
 - **V2-0 … V2-3** — **shipped** (engine slots, Settings, RX2 tee, `micpc2`).
-- **V2-4** — Profile `vac2*` fields.
+- **V2-4** — Profile `vac2*` fields — **shipped**.
 - **V2-5** — USER_GUIDE polish + Brent/Timmy crash-surface re-bench
   (enable/disable + device-swap on BOTH VACs + profile flips).
 

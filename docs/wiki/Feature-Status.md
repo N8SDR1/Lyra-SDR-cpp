@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.24.4** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.24.5** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
@@ -45,7 +45,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **Plate reverb** for ESSB "air"
 - ✅ **Speech processing** — formant boost, sibilance/consonant emphasis, DX cut-through, de-esser, auto-AGC
 - ✅ **Voice keyer** (message memory) + **VOX** (with anti-VOX)
-- ✅ **TX profiles** — save/recall the whole chain; a profile can even launch its companion app (VarAC / MSHV / WSJT-X)
+- ✅ **TX profiles** — save/recall the whole chain (including VAC1 **and VAC2** knobs; audio device names stay global); a profile can even launch its companion app (VarAC / MSHV / WSJT-X)
 - ✅ **Hot-mic monitor** / SSB sidetone, separate monitor output device
 
 ### Metering &amp; TX safety
@@ -60,7 +60,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **Vulkan / RHI** scene-graph spectrum — glassy fill/glow, peak-hold, noise-floor line, palettes
 - ✅ Click / drag / wheel tuning; draggable passband edges; **click-to-tune on the waterfall**; collapsible waterfall
 - ✅ **Dockable UI** — snap to edge / split / tab / float, four named layout slots + factory default, lock panels
-- ✅ **Crash-safe graphics** — auto-steps down to a safer backend if a launch ever fails
+- ✅ **Crash-safe graphics** — auto-steps down to a safer backend if a launch ever fails; an **operator-pinned** Vulkan/D3D/OpenGL choice in Settings is not overridden by that ladder (v0.24.5)
 - ✅ Band switching + **per-band memory**; GEN / time-station / 20-slot memory bank; **EiBi** shortwave overlay
 
 ## Tools &amp; extras

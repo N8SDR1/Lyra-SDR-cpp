@@ -67,12 +67,17 @@ From **v0.24.3**, a crash during GPU startup steps down OpenGL → software
 and **turns off 4× MSAA** on that path (4× samples + software hung some
 Intel UHD PCs). From **v0.24.4**, QML docks load **after** the window is
 shown (one panel at a time) so a software/Intel hang at `building docks`
-has a chance to finish. Try:
-1. Start again — the second/third launch is the recovery ladder.
+has a chance to finish. From **v0.24.5**, if you already picked **Vulkan /
+Direct3D / OpenGL** in Settings, that pin is **kept** — a leftover
+incomplete-start latch from an older installer no longer forces software
+over a working GPU. Try:
+1. Start again — the second/third launch is the recovery ladder (only when
+   the backend is still Auto).
 2. If it still never appears: `lyra.exe --safe` from a command prompt
    (software graphics, no auto-connect).
-3. Then **Settings → Visuals → Graphics backend** — pick OpenGL or
-   Direct3D 11, Apply, restart. You do **not** need Revo or a registry wipe.
+3. Then **Settings → Visuals → Graphics backend** — pick Vulkan, OpenGL, or
+   Direct3D, Apply, restart. **Leave safe mode** if the banner is up.
+   You do **not** need Revo or a registry wipe.
 
 **Settings lists my Brick as Hermes / firmware v0.**
 A Brick2 that still reports the Hermes board ID is labelled **Brick** when
