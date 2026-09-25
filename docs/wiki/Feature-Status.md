@@ -10,7 +10,9 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 
 - ✅ HPSDR **Protocol 1** discovery (multi-NIC, subnet-directed broadcast) + **Add by IP** for fixed-IP / cross-subnet radios
 - ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator); discovery firmware shown as **v10.6**-style (deskHPSDR-parity), not “fw v0”
-- ✅ **SUB / RX2 on BrickSDR2** — second DDC, second pan/waterfall overlay, independent VFO; click the off-span **◀ RX2 / RX2 ▶** emblem to jump the pan to that receiver
+- 🚧 **ANAN-10 / 10E / 100 / 100B / 100D / 200D** Protocol 2 — classic Alex HPF (deskHPSDR); TX dummy-load arm, not on-air validated; pick marketed model in Settings (Hermes discovery still defaults to Brick). Boxes that shipped P1 should use a P2 FPGA when they can.
+- ✅ **SUB / RX2 on BrickSDR2** — second DDC, independent VFO; orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2 overlay; band chips **red** (RX1) vs **green** (SUB); **Shift+click / right-click** hops SUB; off-span **◀ RX2** / **RX2 ▶** (click to swap onto the waterfall)
+- ✅ **SPLIT** pile-up — TX on VFO B independent of SUB; gray TX pips; right-click SPLIT 1/5/10 kHz shift; lime TX marker (red on key); **◀ TX** / **TX ▶** when TX is off-span
 - ✅ Multi-radio list, auto-connect to the last radio, installer firewall rules (connect without admin rights)
 - ✅ **Stale-IP** guard (won't freeze trying to reach a radio that moved)
 
@@ -67,14 +69,13 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **Frequency calibration** against WWV / time stations
 - ✅ **Session recorder** — RX audio + timed panadapter snapshots → a synced **MP4**
 - ✅ **CAT / Serial** — Kenwood TS-480/2000 CAT over COM/TCP, serial PTT input, Winkeyer
-- ✅ **TCI server** — logger / cluster integration, incl. the **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** link (call/name/RST sharing + one-click log)
+- ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log)
 - ✅ **USB-BCD** band data for linear-amp band switching
 - ✅ **Backup &amp; Restore** — export config, dated snapshots (survive reinstall), selective restore
 - ✅ Solar / propagation panel, weather alerts, auto-launch companion apps at startup
 
 ## Not yet — see the Roadmap 🗺️
 
-- 🗺️ **SPLIT** pile-up polish (SUB/RX2 is already live on BrickSDR2)
 - 🗺️ **PureSignal** adaptive predistortion
 - 🗺️ **ANAN family** (G2 / G2-1K / 7000DLE / 8000, …) as first-class Protocol 2 radios — the P2 wire is live on BrickSDR2; ANAN models still need per-family bring-up
 - 🗺️ **VAC2** (second virtual-audio channel)

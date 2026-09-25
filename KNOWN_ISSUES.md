@@ -28,10 +28,10 @@ Current tree: **v0.24.2**. Always grab the latest from the
 
 These are on the roadmap, not broken:
 
-* **SPLIT pile-up polish** — **SUB / RX2 is live on BrickSDR2** (second
-  DDC, second pan/waterfall overlay, independent VFO, off-span jump).
-  Full SPLIT pile-up UX (dedicated TX marker / tri-state SUB-SPLIT) is
-  still planned. Dual RX on Hermes Lite 2 Protocol 1 is not this release.
+* **Dual RX on Hermes Lite 2 Protocol 1** — **SUB / RX2 and SPLIT**
+  pile-up (independent buttons, TUNE A/B, VFO B TX marker, band-chip
+  SUB hops) are live on **BrickSDR2**. Dual RX on HL2 Protocol 1 is
+  not this release.
 * **PureSignal** — adaptive pre-distortion (linearizer) is on the roadmap,
   not present yet.
 * **Second virtual audio cable (VAC2)** — Lyra bridges one virtual audio

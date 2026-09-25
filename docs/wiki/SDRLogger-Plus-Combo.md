@@ -2,11 +2,27 @@
 
 **[SDRLogger+](https://n8sdr1.github.io/SDRLoggerPlus/)** is the companion
 logging program — a modern contest/DX logger by the same developer. Over an
-ordinary **TCI** connection it already drives Lyra and shows spots, but turning
-on **Combo** upgrades that one-way link into a two-way *collaboration* that runs
-over the **same TCI socket** — no bridge app, no second connection, no extra
-port. The CW Console, the CW Decoder and the logger's Log-Entry row start
-working as one.
+ordinary **TCI** connection it already drives Lyra (including **BrickSDR2 SUB /
+RX2** and **SPLIT VFO B**) and shows spots, but turning on **Combo** upgrades
+that one-way link into a two-way *collaboration* that runs over the **same TCI
+socket** — no bridge app, no second connection, no extra port. The CW Console,
+the CW Decoder and the logger's Log-Entry row start working as one.
+
+Lyra advertises **`channel_count:2`**. There is **no** extra Settings → Network
+toggle for RX2 — use the Tuning **SUB** button or TCI `rx_enable:1`. Mapping
+matches deskHPSDR / Thetis:
+
+| Client command | What Lyra does |
+|---|---|
+| `vfo:0,0` / `dds:0` | RX1 / VFO A |
+| `vfo:0,1` | **SPLIT VFO B** (TX offset) — does **not** turn SUB on |
+| `vfo:1,0` / `dds:1` | **RX2 / SUB** frequency |
+| `rx_enable:1` | Enable / disable SUB |
+| `rx_channel_sensors` **0,0** | RX1 S-meter (dBm) — **Combo RST uses this** |
+| `rx_channel_sensors` **1,0** | RX2 S-meter (dBm); ~−140 dBm floor if SUB is off |
+
+Setting an RX2 frequency does **not** auto-enable SUB. Combo **RST / SNR stay
+on RX1** until SDRLogger+ is known to consume a second-channel report.
 
 > 🌐 **Get SDRLogger+:** [n8sdr1.github.io/SDRLoggerPlus](https://n8sdr1.github.io/SDRLoggerPlus/)
 > · [Download / source](https://github.com/N8SDR1/SDRLoggerPlus)
@@ -27,7 +43,7 @@ working as one.
 |---|---|
 | 📇 **Call → logger** | Put a call in Lyra's CW Console **His call** — type it, or grab it from the [CW decoder](User-Guide) — and it lands in SDRLogger+'s log entry and fires its callbook (QRZ / HamQTH) lookup. You copy the call once, in Lyra. |
 | 👤 **Name → back to `{NAME}`** | After the lookup resolves, SDRLogger+ sends the operator's **first name** back to Lyra, filling the **`{NAME}`** token. A reply macro like `{CALL} DE {MYCALL} GE {NAME}` greets them by name with no typing. |
-| 📶 **Received signal → RST** | SDRLogger+ can auto-fill the **S** digit of **RST-Received** from Lyra's shared, *calibrated* S-meter — the number it logs is exactly what your meter shows. A signal-to-noise figure rides alongside so it fills only on a real signal, not band noise. Turn on **S-auto** next to the RST-Rcvd field. Works on SSB / CW / digital. |
+| 📶 **Received signal → RST** | SDRLogger+ can auto-fill the **S** digit of **RST-Received** from Lyra's **RX1** calibrated S-meter (TCI **0,0**) — the number it logs is exactly what your **main** meter shows, even if you are listening on SUB. A signal-to-noise figure rides alongside (**RX1 only**) so it fills only on a real signal, not band noise. Turn on **S-auto** next to the RST-Rcvd field. Works on SSB / CW / digital. SUB / RX2 is **not** used for Combo RST. |
 | ✅ **One-click log with `{LOG}`** | Add the **`{LOG}`** action token to a CW macro — e.g. `TU 73 {MYCALL} ee {LOG}` — and sending it sends the sign-off *and* logs the QSO in SDRLogger+ (call, RST, mode and frequency all stamped from the shared state). A macro that is **only** `{LOG}` is a log-only button that keys nothing. |
 
 Combo is a Lyra ↔ SDRLogger+ conversation — a plain third-party TCI logger simply
@@ -37,4 +53,4 @@ name-back, signal-report and one-click-log conveniences on top.
 
 ---
 
-**See also:** [Feature Status](Feature-Status) · [User Guide](User-Guide) · [Home](Home) · 🌐 [SDRLogger+ website](https://n8sdr1.github.io/SDRLoggerPlus/)
+**See also:** [Feature Status](Feature-Status) · [User Guide](User-Guide) · [User Guide → Second receiver](User-Guide#second-receiver-sub--rx2--how-it-works) · [FAQ](FAQ-and-Troubleshooting) · [Home](Home) · 🌐 [SDRLogger+ website](https://n8sdr1.github.io/SDRLoggerPlus/)

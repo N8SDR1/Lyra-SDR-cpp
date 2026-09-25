@@ -38,6 +38,11 @@ listening — and talking — fast. This same guide is built into the app
 - Turn the **Volume** up.
 - **Click on the panadapter or the waterfall** to tune to a signal, and set the
   **mode** — SSB (**USB** above 10 MHz, **LSB** below), or **AM** / **FM**.
+- On a **BrickSDR2**, **SUB** is a second receiver (independent of **SPLIT**
+  pile-up TX on VFO B). Shift+click or right-click a band chip to hop SUB
+  (**green** chip = RX2, **red** = RX1). If RX2 is off the panadapter span,
+  click **◀ RX2** or **RX2 ▶** at the edge. Details in the
+  [User Guide](User-Guide) — **Second receiver (SUB / RX2)**.
 
 ## 5 · Talk 🎙️
 

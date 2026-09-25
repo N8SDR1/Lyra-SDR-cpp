@@ -8,12 +8,15 @@ page.
 
 ## Major features
 
-### ✅ SUB / RX2 on BrickSDR2 · 🗺️ SPLIT pile-up polish
+### ✅ SUB / RX2 + SPLIT on BrickSDR2 · 🗺️ Dual RX on Hermes Lite 2 (P1)
 
-**BrickSDR2** already runs a second receiver (DDC1): two VFOs, a second
-pan/waterfall overlay, and audio, including split-band and an off-span jump
-to the other RX. Still planned: **SPLIT** pile-up UX (dedicated TX marker /
-tri-state SUB–SPLIT) and dual RX on Hermes Lite 2 Protocol 1.
+**BrickSDR2** already has a second receiver (DDC1) **and** independent
+**SPLIT** TX on VFO B. Operator cues: orange **TUNE A** / lime **TUNE B**,
+**cyan** RX1 passband vs **green** RX2 overlay, **red** vs **green** band
+chips, off-span **◀ RX2** / **RX2 ▶** (click to swap onto the panadapter),
+lime **TX** marker (red on key). TCI: `channel_count:2`; `vfo:0,1` is
+SPLIT VFO B; `vfo:1,0` / `dds:1` is SUB. Logger Combo RST still uses
+**RX1**. Still planned: dual RX on Hermes Lite 2 **Protocol 1**.
 
 ### 🗺️ PureSignal — adaptive predistortion
 
@@ -22,13 +25,15 @@ for a cleaner, stronger signal with less IMD. Requires the HL2 PureSignal
 hardware mod. (A **2-tone test generator** ships alongside it as the tune-up
 companion.)
 
-### ✅ Protocol 2 on BrickSDR2 · 🗺️ ANAN family still planned
+### ✅ Protocol 2 on BrickSDR2 · 🚧 Classic ANAN P2 dummy-load · 🗺️ 7000/8000
 
 HPSDR **Protocol 2** is live on the **BrickSDR2** (RX + TX, including radio
-mic → modulator, analog drive, watts-cap, ATT-on-TX). Making the **ANAN**
-family (G2, G2-1K, 7000DLE, 8000, …) first-class is still roadmap work —
-same protocol family, different DDC/PA/filter models, and it needs a tester
-with the hardware. Other HPSDR Protocol-1 boards are planned the same way.
+mic → modulator, analog drive, watts-cap, ATT-on-TX). **ANAN-10 / 10E / 100 /
+100B / 100D / 200D** now have classic-Alex P2 profiles (deskHPSDR HPF edges);
+TX stays dummy-load until a tester validates RF. Boxes that shipped as
+Protocol 1 should run the **P2 FPGA** when they can — Lyra will not grow a
+separate P1 ANAN TX driver. **G2 / G2-1K** already had Saturn profiles.
+**7000DLE / 8000** (OrionMkII BPF) stay locked.
 
 ## Platforms
 
@@ -57,8 +62,8 @@ features above and may change shape or timing.
 Run a radio at one location from a Lyra somewhere else, over the internet — a
 purpose-built **Lyra-to-Lyra** link that carries the DSP, compressed audio, and
 spectrum, with the operating position's controls driving the remote radio. This
-is an early idea, not a dated feature: it sits **behind SPLIT polish and
-PureSignal**, and would only ship with **mandatory authentication, encryption,
+is an early idea, not a dated feature: it sits **behind PureSignal**,
+and would only ship with **mandatory authentication, encryption,
 and fail-safe transmit** — a dropped or degraded link must never leave the
 transmitter keyed.
 

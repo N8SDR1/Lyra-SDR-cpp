@@ -98,6 +98,27 @@ quint16 saturnAlexRxWord(quint32 hz, P2RxInput input, bool hpfBypass) {
     return w | (1u << 12); // outside Thetis's configured BPF1 table
 }
 
+// Classic Alex HPF (ANAN-10 / 10E / 100 / 100B / 100D / 200D). deskHPSDR
+// new_protocol.c default HPF path — same wire bits as Saturn BPF, older
+// band edges (1.8 / 6.5 / 9.5 / 13 / 20 / 50 MHz). Do not use on
+// OrionMkII / Saturn (those stay saturnAlexRxWord).
+quint16 classicAlexRxWord(quint32 hz, P2RxInput input, bool hpfBypass) {
+    quint16 w = 0;
+    switch (input) {
+        case P2RxInput::Bypass: w |= 1u << 10; break;
+        case P2RxInput::Ext1:   w |= 1u << 9;  break;
+        case P2RxInput::Xvtr:   w |= 1u << 8;  break;
+        case P2RxInput::Trx:                         break;
+    }
+    if (hpfBypass || hz < 1'800'000u) return w | (1u << 12);
+    if (hz <  6'500'000u) return w | (1u << 6); // 1.5 MHz HPF
+    if (hz <  9'500'000u) return w | (1u << 5); // 6.5 MHz HPF
+    if (hz < 13'000'000u) return w | (1u << 4); // 9.5 MHz HPF
+    if (hz < 20'000'000u) return w | (1u << 1); // 13 MHz HPF
+    if (hz < 50'000'000u) return w | (1u << 2); // 20 MHz HPF
+    return w | (1u << 3);                       // 6 m preamp
+}
+
 // TX halfword bits (32-bit word bits 16..31 → u16 0..15):
 //   4=30/20 LPF  5=60/40 LPF  6=80 LPF  7=160 LPF  8/9/10=ANT1/2/3
 //   11=TR relay (0 = RX)  13=6 LPF  14=12/10 LPF  15=17/15 LPF
@@ -125,6 +146,17 @@ quint16 saturnAlexTxWord(quint32 hz, int trxAnt) {
 const P2HardwareProfile kSaturnProfile = {
     "ANAN-G2", "Saturn (ANAN G2)", 10, 10, 2,
     &saturnAlexRxWord, &saturnAlexTxWord,
+};
+
+// Classic-Alex ANAN on Protocol 2. TX is dummy-load / Arm-P2-TX only
+// (txOnAirValidated=false) until a tester benches RF on that box.
+const P2HardwareProfile kHermesAlexP2 = {
+    "ANAN-100", "Hermes-class ANAN (classic Alex)", 1, 10, 1,
+    &classicAlexRxWord, &saturnAlexTxWord,
+};
+const P2HardwareProfile kAngeliaOrionAlexP2 = {
+    "ANAN-100D", "Angelia/Orion ANAN (classic Alex)", 3, 10, 2,
+    &classicAlexRxWord, &saturnAlexTxWord,
 };
 
 // BrickSDR (Hermes-class P2) has NO Alex front end -- its onboard LPF
@@ -164,6 +196,18 @@ const P2HardwareProfile *p2ProfileForModel(const QString &modelKey) {
     if (modelKey.compare(QLatin1String("BRICK-SDR"), Qt::CaseInsensitive) == 0 ||
         modelKey.compare(QLatin1String("BRICK-SDR2"), Qt::CaseInsensitive) == 0)
         return &kBrickProfile;
+    // Hermes-class ANAN (1 ADC, classic HPF). Shipped as P1; P2 FPGA is
+    // the Lyra path. Discovery "Hermes" still defaults to BrickP2 — pick
+    // these keys in Settings.
+    if (modelKey.compare(QLatin1String("ANAN-10"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ANAN-10E"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ANAN-100"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ANAN-100B"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("HERMES"), Qt::CaseInsensitive) == 0)
+        return &kHermesAlexP2;
+    if (modelKey.compare(QLatin1String("ANAN-100D"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ANAN-200D"), Qt::CaseInsensitive) == 0)
+        return &kAngeliaOrionAlexP2;
     return nullptr;
 }
 

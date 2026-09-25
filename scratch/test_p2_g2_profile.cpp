@@ -103,6 +103,11 @@ int main(int argc, char **argv) {
     expectedDdc[18] = char{0};
     expectedDdc[19] = static_cast<char>(192);
     expectedDdc[22] = char{24};
+    // DDC1 is filled even while disabled (deskHPSDR RECEIVERS slots).
+    expectedDdc[23] = char{0};
+    expectedDdc[24] = char{0};
+    expectedDdc[25] = static_cast<char>(192);
+    expectedDdc[28] = char{24};
     ok &= expect(session.diagnosticDdcSpecificPacket() == expectedDdc,
                  "G2 DDC-specific packet matches golden bytes");
 
@@ -189,6 +194,46 @@ int main(int argc, char **argv) {
                          reinterpret_cast<const uchar *>(tx.constData() + 329)) ==
                          492'830'720u,
                      "Brick keyed DUC phase word");
+    }
+
+    {
+        const auto *a100 = p2ProfileForModel(QStringLiteral("ANAN-100"));
+        const auto *a10 = p2ProfileForModel(QStringLiteral("ANAN-10"));
+        const auto *a10e = p2ProfileForModel(QStringLiteral("ANAN-10E"));
+        const auto *a100b = p2ProfileForModel(QStringLiteral("ANAN-100B"));
+        const auto *hermes = p2ProfileForModel(QStringLiteral("HERMES"));
+        const auto *a100d = p2ProfileForModel(QStringLiteral("ANAN-100D"));
+        const auto *a200d = p2ProfileForModel(QStringLiteral("ANAN-200D"));
+        ok &= expect(a100 != nullptr && a100->alexRxWord != g2->alexRxWord,
+                     "ANAN-100 uses classic Alex HPF, not Saturn BPF");
+        ok &= expect(a100->adcCount == 1 && !a100->txOnAirValidated,
+                     "Hermes-class ANAN is 1 ADC and dummy-load TX only");
+        ok &= expect(a10 == a100 && a10e == a100 && a100b == a100 &&
+                         hermes == a100,
+                     "ANAN-10 / 10E / 100 / 100B / HERMES share Hermes Alex");
+        ok &= expect(a100d != nullptr && a200d == a100d && a100d->adcCount == 2 &&
+                         !a100d->txOnAirValidated &&
+                         a100d->alexRxWord == a100->alexRxWord,
+                     "ANAN-100D / 200D share 2-ADC classic Alex, dummy-load TX");
+        ok &= expect(p2ProfileForModel(QStringLiteral("ANAN-7000DLE")) == nullptr,
+                     "7000DLE stays profile-locked (OrionMkII BPF)");
+
+        P2Session classic;
+        classic.setProfile(a100);
+        classic.setRxInput(P2RxInput::Ext1);
+        const auto classicRx = [&classic](quint32 hz) {
+            classic.setDdcFrequencyHz(0, hz);
+            const QByteArray packet = classic.diagnosticHighPriorityPacket(true);
+            return static_cast<quint16>(
+                (static_cast<quint8>(packet[1434]) << 8) |
+                static_cast<quint8>(packet[1435]));
+        };
+        ok &= expect(classicRx(1'799'999u) == 0x1200,
+                     "classic RX below 1.8 MHz uses EXT1 plus HPF bypass");
+        ok &= expect(classicRx(7'100'000u) == 0x0220,
+                     "classic RX 7.1 MHz uses the 6.5 MHz HPF (not Saturn 9.5)");
+        ok &= expect(classicRx(11'000'000u) == 0x0210,
+                     "classic RX 11 MHz uses the 9.5 MHz HPF");
     }
 
     std::printf(ok ? "PASS: P2 G2 golden packets\n"

@@ -82,6 +82,13 @@ const HardwareModelDescriptor *modelByKey(const QString &key);
 const HardwareModelDescriptor *defaultModelForBoard(int hpsdrHw,
                                                     bool protocol2);
 
+// Same mapping keyed by discovery board-name string ("HermesII",
+// "Angelia", …). Returns nullptr when the name is empty or unknown.
+// Callers must not use this to seed a BrickP2 Hermes board — Brick
+// shares the "Hermes" discovery id with ANAN-10/100.
+const HardwareModelDescriptor *defaultModelForBoardName(
+    const QString &boardName, bool protocol2);
+
 // Keys of every model that can run Protocol 2 (for the Settings combo).
 QStringList p2ModelKeys();
 

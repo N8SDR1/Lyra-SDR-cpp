@@ -98,8 +98,8 @@ QString rigIdForMac(const QString &mac);
 
 // Map an HPSDR discovery board-name string (e.g. "HermesLite", "Orion")
 // to a RadioFamily.  Used by the discovery→rig hook so opening a radio
-// stamps its rig profile with the right family.  Unknown/absent → Hl2
-// (the only shipping hardware today).
+// stamps its rig profile with the right family.  Empty → Hl2; other
+// Protocol-1 boards map to AnanP1 (must not use the HL2 TX path).
 RadioFamily familyForBoardName(const QString &boardName);
 
 // Protocol-aware family resolution for the discovery→rig hook.  A P2
@@ -107,8 +107,9 @@ RadioFamily familyForBoardName(const QString &boardName);
 // NAME alone can't distinguish e.g. a P1 "Hermes" from the P2 Hermes-
 // class BrickSDR2 — the protocol is the discriminator.
 //   protocol 1 → familyForBoardName (HL2 / ANAN-P1)
-//   protocol 2 → "Saturn…" ⇒ AnanP2 (ANAN G2), else ⇒ BrickP2
-//                (the BrickSDR2 reports Hermes-class on P2)
+//   protocol 2 → "Hermes" (Brick default) ⇒ BrickP2;
+//                HermesII / Angelia / Orion / OrionMKII / Saturn / Brick3
+//                ⇒ AnanP2 (marketed model still picked in Settings)
 RadioFamily familyForDiscovery(int protocol, const QString &boardName);
 
 // Find-or-create a rig by MAC.  Returns the rigId.  If it already exists,

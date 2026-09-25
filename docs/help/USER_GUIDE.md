@@ -32,6 +32,9 @@ not programmers — if you can click a menu, you can use this.
 - [Getting around the window](#getting-around-the-window)
 - [The panadapter (spectrum display)](#the-panadapter-spectrum-display)
 - [Tuning panel](#tuning-panel)
+  - [SUB — second receiver (BrickSDR2)](#sub--second-receiver-bricksdr2)
+  - [SPLIT — receive A, transmit B](#split--receive-a-transmit-b)
+- [Second receiver (SUB / RX2) — how it works](#second-receiver-sub--rx2--how-it-works)
 - [Filters panel](#filters-panel)
 - [Band panel](#band-panel)
 - [Audio panel](#audio-panel)
@@ -198,7 +201,7 @@ of them fully reachable:
 | Panel | What it's for |
 |---|---|
 | **Panadapter + waterfall** | See the band, click to tune |
-| **Tuning** | The VFO, step, mode, RIT / XIT, split |
+| **Tuning** | The VFO, step, mode, SUB / SPLIT, RIT / XIT |
 | **Band** | Band switching |
 | **Filters** | Sample rate, RX and TX bandwidth |
 | **Audio** | LNA, volume, AF gain, mute, and the RX DSP row (NB / NR / ANF / LMS / SQ …) |
@@ -323,7 +326,9 @@ exact build.
 ## Multiple radios & switching rigs
 
 Lyra can manage more than one radio — a Hermes Lite 2 / 2+ on **Protocol 1**
-and a **Protocol-2** radio such as a **BrickSDR2** or **ANAN G2** — and keep
+and a **Protocol-2** radio such as a **BrickSDR2**, **ANAN G2**, or classic
+**ANAN-10 / 100 / 200** series (use the P2 FPGA if the box has one; pick
+the marketed model) — and keep
 **separate settings for each**. Every saved radio is a **"rig,"** and each
 rig remembers its own:
 
@@ -538,19 +543,51 @@ glowing look that takes advantage of your graphics card.
 
 **Tuning on the panadapter:**
 
-- **Click** anywhere to tune RX1 there. Where it lands depends on the
-  **Exact / 100 Hz** setting and the **Panafall step** on the
-  [Display panel](#display-panel): in **Exact** the click snaps to the
-  Panafall-step grid (1 Hz = truly exact), in **100 Hz** it rounds to the
-  nearest 100 Hz.
+A **TUNE A** / **TUNE B** tag follows the cursor so you always know which
+VFO a click or wheel step will move. **TUNE A** is orange and means
+RX1 / VFO A. **TUNE B** is lime-green and means VFO B (SPLIT) or the
+second receiver while **SUB** is on and that VFO is focused.
+
+- **Click** anywhere to tune the **focused** VFO there (RX1 unless
+  **TUNE B** is showing). Where it lands depends on the **Exact / 100 Hz**
+  setting and the **Panafall step** on the [Display panel](#display-panel):
+  in **Exact** the click snaps to the Panafall-step grid (1 Hz = truly
+  exact), in **100 Hz** it rounds to the nearest 100 Hz.
 - **Click + drag** left/right to pan across the band.
 - **Mouse wheel** steps the frequency by the **Panafall step** (set on the
   Display panel). **Ctrl + wheel** zooms instead.
+- **Middle-click** — while SPLIT or SUB is on: from **TUNE A**, parks VFO B
+  (or SUB) on the click and focuses it (**TUNE B**); from **TUNE B**,
+  returns focus to VFO A. Left/right/wheel stay for tuning, notches, and
+  zoom.
 - A small **frequency readout** follows your cursor (toggle in
   Settings → Visuals).
 - These gestures work on the **waterfall** below, too — **click** it to tune,
   **wheel** to step, **Ctrl + wheel** to zoom. It shares the spectrum's
   frequencies, so a click lands at the same spot either way.
+
+**Second receiver on the same pane (BrickSDR2, SUB on).** The live
+spectrum trace is always **RX1's** IQ. RX2 is drawn on top of that
+picture:
+
+- **Green passband box** and **green carrier line** — where RX2 is
+  listening (same idea as RX1's cyan box / orange carrier). Drag a green
+  edge to change **RX2 BW**.
+- If that green box sits **inside** the current span, you see both
+  receivers at once (same-band dual watch).
+- If RX2 is **off this span** (another band, or far up/down the same
+  band), a chip appears mid-height at the edge it would be toward:
+  **◀ RX2** on the left, or **RX2 ▶** on the right. Green border, green
+  label. **Click it** to swap VFOs so the panadapter (RX1) lands on that
+  parked frequency; the second receiver keeps the band you just left.
+  Click again (or hop bands) to go back. Tooltip shows the parked MHz.
+
+Full colour map and a worked example: [Second receiver (SUB / RX2)](#second-receiver-sub--rx2--how-it-works).
+
+**SPLIT TX marker.** With SPLIT on, the **TX (VFO B)** frequency is a solid
+**lime** line — **red while transmitting**. If VFO B is off-span, **◀ TX** /
+**TX ▶** appear the same way (lime idle, red keyed) so you still see the
+pile-up offset. Those TX chips are **not** the RX2 chips.
 
 **The RX filter passband** is shown as a translucent box over the tuned
 signal. **Drag either edge** of the box to widen or narrow the receive
@@ -598,7 +635,15 @@ The frequency, **Step**, and **Mode** form one bordered **VFO cluster**.
 The border is **green while receiving** and turns **red on transmit**
 (MOX/TUN); an amber **RX/TX tag** in the top-left corner marks the role
 (it flips RX→TX on key). The Lyra logo sits centred to its right, with
-**VFO B** to the right of that (it appears when SPLIT is on).
+**VFO B** to the right of that (it appears when **SPLIT** or **SUB** is
+on). Each VFO has a small **TX pip**: **gray** = this VFO would not
+transmit if you keyed now; **click the gray pip** to assign transmit to
+that VFO (enters or leaves SPLIT). The pip on the TX VFO turns **red**
+while you are on the air.
+
+**SUB and SPLIT are independent** — both can be on, one, or neither. They
+are not a three-way cycle. FM **RPT** still replaces the SPLIT button in
+FM (repeaters); leave RPT alone if you are not on FM.
 
 - **Step** — under the VFO, the wheel tune step: **1 Hz / 10 Hz / 100 Hz
   / 1 kHz / 5 kHz / 10 kHz** (default **1 kHz**).
@@ -610,14 +655,39 @@ The border is **green while receiving** and turns **red on transmit**
   The receive filter centers on this pitch and the tuned-carrier marker
   offsets to match, so a signal you zero-beat lands at your chosen tone.
 
-**SPLIT — receive on VFO A, transmit on VFO B** (same band). The action
-row beneath the VFOs has:
+### SUB — second receiver (BrickSDR2)
 
-- **SPLIT** — toggles split on/off. When on, **VFO B** appears (the TX
-  VFO — tune it like VFO A) and transmit moves to it; VFO A keeps
-  receiving. On key, VFO B's border + tag go **red** while VFO A stays
-  **green**. VFO B transmits in the **same mode** as VFO A.
-- **1→2 / 2→1 / ⇄** — copy VFO A → B, copy B → A, or swap them.
+**SUB** is a **second independent receiver** on the BrickSDR2 (DDC1).
+Hermes Lite 2 Protocol 1 does not have this path yet. How the colours,
+**◀ RX2** / **RX2 ▶**, audio, and band chips fit together is in
+[Second receiver (SUB / RX2)](#second-receiver-sub--rx2--how-it-works).
+
+- **SUB** (button **green** when on) — turns RX2 on. Off keeps DDC1
+  mirroring RX1. On: RX2 has its own frequency, mode, and last-band
+  memory. Stereo: **RX1 left, RX2 right** (Audio **Bal**). **Vol2** /
+  **MUTE2** ride RX2 without changing RX1 **Vol** / **MUTE**.
+- **Click the VFO B cluster** (or **Ctrl+2**) to focus RX2 — the
+  panadapter tag reads lime **TUNE B**. **Ctrl+1** or click VFO A
+  returns orange **TUNE A**. Band-chip **click** stays VFO A unless
+  **TUNE B** is already focused — use **Shift+click** / **right-click**
+  to hop SUB without stealing focus.
+- SUB can run **with or without** SPLIT. With both on: two receivers,
+  transmit still on VFO B.
+
+### SPLIT — receive A, transmit B
+
+**SPLIT** — receive on **VFO A**, transmit on **VFO B** (typically the same
+band, a pile-up offset). The action row beneath the VFOs has:
+
+- **SPLIT** — toggles split on/off. Transmit moves to **VFO B**; VFO A
+  keeps receiving. On key, VFO B's border + tag go **red** while VFO A
+  stays **green**. VFO B transmits in the **same mode** as VFO A.
+- **Right-click SPLIT** — per-mode pile-up **shift**: up/down **1 / 5 /
+  10 kHz**, plus **Last used** for that mode. Sets VFO B relative to VFO A
+  and remembers the offset per mode.
+- **1→2 / 2→1 / ⇄** — copy VFO A → B, copy B → A, or swap them. With SUB
+  on this copies full RX2 state; with SUB off it is frequency (VFO B
+  shadow).
 
 **In FM**, the raw SPLIT button is replaced by a friendlier repeater
 front-end (FM repeaters are the common split case):
@@ -705,6 +775,82 @@ tuned — not the frozen display centre.
 
 ---
 
+## Second receiver (SUB / RX2) — how it works
+
+**BrickSDR2 only** (Protocol 2). Hermes Lite 2 on Protocol 1 does not
+open a second DDC this way yet.
+
+Lyra has **one panadapter** and **two receivers**. RX1 always owns the
+live spectrum IQ. **SUB** turns on RX2 (the radio's second DDC): its own
+frequency, mode, last-band memory, passband, and audio ear. **SPLIT** is
+separate — that only moves **transmit** to VFO B. You can run SUB, SPLIT,
+both, or neither.
+
+### What you see (colour coding)
+
+Use this map on the air. **Green = second receiver.** Lime on the
+spectrum is **SPLIT TX**, not RX2.
+
+| Colour | Where | Meaning |
+|---|---|---|
+| **Orange** | Carrier line, **TUNE A** tag | RX1 / VFO A — click and wheel tune this |
+| **Cyan / blue** | Translucent passband box | RX1 filter (drag edges = RX BW) |
+| **Green** (button, passband box, carrier line) | **SUB**, RX2 overlay | Second receiver is on and listening here |
+| **Lime TUNE B** | Panadapter cursor tag | Focus is on VFO B / RX2 — a click moves **that** VFO |
+| **Red glow** | Ham / BC / 11m **band chip** | RX1 is on that band |
+| **Green glow** | Band chip (with SUB on) | RX2 is parked on that band (can be the same chip as red if both VFOs share a band) |
+| **Green VFO border** | Tuning cluster | That VFO is receiving |
+| **Red VFO border / TX pip** | Tuning cluster | On the air (transmit VFO) |
+| **Gray TX pip** | Next to a VFO | This VFO would **not** transmit if you keyed; click it to assign TX (SPLIT) |
+| **Lime TX line** | Spectrum | SPLIT VFO B (idle). Turns **red** while keyed |
+| **◀ TX** / **TX ▶** | Spectrum edge | SPLIT TX is off this span (lime / red). Not the RX2 chips |
+
+RX1 and RX2 on the **same** span: cyan box + green box together. Different
+bands: only RX1's slice is the waterfall; RX2 is the green overlay if it
+fits, otherwise the edge chips below.
+
+### ◀ RX2 and RX2 ▶
+
+When **SUB** is on and RX2's passband is **not** in the current span, a
+chip sits halfway up the **left** or **right** edge:
+
+- **◀ RX2** — RX2 is lower in frequency than this picture (left of the
+  span).
+- **RX2 ▶** — RX2 is higher (right of the span), including "on another
+  ham band."
+
+Green border, light-green label. Hover shows the parked frequency in MHz.
+
+**Click the chip** to **swap** so the panadapter (RX1) shows that parked
+spot. RX2 keeps the frequency you just left. Mode and RX bandwidth swap
+with the VFOs. Focus returns to **TUNE A**. Click the matching chip again
+(now pointing at the other band) to swap back. This is the same swap as
+**⇄** on the Tuning row, aimed at "show me the other receiver on this
+pane."
+
+The waterfall does **not** magically display two bands at once — one IQ
+slice at a time. The chips exist so you never lose the second VFO when it
+walks off the picture.
+
+### Typical operating
+
+1. Light **SUB** (green). Hear RX1 in the **left** ear / left of **Bal**,
+   RX2 in the **right**. Ride **Vol2** / **MUTE2** if one side is loud.
+2. **Shift+click** or **right-click** a band chip to park SUB there
+   without moving VFO A (chip goes **green**; RX1's chip stays **red**).
+3. Watch **TUNE A** (orange) vs **TUNE B** (lime) before you click the
+   panadapter. **Middle-click** from TUNE A parks SUB on the click and
+   focuses B; middle-click from TUNE B returns focus to A.
+4. Filters **RX BW** becomes **RX2 BW** while TUNE B / SUB is focused;
+   drag the **green** passband edges the same way as the cyan box.
+5. Filters, NR, and the main S-meter stay the **focused** receiver's
+   story unless a control is labelled Vol2 / MUTE2 / RX2.
+
+DSP+Audio **NR / AGC / notches** follow the **focused** RX (the one
+**TUNE A / TUNE B** names). GEN / TIME / Mem do not hop SUB.
+
+---
+
 ## Filters panel
 
 Sets the sample rate and how wide the RX/TX filters are. (The **mode**
@@ -720,6 +866,8 @@ picker moved to the Tuning panel, under the VFO.)
   passband edge** on the panadapter to a width that isn't a preset, the
   combo shows it as **"(custom)"** at the top of the list so the readout
   always matches what you're actually hearing; pick a preset to snap back.
+  With **SUB** focused (**TUNE B**), this control reads **RX2 BW** and
+  drives the **green** passband; RX1's width stays on the cyan box.
 - **🔗 (Lock)** — links RX and TX bandwidths so changes to either side
   mirror the other for the current mode. Click to toggle. Toggling it
   ON pulls the RX bandwidth into TX. With the lock OFF, RX and TX BW
@@ -754,9 +902,13 @@ carrier (the Filter Low edge doesn't apply to those modes).
 Quick band switching, in three rows:
 
 - **Ham** — the HF/6m amateur bands (**160m … 6m**). Click one and Lyra
-  returns RX1 to **the last frequency you were on in that band** (the
-  band's default the first time). The button for the band you're on lights
-  up (red-glow), following the frequency however you tune.
+  returns the **focused** receiver to **the last frequency you were on in
+  that band** (the band's default the first time). That is **VFO A /
+  RX1** unless the panadapter already shows **TUNE B** (SPLIT VFO B, or
+  SUB focused). **Colour:** RX1's band chip has a **red** glow; SUB's
+  band (when SUB is on) has a **green** glow. Same band on both VFOs →
+  one chip can carry both stories (red + green treatment). Full map:
+  [Second receiver](#second-receiver-sub--rx2--how-it-works).
   An optional **11m** button (the **Citizens Band**, 26.965–27.405 MHz AM)
   appears at the end of this row, right after 6m, when you enable it in
   **Settings → Hardware → Band panel**. When you're tuned on it, the
@@ -767,6 +919,13 @@ Quick band switching, in three rows:
   frequency and mode** and return to it when you click them (band default
   the first time). The active band lights the same way.
 - **Gen** — the GEN1/2/3 general-coverage slots (below).
+
+**SUB hops (BrickSDR2).** **Shift+click** or **right-click** a Ham / BC /
+11m chip to park **SUB** on that band (turns SUB on if it was off, keeps
+VFO A focused). SUB remembers **its own last frequency and mode** per
+band — independent of RX1. A SUB hop does **not** apply RX1's band
+memory (LNA, TX drive, panadapter range). **GEN / TIME / Mem** stay
+RX1-only (not SUB hops).
 
 **GEN1 / GEN2 / GEN3** (to the right of the band buttons) are
 **general-coverage slots** for listening outside the ham bands —
@@ -831,11 +990,12 @@ The **DSP + AUDIO** panel — what you hear and how it's cleaned up. It's
 laid out in old Lyra's three-row arrangement:
 
 **Row 1 — Levels**
-- **Vol** — output volume, shown in dB beside the slider (−∞ when fully
-  down). The mouse wheel nudges it in fine steps.
-- **MUTE** — silences or restores the audio without disturbing the Vol
-  slider; the button reads **MUTED** while engaged. (Lyra starts
-  **unmuted**.)
+- **Vol** — RX1 output volume, shown in dB beside the slider (−∞ when
+  fully down). The mouse wheel nudges it in fine steps.
+- **MUTE** — silences or restores RX1 without disturbing the Vol slider;
+  the button reads **MUTED** while engaged. (Lyra starts **unmuted**.)
+- **Vol2 / MUTE2** — same pair for **RX2** when SUB is on (BrickSDR2).
+  MUTE2 does not change Vol2.
 - **LNA** — RF input gain on the HL2's AD9866 PGA (−12…+31 dB; slider or
   mouse-wheel). Higher = more sensitivity; back off on strong bands to
   avoid ADC overload. The S-meter compensates for it automatically, so
@@ -844,9 +1004,9 @@ laid out in old Lyra's three-row arrangement:
   set a comfortable working level for your headphones/speakers once, then
   ride **Vol** on top of it for moment-to-moment changes. The value shows
   in dB beside the slider.
-- **Bal** — stereo balance: pans the audio left/right. Centre = both
-  channels equal; the slider snaps to dead-centre near the middle so it's
-  easy to recentre.
+- **Bal** — stereo balance. With SUB off, pans RX1 left/right. With SUB
+  on, it pans **RX1 vs RX2** (left vs right); centre = both equal and
+  snaps to dead-centre so it's easy to recentre.
 - **MON TX · Monitor** — *hear yourself transmit.* With **MON TX** on, while
   you're keyed up Lyra plays your own **post-rack** TX audio (Speech → EQ →
   Combinator → Plating) in place of the auto-muted receiver. The **Monitor**
@@ -2746,7 +2906,7 @@ Turn it on in **Settings → Bands → SW Database**:
 ### Radio
 
 Find and connect to your radio — an HL2 / HL2+ (Protocol 1) or a Protocol-2
-radio (BrickSDR2 / ANAN G2). **Discover** scans the LAN, **Open**
+radio (BrickSDR2 / ANAN G2 / ANAN-10–200D P2). **Discover** scans the LAN, **Open**
 connects to the selected radio (or just **double-click** it), **Close**
 disconnects, and the status line shows what you're connected to. The
 **connected radio is shown green and bold** in the list, so with several
@@ -3761,15 +3921,28 @@ binary frames — no extra toggle needed. Lyra advertises the audio format
 at connect so the client decoder configures itself correctly the moment
 it attaches.
 
-**Signal-strength readings** ride the same link, too. Lyra continuously
-sends its receiver's meter reading over TCI as a *calibrated dBm* value —
-the same number your S-meter shows — so a connected logger's own signal
-meter mirrors Lyra's rather than guessing from raw audio level. (This is
-sent to every TCI client; it's what the Combo auto-RST feature below builds
-on.)
+**Two TCI channels** (BrickSDR2 SUB). Lyra advertises **`channel_count:2`**.
+There is **no extra Settings → Network toggle** for RX2 — SUB is the
+Tuning **SUB** button (or TCI `rx_enable:1`). Mapping matches deskHPSDR /
+Thetis, not “channel 1 = always RX2”:
 
-> RX2 over TCI is deferred until Lyra has a second receiver. Today the
-> server advertises a single channel.
+| Client command | What Lyra does |
+|---|---|
+| `vfo:0,0` / `dds:0` | RX1 / VFO A |
+| `vfo:0,1` | **SPLIT VFO B** (TX offset) — does **not** turn SUB on |
+| `vfo:1,0` / `dds:1` | **RX2 / SUB** frequency |
+| `rx_enable:1` | Enable / disable SUB |
+| `modulation` / `if` on channel 1 | RX2 mode / IF |
+
+Setting an RX2 frequency does **not** auto-enable SUB. Drive SUB with
+`rx_enable` or the panel button.
+
+**Signal-strength readings.** Lyra broadcasts calibrated dBm as
+`rx_channel_sensors:RX,SUB,<dbm>` — RX1 is **`0,0`**, RX2 is **`1,0`**.
+The RX2 sensor is sent whenever a client is connected; with SUB **off**
+the reading is a quiet floor (about −140 dBm), not a live second
+receiver. Combo auto-RST (below) still uses the **RX1** S-meter (and
+Combo SNR is RX1-only).
 
 ### SDRLogger+ Combo link
 
@@ -3802,13 +3975,14 @@ With Combo on, four things happen automatically as you work a station:
   **`{NAME}`** token in the CW Console. A reply macro like
   `{CALL} DE {MYCALL} GE {NAME}` now greets them by name with no typing.
 - **Received signal → RST.** SDRLogger+ can auto-fill the **S** digit of
-  **RST-Received** from the same shared, *calibrated* S-meter reading
-  described above — so the number it logs is exactly what your meter shows,
-  not a guess. Lyra also sends a small signal-to-noise figure alongside it
-  (Combo only) so the logger peak-holds and fills the S **only on a real
-  signal**, not on the band noise. Turn on the **S-auto** control next to
-  the RST-Rcvd field in SDRLogger+; typing a value latches it to manual,
-  and working a new call re-arms it. Works on SSB / CW / digital (not SAT).
+  **RST-Received** from the **RX1** calibrated S-meter (TCI channel 0) —
+  so the number it logs is exactly what your main meter shows, not a
+  guess. Lyra also sends a small signal-to-noise figure alongside it
+  (Combo only, **RX1**) so the logger peak-holds and fills the S **only
+  on a real signal**, not on the band noise. Turn on the **S-auto**
+  control next to the RST-Rcvd field in SDRLogger+; typing a value
+  latches it to manual, and working a new call re-arms it. Works on
+  SSB / CW / digital (not SAT). SUB / RX2 is **not** used for Combo RST.
 - **One-click log with `{LOG}`.** Add the **`{LOG}`** action token to a CW
   macro — e.g. `TU 73 {MYCALL} ee {LOG}` — and sending that macro sends
   the sign-off *and* logs the QSO in SDRLogger+ (call, RST, mode and
@@ -4533,8 +4707,10 @@ band. When in doubt, run less power.
 
 Lyra is **free**, **open-source** (GPL v3 or later — see the License), and
 primarily built by **Rick Langford (N8SDR)** in his spare time, with
-**Brent Crier (N9BC)** joining as co-contributor during early testing and
-**Timmy Davis (KC8TYK)** joining for the v0.1 tester flight. There are no
+**Brent Crier (N9BC)** joining as co-contributor during early testing,
+**Timmy Davis (KC8TYK)** joining for the v0.1 tester flight, and
+**Cursor Grok 4.6** (SpaceXAI / Cursor) as coding assistant on the
+native C++ rebuild. There are no
 ads, no telemetry, no subscription tier, no "pro" upsells.
 
 If Lyra has saved you from a clunky SDR workflow, helped you work a new

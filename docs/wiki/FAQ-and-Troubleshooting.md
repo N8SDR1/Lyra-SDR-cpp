@@ -10,9 +10,16 @@ Quick answers to common questions and fixes. For full detail see the
 
 **What hardware does Lyra support?**
 Hermes Lite 2 and 2+ over HPSDR Protocol 1, and **BrickSDR2** over Protocol 2.
-BrickSDR2 has **SUB / RX2** (second DDC). PureSignal and ANAN family radios
-are still on the roadmap. Dual RX on Hermes Lite 2 Protocol 1 is not this
-release.
+BrickSDR2 has **SUB / RX2** (second DDC) and **SPLIT** (TX on VFO B,
+independent of SUB). Colours: orange **TUNE A** / cyan RX1 vs lime **TUNE B**
+/ green RX2; **◀ RX2** / **RX2 ▶** when SUB is off-span. **ANAN-10 / 10E /
+100 / 100B / 100D / 200D** and **G2 / G2-1K** have Protocol 2 profiles;
+TX is dummy-load until that box is on-air validated. Discovery **Hermes**
+still defaults to BrickSDR2 — pick the marketed ANAN model in Settings →
+Hardware. If an older ANAN still answers as Protocol 1, flash P2 firmware
+when the hardware allows — leftover P1 rows are refused (not an HL2).
+7000DLE / 8000 stay locked. Dual RX on Hermes Lite 2 Protocol 1 is not
+this release.
 
 **Is it free? What's the license?**
 Yes — GPL v3+ (compatible with the WDSP DSP engine it uses). See
@@ -145,6 +152,47 @@ Settings export/import writes a single profile file you can copy. See
 **First launch is stuck "optimizing".**
 That's the one‑time FFT plan‑cache build — let it finish (a few minutes).
 It only happens once (or after **Clear &amp; rebuild**).
+
+---
+
+## Dual receive (SUB / RX2) — BrickSDR2
+
+**How do I turn on the second receiver?**
+Press **SUB** on the Tuning panel (it lights **green**). There is **no**
+“enable RX2” checkbox under **Settings → Network**. TCI clients use
+`rx_enable:1` (or the SUB button). Setting an RX2 frequency does **not**
+auto-enable SUB.
+
+**SUB vs SPLIT — which is which?**
+**SUB** is a second *receiver* (its own frequency, mode, ear). **SPLIT**
+moves *transmit* to VFO B. They are independent — both, one, or neither.
+FM **RPT** still replaces SPLIT in FM.
+
+**What do the colours mean?**
+**Orange TUNE A** + **cyan** passband = RX1. **Lime TUNE B** + **green**
+passband / carrier = RX2. Band chips: **red** glow = RX1’s band, **green**
+glow = SUB’s band. Lime **TX** line (red while keyed) is **SPLIT**, not
+RX2. Full map: **[User Guide → Second receiver](User-Guide#second-receiver-sub--rx2--how-it-works)**.
+
+**What are ◀ RX2 and RX2 ▶?**
+Chips on the **left** or **right** edge of the panadapter when SUB is on
+but RX2 is **off the current span**. **Click** to swap VFOs so the
+waterfall (always RX1 IQ) shows that parked frequency; RX2 keeps the band
+you left. **◀ TX** / **TX ▶** are the same idea for SPLIT TX — don’t mix
+them up.
+
+**How do I hop SUB to another band without moving VFO A?**
+**Shift+click** or **right-click** a Ham / BC / 11m chip. Plain **click**
+stays the focused VFO (usually A). GEN / TIME / Mem stay RX1-only.
+
+**Can TCI / SDRLogger+ drive RX2?**
+Yes. `vfo:1,0` / `dds:1` = SUB frequency; `vfo:0,1` = SPLIT VFO B (does
+**not** turn SUB on). Calibrated S-meter: `rx_channel_sensors` **0,0** =
+RX1, **1,0** = RX2 (quiet floor ~−140 dBm if SUB is off). Combo auto-RST
+still uses **RX1** only — see **[SDRLogger+ Combo](SDRLogger-Plus-Combo)**.
+
+**Hermes Lite 2 second receiver?**
+Not this release (Protocol 1). Dual RX on HL2 is on the [Roadmap](Roadmap).
 
 ---
 

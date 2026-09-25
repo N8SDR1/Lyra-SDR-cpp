@@ -21,7 +21,10 @@ Lyra is a native **Windows** application.
 - A **wired Ethernet** connection to the radio — this is the single biggest
   factor in glitch-free audio.
 - A **Hermes Lite 2 / 2+** (HL2 / HL2+, HPSDR Protocol 1), or a **Protocol-2**
-  radio — **BrickSDR2** or **ANAN G2**. Lyra keeps separate settings for each
+  radio — **BrickSDR2**, **ANAN G2**, or a classic **ANAN-10 / 100 / 200**
+  series on **Protocol 2** (many of those boxes shipped P1 and later got a
+  P2 FPGA — use that). Pick the marketed model in Settings; TX is dummy-load
+  until that box is on-air validated. Lyra keeps separate settings for each
   (see *Multiple radios & switching rigs* in the Help guide).
 
 *(Full detail is in the Help guide under "System requirements". Linux/macOS
@@ -58,6 +61,12 @@ CPU — a one-time step. Let it finish; it opens by itself.)*
 - Turn the **Volume** up.
 - **Click on the panadapter or the waterfall** to tune to a signal, and set
   the **mode** — SSB (**USB** above 10 MHz, **LSB** below), or **AM** / **FM**.
+- On a **BrickSDR2**, **SUB** is a second receiver (independent of **SPLIT**
+  pile-up TX on VFO B). Shift+click or right-click a band chip to hop SUB
+  (**green** chip = RX2's band, **red** = RX1). Panadapter: orange **TUNE A**
+  vs lime **TUNE B**; RX2 is a **green** passband. If RX2 is off the picture,
+  click **◀ RX2** or **RX2 ▶** at the edge to swap it onto the display.
+  Details: User Guide — **Second receiver (SUB / RX2)**.
 
 ## 5 — Talk 🎙️
 

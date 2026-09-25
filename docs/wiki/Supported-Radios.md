@@ -12,7 +12,14 @@ as testers come on board.
 |---|---|
 | **Hermes Lite 2 (HL2)** | ✅ Full RX + TX over Protocol 1. Audio to/from the PC (see [First Voice Setup](First-Voice-Setup)). |
 | **Hermes Lite 2+ (HL2+, AK4951 codec)** | ✅ Full RX + TX over Protocol 1. Adds the on-board **mic + headphone jacks** — plug a headset straight into the radio, no PC audio setup needed. |
-| **BrickSDR2** | ✅ Full RX + TX over Protocol 2, including **SUB / RX2** (second DDC, split-band). Radio mic modulates SSB/AM/FM; TUN / two-tone / analog drive / watts-cap / ATT-on-TX are live. Dummy-load first. Dual RX needs current Brick2 FPGA. Discovery firmware is shown as **v10.6**-style. |
+| **BrickSDR2** | ✅ Full RX + TX over Protocol 2, including **SUB / RX2** (second DDC) and **SPLIT** (TX on VFO B, independent of SUB). Cues: orange **TUNE A** / lime **TUNE B**, cyan vs green passbands, **◀ RX2** / **RX2 ▶**. Radio mic modulates SSB/AM/FM; TUN / two-tone / analog drive / watts-cap / ATT-on-TX are live. Dummy-load first. Dual RX needs current Brick2 FPGA. Discovery firmware is shown as **v10.6**-style. |
+
+## In progress 🚧
+
+| Radio | Notes |
+|---|---|
+| **ANAN-10 / 10E / 100 / 100B / 100D / 200D** (Protocol 2) | 🚧 RX + TX **arm** using deskHPSDR classic Alex HPF/LPF words. **Not on-air validated** — dummy-load + Arm P2 TX. These radios often shipped Protocol 1; **use the P2 FPGA** if the box can run it — that is Lyra's path. Discovery **Hermes** still defaults to BrickSDR2 (same board id); pick the marketed ANAN model in **Settings → Hardware**. A leftover Protocol 1 discovery row is refused (wrong HL2 TX layout). |
+| **ANAN-G2 / G2-1K** | 🚧 Saturn BPF profile; TX dummy-load arm until on-air validated. |
 
 All connect over a **wired Ethernet** link and are found automatically by
 Lyra's discovery (or **Add by IP** for a fixed address / different subnet).
@@ -29,8 +36,8 @@ Lyra lists it in discovery as Brick, not as an HL2.
 
 | Radio / family | Protocol | Status |
 |---|---|---|
-| **ANAN family** (G2, G2-1K, 7000DLE, 8000, …) | HPSDR **Protocol 2** | 🗺️ Planned — Protocol 2 is live on BrickSDR2; ANAN still needs per-model DDC/PA/filter bring-up plus a tester with the hardware. |
-| Other **HPSDR Protocol-1** boards | Protocol 1 | 🗺️ Planned — the transmit wire layer already has non-HL2 branches; bringing them live needs a **tester with the hardware**. |
+| **ANAN-7000DLE / 8000** | Protocol 2 | 🗺️ Locked — OrionMkII BPF / PA not in this pass. |
+| Classic ANAN still on **Protocol 1** firmware | Protocol 1 | 🗺️ Not a Lyra TX path (HL2 layout). Flash **Protocol 2** if the hardware allows, then use the P2 profile above. |
 
 If you'd like to help test Lyra on a non-HL2 HPSDR radio, please
 **[open an issue](https://github.com/N8SDR1/Lyra-SDR-cpp/issues)** — tester

@@ -3184,19 +3184,17 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     }
                 }
 
-                // Protocol 2 (Saturn / ANAN G2): opens through the P2
-                // bridge (session thread + DDC0 IQ → the same WDSP RX
-                // chain).  RX-only today; the P1 rememberRadio /
-                // auto-connect persistence stays HL2-only.  (A Brick, or
-                // any other P2 family the bridge doesn't have a verified
-                // front-end profile for, still opens — P2Session logs a
-                // warning and the receiver runs without antenna/filter
-                // control rather than refusing outright.)
+                // Protocol 2 (Saturn / ANAN G2 / Brick / classic ANAN):
+                // session thread + DDC0 IQ → the same WDSP RX chain.
+                // Auto-connect persistence for Protocol 1 stays HL2-only.
+                // A Brick, or any other P2 family without a front-end
+                // profile, still opens — P2Session logs a warning and
+                // the receiver runs without antenna/filter control.
                 if (proto == 2) {
                     if (p2_) {
                         // MAC selects the radio's Layer-2 profile
                         // (model + antenna) inside the bridge.
-                        p2_->open(ip, mac);
+                        p2_->open(ip, mac, board);
                         if (discovery_) {
                             discovery_->rememberRadio(
                                 ip, mac, board,
@@ -3208,9 +3206,28 @@ QWidget *SettingsDialog::buildHardwareTab() {
                             discovery_->probe(ip);
                         }
                         status->setText(
-                            tr("Opening %1 (Protocol 2) — RX only for now.")
-                                .arg(ip));
+                            tr("Opening %1 (Protocol 2).").arg(ip));
                     }
+                    return;
+                }
+                if (lyra::rig::registry::familyForBoardName(board) !=
+                    lyra::rig::RadioFamily::Hl2) {
+                    status->setText(
+                        tr("Protocol 1 ANAN / HPSDR TX is not enabled — "
+                           "this radio would be driven as an HL2. Open it "
+                           "in Protocol 2, or pick the marketed model after "
+                           "a P2 discovery."));
+                    QMessageBox::information(
+                        this, tr("Protocol 1 ANAN"),
+                        tr("Lyra does not drive classic ANAN / Hermes "
+                           "over Protocol 1 (that would use the HL2 "
+                           "wire layout).\n\n"
+                           "Most of these boxes that can run Protocol 2 "
+                           "already have a P2 FPGA. Discover the P2 "
+                           "row, then pick the marketed model "
+                           "(ANAN-10 / 10E / 100 / 100B / 100D / 200D) "
+                           "in Settings → Hardware. TX stays dummy-load "
+                           "until that model is on-air validated."));
                     return;
                 }
                 if (discovery_) {

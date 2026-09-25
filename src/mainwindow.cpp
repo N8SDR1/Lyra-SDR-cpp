@@ -2880,6 +2880,9 @@ void MainWindow::scanAndOpenFirst() {
             // — leave the one-shot armed so a subsequent P1 reply in the
             // same sweep still auto-connects.
             if (protocol != 1) return;
+            if (lyra::rig::registry::familyForBoardName(board) !=
+                lyra::rig::RadioFamily::Hl2)
+                return;
             QObject::disconnect(scanConn_);
             QObject::disconnect(scanDoneConn_);
             *opened = true;

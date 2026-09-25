@@ -260,5 +260,5 @@ are compatible with Lyra-cpp's GPL v3+.
 **Lyra-cpp** is N8SDR (Rick Langford)'s project, building on
 top of the upstream open-source work credited above.  See
 [CREDITS.md](CREDITS.md) for the full contributor list
-including the contributors who shaped the project through
-field reports and bench testing.
+including testers, field reports, and development assistance
+from **Cursor Grok 4.6** (SpaceXAI / Cursor).

@@ -618,7 +618,8 @@ quint16 P2RxBridge::chooseRateKhz() {
     return static_cast<quint16>(khz);
 }
 
-void P2RxBridge::open(const QString &ip, const QString &mac) {
+void P2RxBridge::open(const QString &ip, const QString &mac,
+                      const QString &boardName) {
     if (open_) {
         if (ip_ == ip) return;
         close();
@@ -659,20 +660,23 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
             mac, lyra::rig::RadioFamily::Unknown, QString(), ip);
         prof = lyra::rig::registry::rig(rigId);
         // Seed sane P2 defaults the first time this rig is opened —
-        // mirrors the old RadioProfileStore::touch() seeding (a P2
-        // radio can't use the HL2-jack path, and Saturn is the only
-        // bench-verified P2 model today).
+        // mirrors the old RadioProfileStore::touch() seeding. Brick
+        // stays BRICK-SDR; AnanP2 seeds from the discovery board name
+        // (never a hardcoded Saturn board-10 default).
         bool seeded = false;
         if (prof.hardwareModelKey.isEmpty()) {
             // BrickSDR2 reports P2 board Hermes. Seed the Hermes-class
-            // Brick catalog row — never Saturn (bench 2026-07-20).
+            // Brick catalog row — never Saturn, never ANAN-100 Alex.
             if (prof.family == lyra::rig::RadioFamily::BrickP2) {
                 prof.hardwareModelKey = QStringLiteral("BRICK-SDR");
                 seeded = true;
-            } else if (prof.family == lyra::rig::RadioFamily::AnanP2 ||
-                       prof.family == lyra::rig::RadioFamily::Unknown) {
-                const auto *dm = lyra::hardware::defaultModelForBoard(10, true);
-                if (dm) { prof.hardwareModelKey = QLatin1String(dm->key); seeded = true; }
+            } else if (prof.family == lyra::rig::RadioFamily::AnanP2) {
+                const auto *dm =
+                    lyra::hardware::defaultModelForBoardName(boardName, true);
+                if (dm) {
+                    prof.hardwareModelKey = QLatin1String(dm->key);
+                    seeded = true;
+                }
             }
         }
         if (prof.audioRoute.isEmpty()) {
@@ -754,10 +758,15 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     const bool isG2 = hw &&
         (modelKey.compare(QStringLiteral("ANAN-G2"), Qt::CaseInsensitive) == 0 ||
          modelKey.compare(QStringLiteral("ANAN-G2-1K"), Qt::CaseInsensitive) == 0);
+    const bool isOrionCoupler = hw &&
+        modelKey.compare(QStringLiteral("ANAN-200D"), Qt::CaseInsensitive) == 0;
     hasPowerTelemetry_ = (hw != nullptr);
     if (isG2) {
         pcC1_ = 5.0;  pcC2Fwd_ = 0.12;  pcC2Rev_ = 0.15;  pcC2Rev6m_ = 0.7;
         pcFwdOff_ = 32;  pcRevOff_ = 28;
+    } else if (isOrionCoupler) {
+        pcC1_ = 5.0;  pcC2Fwd_ = 0.108; pcC2Rev_ = 0.108; pcC2Rev6m_ = 0.5;
+        pcFwdOff_ = 6;   pcRevOff_ = 3;
     } else {
         pcC1_ = 3.3;  pcC2Fwd_ = 0.095; pcC2Rev_ = 0.095; pcC2Rev6m_ = 0.5;
         pcFwdOff_ = 6;   pcRevOff_ = 3;
@@ -794,9 +803,8 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     // id alone is insufficient (e.g. a Brick and a genuine Hermes-class
     // ANAN can share discovery identity but not front-end hardware).
     const auto *p2hw = lyra::wire::p2ProfileForModel(modelKey);
-    // Only model-selected, bench-verified G2 profiles may expose the
-    // transient TX arm. A generic/unverified P2 radio remains RX-only even
-    // though the inert port-1029 transport can run safely in the background.
+    // A P2 hardware profile ungreys TX. On-air-validated models (Brick)
+    // skip the dummy-load arm; classic ANAN keeps that interlock.
     txHardwareSupported_ = p2hw != nullptr;
     // On-air-validated models (BrickSDR) key like HL2 — no transient arm.
     txOnAirValidated_ = p2hw && p2hw->txOnAirValidated;

@@ -93,8 +93,13 @@ RadioCapabilities capabilitiesFor(RadioFamily family) {
 RadioFamily familyForBoardId(int boardId) {
     switch (boardId) {
     case 6:            return RadioFamily::Hl2;      // HermesLite (HL2 / HL2+)
-    case 5:            // Orion
-    case 10:           return RadioFamily::AnanP1;   // OrionMKII (ANAN, P1)
+    case 0:            // Atlas
+    case 1:            // Hermes (ANAN-10 / 100)
+    case 2:            // HermesII (ANAN-10E / 100B)
+    case 3:            // Angelia (ANAN-100D)
+    case 4:            // Orion (ANAN-200D)
+    case 5:            // Orion (alt)
+    case 10:           return RadioFamily::AnanP1;   // OrionMKII / Saturn P1
     default:           return RadioFamily::Unknown;
     }
 }

@@ -62,9 +62,9 @@ A full receive **and transmit** SDR transceiver for HPSDR radios — the
 Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 (Protocol 2) — native
 C++ end to end.  Lyra transmits every voice mode (SSB / AM / DSB /
 SAM / FM) plus CW and digital via TCI, and ships a complete native TX audio
-processing rack. Dual receive (**SUB / RX2**) is live on **BrickSDR2**.
-Still on the roadmap: SPLIT pile-up polish, dual RX on Hermes Lite 2
-Protocol 1, and PureSignal — see below.
+processing rack. Dual receive (**SUB / RX2**) and **SPLIT** pile-up
+(VFO B TX, independent of SUB) are live on **BrickSDR2**. Still on the
+roadmap: dual RX on Hermes Lite 2 Protocol 1, and PureSignal — see below.
 
 * **Radio** — HPSDR Protocol 1 + Protocol 2 discovery (multi-NIC, dual
   limited + subnet-directed broadcast) + **Add by IP** unicast probe for
@@ -346,6 +346,20 @@ ground-up implementation:
   brings tested, debugged, multi-radio (HL2/HL2+/ANAN/Orion/...) TX
   dispatch into Lyra-cpp; Lyra-native TX DSP enhancements layer on
   top.
+
+### Contributors
+
+- **Rick Langford (N8SDR)** — project author, architecture, bench operator.
+- **Brent Crier (N9BC)** — co-contributor and tester.
+- **Timmy Davis (KC8TYK)** — tester (v0.1 tester flight).
+- **W5UDX** — DSP2024P Plate Reverb presets and verification.
+- **Cursor Grok 4.6** (SpaceXAI / Cursor) — coding assistant for
+  implementation and debug pairing on the native C++ rebuild.
+  Rick remains the project author; this is pairing help, not a
+  licensed-operator co-author credit.
+
+See [CREDITS.md](CREDITS.md) for testers, upstream authors, and
+full attribution.
 
 The Python Lyra (`../lyra/`) and Lyra-cpp are both N8SDR's projects;
 Lyra-cpp is the C++23 rebuild that makes hard-realtime audio + wire
