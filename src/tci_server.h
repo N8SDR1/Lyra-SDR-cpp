@@ -11,9 +11,11 @@
 // store so client panels stay in sync; they get wired to the real DSP
 // when the DSP+Audio control panel lands.
 //
-// Channel convention: channel 0 = RX1 (the only receiver today);
-// channel 1 (RX2) is parsed but ignored until RX2 exists, so we
-// advertise channel_count:1.
+// Channel convention (TCI v1.9 / Thetis-class):
+//   vfo:<rx>,<sub>  — rx=0 sub=0 VFO A (RX1), rx=0 sub=1 VFO B (SPLIT TX),
+//                     rx=1 sub=0 RX2 (SUB).  dds:0 = RX1, dds:1 = RX2.
+//   modulation / rx_filter_band / rx_volume / rx_mute / rx_enable :0|:1
+//     follow the same RX1 / RX2 split.  channels_count:2.
 //
 // Everything runs on the Qt main thread (QWebSocketServer is
 // signal/slot driven); radio change-signals drive the broadcasts.
@@ -172,16 +174,22 @@ private:
     // Radio-signal handlers → broadcasts.
     void onFreqChanged();
     void onVfoBChanged();      // echo vfo:0,1 (VFO B) to clients — TCI §3.1 sync
+    void onRx2FreqChanged();   // echo dds:1 / vfo:1,0 (RX2) — distinct rate-limit keys
+    void onSubEnabledChanged();
     void onModeChanged();
+    void onModeRx2Changed();
     void onRunningChanged();
     void onVolumeChanged();
+    void onVolumeRx2Changed();
     void onMutedChanged();
+    void onMutedRx2Changed();
     void onPassbandChanged();
+    void onPassbandRx2Changed();
     // TX-frequency announce — reference TCIServer.cs::sendTXFrequencyChanged
     // (the standard `tx_frequency` + the Thetis-bespoke `tx_frequency_thetis`).
-    // Loggers (LogHX3, …) take the logged QSO frequency from `tx_frequency`;
-    // Lyra never emitted it, so those clients logged 0.  Carrier = operating
-    // VFO freq (no SPLIT/RX2 yet → rx2=false, vfob=false).
+    // Loggers (LogHX3, …) take the logged QSO frequency from `tx_frequency`.
+    // Carrier = TX VFO (VFO B under SPLIT, else VFO A); thetis line carries
+    // rx2_enabled + tx_vfob.
     QString txFrequencyLine() const;
     QString txFrequencyThetisLine() const;
     void    broadcastTxFrequency();

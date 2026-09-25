@@ -290,6 +290,10 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
         // can land after the RX moved = the cross-band / "2-3 clicks" bug.
         connect(stream_, &lyra::ipc::HL2Stream::vfoBHzChanged,
                 this, &TciServer::onVfoBChanged);
+        connect(stream_, &lyra::ipc::HL2Stream::rx2FreqChanged,
+                this, &TciServer::onRx2FreqChanged);
+        connect(stream_, &lyra::ipc::HL2Stream::subEnabledChanged,
+                this, &TciServer::onSubEnabledChanged);
         // §3.1 echo: whether split came from the operator's toggle or was
         // derived from a client's VFO B, confirm the new state to every client.
         connect(stream_, &lyra::ipc::HL2Stream::splitEnabledChanged, this, [this]() {
@@ -327,8 +331,10 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
     // microseconds — Qt PreciseTimer at 500 Hz is well within budget.
     chronoTimer_->setTimerType(Qt::PreciseTimer);
     connect(chronoTimer_, &QTimer::timeout, this, &TciServer::onChronoTick);
-    if (prefs_)
+    if (prefs_) {
         connect(prefs_, &Prefs::modeChanged, this, &TciServer::onModeChanged);
+        connect(prefs_, &Prefs::modeRx2Changed, this, &TciServer::onModeRx2Changed);
+    }
 
     // Task #75 — cache the RX-out gain as a linear multiplier from
     // Prefs.tciRxGainDb so the audio hot path doesn't pay std::pow
@@ -358,10 +364,16 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
     if (engine_) {
         connect(engine_, &lyra::dsp::WdspEngine::volumeChanged,
                 this, &TciServer::onVolumeChanged);
+        connect(engine_, &lyra::dsp::WdspEngine::volumeRx2Changed,
+                this, &TciServer::onVolumeRx2Changed);
         connect(engine_, &lyra::dsp::WdspEngine::mutedChanged,
                 this, &TciServer::onMutedChanged);
+        connect(engine_, &lyra::dsp::WdspEngine::mutedRx2Changed,
+                this, &TciServer::onMutedRx2Changed);
         connect(engine_, &lyra::dsp::WdspEngine::passbandChanged,
                 this, &TciServer::onPassbandChanged);
+        connect(engine_, &lyra::dsp::WdspEngine::passbandRx2Changed,
+                this, &TciServer::onPassbandRx2Changed);
         // Binary streams arrive from the DSP worker thread — queued onto
         // ours so the QWebSocket sends happen on the right thread.
         connect(engine_, &lyra::dsp::WdspEngine::tciAudioBlock,
@@ -377,8 +389,13 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                        qint64 hz, quint32 argb) {
             broadcastNow(QStringLiteral("spot_activated:%1,%2,%3,%4")
                              .arg(call, mode).arg(hz).arg(argb));
-            broadcastNow(QStringLiteral("rx_clicked_on_spot:0,0,%1,%2")
-                             .arg(call).arg(hz));
+            int rx = 0, sub = 0;
+            if (stream_ && stream_->focusedRx() == 2) {
+                if (stream_->subEnabled()) { rx = 1; sub = 0; }
+                else { rx = 0; sub = 1; }
+            }
+            broadcastNow(QStringLiteral("rx_clicked_on_spot:%1,%2,%3,%4")
+                             .arg(rx).arg(sub).arg(call).arg(hz));
         });
     }
 }
@@ -1221,7 +1238,11 @@ void TciServer::sendInit(QWebSocket *ws) {
         sendTo(ws, QStringLiteral("vfo:0,0,%1").arg(carrier)); // operating carrier (VFO A)
         const qint64 vfobCarrier =
             (stream_ ? qint64(stream_->vfoBHz()) : hz) + marker;
-        sendTo(ws, QStringLiteral("vfo:0,1,%1").arg(vfobCarrier));  // VFO B
+        sendTo(ws, QStringLiteral("vfo:0,1,%1").arg(vfobCarrier));  // VFO B (SPLIT)
+        const qint64 rx2Carrier =
+            (stream_ ? qint64(stream_->rx2FreqHz()) : hz)
+            + (engine_ ? engine_->markerOffsetHzRx2() : 0);
+        sendTo(ws, QStringLiteral("vfo:1,0,%1").arg(rx2Carrier));  // RX2 VFO A
         sendTo(ws, txFrequencyLine());                         // logged QSO freq (LogHX3 &c.)
         sendTo(ws, txFrequencyThetisLine());
     }
@@ -1277,6 +1298,9 @@ void TciServer::sendInit(QWebSocket *ws) {
     // 2492): RX-enable (= !MOX), tune state, IQ stream stopped, IQ sample rate.
     sendTo(ws, QStringLiteral("rx_enable:0,%1")                  // sendRXEnable(0,!MOX)
                    .arg(keyed ? QStringLiteral("false") : QStringLiteral("true")));
+    sendTo(ws, QStringLiteral("rx_enable:1,%1")                  // RX2 / SUB
+                   .arg((stream_ && stream_->subEnabled())
+                            ? QStringLiteral("true") : QStringLiteral("false")));
     sendTo(ws, QStringLiteral("tune:0,false"));                 // sendTune(0,TUN) — not tuning at connect
     sendTo(ws, QStringLiteral("iq_stop:0"));                    // sendIQStartStop(0,false)
     sendTo(ws, QStringLiteral("iq_samplerate:%1")               // sendIQSampleRate (clamp 48k..384k)
@@ -1453,30 +1477,38 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         return;
     }
     if (cmd == QStringLiteral("VFO")) {
-        // VFO = operating (carrier) freq.  In CW the carrier sits pitch Hz
-        // off the tuned DDS centre, so convert carrier↔DDS both ways
-        // (markerOffsetHz = VFO−DDS; 0 outside CW).  Channel 0 = VFO A (RX +
-        // simplex TX); channel 1 = VFO B (the SPLIT TX freq).  A digital-mode
-        // client running rig/hardware split (WSJT-X et al.) sets its TX freq on
-        // VFO B — honour it via setVfoBHz so split TX actually follows the
-        // client (was ch-0-only, silently dropping VFO B).
-        const qint64 off = engine_ ? engine_->markerOffsetHz() : 0;
-        bool okc = false; const int ch = args.size() >= 2 ? parseChannel(args[1], &okc) : -1;
+        // vfo:<rx>,<sub>,<hz> — TCI / Thetis: rx=receiver, sub=VFO A/B.
+        //   0,0 → RX1 VFO A (carrier; CW converts via markerOffsetHz)
+        //   0,1 → VFO B (SPLIT TX freq).  Does NOT enable split.
+        //   1,* → RX2 (SUB) carrier via markerOffsetHzRx2.
+        // A digital-mode client running hardware split (WSJT-X) sets TX on
+        // vfo:0,1.  SDRLogger+ RX2 uses vfo:1,0 / dds:1.  Do not conflate.
+        bool okr = false;
+        const int rxi = args.size() >= 1 ? args[0].trimmed().toInt(&okr) : 0;
+        if (!okr || (rxi != 0 && rxi != 1)) return;
+        bool okc = false;
+        const int ch = args.size() >= 2 ? parseChannel(args[1], &okc) : -1;
         if (!okc) return;
+        const qint64 offA = engine_ ? engine_->markerOffsetHz() : 0;
+        const qint64 offB = engine_ ? engine_->markerOffsetHzRx2() : 0;
         if (args.size() >= 3) {
-            bool f=false; const qint64 v = args[2].toLongLong(&f);
+            bool f = false; const qint64 v = args[2].toLongLong(&f);
             if (f && stream_) {
-                // As Thetis (handleVFOMessage): chan 0 → VFO A, chan 1 → VFO B.
-                // Setting VFO B ONLY sets the freq — it does NOT touch split.
-                // Split is the client's explicit split_enable command (below),
-                // never derived from where VFO B sits.
-                if (ch == 0)      stream_->setRx1FreqHz(quint32(v - off));  // carrier → DDS (VFO A)
-                else if (ch == 1) stream_->setVfoBHz(quint32(v - off));     // carrier → DDS (VFO B)
+                if (rxi == 0) {
+                    if (ch == 0) stream_->setRx1FreqHz(quint32(v - offA));
+                    else         stream_->setVfoBHz(quint32(v - offA));
+                } else {
+                    stream_->setRx2FreqHz(quint32(v - offB));
+                }
             }
-        } else if (ch == 0) {
-            sendTo(ws, QStringLiteral("vfo:0,0,%1").arg(curHz + off));      // DDS → carrier (VFO A)
-        } else if (ch == 1 && stream_) {
-            sendTo(ws, QStringLiteral("vfo:0,1,%1").arg(stream_->vfoBHz() + off));  // VFO B read-back
+        } else if (rxi == 0) {
+            if (ch == 0)
+                sendTo(ws, QStringLiteral("vfo:0,0,%1").arg(curHz + offA));
+            else if (stream_)
+                sendTo(ws, QStringLiteral("vfo:0,1,%1").arg(stream_->vfoBHz() + offA));
+        } else if (stream_) {
+            sendTo(ws, QStringLiteral("vfo:1,%1,%2")
+                           .arg(ch).arg(stream_->rx2FreqHz() + offB));
         }
         return;
     }
@@ -1484,34 +1516,38 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         // As Thetis (handleIF): IF is the ABSOLUTE offset of the VFO from the
         // panorama CENTRE (vfo = CentreFrequency + offset), NOT cumulative on
         // the live VFO.  Lyra's centre = the locked DDC centre under CTUN, else
-        // it tracks the VFO (centre == VFO) — exactly like Thetis when centre-
-        // lock is off.  chan 0 → VFO A, chan 1 → VFO B.  rx index 1 (RX2) not
-        // wired yet.  Centre/VFO are DDS-domain here; the CW marker offset
-        // applies equally to both so it cancels in the SET carrier math.
+        // it tracks the VFO (centre == VFO).  rx 0: chan 0 VFO A, chan 1 VFO B.
+        // rx 1: RX2 (both chans map to RX2 freq; no CTUN on RX2).
         if (args.size() < 2 || !stream_) return;
         bool okr=false; const int rxi = args[0].trimmed().toInt(&okr);
         bool okc=false; const int ch  = parseChannel(args[1], &okc);
-        if (!okr || !okc || rxi != 0) return;
-        const qint64 centre = stream_->ctuneEnabled()
-                                  ? qint64(stream_->ctuneCenterHz())
-                                  : qint64(stream_->rx1FreqHz());
+        if (!okr || !okc || (rxi != 0 && rxi != 1)) return;
+        const qint64 centre = (rxi == 1)
+            ? qint64(stream_->rx2FreqHz())
+            : (stream_->ctuneEnabled()
+                   ? qint64(stream_->ctuneCenterHz())
+                   : qint64(stream_->rx1FreqHz()));
+        const qint64 mk = (rxi == 1)
+            ? (engine_ ? engine_->markerOffsetHzRx2() : 0)
+            : (engine_ ? engine_->markerOffsetHz() : 0);
         if (args.size() >= 3) {                        // SET — vfo = centre + off
             bool oko=false; const qint64 off = args[2].toLongLong(&oko);
             if (!oko) return;
             const qint64 target = centre + off;
             if (target <= 0) return;
-            if (ch == 0)      stream_->setRx1FreqHz(quint32(target));
-            else if (ch == 1) stream_->setVfoBHz(quint32(target));
+            if (rxi == 1)
+                stream_->setRx2FreqHz(quint32(target));
+            else if (ch == 0)
+                stream_->setRx1FreqHz(quint32(target));
+            else
+                stream_->setVfoBHz(quint32(target));
         } else {                                       // GET — offset = vfo − centre
-            // Mirror of Thetis sendIF: reply = (VFO − Centre) − cwPitchShift.
-            // Lyra's cwPitchShift equivalent is −markerOffsetHz (markerOffset =
-            // VFO−DDS = +pitch for CWU / −pitch for CWL; GetDSPcwPitchShiftToZero
-            // = −pitch for CWU / +pitch for CWL), so −cwPitchShift = +markerOffset.
-            // 0 outside CW → identical in every non-CW mode.
-            const qint64 vfo = (ch == 1) ? qint64(stream_->vfoBHz())
-                                         : qint64(stream_->rx1FreqHz());
-            const qint64 mk  = engine_ ? engine_->markerOffsetHz() : 0;
-            sendTo(ws, QStringLiteral("if:0,%1,%2").arg(ch).arg((vfo - centre) + mk));
+            qint64 vfo = 0;
+            if (rxi == 1)      vfo = qint64(stream_->rx2FreqHz());
+            else if (ch == 1)  vfo = qint64(stream_->vfoBHz());
+            else               vfo = qint64(stream_->rx1FreqHz());
+            sendTo(ws, QStringLiteral("if:%1,%2,%3").arg(rxi).arg(ch)
+                           .arg((vfo - centre) + mk));
         }
         return;
     }
@@ -1719,9 +1755,19 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         || cmd == QStringLiteral("RX_ENABLE")) {
         bool okc = false;
         const int ch = args.size() >= 1 ? parseChannel(args[0], &okc) : -1;
-        if (!okc || ch != 0) return;
+        if (!okc) return;
         const bool on = args.size() >= 2 ? parseBool(args[1])
                                          : true;   // 1-arg query → default true
+        if (cmd == QStringLiteral("RX_ENABLE") && ch == 1) {
+            if (stream_ && args.size() >= 2)
+                stream_->setSubEnabled(on);
+            const bool sub = stream_ && stream_->subEnabled();
+            sendTo(ws, QStringLiteral("rx_enable:1,%1")
+                           .arg(sub ? QStringLiteral("true")
+                                    : QStringLiteral("false")));
+            return;
+        }
+        if (ch != 0) return;
         softSet(cmd, on ? QStringLiteral("true") : QStringLiteral("false"));
         sendTo(ws, cmd.toLower()
             + QStringLiteral(":0,%1").arg(on ? QStringLiteral("true")
@@ -2218,13 +2264,7 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
 // ── broadcast handlers (radio → clients) ─────────────────────────
 
 // TX-frequency announce (reference TCIServer.cs::sendTXFrequencyChanged,
-// :2246-2258).  The operating carrier == the TX VFO frequency when not split;
-// Lyra has no SPLIT/RX2 yet so it equals the `vfo:0,0` value.  Emitting it is
-// purely additive: clients that don't parse it ignore it, and clients that do
-// (LogHX3 &c.) get the real QSO frequency instead of a stuck 0.  SDRLogger+ is
-// unaffected — its Combo link uses the separate `lyra_*` messages, and this
-// carries the SAME carrier value as `vfo:0,0`, so any freq a client reads is
-// consistent whichever field it prefers.
+// :2246-2258).  Operating TX carrier = VFO B under SPLIT, else VFO A.
 QString TciServer::txFrequencyLine() const {
     if (!stream_) return QString();
     // Actual TX carrier: VFO B under split, else VFO A (txFreqHz() resolves it).
@@ -2245,8 +2285,10 @@ QString TciServer::txFrequencyThetisLine() const {
     const QLatin1String txVfoB = stream_->splitEnabled()
                                      ? QLatin1String("true")
                                      : QLatin1String("false");
-    return QStringLiteral("tx_frequency_thetis:%1,%2,false,%3")
-        .arg(carrier).arg(band).arg(txVfoB);
+    return QStringLiteral("tx_frequency_thetis:%1,%2,%3,%4")
+        .arg(carrier).arg(band)
+        .arg(stream_->subEnabled() ? QLatin1String("true") : QLatin1String("false"))
+        .arg(txVfoB);
 }
 void TciServer::broadcastTxFrequency() {
     if (!stream_) return;
@@ -2284,6 +2326,21 @@ void TciServer::onVfoBChanged() {
     if (stream_->splitEnabled())
         broadcastTxFrequency();
 }
+void TciServer::onRx2FreqChanged() {
+    if (!stream_) return;
+    const qint64 hz = qint64(stream_->rx2FreqHz());
+    const qint64 carrier = hz + (engine_ ? engine_->markerOffsetHzRx2() : 0);
+    broadcast(QStringLiteral("dds:1"),   QStringLiteral("dds:1,%1").arg(hz));
+    broadcast(QStringLiteral("vfo:1,0"), QStringLiteral("vfo:1,0,%1").arg(carrier));
+}
+void TciServer::onSubEnabledChanged() {
+    if (!stream_) return;
+    broadcast(QStringLiteral("rx_enable:1"),
+              QStringLiteral("rx_enable:1,%1")
+                  .arg(stream_->subEnabled() ? QStringLiteral("true")
+                                             : QStringLiteral("false")));
+    broadcastTxFrequency();
+}
 void TciServer::onModeChanged() {
     if (!prefs_) return;
     broadcast(QStringLiteral("modulation:0"),
@@ -2300,6 +2357,17 @@ void TciServer::onModeChanged() {
                   QStringLiteral("vfo:0,0,%1").arg(carrier));
     }
 }
+void TciServer::onModeRx2Changed() {
+    if (!prefs_) return;
+    broadcast(QStringLiteral("modulation:1"),
+              QStringLiteral("modulation:1,%1").arg(toTciMode(prefs_->modeRx2())));
+    if (stream_) {
+        const qint64 carrier = qint64(stream_->rx2FreqHz())
+                               + (engine_ ? engine_->markerOffsetHzRx2() : 0);
+        broadcast(QStringLiteral("vfo:1,0"),
+                  QStringLiteral("vfo:1,0,%1").arg(carrier));
+    }
+}
 void TciServer::onVolumeChanged() {
     if (!engine_) return;
     const double v = engine_->volumeDb();
@@ -2307,11 +2375,24 @@ void TciServer::onVolumeChanged() {
     broadcast(QStringLiteral("volume"),
               QStringLiteral("volume:%1").arg(QString::number(v, 'f', 1)));  // F1
 }
+void TciServer::onVolumeRx2Changed() {
+    if (!engine_) return;
+    const double v = engine_->volumeDbRx2();
+    if (v < -60.0 || v > 0.0) return;
+    broadcast(QStringLiteral("rx_volume:1,0"),
+              QStringLiteral("rx_volume:1,0,%1").arg(QString::number(v, 'f', 1)));
+}
 void TciServer::onMutedChanged() {
     if (!engine_) return;
     broadcastNow(QStringLiteral("mute:%1")
                      .arg(engine_->muted() ? QStringLiteral("true")
                                            : QStringLiteral("false")));
+}
+void TciServer::onMutedRx2Changed() {
+    if (!engine_) return;
+    broadcastNow(QStringLiteral("rx_mute:1,%1")
+                     .arg(engine_->mutedRx2() ? QStringLiteral("true")
+                                              : QStringLiteral("false")));
 }
 void TciServer::onPassbandChanged() {
     if (!engine_) return;
@@ -2319,6 +2400,13 @@ void TciServer::onPassbandChanged() {
               QStringLiteral("rx_filter_band:0,%1,%2")
                   .arg(qRound(engine_->passbandLowHz()))
                   .arg(qRound(engine_->passbandHighHz())));
+}
+void TciServer::onPassbandRx2Changed() {
+    if (!engine_) return;
+    broadcast(QStringLiteral("rx_filter_band:1"),
+              QStringLiteral("rx_filter_band:1,%1,%2")
+                  .arg(qRound(engine_->passbandLowHzRx2()))
+                  .arg(qRound(engine_->passbandHighHzRx2())));
 }
 void TciServer::onRunningChanged() {
     if (!stream_) return;
