@@ -340,6 +340,9 @@ public:
     // Returns -200 when the RX channel isn't running.  Safe to call
     // from the UI thread (just reads WDSP's latest stored meter value).
     double sMeterDbm() const;
+    // RX2 (WDSP channel 2) RXA_S_PK — same units as sMeterDbm().
+    // −200 when SUB/RX2 is not open.
+    double sMeterDbmRx2() const;
     // Live AGC gain action in dB (WDSP RXA_AGC_GAIN); 0 when not running.
     double agcGainDb() const;
     // #158 (post-DL) TX dynamics meters re-homed onto the wire-live TXA

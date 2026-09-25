@@ -2433,6 +2433,14 @@ void TciServer::onSmeterTick() {
     broadcast(QStringLiteral("rx_channel_sensors:0,0"),
               QStringLiteral("rx_channel_sensors:0,0,%1")
                   .arg(QString::number(dbm, 'f', 1)));
+    // TCI ch1 = RX2 SUB (same mapping as dds:1 / vfo:1,0 / rx_enable:1).
+    // Always emit so a client that advertised channels_count:2 does not
+    // keep a stale last-SUB reading after SUB goes off (floor = −140).
+    const double dbm2 = meter_ ? meter_->rxSMeterDbmRx2()
+                               : engine_->sMeterDbmRx2();
+    broadcast(QStringLiteral("rx_channel_sensors:1,0"),
+              QStringLiteral("rx_channel_sensors:1,0,%1")
+                  .arg(QString::number(dbm2, 'f', 1)));
 
     // Combo received-S auto-fill: also share the numeric SNR (dB) so a linked
     // SDRLogger+ can gate its auto RST-received suggestion — the S-meter alone

@@ -2678,6 +2678,14 @@ double WdspEngine::sMeterDbm() const
     return api.GetRXAMeter(channel_, 0);
 }
 
+double WdspEngine::sMeterDbmRx2() const
+{
+    if (!running_ || !wdsp_ || !rx2Opened_) return -200.0;
+    const WdspApi &api = wdsp_->api();
+    if (!api.GetRXAMeter) return -200.0;
+    return api.GetRXAMeter(rx2Channel_, 0);
+}
+
 double WdspEngine::agcGainDb() const
 {
     if (!running_ || !wdsp_) return 0.0;
