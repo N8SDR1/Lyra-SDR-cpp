@@ -96,13 +96,43 @@ Rectangle {
         onActivated: Stream.setFocusedRx(2)
     }
 
-    // B readout: SPLIT shows VFO B carrier; SUB-only is RX2 DDS + CW offset.
+    // B readout: SPLIT shows VFO B carrier; SUB-only is RX2 DDS + CW offset;
+    // wide simplex shows the parked VFO B so a gray TX pip can assign TX.
     readonly property int displayBHz: Stream.splitEnabled
         ? root.vfoBHz
-        : (root.rx2Hz + WdspEngine.markerOffsetHzRx2)
+        : (Stream.subEnabled
+               ? (root.rx2Hz + WdspEngine.markerOffsetHzRx2)
+               : root.vfoBHz)
+
+    function aCarrierHz() {
+        return Stream.rx1FreqHz + WdspEngine.markerOffsetHz
+    }
+    function assignTx(toB) {
+        if (toB) {
+            if (Stream.vfoBHz === 0)
+                Stream.setVfoBHz(root.aCarrierHz() + Prefs.splitShiftHz(Prefs.mode))
+            Stream.setSplitEnabled(true)
+            Stream.setFocusedRx(2)
+        } else {
+            Stream.setSplitEnabled(false)
+            Stream.setFocusedRx(1)
+        }
+    }
+    function applySplitShift(hz) {
+        Stream.setVfoBHz(root.aCarrierHz() + hz)
+        Stream.setSplitEnabled(true)
+        Stream.setFocusedRx(2)
+        Prefs.setSplitShiftHz(Prefs.mode, hz)
+    }
+    function fmtSplitShift(hz) {
+        var k = hz / 1000
+        if (k === Math.round(k))
+            return (hz > 0 ? "+" : "") + Math.round(k) + " kHz"
+        return (hz > 0 ? "+" : "") + hz + " Hz"
+    }
 
     function commitBCarrier(hz) {
-        if (Stream.splitEnabled)
+        if (Stream.splitEnabled || !Stream.subEnabled)
             Stream.setVfoBHz(hz)
         else
             Stream.setRx2FreqHz(hz - WdspEngine.markerOffsetHzRx2)
@@ -274,6 +304,39 @@ Rectangle {
                               ? root.cTx
                               : (Stream.subEnabled && Stream.focusedRx !== 1)
                                 ? root.cArm : root.cRx
+
+                // Always-on TX assignment pip (locked pile-up model): red =
+                // will TX here, gray = click to assign TX to this VFO.
+                Rectangle {
+                    id: txPipA
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 5
+                    width: 28; height: 15; radius: 3
+                    z: 6
+                    color: !Stream.splitEnabled
+                           ? (Stream.txDisplayActive ? root.cTx : "#8a1f1a")
+                           : "#2a323c"
+                    border.width: 1
+                    border.color: !Stream.splitEnabled ? "#ff6b63" : "#5a6570"
+                    Label {
+                        anchors.centerIn: parent
+                        text: qsTr("TX")
+                        color: !Stream.splitEnabled ? "#ffffff" : "#7a8490"
+                        font.pixelSize: 9
+                        font.bold: true
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: root.assignTx(false)
+                        ToolTip.visible: containsMouse && Prefs.tooltipsEnabled
+                        ToolTip.delay: 400
+                        ToolTip.text: !Stream.splitEnabled
+                            ? qsTr("Transmit on VFO A")
+                            : qsTr("Click to transmit on VFO A (leave SPLIT)")
+                    }
+                }
 
                 // Amber role tag, upper-left — flips RX→TX on key (simplex).
                 Label {
@@ -551,7 +614,7 @@ Rectangle {
                 // only.  Border = armed-gray → red on key; amber TX tag.
                 Rectangle {
                     id: vfoB
-                    visible: Stream.splitEnabled || Stream.subEnabled
+                    visible: vfoBSlot.reserve
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width
                     height: 108
@@ -574,6 +637,37 @@ Rectangle {
                         font.bold: true
                         font.pixelSize: 12
                         z: 2
+                    }
+
+                    Rectangle {
+                        id: txPipB
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 5
+                        width: 28; height: 15; radius: 3
+                        z: 6
+                        color: Stream.splitEnabled
+                               ? (Stream.txDisplayActive ? root.cTx : "#8a1f1a")
+                               : "#2a323c"
+                        border.width: 1
+                        border.color: Stream.splitEnabled ? "#ff6b63" : "#5a6570"
+                        Label {
+                            anchors.centerIn: parent
+                            text: qsTr("TX")
+                            color: Stream.splitEnabled ? "#ffffff" : "#7a8490"
+                            font.pixelSize: 9
+                            font.bold: true
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: root.assignTx(true)
+                            ToolTip.visible: containsMouse && Prefs.tooltipsEnabled
+                            ToolTip.delay: 400
+                            ToolTip.text: Stream.splitEnabled
+                                ? qsTr("Transmit on VFO B")
+                                : qsTr("Click to transmit on VFO B (enter SPLIT)")
+                        }
                     }
 
                     ColumnLayout {
@@ -693,7 +787,12 @@ Rectangle {
                 implicitHeight: 26
                 implicitWidth: 64
                 checked: Stream.splitEnabled
-                onToggled: Stream.setSplitEnabled(checked)
+                onToggled: {
+                    if (checked && Stream.vfoBHz === 0)
+                        Stream.setVfoBHz(root.aCarrierHz()
+                                         + Prefs.splitShiftHz(Prefs.mode))
+                    Stream.setSplitEnabled(checked)
+                }
                 text: qsTr("SPLIT")
                 font.bold: true
                 font.pixelSize: 12
@@ -709,15 +808,52 @@ Rectangle {
                     verticalAlignment: Text.AlignVCenter
                     color: splitBtn.checked ? "#00e5ff" : "#cdd9e5"
                     font: splitBtn.font
-                    // A custom contentItem drops the style's default eliding, so
-                    // a squeezed button paints its label out over its neighbours.
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("SPLIT — receive on VFO A, transmit on VFO B "
-                    + "(same band).  Set VFO B to your TX freq; key and the red "
-                    + "TX border + panadapter marker move to B.")
+                ToolTip.text: qsTr("SPLIT — receive on VFO A, transmit on VFO B.  "
+                    + "Right-click for a per-mode pile-up shift (up/down 1, 5, or 10 kHz).  "
+                    + "Click the gray TX pip on a VFO to assign transmit.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
+
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: splitShiftMenu.popup()
+                }
+                Menu {
+                    id: splitShiftMenu
+                    MenuItem {
+                        text: qsTr("Up 1 kHz")
+                        onTriggered: root.applySplitShift(1000)
+                    }
+                    MenuItem {
+                        text: qsTr("Up 5 kHz")
+                        onTriggered: root.applySplitShift(5000)
+                    }
+                    MenuItem {
+                        text: qsTr("Up 10 kHz")
+                        onTriggered: root.applySplitShift(10000)
+                    }
+                    MenuItem {
+                        text: qsTr("Down 1 kHz")
+                        onTriggered: root.applySplitShift(-1000)
+                    }
+                    MenuItem {
+                        text: qsTr("Down 5 kHz")
+                        onTriggered: root.applySplitShift(-5000)
+                    }
+                    MenuItem {
+                        text: qsTr("Down 10 kHz")
+                        onTriggered: root.applySplitShift(-10000)
+                    }
+                    MenuSeparator {}
+                    MenuItem {
+                        text: qsTr("Last used (%1)").arg(
+                            root.fmtSplitShift(Prefs.splitShiftHz(Prefs.mode)))
+                        onTriggered: root.applySplitShift(
+                            Prefs.splitShiftHz(Prefs.mode))
+                    }
+                }
             }
 
             Button {

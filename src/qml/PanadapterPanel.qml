@@ -115,6 +115,8 @@ Item {
     property bool splitOn: false
     property bool txKeyed: false
     property bool subOn: false
+    property int focusedRx: 1
+    readonly property int panTuneRx: ((subOn || splitOn) && focusedRx === 2) ? 2 : 1
     // #174 CTUN: the dial's offset from the LOCKED display centre.  Under
     // CTUN the spectrum is frozen at ctuneCenterHz, so the carrier marker +
     // filter passband must slide to (rx1FreqHz − centre) for the operator to
@@ -173,6 +175,7 @@ Item {
         splitOn = Stream.splitEnabled
         txKeyed = Stream.txDisplayActive
         subOn = Stream.subEnabled
+        focusedRx = Stream.focusedRx
         effMin = pan.effDbMin
         effMax = pan.effDbMax
     }
@@ -189,11 +192,16 @@ Item {
         }
         function onRx2FreqChanged() { root.rx2Hz = Stream.rx2FreqHz }
         function onVfoBHzChanged() { root.vfoBHz = Stream.vfoBHz }
-        function onSplitEnabledChanged() { root.splitOn = Stream.splitEnabled }
+        function onSplitEnabledChanged() {
+            root.splitOn = Stream.splitEnabled
+            root.focusedRx = Stream.focusedRx
+        }
         function onSubEnabledChanged() {
             root.subOn = Stream.subEnabled
             root.rx2Hz = Stream.rx2FreqHz
+            root.focusedRx = Stream.focusedRx
         }
+        function onFocusedRxChanged() { root.focusedRx = Stream.focusedRx }
         function onTxDisplayActiveChanged() {
             root.txKeyed = Stream.txDisplayActive
         }
@@ -870,8 +878,6 @@ Item {
                 z: 5
                 visible: Prefs.cursorReadout && specMouse.containsMouse
                          && !specMouse.tuning && specMouse.dbMode === ""
-                // Full-Hz, dot-grouped (14.234.723) so the readout shows the
-                // exact frequency under the cursor, not a 100 Hz-rounded one.
                 text: specMouse.fmtHzGrouped(specMouse.cursorHz)
                 color: "#cdd9e5"
                 font.pixelSize: 12
@@ -882,6 +888,21 @@ Item {
                                         specMouse.mouseX + 12))
                 y: Math.max(2, Math.min(spectrumArea.height - height - 2,
                                         specMouse.mouseY - 18))
+            }
+            Text {
+                z: 6
+                visible: specMouse.containsMouse && specMouse.dbMode === ""
+                text: root.panTuneRx === 2 ? qsTr("TUNE B") : qsTr("TUNE A")
+                color: root.panTuneRx === 2 ? "#a6ff00" : "#ffaa50"
+                font.pixelSize: 11
+                font.bold: true
+                font.family: "Consolas"
+                style: Text.Outline
+                styleColor: "#cc000000"
+                x: Math.max(2, Math.min(spectrumArea.width - width - 2,
+                                        specMouse.mouseX + 12))
+                y: Math.max(2, Math.min(spectrumArea.height - height - 2,
+                                        specMouse.mouseY + 4))
             }
 
             // ---- Panafall crosshair — spectrum-pane segment (paneId 1) ----
@@ -896,7 +917,7 @@ Item {
             MouseArea {
                 id: specMouse
                 anchors.fill: parent
-                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
                 hoverEnabled: true
                 readonly property int zonePx: 50
                 readonly property int dragThreshPx: 6
@@ -906,6 +927,7 @@ Item {
                 property bool rightPress: false
                 property bool rightDragged: false
                 property real rightX: 0
+                property bool middlePress: false
 
                 // dB-drag (right edge) state
                 property string dbMode: ""
@@ -969,16 +991,49 @@ Item {
                 //                      1k… land on that grid).
                 // Then offset by the CW pitch so the DDS lands the signal in
                 // the filter.
-                function tuneCarrier(carrierHz) {
+                function snapCarrier(carrierHz) {
                     var c = carrierHz
                     if (Prefs.panRound100)
                         c = Math.round(c / 100) * 100
                     else if (Prefs.panScrollStepHz > 1)
                         c = Math.round(c / Prefs.panScrollStepHz)
                               * Prefs.panScrollStepHz
-                    // Dial = carrier − CW pitch − RIT offset, so the RX DDC
-                    // (dial + RIT) still lands the carrier in the filter even
-                    // with RIT engaged.
+                    return c
+                }
+                function currentCarrierHz(rx) {
+                    if (rx === 2) {
+                        if (root.splitOn)
+                            return Stream.vfoBHz
+                        return Stream.rx2FreqHz + WdspEngine.markerOffsetHzRx2
+                    }
+                    return Stream.rx1FreqHz + WdspEngine.markerOffsetHz
+                           + (Stream.ritEnabled ? Stream.ritOffsetHz : 0)
+                }
+                function tuneVfoBAt(carrierHz) {
+                    var c = Math.round(snapCarrier(carrierHz))
+                    Stream.setVfoBHz(c)
+                    if (root.subOn)
+                        Stream.setRx2FreqHz(c - WdspEngine.markerOffsetHzRx2)
+                }
+                // Tune to an operator-facing CARRIER freq, snapped to a grid:
+                //   • "100 Hz" toggle → round to the 100 Hz grid (override).
+                //   • "Exact"        → snap to the selected Panafall step
+                //                      grid (step 1 Hz = truly exact; 10/50/
+                //                      1k… land on that grid).
+                // Then offset by the CW pitch so the DDS lands the signal in
+                // the filter.  rx 1 = VFO A / RX1; rx 2 = VFO B / RX2.
+                function tuneCarrier(carrierHz, rx) {
+                    if (rx === undefined)
+                        rx = root.panTuneRx
+                    var c = snapCarrier(carrierHz)
+                    if (rx === 2) {
+                        if (root.splitOn)
+                            Stream.setVfoBHz(Math.round(c))
+                        else
+                            Stream.setRx2FreqHz(Math.round(
+                                c - WdspEngine.markerOffsetHzRx2))
+                        return
+                    }
                     var ritOff = Stream.ritEnabled ? Stream.ritOffsetHz : 0
                     Stream.setRx1FreqHz(Math.round(
                         c - WdspEngine.markerOffsetHz - ritOff))
@@ -1003,6 +1058,10 @@ Item {
                         rightPress = true
                         rightDragged = false
                         rightX = mouse.x
+                        return
+                    }
+                    if (mouse.button === Qt.MiddleButton) {
+                        middlePress = true
                         return
                     }
                     dbMode = dbModeAt(mouse.x, mouse.y)
@@ -1049,6 +1108,18 @@ Item {
                                 freqAtX(rightX) - root.centerHz, 200)
                         rightPress = false
                         rightDragged = false
+                        return
+                    }
+                    if (mouse.button === Qt.MiddleButton) {
+                        if (middlePress) {
+                            if (root.panTuneRx === 2)
+                                Stream.setFocusedRx(1)
+                            else {
+                                tuneVfoBAt(freqAtX(mouse.x))
+                                Stream.setFocusedRx(2)
+                            }
+                        }
+                        middlePress = false
                         return
                     }
                     if (dbMode === "" && tuning && !dragged) {
@@ -1138,11 +1209,10 @@ Item {
                         WdspEngine.setZoom(WdspEngine.zoom
                             * (wheel.angleDelta.y > 0 ? 1.25 : 0.8))
                     } else {
-                        // Wheel = tune by the Panafall step (Display panel).
                         var dir = wheel.angleDelta.y > 0 ? 1 : -1
-                        var carrier = Stream.rx1FreqHz + WdspEngine.markerOffsetHz
-                                      + (Stream.ritEnabled ? Stream.ritOffsetHz : 0)
-                        tuneCarrier(carrier + dir * Prefs.panScrollStepHz)
+                        var rx = root.panTuneRx
+                        tuneCarrier(currentCarrierHz(rx)
+                                    + dir * Prefs.panScrollStepHz, rx)
                     }
                     wheel.accepted = true
                 }
@@ -2120,15 +2190,12 @@ Item {
             // stray wiggle can't retune.
             MouseArea {
                 anchors.fill: parent
-                acceptedButtons: Qt.LeftButton
+                acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                 cursorShape: Qt.CrossCursor
                 hoverEnabled: true
                 property bool dragged: false
                 property real downX: 0
                 onPressed: (m) => { dragged = false; downX = m.x }
-                // Panafall crosshair over the waterfall (pane 2): publish X + Y
-                // so the vertical rail tracks and the Crosshair style's
-                // horizontal arm can draw here too.
                 onMouseXChanged: root.panafallSetCursor(2, mouseX, mouseY,
                                                         containsMouse)
                 onMouseYChanged: root.panafallSetCursor(2, mouseX, mouseY,
@@ -2140,8 +2207,15 @@ Item {
                 }
                 onReleased: (m) => {
                     if (dragged) return
-                    // Under CTUN, a click inside the passband must not jump the
-                    // 0-beat to the cursor (matches the spectrum).
+                    if (m.button === Qt.MiddleButton) {
+                        if (root.panTuneRx === 2)
+                            Stream.setFocusedRx(1)
+                        else {
+                            specMouse.tuneVfoBAt(specMouse.freqAtX(m.x))
+                            Stream.setFocusedRx(2)
+                        }
+                        return
+                    }
                     if (!(Stream.ctuneEnabled && specMouse.inPassband(m.x)))
                         specMouse.tuneCarrier(specMouse.freqAtX(m.x))
                 }
@@ -2151,9 +2225,10 @@ Item {
                             * (wheel.angleDelta.y > 0 ? 1.25 : 0.8))
                     } else {
                         var dir = wheel.angleDelta.y > 0 ? 1 : -1
-                        var carrier = Stream.rx1FreqHz + WdspEngine.markerOffsetHz
-                                      + (Stream.ritEnabled ? Stream.ritOffsetHz : 0)
-                        specMouse.tuneCarrier(carrier + dir * Prefs.panScrollStepHz)
+                        var rx = root.panTuneRx
+                        specMouse.tuneCarrier(
+                            specMouse.currentCarrierHz(rx)
+                            + dir * Prefs.panScrollStepHz, rx)
                     }
                     wheel.accepted = true
                 }

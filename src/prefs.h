@@ -404,6 +404,12 @@ public:
     // — index-aligned with the palette/waterfallPalette int values.
     Q_INVOKABLE QStringList paletteNames() const;
 
+    // SPLIT pile-up: last per-mode TX shift (Hz, signed).  Default +5 kHz
+    // (SSB/DIG) or +1 kHz (CW) until the operator picks from the SPLIT
+    // right-click menu.
+    Q_INVOKABLE int  splitShiftHz(const QString &mode) const;
+    Q_INVOKABLE void setSplitShiftHz(const QString &mode, int hz);
+
     // Fire-and-forget "clear the peak-hold buffer" request from the
     // Display panel's Clear button — the panadapter (a different dock)
     // listens on peakClearRequested and calls clearPeaks().
@@ -896,6 +902,7 @@ private:
     // v0.2.0..v0.2.2 ship behaviour.  Persisted: tx/mic_source.
     QString micSource_   = QStringLiteral("mic1");
     bool    tooltipsEnabled_ = true;   // Settings → Visuals; ui/tooltips_enabled
+    QHash<QString, int> splitShiftHz_;
 };
 
 } // namespace lyra::ui

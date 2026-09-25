@@ -2114,6 +2114,12 @@ void HL2Stream::setSplitEnabled(bool on) {
     safetyLog(QStringLiteral("TX: SPLIT -> %1 (TX freq source = %2)")
                   .arg(on ? QStringLiteral("ON") : QStringLiteral("off"))
                   .arg(on ? QStringLiteral("VFO B") : QStringLiteral("VFO A")));
+    if (!on && !subEnabled_.load(std::memory_order_relaxed)
+        && focusedRx_.load(std::memory_order_relaxed) != 1) {
+        focusedRx_.store(1, std::memory_order_relaxed);
+        QSettings().setValue(QStringLiteral("rx/focusedRx"), 1);
+        emit focusedRxChanged();
+    }
     // Re-point the TX NCO (+ PS-feedback DDCs) at the new source.
     pushEffectiveTxFreq();
     // SUB + SPLIT: RX2 listens on VFO B (pile-up / hear-your-TX).
@@ -2153,7 +2159,10 @@ void HL2Stream::setSubEnabled(bool on) {
     if (prev == on)
         return;
     QSettings().setValue(QStringLiteral("rx/subEnabled"), on);
-    if (!on && focusedRx_.load(std::memory_order_relaxed) != 1) {
+    // RX2 DSP focus needs SUB.  SPLIT-only keeps VFO-B focus so the
+    // panadapter can still say TUNE B / wheel the TX pile-up.
+    if (!on && !splitEnabled_.load(std::memory_order_relaxed)
+        && focusedRx_.load(std::memory_order_relaxed) != 1) {
         focusedRx_.store(1, std::memory_order_relaxed);
         QSettings().setValue(QStringLiteral("rx/focusedRx"), 1);
         emit focusedRxChanged();
@@ -2193,7 +2202,10 @@ void HL2Stream::setRx2FreqHz(quint32 hz) {
 
 void HL2Stream::setFocusedRx(int rx) {
     rx = (rx == 2) ? 2 : 1;
-    if (!subEnabled_.load(std::memory_order_relaxed))
+    // VFO B is a live tune target with SUB (second receiver) or SPLIT
+    // (TX on B).  Simplex with neither keeps the panadapter on A.
+    if (rx == 2 && !subEnabled_.load(std::memory_order_relaxed)
+        && !splitEnabled_.load(std::memory_order_relaxed))
         rx = 1;
     const int prev = focusedRx_.exchange(rx, std::memory_order_relaxed);
     if (prev == rx)

@@ -116,6 +116,7 @@ constexpr auto kBpTxWarn   = "band_plan/tx_warn";
 constexpr auto kBpColorPfx = "band_plan/color_";   // + <kind>
 constexpr auto kCbBand     = "bands/cb_enabled";
 constexpr auto kPanStep    = "panadapter/scroll_step_hz";
+constexpr auto kSplitShift = "tx/splitShiftHz/";   // + MODE
 constexpr auto kPanRound   = "panadapter/round_100hz";
 constexpr auto kDebugLog   = "debug/logging";
 // Task #36 — Hardware PTT input opt-in (default OFF per §10 Q#1).
@@ -315,6 +316,11 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     }
     cbBandEnabled_ = s.value(kCbBand, false).toBool();
     panScrollStepHz_ = s.value(kPanStep, 1000).toInt();
+    for (const QString &m : kModes) {
+        const QVariant v = s.value(QString(kSplitShift) + m);
+        if (v.isValid())
+            splitShiftHz_.insert(m, v.toInt());
+    }
     panRound100_ = s.value(kPanRound, false).toBool();
     debugLogging_ = s.value(kDebugLog, false).toBool();
     // Task #36 — HW PTT opt-in.  Default false (operator must explicitly
@@ -1306,6 +1312,25 @@ void Prefs::setCbBandEnabled(bool v) {
         QSettings().setValue(kCbBand, v);
         emit cbBandEnabledChanged();
     }
+}
+
+int Prefs::splitShiftHz(const QString &mode) const {
+    const QString m = mode.toUpper();
+    if (splitShiftHz_.contains(m))
+        return splitShiftHz_.value(m);
+    if (m.startsWith(QLatin1String("CW")))
+        return 1000;
+    return 5000;
+}
+
+void Prefs::setSplitShiftHz(const QString &mode, int hz) {
+    const QString m = mode.toUpper();
+    if (m.isEmpty())
+        return;
+    if (splitShiftHz_.contains(m) && splitShiftHz_.value(m) == hz)
+        return;
+    splitShiftHz_.insert(m, hz);
+    QSettings().setValue(QString(kSplitShift) + m, hz);
 }
 
 void Prefs::setPanScrollStepHz(int hz) {
