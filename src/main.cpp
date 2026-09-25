@@ -296,6 +296,8 @@ int main(int argc, char *argv[])
     // the window is up.  gfxSafeBackend names the backend safe mode forced.
     bool    gfxCrashRecovered = false;
     bool    layoutResetThisLaunch = false;
+    bool    skipMsaa = safeBoot;   // 4x MSAA + software rasterizer hangs
+                                   // Intel UHD / crash-ladder recoveries
     QString gfxSafeBackend;
     {
         using RI = QSGRendererInterface;
@@ -380,6 +382,14 @@ int main(int argc, char *argv[])
         else if (be == "software")
             QQuickWindow::setSceneGraphBackend(QStringLiteral("software"));
         // "auto" (default) -> leave unpinned; Qt RHI auto-selects.
+        // Software scene-graph + 4x MSAA can hang forever while building
+        // QQuickWidget swapchains (Intel UHD 128 MB field report: log
+        // stops after USB-BCD open, never reaches "main window constructed").
+        // Graphics-safe-mode recoveries skip MSAA for the same reason.
+        if (be == QLatin1String("software")
+            || (!envForced
+                && s.value(QStringLiteral("ui/gfxSafeMode"), false).toBool()))
+            skipMsaa = true;
         if (gfxCrashRecovered)
             qWarning("[gfx] previous startup did not complete — graphics "
                      "safe mode (depth %d -> %s)", safeDepth, qPrintable(be));
@@ -393,10 +403,14 @@ int main(int argc, char *argv[])
     // biggest perceived-quality win and applies to ALL geometry, not
     // just the panadapter.  Must be set on the default surface format
     // BEFORE QGuiApplication so the QML window's swapchain picks it up.
+    // Skip on software / crash-ladder recoveries — 4x samples there is
+    // not free and has hung startup on low-VRAM iGPUs.
     {
         QSurfaceFormat fmt = QSurfaceFormat::defaultFormat();
-        fmt.setSamples(4);
+        fmt.setSamples(skipMsaa ? 0 : 4);
         QSurfaceFormat::setDefaultFormat(fmt);
+        if (skipMsaa)
+            qInfo("[gfx] MSAA disabled (software renderer or graphics safe mode)");
     }
 
     QApplication app(argc, argv);

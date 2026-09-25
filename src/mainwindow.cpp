@@ -928,11 +928,14 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
 
     // USB-BCD amp band output — follows the band off the stream's freq.
+    qInfo("[startup] opening USB-BCD (if enabled)");
     usbBcd_ = new UsbBcd(this);
+    qInfo("[startup] USB-BCD ctor finished");
     if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
         connect(st, &lyra::ipc::HL2Stream::rx1FreqChanged, usbBcd_,
                 [this, st]() { usbBcd_->applyForFreq(st->rx1FreqHz()); });
         usbBcd_->applyForFreq(st->rx1FreqHz());   // assert current band now
+        qInfo("[startup] USB-BCD applyForFreq done");
 
         // Band-plan in/out-of-band advisory: on a band-state transition
         // post a status message (gated like old Lyra on the edge-warning
@@ -996,10 +999,14 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     connect(dragController_, &DockDragController::layoutChanged,
             this, &MainWindow::saveLayout);
 
+    qInfo("[startup] building docks (QML / scene graph)");
     buildDocks();      // populate docks_ (so the View menu can list them)
+    qInfo("[startup] docks ready");
     buildMenus();      // File / View (dock toggles + Lock) / Help
     buildToolbar();
+    qInfo("[startup] restoring layout");
     restoreLayout();   // geometry + dock state + lock state
+    qInfo("[startup] layout restored");
     if (const QSize ts = testWindowSize(); ts.isValid()) {
         // Un-maximize first: restoreLayout() may have set WindowMaximized, and
         // resize() on a maximized window is ignored.
