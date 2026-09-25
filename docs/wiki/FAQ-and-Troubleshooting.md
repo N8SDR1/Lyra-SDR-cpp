@@ -61,6 +61,16 @@ normally. Current builds also start if a leftover instance's ping fails
 instead of blocking forever. "Run as administrator" is not the intended way
 to start Lyra.
 
+**Lyra does nothing after an update (no window).**
+From **v0.24.3**, a crash during GPU startup steps down OpenGL → software
+and **turns off 4× MSAA** on that path (4× samples + software hung some
+Intel UHD PCs). Try:
+1. Start again — the second/third launch is the recovery ladder.
+2. If it still never appears: `lyra.exe --safe` from a command prompt
+   (software graphics, no auto-connect).
+3. Then **Settings → Visuals → Graphics backend** — pick OpenGL or
+   Direct3D 11, Apply, restart. You do **not** need Revo or a registry wipe.
+
 **Settings lists my Brick as Hermes / firmware v0.**
 A Brick2 that still reports the Hermes board ID is labelled **Brick** when
 Lyra already knows it. Firmware is **v{code/10}.{code%10}** (e.g. code 106
@@ -121,6 +131,16 @@ is on, switch to **DIGU / DIGL**; USB turns that auto path off.
 Yes (current versions). Sending CW from the console **or** a paddle/key
 flips the meter to forward power and reds the VFO on‑air. The panadapter
 stays on RX during CW so you still see the keyed carrier.
+
+**No band voltage on IO-board J3 / Xiegu GP100 (M0AWS wiring).**
+There are **two analog paths**. **J3** is gateware **Band Volts** on the
+fan PWM pin (DeskHPSDR *HL2 Band Volts / Dither Bit*, MI0BOT Thetis
+*HL2 Band Volts*). Tick **HL2 Band Volts on J3**, gateware **≥72p5**,
+**Stop then Start**. The **N2ADR / IO board** box is OC → Pico PWM, usually
+**J4 pin 8**, not J3. M0AWS DB9 BAND often follows the Pico analog, so
+enable the N2ADR box and confirm the jumper is the pin your amp actually
+reads. From **v0.24.3** a persisted J3 tick is pushed on every Open
+(previously it could stay off the wire until you flipped the box).
 
 **I'm running an amplifier — anything to set first?**
 Yes — configure **TR‑sequencing** and the **RF‑delay / ATT‑on‑TX**
