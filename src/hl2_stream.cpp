@@ -296,8 +296,12 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         std::memory_order_relaxed);
     // External filter board: restore enable state + seed the OC pattern
     // for the restored band (so the board is correct from the first send).
+    // Default ON: DeskHPSDR sets filter_board=N2ADR and emits OC on
+    // every HL2 (Thetis/Quisk same OC→I²C 0x20 with no extra checkbox).
+    // That drives N2ADR LPFs and Pico PWM analog (stock firmware is
+    // J4 pin 8, not J3).  Off is still available; idle OC is harmless.
     filterBoardEnabled_ =
-        QSettings().value(QStringLiteral("hw/filterBoard"), false).toBool();
+        QSettings().value(QStringLiteral("hw/filterBoard"), true).toBool();
     // #199 Stage 2 — seed the editable OC table with the N2ADR preset (so an
     // enabled board reproduces today's per-band pattern byte-for-byte) + set
     // the family + sync the master gate to the restored enable state, THEN
@@ -1300,6 +1304,13 @@ void HL2Stream::open(const QString &ip) {
         lyra::wire::SampleRateIn2Bits =     // sample-rate code (case 0 C1)
             sampleRateBits_.load(std::memory_order_relaxed);
         lyra::wire::prn->oc_output = ocPattern_;  // OC pins (case 0 C2)
+        // IO-board J3 = GPIO04_Fan.  DeskHPSDR "HL2 Band Volts / Dither
+        // Bit" and MI0BOT Thetis chkHL2BandVolts both write this same
+        // C0=0x00 C3 bit 3.  Ctor can run before create_rnet, so re-seed
+        // here or a persisted ON never reaches the wire until the box is
+        // toggled again (GitHub #14).
+        lyra::wire::set_band_volts_output(
+            bandVolts_.load(std::memory_order_relaxed));
 
         // §5 control-plane mapping (TX side) — seed the TX homes too so
         // the first composed frame carries the operator's persisted TX
@@ -2785,18 +2796,15 @@ void HL2Stream::setMicBoost(bool on) {
 }
 
 void HL2Stream::setBandVoltsOutput(bool on) {
-    // HL2 "Band Volts" gateware feature (MI0BOT / Ramdor Thetis builds):
-    // sets the C0=0x00 frame C3 bit 3 (the ADC "dither" bit), which the
-    // gateware decodes as `band_volts_enabled` (control.v:582-584) and then
-    // emits a per-band analog voltage on the fan-PWM pin — used by amps,
-    // tuners, and antenna switches that band-follow off a band voltage.
+    // IO-board J3 = GPIO04_Fan.  Same C0=0x00 C3 bit 3 as DeskHPSDR
+    // (RX menu "HL2 Band Volts / Dither Bit") and MI0BOT Thetis
+    // (chkHL2BandVolts → SetADCDither).  Gateware latches it as
+    // band_volts_enabled and PWM's analog band voltage on that pin
+    // (HL2 wiki Band-Volts; needs GW ≥72p5 with the fan block).
     //
-    // Thetis parity: `chkHL2BandVolts` -> NetworkIO.SetADCDither ->
-    // prn->adc[0].dither -> WriteMainLoop_HL2 case 0 C3 bit 3.
-    //
-    // TRADE-OFF: while on, the fan-PWM pin outputs band voltage instead of
-    // fan control (control.v:604-714) — operator opt-in, default OFF.  No
-    // MOX gating (band data should be current in RX too).  Persisted.
+    // TRADE-OFF: while on, J3/fan-PWM is band voltage instead of fan
+    // speed — opt-in, default OFF (MI0BOT checkbox default unchecked).
+    // No MOX gating.  Persisted.  open() re-seeds prn.
     const bool prev = bandVolts_.exchange(on, std::memory_order_relaxed);
     if (prev == on) return;
     if (lyra::wire::prn != nullptr) lyra::wire::set_band_volts_output(on);

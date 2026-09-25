@@ -3097,21 +3097,29 @@ To make a report actionable, please include:
 ## Settings → Filters / BCD
 
 Everything that makes an **external band-following accessory follow your
-tuning** lives here: an external band-pass **filter board** on the HL2's
-open-collector (OC) outputs, and a **USB-BCD** band code for a linear
-amp. Leave the whole tab alone if you don't have either — nothing here
-does anything until you enable it.
+tuning** lives here. There are **two analog-voltage paths** on an HL2
+with an N2ADR / IO board — they are not the same pin:
+
+| Path | Pin | How Lyra turns it on | Same as |
+|------|-----|----------------------|---------|
+| Gateware Band Volts | **J3** (fan PWM / GPIO04_Fan) | **HL2 Band Volts on J3** checkbox | DeskHPSDR RX → *HL2 Band Volts / Dither Bit*; MI0BOT Thetis *HL2 Band Volts* |
+| OC → I2C → Pico PWM | stock firmware **J4 pin 8** | **Enable N2ADR / IO board** (default on) | DeskHPSDR `filter_board = N2ADR`; Thetis/Quisk OC with no extra box |
+
+USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no board.
 
 ### Filter board — OC Control (J16 pins)
 
-The HL2's **J16 open-collector (OC) pins** can drive an external
-band-pass filter board (N2ADR or compatible) so its filters follow the
-band you're on — front-end protection against strong out-of-band
-signals (a nearby AM broadcaster, say).
+The HL2's **J16 open-collector (OC) pins** drive an external band-pass
+filter board (N2ADR or compatible) so its filters follow the band
+you're on — front-end protection against strong out-of-band signals (a
+nearby AM broadcaster, say). Gateware relays those bits over I2C
+(addr 0x20). Pico firmware can PWM analog from the same bits; **stock
+N2ADR analog is J4 pin 8**, not J3.
 
-- **Enable external filter board (N2ADR / compatible)** — turns the OC
-  band-switching on. Off = the OC pins drive nothing (harmless with no
-  board).
+- **Enable N2ADR / IO board (filters + Pico analog, not J3)** —
+  turns OC band-switching on (default, matching DeskHPSDR). Off = the
+  OC pins drive nothing (harmless with no board). Analog on **J3** is
+  the Band Volts checkbox further down.
 - **Live pins** (top-right) — the seven cells light to show which J16
   pins are being driven **right now**, on the wire. They follow the band
   as you tune and flip to the transmit pattern while you're keyed.
@@ -3169,24 +3177,24 @@ option to borrow the adjacent band's filter:
 (If the FTDI driver, `ftd2xx.dll`, isn't installed, this section says so
 instead — install the FTDI D2XX driver to use USB-BCD.)
 
-### Band-voltage output (fan-PWM pin)
+### Band Volts on J3 (fan PWM)
 
-Some amps, tuners, and antenna switches band-follow off a single **analog
-band voltage** rather than serial CAT or logic pins. The HL2 gateware can
-emit that voltage on its **fan-PWM pin** (the "band volts" feature in the
-MI0BOT / Ramdor gateware builds), and Lyra can turn it on:
+If your amp or tuner (Xiegu GP100, HardRock-50 in analog-voltage mode,
+etc.) is jumpered to **IO-board J3**, that header is the fan PWM, not
+the Pico analog output. Tick **HL2 Band Volts on J3 / fan-PWM pin
+(dither bit)**. That is Protocol-1 C0=0x00 C3 bit 3 — the same bit
+DeskHPSDR and MI0BOT Thetis use. Off (default) leaves J3 as a cooling
+fan.
 
-- **Output per-band analog voltage on the fan-PWM pin** — enables it. Off
-  (default) leaves the pin as normal fan control.
+> ⚠ **Trade-off:** while this is on, J3 outputs band voltage **instead
+> of** fan-speed control. Gateware must include the fan/band-volts
+> block (HL2 wiki Band-Volts, typically ≥72p5). Stock ak4951 builds
+> without that block hold the pin low, so the checkbox does nothing.
 
-> ⚠ **Trade-off:** while this is on, that pin outputs band voltage
-> **instead of** fan-speed control. Only enable it if your wiring actually
-> uses the band voltage. It also needs a gateware build that includes the
-> band-volts feature.
-
-This is independent of the OC/J16 pins above and the serial band-follow
-used by an HL2+ AK4951 companion board (which drives a HardRock-50 / AH-4
-automatically from the gateware — no setting needed here).
+Stop and Start the radio after you enable it so the dither bit is
+seeded on the first C&C frame. This is independent of N2ADR OC/LPFs
+and of HL2+ AK4951 serial band-follow (HardRock-50 / AH-4 — no setting
+needed here).
 
 ## Settings → Audio
 

@@ -270,11 +270,11 @@ class HL2Stream : public QObject {
     // the codec mic is the active TX source.
     Q_PROPERTY(bool micBoost READ micBoost WRITE setMicBoost
                NOTIFY micBoostChanged)
-    // HL2 "Band Volts" output (MI0BOT / Ramdor gateware feature): C0=0x00
-    // frame C3 bit 3 (the ADC "dither" bit) → gateware band_volts_enabled →
-    // per-band analog voltage on the fan-PWM pin for amps / tuners / antenna
-    // switches that band-follow off a band voltage.  Repurposes the fan pin
-    // while on → operator opt-in, default OFF.  Persisted: hw/bandVolts.
+    // HL2 Band Volts: C0=0x00 C3 bit 3 (ADC dither) → band_volts_enabled
+    // → analog PWM on GPIO04_Fan.  On an N2ADR IO board that header is
+    // J3.  Same bit as DeskHPSDR RX "HL2 Band Volts / Dither Bit" and
+    // MI0BOT Thetis chkHL2BandVolts.  Opt-in, default OFF (fan stays a
+    // fan).  Needs GW ≥72p5 with the fan block.  Persisted: hw/bandVolts.
     Q_PROPERTY(bool bandVoltsOutput READ bandVoltsOutput WRITE setBandVoltsOutput
                NOTIFY bandVoltsOutputChanged)
     // TX-0c-pa-drive — operator-tunable drive DAC level.  Maps to
@@ -1100,11 +1100,12 @@ public slots:
     // (atomic).  Ignores 48 k (EP2 cadence, like old Lyra).
     void setSampleRate(int hz);
 
-    // Enable/disable the external N2ADR filter board.  When on, the
-    // per-band OC pattern is driven on frame-0 C2 and re-applied on every
-    // band change; when off, C2 OC pins are cleared (0).  Persisted to
-    // QSettings (hw/filterBoard).  Thread-safe (atomic C2; readout on the
-    // main thread).
+    // Enable/disable N2ADR / IO-board OC (filters + analog J3 band
+    // voltage via I2C 0x20).  When on, the per-band OC pattern is driven
+    // on frame-0 C2 and re-applied on every band change; when off, C2 OC
+    // pins are cleared (0).  Default ON (Thetis/Quisk-parity).  Persisted
+    // to QSettings (hw/filterBoard).  Thread-safe (atomic C2; readout on
+    // the main thread).
     void setFilterBoardEnabled(bool on);
 
     // ---- TX-state C&C registers (TX-0b foundation) -----------------
@@ -2169,7 +2170,7 @@ private:
     // Single-shot timer driving the auto-MOX-off on safety expiry.
     // Owned by this QObject (parent = this), runs on this thread.
     QTimer              *txSafetyTimer_    = nullptr;
-    bool                 filterBoardEnabled_ = false;
+    bool                 filterBoardEnabled_ = true;
     int                  ocPattern_ = 0;   // live 7-bit J16 pattern
     // #199 — the editable OC table + emit choke (Stage 1 core).  Stage 2
     // routes updateOcPattern() through it; seeded with the N2ADR preset so

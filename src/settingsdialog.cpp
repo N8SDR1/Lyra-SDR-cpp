@@ -3954,11 +3954,18 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         // --- master enable + live hardware pin-state strip ---
         auto *topRow = new QHBoxLayout;
         auto *fb = new QCheckBox(
-            tr("Enable external filter board (N2ADR / compatible)"));
+            tr("Enable N2ADR / IO board (filters + Pico analog, not J3)"));
         fb->setChecked(stream_->filterBoardEnabled());
-        fb->setToolTip(tr("Switches the HL2 open-collector outputs per band to "
-                          "drive an external band-pass filter board.\n"
-                          "Off = OC pins idle (harmless with no board)."));
+        fb->setToolTip(tr(
+            "DeskHPSDR: HL2 filter_board = N2ADR, OC on every frame.\n"
+            "Thetis/Quisk send the same OC bits with no extra checkbox.\n\n"
+            "Drives J16 open-collectors. Gateware relays them over I2C "
+            "(addr 0x20) for N2ADR LPFs. A Pico (M0AWS / KP4RX) can turn "
+            "those bits into analog PWM — stock N2ADR firmware is J4 pin 8, "
+            "not J3.\n\n"
+            "IO-board J3 is the fan-PWM header. Analog on J3 uses the Band "
+            "Volts checkbox below (DeskHPSDR dither / MI0BOT HL2 Band Volts).\n\n"
+            "Off = OC pins idle (harmless with no board)."));
         connect(fb, &QCheckBox::toggled, stream_,
                 &lyra::ipc::HL2Stream::setFilterBoardEnabled);
         connect(stream_, &lyra::ipc::HL2Stream::filterBoardChanged, fb,
@@ -4095,50 +4102,43 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         // ocBox (enable + live pins + grid + preset buttons) is complete.
         root->addWidget(ocBox);
 
-        // --- HL2 Band-Voltage output (MI0BOT / Ramdor gateware) -----------
-        // Separate from the OC/J16 pins: this repurposes the fan-PWM pin to
-        // emit a per-band analog voltage (the gateware "band volts" feature,
-        // enabled by the C0=0x00 dither bit).  Used by amps / tuners / ant
-        // switches that band-follow off a band voltage.  Thetis exposes the
-        // identical bit as its "HL2 Band Volts" checkbox.
+        // --- HL2 Band Volts on J3 / fan PWM (DeskHPSDR + MI0BOT) ----------
+        // IO-board J3 is GPIO04_Fan. Gateware Band Volts (wiki) hijacks
+        // that PWM when C0=0x00 C3 bit 3 (ADC dither) is set. DeskHPSDR:
+        // RX menu "HL2 Band Volts / Dither Bit". MI0BOT Thetis:
+        // chkHL2BandVolts → NetworkIO.SetADCDither. Default OFF in both
+        // (fan stays a fan). Needs gateware ≥72p5 with the fan/band-volts
+        // block; stock ak4951 without fan leaves the pin low.
         {
             auto *bvBox = section(
-                tr("Band-voltage output on the fan-PWM pin — special gateware only"));
+                tr("IO-board J3 analog (fan PWM / Band Volts)"));
             auto *bvv = new QVBoxLayout(bvBox);
 
-            // Prominent pointer: the common case (N2ADR filter / IO board driving
-            // a band-following amp such as the Xiegu GP100) is NOT this checkbox.
-            // Per the HL2 gateware, band data for a companion board rides the
-            // Open-Collector outputs, which the gateware relays to the board over
-            // I2C (addr 0x20).  So it's the OC grid above, not the fan-PWM pin.
             auto *note = new QLabel(tr(
-                "Using an N2ADR filter / IO board (e.g. band voltage to a Xiegu "
-                "amp)?  That is NOT this checkbox.  The HL2 sends the "
-                "Open-Collector outputs above to the board over its I2C bus — "
-                "so configure the per-band OC pins in the grid above and enable "
-                "the filter board there.  This checkbox below is a separate, "
-                "rarely-used feature."));
+                "If your amp/tuner takes analog band voltage from IO-board "
+                "J3 (the fan header), use this checkbox — same wire bit as "
+                "DeskHPSDR’s “HL2 Band Volts / Dither Bit” and MI0BOT "
+                "Thetis “HL2 Band Volts”. Leave it off if J3 is a cooling "
+                "fan. N2ADR filters still use the OC enable above; stock "
+                "Pico analog PWM is J4 pin 8."));
             note->setWordWrap(true);
             note->setStyleSheet(QStringLiteral("color:#e0b060;"));  // amber caution
             bvv->addWidget(note);
 
             auto *bv = new QCheckBox(
-                tr("Output per-band analog voltage on the fan-PWM pin"));
+                tr("HL2 Band Volts on J3 / fan-PWM pin (dither bit)"));
             bv->setChecked(stream_->bandVoltsOutput());
             bv->setToolTip(tr(
-                "HL2 gateware \"band volts\" feature — ONLY on special gateware\n"
-                "builds compiled with fan support (MI0BOT / Ramdor).  The stock\n"
-                "HL2/HL2+ (ak4951) gateware ships with the fan block disabled, so\n"
-                "on those builds this bit does NOTHING (the fan-PWM pin is held\n"
-                "low regardless).\n\n"
-                "When present, it drives a band-dependent voltage on the fan-PWM\n"
-                "pin for an amp / tuner / antenna switch that band-follows off a\n"
-                "single band voltage (e.g. a HardRock-50 set to Transceiver: None).\n\n"
-                "This is NOT the path for an N2ADR filter/IO board — those follow\n"
-                "the Open-Collector outputs relayed over I2C (see the note above).\n\n"
-                "TRADE-OFF (on fan-enabled gateware): while on, that pin outputs\n"
-                "band voltage INSTEAD of fan speed control — leave OFF unless your\n"
-                "wiring uses it."));
+                "Sets Protocol-1 C0=0x00 C3 bit 3 (ADC dither).\n"
+                "DeskHPSDR: RX menu → HL2 Band Volts / Dither Bit.\n"
+                "MI0BOT Thetis: Setup → HL2 Band Volts → SetADCDither.\n"
+                "HL2 wiki Band-Volts: gateware ≥72p5; J3 on an N2ADR IO "
+                "board is GPIO04_Fan, the same PWM net.\n\n"
+                "Needs a gateware build with the fan/band-volts block. "
+                "Stock HL2/HL2+ ak4951 without that block holds the pin "
+                "low — this bit then does nothing.\n\n"
+                "TRADE-OFF: while on, J3/fan PWM is band voltage instead "
+                "of fan speed. Default off, matching DeskHPSDR and MI0BOT."));
             connect(bv, &QCheckBox::toggled, stream_,
                     &lyra::ipc::HL2Stream::setBandVoltsOutput);
             connect(stream_, &lyra::ipc::HL2Stream::bandVoltsOutputChanged, bv,
