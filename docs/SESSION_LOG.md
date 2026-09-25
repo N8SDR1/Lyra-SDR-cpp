@@ -4,6 +4,46 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-09-24 EOD — HOLD: Brick SUB/RX2 + SPLIT polish + TCI VFO B
+
+Firmware revision on the Brick unblocked RX2 after **>2 months** of host-side
+head-banging. Operator: hold here for the evening; pick up from this HEAD,
+no redesign.
+
+### Shipped on `lyra-p2` (pushed)
+- **Brick SUB/RX2** live (v0.24.2 already had the RX2 bring-up; this session
+  is the operator-confirmed polish on top).
+- **`df0e9c2` SPLIT: pile-up polish** — SUB and SPLIT stay independent (not
+  a tri-state). Gray TX pip assigns TX; right-click SPLIT per-mode shift
+  ±1/5/10 kHz (last-used persisted `tx/splitShiftHz/<MODE>`); middle-click
+  pan + TUNE A/B tooltip. SPLIT-only still allows focus 2 / TUNE B.
+- **`473e722` TCI: Thetis-style VFO B vs RX2**
+  - `vfo:0,1` = split VFO B (WSJT-X hardware split)
+  - `vfo:1,0` / `dds:1` = RX2 (SUB)
+  - `rx_enable:1` = SUB on/off; **do not auto-enable SUB** on RX2 freq set
+  - Handshake seeds RX2 + `rx_enable:1`; live RX2 freq/mode/vol/mute/passband;
+    `tx_frequency_thetis` carries real SUB + TX-on-B
+  - No new Settings → Network “enable RX2” toggle — TCI already advertises
+    `channels_count:2` when the server is running
+- Operator bench: SPLIT polish good; TCI VFO B “think we are good.”
+
+### Tree
+- Branch **`lyra-p2`**, HEAD **`473e722`**, in sync with `origin/lyra-p2`.
+- **`origin/main` still v0.24.2** (no version bump / installer / GitHub
+  release this session).
+- Scratch `scratch/brick_rx2_working.pcapng` + `.txt` stay **untracked**.
+
+### Not in this push (next if wanted)
+- TCI RX2 S-meter (`rx_channel_sensors` still RX1-only)
+- Version bump / installer / GitHub release / wiki
+- Docs/KNOWN_ISSUES still lag the SPLIT polish
+
+### Next session
+Resume at **`473e722`**. No firmware/host redesign unless the operator
+opens a new item.
+
+---
+
 ## 2026-07-07 — Combo link — Stage A′ + B + auto received-S
 
 Continuation of the Combo link (Stage A below). A + A′ **operator-confirmed
