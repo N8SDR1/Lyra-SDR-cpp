@@ -4,7 +4,7 @@
 > have since shipped (VOX, voice keyer, CW TX, BrickSDR2 Protocol 2 RX+TX,
 > 2-tone, per-band PA including 11m). For the live operator picture use
 > [Feature Status](wiki/Feature-Status.md), [Roadmap](wiki/Roadmap.md), and
-> [KNOWN_ISSUES.md](../KNOWN_ISSUES.md). Tree version is **v0.24.3**.
+> [KNOWN_ISSUES.md](../KNOWN_ISSUES.md). Tree version is **v0.24.4**.
 >
 > **Still actually open (2026-09):** PureSignal · Linux / macOS ·
 > ANAN family as first-class P2 radios · other P1 boards that need a

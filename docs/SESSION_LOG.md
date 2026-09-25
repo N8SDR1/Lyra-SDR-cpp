@@ -4,6 +4,16 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-09-25 — v0.24.4 docks QML defer + VAC2 installer
+
+- **Hang #16:** `QQuickWidget::setSource` after first `showEvent`;
+  per-dock `[startup]` log; `QSG_RENDER_LOOP=basic` on software/`--safe`.
+  Targeted test for Bob (NucBoxM3 / Intel UHD), not a guarantee.
+- **VAC2** already on `lyra-p2` (`72fdd60` / `a8ba044`).
+- Installer `dist/Lyra-Setup-0.24.4.exe`. Do not merge `main`.
+
+---
+
 ## 2026-09-24 EOD — HOLD: Brick SUB/RX2 + SPLIT polish + TCI VFO B
 
 Firmware revision on the Brick unblocked RX2 after **>2 months** of host-side

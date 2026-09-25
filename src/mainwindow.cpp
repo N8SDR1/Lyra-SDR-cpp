@@ -59,6 +59,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QShowEvent>
 #include <QDebug>
 #include <QEvent>
 #include <QDir>
@@ -999,9 +1000,9 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     connect(dragController_, &DockDragController::layoutChanged,
             this, &MainWindow::saveLayout);
 
-    qInfo("[startup] building docks (QML / scene graph)");
+    qWarning("[startup] building dock shells (QML deferred until window shown)");
     buildDocks();      // populate docks_ (so the View menu can list them)
-    qInfo("[startup] docks ready");
+    qWarning("[startup] dock shells ready");
     buildMenus();      // File / View (dock toggles + Lock) / Help
     buildToolbar();
     qInfo("[startup] restoring layout");
@@ -1182,7 +1183,7 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
         QStringLiteral("Recorder"), recorder_);   // #201 session recorder
     qw->rootContext()->setContextProperty(
         QStringLiteral("Converter"), converter_); // #201 offline MP4 converter
-    qw->setSource(QUrl(QStringLiteral("qrc:/qt/qml/Lyra/src/qml/") + qmlFile));
+    qw->setProperty("lyraQmlFile", qmlFile);
     // Crash-guard tightening: the moment ANY panel swaps its first frame,
     // the RHI / GPU / scene-graph path has provably built + rendered, so
     // drop the graphics "startup pending" sentinel NOW rather than waiting
@@ -1207,6 +1208,15 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
             QObject::disconnect(*conn);
         });
     }
+    // setSource is deferred until after the native window exists
+    // (loadDeferredQuickSources).  Calling it here hangs the software
+    // scene-graph on some Intel UHD machines — ctor never returns.
+    return qw;
+}
+
+void MainWindow::finishQuickSource(QQuickWidget *qw, const QString &qmlFile) {
+    if (!qw) return;
+    qw->setSource(QUrl(QStringLiteral("qrc:/qt/qml/Lyra/src/qml/") + qmlFile));
     // Diagnostic: if a panel's QML fails to load, the QQuickWidget goes
     // blank — dump the errors so we don't have to guess.
     if (qw->status() == QQuickWidget::Error) {
@@ -1262,7 +1272,45 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
                           : qRound(root->property("implicitHeight").toReal());
         if (h > 0) qw->setMinimumHeight(h);
     }
-    return qw;
+}
+
+void MainWindow::loadDeferredQuickSources() {
+    if (!quickSourcesPending_) return;
+    quickSourcesPending_ = false;
+    qWarning("[startup] loading QML docks");
+
+    auto loadDock = [this](const QString &name) {
+        QDockWidget *d = docks_.value(name);
+        if (!d) return;
+        auto *qw = d->findChild<QQuickWidget *>();
+        if (!qw) return;
+        const QString qml = qw->property("lyraQmlFile").toString();
+        if (qml.isEmpty()) return;
+        qWarning("[startup] dock '%s' QML %s ...",
+                 qPrintable(name), qPrintable(qml));
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        finishQuickSource(qw, qml);
+        qw->setProperty("lyraQmlFile", QVariant());
+        qWarning("[startup] dock '%s' QML %s done",
+                 qPrintable(name), qPrintable(qml));
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    };
+
+    // Visible front-panel docks first so the window paints something
+    // before chip-summoned (hidden) panels build their scene graphs.
+    for (const QString &name : dockQmlOrder_) {
+        if (!isChipSummonedPanel(name)) loadDock(name);
+    }
+    for (const QString &name : dockQmlOrder_) {
+        if (isChipSummonedPanel(name)) loadDock(name);
+    }
+    qWarning("[startup] docks ready");
+}
+
+void MainWindow::showEvent(QShowEvent *event) {
+    QMainWindow::showEvent(event);
+    if (quickSourcesPending_)
+        QTimer::singleShot(0, this, &MainWindow::loadDeferredQuickSources);
 }
 
 void MainWindow::captureRecorderSnapshot() {
@@ -1325,6 +1373,7 @@ QDockWidget *MainWindow::addQuickDock(const QString &objectName,
     dock->setObjectName(objectName);   // load-bearing for saveState/restoreState
     dock->setAllowedAreas(Qt::AllDockWidgetAreas);
     dock->setFeatures(kUnlockedFeatures);
+    dockQmlOrder_.append(objectName);
     QWidget *content = makeQuick(qmlFile);
     if (resizable) {
         // Wrap the QML surface so a clearly-visible custom resize handle sits
@@ -1467,6 +1516,7 @@ QWidget *MainWindow::makeDockTitleBar(QDockWidget *dock,
 }
 
 void MainWindow::buildDocks() {
+    qWarning("[startup] building docks");
     // Panadapter — Vulkan scene-graph spectrum (top by default).
     addQuickDock(QStringLiteral("panadapter"), tr("Panadapter"),
                  QStringLiteral("PanadapterPanel.qml"),

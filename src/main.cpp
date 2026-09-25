@@ -410,7 +410,17 @@ int main(int argc, char *argv[])
         fmt.setSamples(skipMsaa ? 0 : 4);
         QSurfaceFormat::setDefaultFormat(fmt);
         if (skipMsaa)
-            qInfo("[gfx] MSAA disabled (software renderer or graphics safe mode)");
+            qWarning("[gfx] MSAA disabled (software renderer or graphics safe mode)");
+    }
+
+    // QQuickWidget + the software scene-graph requires the basic (single-
+    // thread) render loop.  The default Windows loop can wait forever for a
+    // swapchain that never appears while docks are built before the window
+    // is shown.  Must be set BEFORE QApplication.  Honour an explicit
+    // QSG_RENDER_LOOP if a tester already set one.
+    if (skipMsaa && qEnvironmentVariableIsEmpty("QSG_RENDER_LOOP")) {
+        qputenv("QSG_RENDER_LOOP", "basic");
+        qWarning("[gfx] QSG_RENDER_LOOP=basic (software / graphics safe mode)");
     }
 
     QApplication app(argc, argv);

@@ -65,7 +65,9 @@ to start Lyra.
 **Lyra does nothing after an update (no window).**
 From **v0.24.3**, a crash during GPU startup steps down OpenGL → software
 and **turns off 4× MSAA** on that path (4× samples + software hung some
-Intel UHD PCs). Try:
+Intel UHD PCs). From **v0.24.4**, QML docks load **after** the window is
+shown (one panel at a time) so a software/Intel hang at `building docks`
+has a chance to finish. Try:
 1. Start again — the second/third launch is the recovery ladder.
 2. If it still never appears: `lyra.exe --safe` from a command prompt
    (software graphics, no auto-connect).

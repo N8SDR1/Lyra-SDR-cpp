@@ -18,11 +18,13 @@
 #include <QMainWindow>
 #include <QList>
 #include <QPoint>
+#include <QStringList>
 
 class QAction;
 class QDockWidget;
 class QLabel;
 class QMenu;
+class QShowEvent;
 class QToolButton;
 class QQuickWidget;
 class QTimer;
@@ -120,6 +122,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void showEvent(QShowEvent *event) override;
     // While panels are locked, swallow dock-separator resize presses so the
     // layout can't be re-proportioned by accident (the point of Lock).  Done
     // by event interception — NOT by clamping dock sizes (that fought the
@@ -152,10 +155,18 @@ private:
     // crash AFTER first paint (e.g. a DSP/network fault) is then not
     // mis-attributed to graphics.  One-shot guard.
     bool gfxSentinelCleared_ = false;
+    bool quickSourcesPending_ = true;
+    QStringList dockQmlOrder_;
     // Build a QQuickWidget that hosts <qmlFile> from the Lyra QML
     // module, with the four service objects set as context properties
     // BEFORE the source loads.
     QQuickWidget *makeQuick(const QString &qmlFile);
+    // setSource + min-height / collapse wiring.  Must NOT run inside the
+    // MainWindow ctor: QQuickWidget::setSource on the software scene-graph
+    // can block forever before the native window exists (Intel UHD hang,
+    // log stops at "building docks").  Called after the first showEvent.
+    void finishQuickSource(QQuickWidget *qw, const QString &qmlFile);
+    void loadDeferredQuickSources();
     // #201 — grab the panadapter+waterfall to a PNG in the active session
     // folder (driven by RecorderEngine::snapshotDue while recording).
     void captureRecorderSnapshot();
