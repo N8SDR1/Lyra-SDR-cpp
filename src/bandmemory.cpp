@@ -25,6 +25,8 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
     if (stream_) {
         connect(stream_, &lyra::ipc::HL2Stream::rx1FreqChanged,
                 this, &BandMemory::onFreqChanged);
+        connect(stream_, &lyra::ipc::HL2Stream::rx2FreqChanged,
+                this, &BandMemory::onRx2FreqChanged);
         // Save the operator's MANUAL LNA set point to the current band.
         // Fires only on manual sets (not Auto-LNA roaming); applying_
         // guards out the set we make while restoring a band.
@@ -74,6 +76,8 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                         QStringLiteral("/tuneDrive"),
                         prefs_->tuneDrivePct());
                 });
+        connect(prefs_, &Prefs::modeRx2Changed, this,
+                &BandMemory::saveRx2Mode);
     }
     // Apply the current band's saved settings ONCE at startup.  The
     // stream restores its RX1 frequency in its own ctor via an atomic
@@ -85,6 +89,7 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
         currentBand_ = bandNameFor(int(stream_->rx1FreqHz()));
         if (!currentBand_.isEmpty())
             applyBand(currentBand_);
+        currentBandRx2_ = bandNameFor(int(stream_->rx2FreqHz()));
     }
 }
 
@@ -137,6 +142,47 @@ void BandMemory::onFreqChanged() {
 int BandMemory::freqFor(const QString &band) const {
     return QSettings().value(bandMemPfx() + band +
                              QStringLiteral("/freq"), 0).toInt();
+}
+
+int BandMemory::freqForRx2(const QString &band) const {
+    return QSettings().value(bandMemPfx() + band +
+                             QStringLiteral("/freqRx2"), 0).toInt();
+}
+
+void BandMemory::onRx2FreqChanged() {
+    if (!stream_) return;
+    const int hz = int(stream_->rx2FreqHz());
+    const QString name = bandNameFor(hz);
+    currentBandRx2_ = name;
+    if (!name.isEmpty())
+        QSettings().setValue(bandMemPfx() + name +
+                             QStringLiteral("/freqRx2"), hz);
+}
+
+void BandMemory::saveRx2Mode() {
+    if (applyingRx2_ || !prefs_ || currentBandRx2_.isEmpty()) return;
+    QSettings().setValue(bandMemPfx() + currentBandRx2_ +
+                         QStringLiteral("/modeRx2"),
+                         prefs_->modeRx2());
+}
+
+void BandMemory::applyRx2Band(const QString &band) {
+    if (!prefs_ || band.isEmpty()) return;
+    QSettings s;
+    const QString p = bandMemPfx() + band + QLatin1Char('/');
+    QString mode = s.value(p + QStringLiteral("modeRx2")).toString();
+    if (mode.isEmpty())
+        mode = defaultModeFor(band);
+    if (mode == QLatin1String("USB") || mode == QLatin1String("LSB")) {
+        const QString bandSsb = defaultModeFor(band);
+        if (bandSsb == QLatin1String("USB") || bandSsb == QLatin1String("LSB"))
+            mode = bandSsb;
+    }
+    if (mode.isEmpty())
+        return;
+    applyingRx2_ = true;
+    prefs_->setModeRx2(mode);
+    applyingRx2_ = false;
 }
 
 void BandMemory::saveCurrent() {
