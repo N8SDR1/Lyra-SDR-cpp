@@ -28,10 +28,6 @@ Current tree: **v0.24.3**. Always grab the latest from the
 
 These are on the roadmap, not broken:
 
-* **Dual RX on Hermes Lite 2 Protocol 1** — **SUB / RX2 and SPLIT**
-  pile-up (independent buttons, TUNE A/B, VFO B TX marker, band-chip
-  SUB hops) are live on **BrickSDR2**. Dual RX on HL2 Protocol 1 is
-  not this release.
 * **PureSignal** — adaptive pre-distortion (linearizer) is on the roadmap,
   not present yet.
 * **Second virtual audio cable (VAC2)** — Lyra bridges one virtual audio
@@ -43,6 +39,11 @@ These are on the roadmap, not broken:
 
 ## Expected behavior (not bugs)
 
+* **Cross-band SUB is much weaker** (HL2 and BrickSDR2). One ADC and
+  one analog filter. With an N2ADR / filter board on, OC follows
+  **RX1** — RX2 on another amateur band sits behind that LPF/BPF.
+  Same-band dual watch is full strength. The status log notes the
+  drop once when the two ham bands differ.
 * **First launch is slow / unresponsive for a minute.** Lyra does a one-time
   FFT optimization tuned to your CPU and caches it; later launches are fast.
   (If you change processors, **Settings → Backup & Restore → Rebuild FFT

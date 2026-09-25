@@ -1744,6 +1744,9 @@ private:
     // DDC1: RX1-mirror when SUB is off (byte-identical); independent
     // rx2FreqHz when SUB is on.  ddc0Hz is the already-computed DDC0 NCO.
     void writeDdc1Hz(int ddc0Hz);
+    // One log line when SUB is on another amateur band than RX1 while the
+    // N2ADR/filter board is enabled (shared analog LPF/BPF follows RX1).
+    void noteSubFrontEnd();
     // #170a — the Max-TX-drive cap as a raw 0..255 ceiling (100 % → 255).
     // Header-safe integer rounding (no <cmath>/<algorithm> dependency);
     // maxDrivePct_ is already clamped 1..100 by its setter + the ctor.
@@ -1973,6 +1976,8 @@ private:
     std::atomic<quint32> vfoBHz_{7074000};
     std::atomic<bool>    subEnabled_{false};
     std::atomic<quint32> rx2FreqHz_{7074000};
+    int lastSubWarnBandA_{-1};
+    int lastSubWarnBandB_{-1};
     std::atomic<int>     focusedRx_{1};
     // RIT/XIT — signed Hz offsets, ±9999 Hz, default disabled / 0.  RIT
     // folds into the RX DDC NCO (pushEffectiveRxFreq); XIT into the TX NCO

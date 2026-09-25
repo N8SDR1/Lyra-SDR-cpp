@@ -881,9 +881,12 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("SUB — second receiver on DDC1.  Off keeps "
-                    + "DDC1 mirroring RX1.  On: listen on RX2 (VFO B when "
-                    + "SPLIT is also on).  Stereo: RX1 left, RX2 right.")
+                ToolTip.text: qsTr("SUB — second receiver on DDC1 (HL2 and "
+                    + "Brick).  Off keeps DDC1 mirroring RX1.  On: listen on "
+                    + "RX2 (VFO B when SPLIT is also on).  Stereo: RX1 left, "
+                    + "RX2 right.  One ADC + N2ADR filter follows RX1 — "
+                    + "same-band SUB is full strength; cross-band is much "
+                    + "weaker.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
 

@@ -63,8 +63,9 @@ Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 (Protocol 2) — native
 C++ end to end.  Lyra transmits every voice mode (SSB / AM / DSB /
 SAM / FM) plus CW and digital via TCI, and ships a complete native TX audio
 processing rack. Dual receive (**SUB / RX2**) and **SPLIT** pile-up
-(VFO B TX, independent of SUB) are live on **BrickSDR2**. Still on the
-roadmap: dual RX on Hermes Lite 2 Protocol 1, and PureSignal — see below.
+(VFO B TX, independent of SUB) are live on **Hermes Lite 2** (Protocol 1)
+and **BrickSDR2** (Protocol 2) — one ADC; N2ADR follows RX1 (cross-band
+SUB is much weaker). Still on the roadmap: PureSignal — see below.
 
 * **Radio** — HPSDR Protocol 1 + Protocol 2 discovery (multi-NIC, dual
   limited + subnet-directed broadcast) + **Add by IP** unicast probe for

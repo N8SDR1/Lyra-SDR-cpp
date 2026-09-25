@@ -10,16 +10,17 @@ Quick answers to common questions and fixes. For full detail see the
 
 **What hardware does Lyra support?**
 Hermes Lite 2 and 2+ over HPSDR Protocol 1, and **BrickSDR2** over Protocol 2.
-BrickSDR2 has **SUB / RX2** (second DDC) and **SPLIT** (TX on VFO B,
-independent of SUB). Colours: orange **TUNE A** / cyan RX1 vs lime **TUNE B**
-/ green RX2; **◀ RX2** / **RX2 ▶** when SUB is off-span. **ANAN-10 / 10E /
-100 / 100B / 100D / 200D** and **G2 / G2-1K** have Protocol 2 profiles;
-TX is dummy-load until that box is on-air validated. Discovery **Hermes**
-still defaults to BrickSDR2 — pick the marketed ANAN model in Settings →
-Hardware. If an older ANAN still answers as Protocol 1, flash P2 firmware
-when the hardware allows — leftover P1 rows are refused (not an HL2).
-7000DLE / 8000 stay locked. Dual RX on Hermes Lite 2 Protocol 1 is not
-this release.
+Hermes Lite 2 / 2+ and BrickSDR2 both have **SUB / RX2** (second DDC on
+the same ADC) and **SPLIT** (TX on VFO B, independent of SUB). Colours:
+orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2; **◀ RX2** /
+**RX2 ▶** when SUB is off-span. N2ADR / filter board follows **RX1** —
+cross-band SUB is much weaker. **ANAN-10 / 10E / 100 / 100B / 100D /
+200D** and **G2 / G2-1K** have Protocol 2 profiles; TX is dummy-load until
+that box is on-air validated. Discovery **Hermes** still defaults to
+BrickSDR2 — pick the marketed ANAN model in Settings → Hardware. If an
+older ANAN still answers as Protocol 1, flash P2 firmware when the
+hardware allows — leftover P1 rows are refused (not an HL2). 7000DLE /
+8000 stay locked.
 
 **Is it free? What's the license?**
 Yes — GPL v3+ (compatible with the WDSP DSP engine it uses). See
@@ -175,7 +176,7 @@ It only happens once (or after **Clear &amp; rebuild**).
 
 ---
 
-## Dual receive (SUB / RX2) — BrickSDR2
+## Dual receive (SUB / RX2) — HL2 and BrickSDR2
 
 **How do I turn on the second receiver?**
 Press **SUB** on the Tuning panel (it lights **green**). There is **no**
@@ -212,7 +213,10 @@ RX1, **1,0** = RX2 (quiet floor ~−140 dBm if SUB is off). Combo auto-RST
 still uses **RX1** only — see **[SDRLogger+ Combo](SDRLogger-Plus-Combo)**.
 
 **Hermes Lite 2 second receiver?**
-Not this release (Protocol 1). Dual RX on HL2 is on the [Roadmap](Roadmap).
+Same **SUB** button as BrickSDR2 (Protocol 1 DDC1). One ADC + N2ADR
+filter follows RX1 — same-band SUB is full strength; another ham band
+on RX2 is much weaker. Status log warns once when the amateur bands
+differ.
 
 ---
 

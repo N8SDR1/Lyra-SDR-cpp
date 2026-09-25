@@ -8,15 +8,17 @@ page.
 
 ## Major features
 
-### ✅ SUB / RX2 + SPLIT on BrickSDR2 · 🗺️ Dual RX on Hermes Lite 2 (P1)
+### ✅ SUB / RX2 + SPLIT on HL2 (P1) and BrickSDR2 (P2)
 
-**BrickSDR2** already has a second receiver (DDC1) **and** independent
-**SPLIT** TX on VFO B. Operator cues: orange **TUNE A** / lime **TUNE B**,
+**Hermes Lite 2 / 2+** and **BrickSDR2** share the same SUB / SPLIT
+operator model: second DDC (DDC1) **and** independent **SPLIT** TX on
+VFO B. One ADC — N2ADR / analog filter follows **RX1** (cross-band SUB
+is much weaker). Operator cues: orange **TUNE A** / lime **TUNE B**,
 **cyan** RX1 passband vs **green** RX2 overlay, **red** vs **green** band
 chips, off-span **◀ RX2** / **RX2 ▶** (click to swap onto the panadapter),
 lime **TX** marker (red on key). TCI: `channel_count:2`; `vfo:0,1` is
 SPLIT VFO B; `vfo:1,0` / `dds:1` is SUB. Logger Combo RST still uses
-**RX1**. Still planned: dual RX on Hermes Lite 2 **Protocol 1**.
+**RX1**.
 
 ### 🗺️ PureSignal — adaptive predistortion
 

@@ -2029,6 +2029,31 @@ void HL2Stream::pushEffectiveRxFreq() {
         // CTUNE off: non-CTUNE path stays byte-identical — no shift emit
         // here.  The one disengage shift-off is emitted from setCtuneCenterHz.
     }
+    noteSubFrontEnd();
+}
+
+void HL2Stream::noteSubFrontEnd() {
+    if (!subEnabled_.load(std::memory_order_relaxed) || !filterBoardEnabled_) {
+        lastSubWarnBandA_ = -1;
+        lastSubWarnBandB_ = -1;
+        return;
+    }
+    const int a = lyra::bandIndexForFreq(
+        static_cast<int>(rx1FreqHz_.load(std::memory_order_relaxed)));
+    const int b = lyra::bandIndexForFreq(
+        static_cast<int>(rx2FreqHz_.load(std::memory_order_relaxed)));
+    if (a < 0 || b < 0 || a == b) {
+        lastSubWarnBandA_ = -1;
+        lastSubWarnBandB_ = -1;
+        return;
+    }
+    if (a == lastSubWarnBandA_ && b == lastSubWarnBandB_)
+        return;
+    lastSubWarnBandA_ = a;
+    lastSubWarnBandB_ = b;
+    emit logLine(QStringLiteral(
+        "SUB: N2ADR/filter board follows RX1 — RX2 on another ham band "
+        "will be much weaker (shared analog filter, one ADC)."));
 }
 
 void HL2Stream::setCtuneEnabled(bool on) {
@@ -4978,6 +5003,7 @@ void HL2Stream::setFilterBoardEnabled(bool on) {
     oc_.setEnabled(on);
     QSettings().setValue(QStringLiteral("hw/filterBoard"), on);
     updateOcPattern();
+    noteSubFrontEnd();
     emit filterBoardChanged(on);
     emit logLine(QStringLiteral("Filter board %1")
                  .arg(on ? QStringLiteral("ENABLED") : QStringLiteral("off")));
@@ -5002,11 +5028,10 @@ void HL2Stream::updateOcPattern(bool transmitting) {
     if (filterBoardEnabled_) {
         const int bi = lyra::bandIndexForFreq(
             static_cast<int>(rx1FreqHz_.load(std::memory_order_relaxed)));
-        // Non-split (RX2 not built): bandA == bandB == the RX1 band, and the
-        // TX OC band == the RX1 band today.  When RX2/split lands the TX path
-        // passes the TX-freq-derived index as bandA (§7.3); compute() already
-        // takes bandB.  pa=false: no external-PA-override state is wired yet
-        // and every xPA gate defaults off, so it is ignored (Stage 4 wires it).
+        // One analog filter (N2ADR): OC follows RX1.  SUB is a second DDC
+        // on the same ADC; cross-band SUB stays behind RX1's LPF/BPF.
+        // TX OC band is RX1 today; SPLIT TX still uses this until TX-band
+        // OC is a separate pass.  pa=false: no external-PA-override yet.
         bits = oc_.compute(bi, bi, transmitting, /*tune*/ false,
                            /*twoTone*/ false, /*pa*/ false);
     }

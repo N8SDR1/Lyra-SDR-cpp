@@ -63,7 +63,7 @@ Full detail on the **[Supported Radios](Supported-Radios)** page.
 
 ✅ Full **receive** (all modes, the complete WDSP noise/filter toolkit, RX EQ,
 captured-noise reduction, CTUN, RIT) · ✅ Full **transmit** — SSB / AM / SAM /
-DSB / FM / CW plus digital over TCI & VAC · ✅ **SUB / RX2 + SPLIT on BrickSDR2** ·
+DSB / FM / CW plus digital over TCI & VAC · ✅ **SUB / RX2 + SPLIT on HL2 and BrickSDR2** ·
 ✅ a **native TX audio rack**
 (8-band EQ, multiband Combinator, plate reverb, speech processing, voice
 keyer, VOX, TX profiles) · ✅ **CW** send + on-screen **CW decode** · ✅
@@ -99,7 +99,7 @@ Details, ordering, and status on the **[Roadmap](Roadmap)**.
 - 🚀 **[Quick Start](Quick-Start)** — box on the desk to first signal in five minutes.
 - 🎙️ **[First Voice Setup](First-Voice-Setup)** — your first phone contact (SSB / AM / FM).
 - 💻 **[PC Requirements](PC-Requirements)** — CPU / GPU / video spec, in detail.
-- 📖 **[User Guide](User-Guide)** — the full operator's manual (also built into the app: **Help → User Guide**), including **[second receiver / SUB](User-Guide#second-receiver-sub--rx2--how-it-works)** on BrickSDR2.
+- 📖 **[User Guide](User-Guide)** — the full operator's manual (also built into the app: **Help → User Guide**), including **[second receiver / SUB](User-Guide#second-receiver-sub--rx2--how-it-works)** on HL2 and BrickSDR2.
 - 🔗 **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** — the two-way link with the companion logger (RST from RX1).
 - ❓ **[FAQ &amp; Troubleshooting](FAQ-and-Troubleshooting)**
 
@@ -111,7 +111,7 @@ Lyra over TCI and flip on the **[Combo link](SDRLogger-Plus-Combo)** and the two
 work as one: copy a call once in Lyra's CW console and it lands in the log with a
 callbook lookup, the operator's name comes back to your `{NAME}` macro, RST-Rcvd
 auto-fills from Lyra's **RX1** calibrated S-meter (SUB RST is not Combo yet), and a `{LOG}` macro logs the QSO as you
-send 73. BrickSDR2 **SUB / RX2** and **SPLIT** are on the same TCI socket —
+send 73. HL2 and BrickSDR2 **SUB / RX2** and **SPLIT** are on the same TCI socket —
 see **[Combo](SDRLogger-Plus-Combo)** and **[User Guide → Second receiver](User-Guide#second-receiver-sub--rx2--how-it-works)**.
 → **[Get SDRLogger+](https://n8sdr1.github.io/SDRLoggerPlus/)**
 

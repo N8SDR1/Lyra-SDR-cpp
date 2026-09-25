@@ -88,8 +88,9 @@ links WDSP directly into the C++ binary.
 🟢 USB, LSB, AM, FM, CWU, CWL, DSB, SAM, DIGU, DIGL, DRM, SPEC
 
 ### 2.2 Dual RX
-🟢 True dual receiver — RX1 (DDC0) + RX2 (DDC2) independent freq /
-   mode / filter / AGC / NR / etc.
+🟢 True dual receiver — RX1 (DDC0) + RX2 (DDC1 / host ch 2) independent
+   freq / mode / filter / AGC / NR / etc. Same-ADC radios (HL2 P1,
+   BrickSDR2 P2): analog filter follows RX1; cross-band SUB is weaker.
 🟢 Stereo-split audio routing — RX1 hard-left, RX2 hard-right by
    default; balance + per-RX volume + per-RX mute always visible.
 🟢 SUB toggle = primary RX2 enable.

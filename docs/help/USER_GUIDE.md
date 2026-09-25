@@ -32,7 +32,7 @@ not programmers — if you can click a menu, you can use this.
 - [Getting around the window](#getting-around-the-window)
 - [The panadapter (spectrum display)](#the-panadapter-spectrum-display)
 - [Tuning panel](#tuning-panel)
-  - [SUB — second receiver (BrickSDR2)](#sub--second-receiver-bricksdr2)
+  - [SUB — second receiver (HL2 and BrickSDR2)](#sub--second-receiver-hl2-and-bricksdr2)
   - [SPLIT — receive A, transmit B](#split--receive-a-transmit-b)
 - [Second receiver (SUB / RX2) — how it works](#second-receiver-sub--rx2--how-it-works)
 - [Filters panel](#filters-panel)
@@ -566,7 +566,7 @@ second receiver while **SUB** is on and that VFO is focused.
   **wheel** to step, **Ctrl + wheel** to zoom. It shares the spectrum's
   frequencies, so a click lands at the same spot either way.
 
-**Second receiver on the same pane (BrickSDR2, SUB on).** The live
+**Second receiver on the same pane (HL2 / BrickSDR2, SUB on).** The live
 spectrum trace is always **RX1's** IQ. RX2 is drawn on top of that
 picture:
 
@@ -655,11 +655,12 @@ FM (repeaters); leave RPT alone if you are not on FM.
   The receive filter centers on this pitch and the tuned-carrier marker
   offsets to match, so a signal you zero-beat lands at your chosen tone.
 
-### SUB — second receiver (BrickSDR2)
+### SUB — second receiver (HL2 and BrickSDR2)
 
-**SUB** is a **second independent receiver** on the BrickSDR2 (DDC1).
-Hermes Lite 2 Protocol 1 does not have this path yet. How the colours,
-**◀ RX2** / **RX2 ▶**, audio, and band chips fit together is in
+**SUB** is a **second receiver** on DDC1 — same operator path on Hermes
+Lite 2 / 2+ (Protocol 1) and BrickSDR2 (Protocol 2). Both radios have
+**one ADC** and one analog front end. How the colours, **◀ RX2** /
+**RX2 ▶**, audio, and band chips fit together is in
 [Second receiver (SUB / RX2)](#second-receiver-sub--rx2--how-it-works).
 
 - **SUB** (button **green** when on) — turns RX2 on. Off keeps DDC1
@@ -777,8 +778,15 @@ tuned — not the frozen display centre.
 
 ## Second receiver (SUB / RX2) — how it works
 
-**BrickSDR2 only** (Protocol 2). Hermes Lite 2 on Protocol 1 does not
-open a second DDC this way yet.
+**Hermes Lite 2 / 2+** (Protocol 1) and **BrickSDR2** (Protocol 2).
+**SUB** opens the second DDC (DDC1). There is still **one ADC** and
+**one analog filter**. Same-band SUB (both VFOs on 40 m, for example)
+is full strength. **Cross-band SUB** (RX1 on 40 m, RX2 on 20 m) is
+allowed on the wire, but with an N2ADR / filter board enabled the
+relays follow **RX1** — RX2 on the other ham band will be **much
+weaker**. The status log notes that once when the two amateur bands
+differ. BrickSDR2 is the same single-ADC story (no second analog
+front end).
 
 Lyra has **one panadapter** and **two receivers**. RX1 always owns the
 live spectrum IQ. **SUB** turns on RX2 (the radio's second DDC): its own
@@ -920,7 +928,7 @@ Quick band switching, in three rows:
   the first time). The active band lights the same way.
 - **Gen** — the GEN1/2/3 general-coverage slots (below).
 
-**SUB hops (BrickSDR2).** **Shift+click** or **right-click** a Ham / BC /
+**SUB hops (HL2 / BrickSDR2).** **Shift+click** or **right-click** a Ham / BC /
 11m chip to park **SUB** on that band (turns SUB on if it was off, keeps
 VFO A focused). SUB remembers **its own last frequency and mode** per
 band — independent of RX1. A SUB hop does **not** apply RX1's band
@@ -994,7 +1002,7 @@ laid out in old Lyra's three-row arrangement:
   fully down). The mouse wheel nudges it in fine steps.
 - **MUTE** — silences or restores RX1 without disturbing the Vol slider;
   the button reads **MUTED** while engaged. (Lyra starts **unmuted**.)
-- **Vol2 / MUTE2** — same pair for **RX2** when SUB is on (BrickSDR2).
+- **Vol2 / MUTE2** — same pair for **RX2** when SUB is on (HL2 / BrickSDR2).
   MUTE2 does not change Vol2.
 - **LNA** — RF input gain on the HL2's AD9866 PGA (−12…+31 dB; slider or
   mouse-wheel). Higher = more sensitivity; back off on strong bands to
@@ -3929,7 +3937,7 @@ binary frames — no extra toggle needed. Lyra advertises the audio format
 at connect so the client decoder configures itself correctly the moment
 it attaches.
 
-**Two TCI channels** (BrickSDR2 SUB). Lyra advertises **`channel_count:2`**.
+**Two TCI channels** (HL2 / BrickSDR2 SUB). Lyra advertises **`channel_count:2`**.
 There is **no extra Settings → Network toggle** for RX2 — SUB is the
 Tuning **SUB** button (or TCI `rx_enable:1`). Mapping matches deskHPSDR /
 Thetis, not “channel 1 = always RX2”:

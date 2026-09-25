@@ -10,9 +10,9 @@ as testers come on board.
 
 | Radio | Notes |
 |---|---|
-| **Hermes Lite 2 (HL2)** | ✅ Full RX + TX over Protocol 1. Audio to/from the PC (see [First Voice Setup](First-Voice-Setup)). |
-| **Hermes Lite 2+ (HL2+, AK4951 codec)** | ✅ Full RX + TX over Protocol 1. Adds the on-board **mic + headphone jacks** — plug a headset straight into the radio, no PC audio setup needed. |
-| **BrickSDR2** | ✅ Full RX + TX over Protocol 2, including **SUB / RX2** (second DDC) and **SPLIT** (TX on VFO B, independent of SUB). Cues: orange **TUNE A** / lime **TUNE B**, cyan vs green passbands, **◀ RX2** / **RX2 ▶**. Radio mic modulates SSB/AM/FM; TUN / two-tone / analog drive / watts-cap / ATT-on-TX are live. Dummy-load first. Dual RX needs current Brick2 FPGA. Discovery firmware is shown as **v10.6**-style. |
+| **Hermes Lite 2 (HL2)** | ✅ Full RX + TX over Protocol 1, including **SUB / RX2** (DDC1, same ADC) and **SPLIT**. N2ADR / filter board follows RX1 — cross-band SUB is much weaker. Audio to/from the PC (see [First Voice Setup](First-Voice-Setup)). |
+| **Hermes Lite 2+ (HL2+, AK4951 codec)** | ✅ Same Protocol 1 RX/TX/SUB as HL2. Adds the on-board **mic + headphone jacks** — plug a headset straight into the radio, no PC audio setup needed. |
+| **BrickSDR2** | ✅ Full RX + TX over Protocol 2, including **SUB / RX2** (second DDC, same ADC) and **SPLIT** (TX on VFO B, independent of SUB). Cues: orange **TUNE A** / lime **TUNE B**, cyan vs green passbands, **◀ RX2** / **RX2 ▶**. Radio mic modulates SSB/AM/FM; TUN / two-tone / analog drive / watts-cap / ATT-on-TX are live. Dummy-load first. Dual RX needs current Brick2 FPGA. Discovery firmware is shown as **v10.6**-style. |
 
 ## In progress 🚧
 

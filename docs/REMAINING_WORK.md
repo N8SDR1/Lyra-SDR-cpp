@@ -6,10 +6,10 @@
 > [Feature Status](wiki/Feature-Status.md), [Roadmap](wiki/Roadmap.md), and
 > [KNOWN_ISSUES.md](../KNOWN_ISSUES.md). Tree version is **v0.24.3**.
 >
-> **Still actually open (2026-09):** Dual RX on Hermes Lite 2 Protocol 1 ·
-> PureSignal · VAC2 · Linux / macOS · ANAN family as first-class P2 radios ·
-> other P1 boards that need a tester. (SUB / RX2 + SPLIT pile-up are live
-> on BrickSDR2.)
+> **Still actually open (2026-09):** PureSignal · VAC2 · Linux / macOS ·
+> ANAN family as first-class P2 radios · other P1 boards that need a
+> tester. (SUB / RX2 + SPLIT are live on HL2 Protocol 1 and BrickSDR2;
+> N2ADR follows RX1 — cross-band SUB is weaker.)
 
 What's still open as of **v0.7.0** (2026-06-29). The list keeps shrinking —
 the big TX bring-up, the native DSP rack, CW transmit + decoder, Profiles,
