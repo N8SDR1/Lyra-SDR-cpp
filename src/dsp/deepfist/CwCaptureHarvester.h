@@ -40,7 +40,13 @@ public:
         long long capBytes    = 2LL * 1024 * 1024 * 1024;   // retention cap
     };
 
-    CwCaptureHarvester(CwHarvestRing& ring, std::string outDir, Config cfg = {});
+    // Split rather than `Config cfg = {}`: a default argument that
+    // aggregate-initializes a nested type needs that type's default member
+    // initializers while the ENCLOSING class is still incomplete, which clang
+    // rejects (MSVC allows it).  The delegating overload below is defined
+    // after the class closes, where Config is usable.  Same call sites.
+    CwCaptureHarvester(CwHarvestRing& ring, std::string outDir);
+    CwCaptureHarvester(CwHarvestRing& ring, std::string outDir, Config cfg);
 
     // event intake — any thread, cheap, no I/O
     void feedKeying(float ratio, long long nowSec);
@@ -81,5 +87,10 @@ private:
     int                 written_   = 0;
     int                 seq_       = 0;
 };
+
+// Config's defaults are usable here — the class is complete.
+inline CwCaptureHarvester::CwCaptureHarvester(CwHarvestRing& ring,
+                                              std::string outDir)
+    : CwCaptureHarvester(ring, std::move(outDir), Config{}) {}
 
 }  // namespace lyra::dsp

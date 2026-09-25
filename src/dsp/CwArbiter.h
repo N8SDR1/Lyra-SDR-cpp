@@ -40,7 +40,13 @@ public:
         int   nRise = 3;       // consecutive above-tHigh ticks to return (slow)
     };
 
-    explicit CwArbiter(Config cfg = {});
+    // Split rather than `Config cfg = {}`: a default argument that
+    // aggregate-initializes a nested type needs that type's default member
+    // initializers while the ENCLOSING class is still incomplete, which clang
+    // rejects (MSVC allows it).  The delegating overload below is defined
+    // after the class closes, where Config is usable.  Same call sites.
+    CwArbiter();
+    explicit CwArbiter(Config cfg);
 
     void updateKeying(float ratio);            // fade-confidence feed (~2.5 Hz)
     void pushDeepFist(const std::string& text);
@@ -68,5 +74,8 @@ private:
     int                solidCount_ = 0;
     bool               seeded_     = false;
 };
+
+// Config's defaults are usable here — the class is complete.
+inline CwArbiter::CwArbiter() : CwArbiter(Config{}) {}
 
 }  // namespace lyra::dsp

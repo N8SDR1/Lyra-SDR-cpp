@@ -71,10 +71,38 @@ add_subdirectory(third_party/portaudio EXCLUDE_FROM_ALL)
 # © Brent Crier — permissive inside Lyra's GPLv3).
 set(ORT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime)
 add_library(onnxruntime SHARED IMPORTED)
-set_target_properties(onnxruntime PROPERTIES
-    IMPORTED_IMPLIB               ${ORT_DIR}/lib/onnxruntime.lib
-    IMPORTED_LOCATION             ${ORT_DIR}/lib/onnxruntime.dll
-    INTERFACE_INCLUDE_DIRECTORIES ${ORT_DIR}/include)
+if(WIN32)
+    set_target_properties(onnxruntime PROPERTIES
+        IMPORTED_IMPLIB               ${ORT_DIR}/lib/onnxruntime.lib
+        IMPORTED_LOCATION             ${ORT_DIR}/lib/onnxruntime.dll
+        INTERFACE_INCLUDE_DIRECTORIES ${ORT_DIR}/include)
+else()
+    # third_party/onnxruntime/lib holds WINDOWS binaries only, so POSIX hosts
+    # use the system runtime (macOS: `brew install onnxruntime`).
+    #
+    # The vendored headers are kept on the include path rather than the
+    # system ones, so every platform compiles src/dsp/deepfist/ against the
+    # same API.  That is safe in this direction and only this direction: the
+    # ORT C API is versioned, a client asks for its own ORT_API_VERSION at
+    # runtime, and a newer runtime still serves an older request.  Headers
+    # NEWER than the runtime would fail at OrtGetApiBase()->GetApi() instead,
+    # which is why this does not simply prefer whatever Homebrew ships.
+    find_library(ORT_LIBRARY
+        NAMES onnxruntime
+        HINTS "$ENV{ONNXRUNTIME_ROOT}/lib" /opt/homebrew/opt/onnxruntime/lib
+              /usr/local/opt/onnxruntime/lib
+        DOC "ONNX Runtime shared library for the DeepFist CW decoder")
+    if(NOT ORT_LIBRARY)
+        message(FATAL_ERROR
+            "ONNX Runtime not found — the DeepFist neural CW decoder needs it.\n"
+            "  macOS: brew install onnxruntime\n"
+            "  or set ONNXRUNTIME_ROOT to a directory containing lib/.")
+    endif()
+    set_target_properties(onnxruntime PROPERTIES
+        IMPORTED_LOCATION             "${ORT_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES ${ORT_DIR}/include)
+    message(STATUS "ONNX Runtime (DeepFist): ${ORT_LIBRARY}")
+endif()
 
 qt_standard_project_setup(REQUIRES 6.5)
 
