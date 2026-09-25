@@ -3085,12 +3085,16 @@ end-to-end digital-mode wiring see
 [Digital modes over VAC](#digital-modes-over-vac-virtual-audio-cable); the
 controls here are:
 
-- **Enable VAC1 (RX→PC and PC→TX)** — master switch; powers both
-  directions at once.
+- **Enable VAC1 (RX→PC and PC→TX)** — master switch; powers the VAC
+  engine (receive into the cable, and the input path if you also arm it
+  as the mic). **Enable is not the same as “TX from VAC.”**
+- **Use VAC1 as TX source** — same as **Settings → TX → Mic source =
+  PC Soundcard (VAC1)**. Greyed out when Mic source is **TCI** so a
+  logger/digital app using TCI audio is not stolen.
 - **Auto-enable for digital modes (disable for others)** — when ticked,
-  VAC1 turns on automatically when you switch to a digital mode
-  (DIGU / DIGL) and off for every other mode, so moving into a digital
-  setup opens the cable for you.
+  VAC1 turns on automatically **only** for DIGU / DIGL and **off** for
+  every other mode (including USB). USB with this ticked will **stop**
+  VAC even if Enable looks on.
 - **Driver** — the audio backend (PortAudio host API: **WASAPI**,
   DirectSound, MME, or WDM-KS) the VAC devices live under. **WASAPI is the
   right choice for virtual cables.** Changing the driver repopulates the
@@ -3709,12 +3713,16 @@ future refinement, not something worth rushing into the safety path.
 > band. This is deliberate: a cap can never *silently* mis-limit your power.
 > If you arm before a band has a **Full Output** reference, that band runs a
 > safe conservative **~30 % drive** fallback (power reads LOW) until you
-> calibrate it. When the cap is actively holding power down a **CAP** chip
-> shows on the TX panel: amber **CAP ~30%** = uncalibrated fallback (low),
-> cyan **CAP nW** = holding a calibrated band at your set watts. If you don't
-> run an amplifier, just leave the cap unticked and Lyra transmits at full
-> drive. *(Upgrading from an older version keeps an existing cap armed, so
-> you never lose amp protection on update.)*
+> calibrate it. While Max cap is armed, a **CAP** chip stays on the TX panel
+> on every band (including at low Drive): amber **CAP learn** = not yet
+> TUN-locked, cyan **CAP nW** = locked at your set watts. The chip stays
+> fully visible when Drive is under the lock — RF may drop, but the learned
+> ceiling does **not** follow Drive back up. Raising the slider past the
+> lock while keyed must not flash full output; RF stays at the capped watts.
+> If you
+> don't run an amplifier, just leave the cap unticked and Lyra transmits at
+> full drive. *(Upgrading from an older version keeps an existing cap armed,
+> so you never lose amp protection on update.)*
 
 ---
 
@@ -3966,7 +3974,10 @@ the band, and route the audio over VAC.
 2. **Settings → TX → Mic + ALC → Mic source = "PC Soundcard (VAC1)".**
    **This is the step that catches people.** Without it the TX chain reads
    a different source (the codec mic, or TCI) and you get **no power out**
-   even though everything else looks right.
+   even though RX on the cable works. You can also tick **Use VAC1 as TX
+   source** on the Audio tab (it is disabled when Mic source is TCI).
+   Stay on **DIGU / DIGL** if Auto-enable for digital is on — USB turns
+   VAC off.
 3. **TCI for control:** keep your TCI client connected for PTT/frequency
    (Settings → Network). In MSHV's audio panel, point **Output** at the TX
    cable and **Input** at the RX cable (the reverse of Lyra), and pick the
@@ -4462,12 +4473,15 @@ the GPL-licensed components it depends on:
 - **Timmy Davis (KC8TYK)** — tester (v0.1 tester flight).
 - **W5UDX** — DSP2024P Plate Reverb presets and verification (lands
   with the Plate Reverb in v0.2.1).
+- **Cursor Grok 4.6** (SpaceXAI / Cursor) — coding assistant for
+  implementation and debug pairing on the native C++ rebuild.
 
 ### License
 
 **GPL v3 or later.** Source repository:
 [github.com/N8SDR1/Lyra-SDR-cpp](https://github.com/N8SDR1/Lyra-SDR-cpp).
-Full license text: `LICENSE` / `NOTICE.md` in the source tree. See
+Full license text: `LICENSE` / `NOTICE.md` in the install folder
+(and the source tree). See
 the **About Lyra** dialog (**Help → About Lyra…**) for the version
 + build date of the running binary.
 

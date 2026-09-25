@@ -60,6 +60,33 @@ void HL2Discovery::rememberRadio(const QString &ip, const QString &mac,
     s.setValue(QStringLiteral("numRxs"), numRxs);
     s.setValue(QStringLiteral("protocol"), protocol);
     s.endGroup();
+
+    // Also keep a cumulative known-IP list so the directed-unicast leg of
+    // future sweeps can re-find this radio across a subnet change (the Thetis
+    // cross-subnet mechanism).  Append-unique (move-to-most-recent), cap 16.
+    // Written only on the main/UI thread (mainwindow.cpp, settingsdialog.cpp);
+    // knownRadioIps() reads it on the worker thread — single-writer, and the
+    // whole-StringList setValue is atomic, so no torn read / lost update.
+    if (!ip.isEmpty()) {
+        QStringList ips = s.value(QStringLiteral("knownRadios/ips")).toStringList();
+        ips.removeAll(ip);
+        ips.append(ip);
+        while (ips.size() > 16) ips.removeFirst();
+        s.setValue(QStringLiteral("knownRadios/ips"), ips);
+    }
+}
+
+QString HL2Discovery::formatFirmware(int protocol, int codeVersion,
+                                     int betaVersion) {
+    if (protocol == 2) {
+        QString s = QStringLiteral("v%1.%2")
+                        .arg(codeVersion / 10)
+                        .arg(codeVersion % 10);
+        if (betaVersion > 0)
+            s += QStringLiteral(".%1").arg(betaVersion);
+        return s;
+    }
+    return QStringLiteral("v%1.%2").arg(codeVersion).arg(betaVersion);
 }
 
 QVariantMap HL2Discovery::savedRadio() const {
@@ -92,6 +119,11 @@ void HL2Discovery::forgetRadio(const QString &ip) {
     const bool savedMatch = (s.value(QStringLiteral("ip")).toString() == ip);
     s.endGroup();
     if (savedMatch) s.remove(QStringLiteral("lastRadio"));
+    // Drop it from the cumulative directed-unicast known-IP list too, so a
+    // removed radio stops being probed every sweep.
+    QStringList known = s.value(QStringLiteral("knownRadios/ips")).toStringList();
+    if (known.removeAll(ip) > 0)
+        s.setValue(QStringLiteral("knownRadios/ips"), known);
     // Clear the auto-connect IP if it points here, so next launch
     // doesn't reconnect to the radio the operator just removed.
     if (s.value(QStringLiteral("radio/lastIp")).toString() == ip)
@@ -177,9 +209,30 @@ QList<HL2Discovery::LocalIf> HL2Discovery::localIPv4Interfaces() const {
     return out;
 }
 
+QStringList HL2Discovery::knownRadioIps() const {
+    QSettings s;
+    QStringList raw = s.value(QStringLiteral("knownRadios/ips")).toStringList();
+    raw << s.value(QStringLiteral("lastRadio/ip")).toString();
+    raw << s.value(QStringLiteral("radio/lastIp")).toString();
+
+    QStringList out;
+    for (const QString &ip : raw) {
+        const QString t = ip.trimmed();
+        if (t.isEmpty() || out.contains(t)) continue;
+        QHostAddress a;
+        if (!a.setAddress(t) ||
+            a.protocol() != QAbstractSocket::IPv4Protocol) continue;
+        out.append(t);
+    }
+    return out;
+}
+
 bool HL2Discovery::parseReply(const QByteArray &data,
                               const QHostAddress &sender,
                               RadioInfo &out) const {
+    // deskHPSDR new_discovery.c skips 1444-byte IQ frames that can land
+    // on the discovery socket while a P2 radio is already streaming.
+    if (data.size() == 1444) return false;
     if (data.size() < 24) return false;
     const auto u = reinterpret_cast<const std::uint8_t*>(data.constData());
 
@@ -230,10 +283,24 @@ bool HL2Discovery::parseReply(const QByteArray &data,
             u[5], u[6], u[7], u[8], u[9], u[10]);
         out.boardId     = u[11];
         out.boardName   = boardNameP2(out.boardId);
-        out.codeVersion = u[13];              // FPGA firmware version
+        // deskHPSDR (new_discovery.c): Brick2 = MAC 02:B2:xx,
+        // Brick3 = 02:B3:xx. Protocol is still Hermes / Angelia class;
+        // the MAC names the product so the operator sees Brick, not a
+        // generic board id. Other MACs (incl. N8SDR 00:1c:c0:…) keep
+        // the board table name; P2 Hermes still maps to BrickP2.
+        if (u[5] == 0x02 && u[6] == 0xB2)
+            out.boardName = QStringLiteral("Brick2");
+        else if (u[5] == 0x02 && u[6] == 0xB3)
+            out.boardName = QStringLiteral("Brick3");
+        out.codeVersion = u[13];              // FPGA firmware (deskHPSDR software_version)
         out.isBusy      = (u[4] == 0x03);
         if (data.size() > 20) out.numRxs      = u[20];   // DDC count
-        if (data.size() > 23) out.betaVersion = u[23];   // p2app sw version
+        if (data.size() > 23) out.betaVersion = u[23];   // beta / p2app
+        // deskHPSDR hard-sets supported_receivers = 2 for every P2
+        // device and does not trust a zero [20] for the UI. Brick
+        // Hermes-class replies have been seen with [20]=0.
+        if (out.numRxs <= 0)
+            out.numRxs = 2;
         return true;
     }
 
@@ -241,10 +308,14 @@ bool HL2Discovery::parseReply(const QByteArray &data,
 }
 
 void HL2Discovery::scan(double timeoutSeconds, int attempts) {
+    deadline_.stop();          // defensive: a scan() arriving mid-sweep
+    attemptTimer_.stop();
     foundMacs_.clear();
     totalFound_ = 0;
     sockets_.clear();
     socketBroadcast_.clear();
+    // Directed-unicast targets for this sweep (Thetis cross-subnet parity).
+    sweepKnownIps_ = knownRadioIps();
     attemptsRemaining_ = std::max(0, attempts - 1);
 
     const QList<LocalIf> ifaces = localIPv4Interfaces();
@@ -286,6 +357,11 @@ void HL2Discovery::scan(double timeoutSeconds, int attempts) {
         return;
     }
 
+    if (!sweepKnownIps_.isEmpty()) {
+        emit logLine(QStringLiteral("  directed-unicast leg: %1 known IP(s)")
+                     .arg(sweepKnownIps_.size()));
+    }
+
     // First broadcast immediately, then schedule retries at half the
     // total timeout window (so a 2-attempt 1.5s scan retries at 0.75s).
     sendBroadcastFromAllSockets();
@@ -325,6 +401,17 @@ void HL2Discovery::sendBroadcastFromAllSockets() {
             sock->writeDatagram(pktP1, b, kDiscoveryPort);
             sock->writeDatagram(pktP2, b, kDiscoveryPort);
         }
+        // (3) Directed unicast to each known radio IP from THIS NIC (Thetis
+        // per-NIC fan-out): finds a fixed-IP / different-subnet radio the
+        // broadcast can't, and tries every interface so an ambiguous target
+        // isn't lost to the wrong egress.  Replies land on this socket's
+        // onReadyRead + the shared foundMacs_ de-dup.
+        for (const QString &ipStr : sweepKnownIps_) {
+            QHostAddress target;
+            if (!target.setAddress(ipStr)) continue;
+            sock->writeDatagram(pktP1, target, kDiscoveryPort);
+            sock->writeDatagram(pktP2, target, kDiscoveryPort);
+        }
     }
 }
 
@@ -352,12 +439,14 @@ void HL2Discovery::onReadyRead() {
         foundMacs_.insert(info.mac);
         ++totalFound_;
         emit logLine(QStringLiteral(
-            "  FOUND: %1  %2  %3  P%8  gw=v%4.%5  busy=%6  rxs=%7")
-            .arg(info.ip, info.mac, info.boardName)
-            .arg(info.codeVersion).arg(info.betaVersion)
+            "  FOUND: %1  %2  %3  P%5  fw=%4  busy=%6  rxs=%7")
+            .arg(info.ip, info.mac, info.boardName,
+                 formatFirmware(info.protocol, info.codeVersion,
+                                info.betaVersion))
+            .arg(info.protocol)
             .arg(info.isBusy ? QStringLiteral("yes")
                               : QStringLiteral("no"))
-            .arg(info.numRxs).arg(info.protocol));
+            .arg(info.numRxs));
         emit radioFound(info.ip, info.mac, info.boardName,
                         info.codeVersion, info.betaVersion,
                         info.isBusy, info.numRxs, info.protocol);
@@ -368,6 +457,7 @@ void HL2Discovery::onSweepDeadline() {
     attemptTimer_.stop();
     sockets_.clear();
     socketBroadcast_.clear();
+    sweepKnownIps_.clear();
     emit logLine(QStringLiteral("Discovery complete: %1 radio(s) found")
                  .arg(totalFound_));
     emit scanFinished(totalFound_);
@@ -421,11 +511,13 @@ void HL2Discovery::onProbeReadyRead() {
         // No foundMacs_ dedup here (that's sweep bookkeeping) — the UI
         // de-dupes/updates by IP, so re-emitting is harmless.
         emit logLine(QStringLiteral(
-            "  PROBE FOUND: %1  %2  %3  P%8  gw=v%4.%5  busy=%6  rxs=%7")
-            .arg(info.ip, info.mac, info.boardName)
-            .arg(info.codeVersion).arg(info.betaVersion)
+            "  PROBE FOUND: %1  %2  %3  P%5  fw=%4  busy=%6  rxs=%7")
+            .arg(info.ip, info.mac, info.boardName,
+                 formatFirmware(info.protocol, info.codeVersion,
+                                info.betaVersion))
+            .arg(info.protocol)
             .arg(info.isBusy ? QStringLiteral("yes") : QStringLiteral("no"))
-            .arg(info.numRxs).arg(info.protocol));
+            .arg(info.numRxs));
         emit radioFound(info.ip, info.mac, info.boardName,
                         info.codeVersion, info.betaVersion,
                         info.isBusy, info.numRxs, info.protocol);

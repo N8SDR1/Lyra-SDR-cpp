@@ -95,22 +95,41 @@ From `old_protocol.c` (P1/HL2), reconciled to Lyra-P2 `FrameComposer` /
 - **PS raises the DDC count 2→4** purely via `how_many_receivers()`
   (C0=0x00 C4 nrx field = `(4-1)<<3 = 0x18`); duplex bit (C4 bit2,
   0x04) mandatory and already set.
-- **Feedback reroute = tune DDC2/DDC3 to the TX/DUC freq** (during
-  MOX+PS, `channel_freq()` returns `vfonum=-1` → TX freq for the
-  feedback channels). **No explicit coupler/ADC-mux bit on HL2** — the
-  gateware couples the PA sense internally once MOX+PS is on the wire.
-- **EP6 dispatch during MOX+PS:** normal RX0/RX1 samples are dropped
-  (simplex TX); wire **DDC2 → reference sample**, **DDC3 → TX sample**,
-  paired into one calc feed. In Lyra this is the `Ep6RecvThread`
-  **case-4** block (`DDC0→src0`, `DDC1→src2`, `DDC2/3 twist→src1`) —
-  which must become `(mox, ps_armed)`-aware.
-- **Feedback rate on HL2 = the current RX rate** (48/96/192/384k), NOT
-  a fixed 192k. (P2 differs — §5.)
-- **Auto-attenuator (deskHPSDR HL2):** feedback-level target window
-  **140–165** (`info[4]`); range **−29..+31 dB**; on an out-of-window
-  new-cal it computes a delta and forces a PS reset→resume at the new
-  attenuation. The wire att is `31 − attenuation` clamped 0..60 — the
-  encoding Lyra already ships.
+- **Feedback reroute = tune DDC2/DDC3 to the TX/DUC freq** — and the
+  host ALWAYS does this (`tx[0].frequency` into both, every cycle),
+  PS-on or PS-off. **No explicit coupler/ADC-mux bit on HL2** —
+  confirmed against the HL2+ ak4951v4 gateware RTL: the second mixer
+  (built expressly "for PureSignal support") selects
+  `(tx_on & pure_signal) ? tx_data_dac : adc` and feeds **receivers 1
+  and 3**, while the first mixer feeds **receivers 0 and 2** from the
+  ADC. Nothing is gateware-disabled and no DDC is co-tuned by the
+  gateware.
+- **⚠ DDC ROLES (corrected 2026-09-11 — earlier drafts had these
+  swapped, and a later "DDC0/DDC1 + `cntrl1=4`" model was wrong
+  outright; see §8):** during MOX+PS —
+  **DDC2 = ADC / PA-coupler @ TX freq = the FEEDBACK** → `pscc` **`rx`**
+  argument; **DDC3 = DAC loopback @ TX freq = the REFERENCE** →
+  `pscc` **`tx`** argument. (In `calc()` the `tx` array is the
+  reference envelope and `rx` is the PA feedback.) DDC0/DDC1 stay at
+  the RX1/RX2 VFOs and carry garbage for PS purposes — RX is stopped
+  at MOX anyway, so do NOT route them and do NOT display them as RX.
+- **EP6 dispatch during MOX+PS:** the calc is fed from router
+  **source 1** = the existing `twist(DDC2, DDC3)` pair. In Lyra this
+  is the `Ep6RecvThread` **case-4** block (`DDC0→src0`, `DDC1→src2`,
+  `DDC2/3 twist→src1`) — **already the correct routing; attach a
+  `pscc` sink to source 1 rather than re-routing anything.**
+- **Feedback rate on HL2 = the current RX rate** (48/96/192/384k) on
+  the wire — all DDCs share RX1's rate. NOTE the reference still tells
+  the calc `SetPSFeedbackRate(192000)` regardless (it only scales
+  internal delay/timeout constants, not the correction math). PS
+  quality wants 192k — steer the operator there when armed.
+- **Auto-attenuator (HL2, the MI0BOT/Thetis reference):** recal trigger
+  `FeedbackLevel > 181 || (FeedbackLevel <= 128 && att > −28)`
+  (`info[4]`); delta = `round(20·log10(FeedbackLevel / 152.293))` with
+  the HL2 clamps; attenuator range **−28..+31 dB**; `SetPSControl`
+  reset before / restore after. HL2 hardware-peak scale =
+  `SetPSHWPeak(0.233)`. The wire att is `31 − attenuation` — the
+  single-writer encoding Lyra already ships.
 - **`GetPSInfo` FSM value:** `info[15]` = control state, enum
   `LRESET=0…LTURNON=9`, **byte-identical across WDSP 1.29/2.00**. Also
   read: `info[4]` level, `info[5]` cal counter (new-cal edge),
@@ -137,13 +156,15 @@ From `old_protocol.c` (P1/HL2), reconciled to Lyra-P2 `FrameComposer` /
 2. **`PsFsm`** — Lyra-native port of deskHPSDR's model: `SetPSControl`
    reset→resume(automode) enable, one-shot via `mancal`; `SetPSMox` on
    the MOX edges; parameter push (`SetPSHWPeak`, `SetPSMoxDelay`,
-   `SetPSTXDelay`, `SetPSLoopDelay` — **skip `SetPSDeadlockMinFrac`**,
-   it's 2.0-only/absent); `GetPSInfo[15]` poll for UI; the
-   auto-attenuator (window 140–165, HL2 −29..+31) driving the existing
-   att setter.
-3. **EP6 feedback-DDC reroute** — make `Ep6RecvThread` case-4
-   `(mox, ps_armed)`-aware: route feedback IQ to the calc consumer
-   instead of RX1/RX2 audio. *Single most invasive wire change.*
+   `SetPSTXDelay`, `SetPSLoopDelay`, `SetPSHWPeak(0.233)` — **skip
+   `SetPSDeadlockMinFrac`**, it's 2.0-only/absent); `GetPSInfo[15]`
+   poll for UI; the auto-attenuator (recal `FB>181 || (FB<=128 &&
+   att>−28)`, range −28..+31) driving the existing att setter.
+3. **EP6 feedback-DDC tap** — attach the calc consumer to
+   `Ep6RecvThread` case-4 **source 1** (the existing `twist(DDC2,DDC3)`)
+   under a `(mox && ps_armed)` predicate; DDC2→`pscc rx`, DDC3→`pscc
+   tx`. **Keep the existing routing** — no re-route, the twist is
+   already correct.
 4. **HL2 `puresignal_run` wire bit** — emit C0=0x14 C2 bit6 on the
    nddc=4 path.
 5. **MOX-edge PS arming** — `SetPSMox(1)`+start calc thread on keydown,
@@ -238,8 +259,9 @@ any Brick-specific PS work. HL2 PS is fully designable now regardless.
   races on stop/restart; RX/TX otherwise unchanged with PS off.
 
 ### P-3 — PS live + auto-attenuator + calibration (first real correction)
-- Port the auto-attenuator (info[4] window 140–165, HL2 −29..+31)
-  driving the existing att setter; coefficient persistence.
+- Port the auto-attenuator (recal `info[4]>181 || (info[4]<=128 &&
+  att>−28)`, range −28..+31) driving the existing att setter;
+  coefficient persistence.
 - **HARD gate — dummy load FIRST:** `GetPSInfo` reaches the correcting
   state, IMD visibly improves, no runaway. Only after a clean
   dummy-load pass → antenna. Requires the operator's HL2 PS mod.

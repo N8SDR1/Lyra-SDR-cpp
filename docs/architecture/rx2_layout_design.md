@@ -1,14 +1,13 @@
 # RX2 / multi-receiver layout — design note
 
-**Status:** DESIGN NOTE — captures the operator-discussed layout lean
-(2026-06-21) so RX2 (#96–#101) is built deliberately, not defaulted. NO code.
-RX2 is still pending; this records *how* to lay it out + the abstraction to
-build in from the first commit so ANAN/Brick/Protocol-2 don't force a rewrite.
+**Status:** DESIGN NOTE — layout lean for RX2 / SUB. HL2 P1 and BrickSDR2 P2
+are both **one ADC / one antenna**: single panadapter, two RX overlays, existing
+SPLIT TX marker. Dual-pane waits for a real dual-ADC ANAN (`independentBand`).
 
 **Why this note:** RX2's task entries (#96–#101) lock the *control* model
 (SUB, focus, per-RX vol, SWAP, SPLIT) but never decided the **panadapter
 geometry**. That decision interacts with CTUNE (#174) and with the future
-ANAN/Brick/P2 multi-radio arc, so it's worth getting right up front.
+dual-ADC ANAN multi-pane arc, so it's worth getting right up front.
 
 ---
 
@@ -58,10 +57,17 @@ markers over a split pane).
 
 ---
 
-## 4. What changes with ANAN / Brick / Protocol 2
+## 4. What changes with dual-ADC ANAN (not BrickSDR2)
+
+**BrickSDR2 is Hermes-class Protocol 2: `adcCount: 1`, one antenna, 14-bit.**
+It is **not** dual-ADC. Catalog and deskHPSDR both treat it as a single-antenna
+radio that can still run `receivers = 2` as a second DDC of the **same** ADC.
+Lyra therefore keeps Brick on the **HL2 single-pane path** (`independentBand =
+false`). 14-bit vs 12-bit is calibration / noise floor only.
 
 The §2/§3 "RX2 is in-band → one spectrum + markers" assumption **breaks** on
-dual-ADC P2 radios, and "RX2" stops being the right concept:
+true dual-ADC P2 radios (ANAN G2 / 7000DLE class), and "RX2" stops being the
+right concept:
 
 1. **Dual ADC → true cross-band, independent front ends.** RX2 can be on 20m
    while RX1 is on 40m, both at full sensitivity → a single shared panadapter
@@ -70,14 +76,13 @@ dual-ADC P2 radios, and "RX2" stops being the right concept:
    7000DLE ≈ 7). The model must generalize from "RX1 + RX2" to **a list of
    receivers**.
 3. **Diversity** — phase-coherent two-antenna combine — is an ANAN feature with
-   no HL2 equivalent (a *third* way two receivers relate: not stereo, not split,
-   summed).
+   no HL2/Brick equivalent (a *third* way two receivers relate: not stereo, not
+   split, summed).
 4. **Protocol 2 is a separate wire layer** (different framing, discovery,
-   command structure, **per-DDC sample rates**). A `p2` / `p2_anan` module
-   alongside the P1/HL2 wire path — the big lift, mostly *below* the UI, same
-   clean-room-from-reference discipline as the TX rebuild.
-5. **No onboard codec** → audio to the host (PC soundcard), a different sink
-   path than the HL2 AK4951 jack.
+   command structure, **per-DDC sample rates**). Brick already rides the P2
+   bridge for DDC0/DDC1; ANAN dual-ADC is extra ADC assignment + a second pane.
+5. **Host audio** on radios without an onboard codec is a different sink path
+   than the HL2 AK4951 jack; Brick has onboard I/O.
 
 ---
 
@@ -92,15 +97,16 @@ assumptions ANAN breaks are not hard-coded:
 - **A capabilities object the UI reads** — `nRx`, `independentBand`,
   `diversityCapable`, `audioPath`. The panadapter layer branches on
   `independentBand`:
-  - `false` (HL2) → single pane + N markers;
-  - `true` (ANAN/Brick) → per-receiver panes (stacked / tabbed).
+  - `false` (HL2 and BrickSDR2) → single pane + N markers;
+  - `true` (dual-ADC ANAN, later) → per-receiver panes (stacked / tabbed).
 
 What carries over **unchanged** (receiver-agnostic): the focus model, per-RX
 vol/mute, A↔B / SWAP, SPLIT, and CTUNE. Only the **panadapter geometry** and
 the **wire/audio plumbing** fork by capability.
 
-Then adding ANAN = (a) the P2 wire module, (b) the capability struct flips, (c)
-the panadapter gains the multi-pane render path. The control UI just works.
+Then adding dual-ADC ANAN = (a) ADC assignment on the P2 wire, (b)
+`independentBand` true, (c) the panadapter gains the multi-pane render path.
+The control UI (SUB / focus / SWAP) stays. Brick does **not** take that path.
 
 **Don't build** the multi-pane / P2 path now (no hardware, big arc). **Do
 avoid** hard-coding "exactly 2 RX" and "RX2 == in-band marker on RX1's pano."
@@ -126,24 +132,23 @@ nil.)
 
 ## 7. Honest unknowns
 
-- **Brick is TBD** — which Brick, and whether it speaks HPSDR P1 (→ P1/HL2
-  path), P2 (→ ANAN path), or vendor-specific (→ a third module). Can't design
-  precisely until pinned.
-- **P2 + ANAN is a months-scale arc** (wire module + discovery + per-DDC rates +
-  host-audio path + multi-pane UI) needing real hardware to bench. Nothing here
-  shrinks that; the point is only to keep HL2 RX2 from painting it into a corner.
+- **BrickSDR2 is pinned** — Hermes-class HPSDR Protocol 2, 1 ADC, same single-
+  pane SUB path as HL2. PureSignal on Brick remains UNVERIFIED; RX2 must still
+  leave a P2 feedback DDC free (`psDdcReserved`).
+- **Dual-ADC ANAN is a later arc** (second pane + per-ADC assignment) needing
+  real hardware to bench. Nothing here shrinks that; the point is only to keep
+  HL2/Brick RX2 from painting it into a corner.
 
 ---
 
 ## 8. Decision summary
 
-- **HL2 RX2 = single panadapter + two markers + SUB + per-RX vol + SWAP**
-  (the §3 simple layout). Ship the 80/20.
-- **Sit it on a `Receiver` + capabilities abstraction** (§5) so ANAN/Brick/P2
-  is "add a wire module + flip the capability + add the multi-pane render," not
-  a rewrite.
-- **Capability-gate the second panadapter pane** — HL2 never shows it; ANAN/Brick
-  light it up when `independentBand` is true.
+- **HL2 and BrickSDR2 RX2 = single panadapter + two RX overlays + SUB + per-RX
+  vol + SWAP**, keeping the existing SPLIT TX marker. Ship the 80/20.
+- **Sit it on a `Receiver` + capabilities abstraction** (§5) so dual-ADC ANAN
+  is "flip `independentBand` + add the multi-pane render," not a rewrite.
+- **Capability-gate the second panadapter pane** — HL2 and Brick never show it;
+  dual-ADC ANAN lights it up when `independentBand` is true.
 - **Build CTUNE per-receiver, before RX2** (#174) so both features share the
   center/offset machinery.
 

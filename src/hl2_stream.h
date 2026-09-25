@@ -72,6 +72,7 @@
 #include <QString>
 #include <QTimer>
 #include <atomic>
+#include <limits>
 #include <complex>
 #include <condition_variable>
 #include <cstdint>
@@ -136,6 +137,12 @@ class HL2Stream : public QObject {
     // path — so PS, whenever it lands, samples the split VFO unchanged.
     Q_PROPERTY(bool    splitEnabled READ splitEnabled WRITE setSplitEnabled NOTIFY splitEnabledChanged)
     Q_PROPERTY(quint32 vfoBHz       READ vfoBHz       WRITE setVfoBHz       NOTIFY vfoBHzChanged)
+    // SUB / RX2 — second DDC on the same ADC (HL2 + Brick).  Default OFF:
+    // DDC1 keeps mirroring RX1 (SUB-off wire identity).  When on, DDC1
+    // follows rx2FreqHz (VFO B if SPLIT is also on).  focusedRx is 1 or 2.
+    Q_PROPERTY(bool    subEnabled READ subEnabled WRITE setSubEnabled NOTIFY subEnabledChanged)
+    Q_PROPERTY(quint32 rx2FreqHz  READ rx2FreqHz  WRITE setRx2FreqHz  NOTIFY rx2FreqChanged)
+    Q_PROPERTY(int     focusedRx  READ focusedRx  WRITE setFocusedRx  NOTIFY focusedRxChanged)
     // RIT (RX incremental tuning) + XIT (TX incremental tuning) — signed
     // Hz offsets folded into the RX-NCO / TX-NCO writes respectively.
     Q_PROPERTY(bool    ritEnabled  READ ritEnabled  WRITE setRitEnabled  NOTIFY ritChanged)
@@ -204,13 +211,16 @@ class HL2Stream : public QObject {
                NOTIFY txDisplayActiveChanged)
     // Amp watts-cap live status, for the TX-panel CAP chip.  Recomputed on
     // the ACTIVE TX band inside applyTxPower_ (the one chokepoint every
-    // drive / PA-gain / band / cap change routes through).  0 = cap off, or
-    // on but not actively limiting → chip hidden.  1 = cap ON and holding a
-    // CALIBRATED band at the set watts.  2 = cap ON but this band is NOT
-    // calibrated, so TX is clamped to the conservative ~30 % fallback (the
-    // "cap set to 6 W but the radio only makes 3 W" trap Pierre HS0ZRT hit).
-    // capLimitW is the set cap in watts (for the chip's "CAP nW" text).
+    // drive / PA-gain / band / cap change routes through).  0 = cap off or
+    // not armed.  1 = armed, this band locked for the set watts (cyan).
+    // 2 = armed, this band has not finished TUN learning (amber).
+    // Chip visibility is capArmed && capLimitW (not capStatus — status can
+    // stay 0 on RX until the next drive write).  capLimiting is true only
+    // when the ceiling is below the Drive/Tune request (chip draws full;
+    // otherwise it dims).  capLimitW is the set cap in watts.
+    Q_PROPERTY(bool   capArmed READ capArmed NOTIFY capArmedChanged)
     Q_PROPERTY(int    capStatus READ capStatus NOTIFY capStatusChanged)
+    Q_PROPERTY(bool   capLimiting READ capLimiting NOTIFY capLimitingChanged)
     Q_PROPERTY(double capLimitW READ maxOutputW NOTIFY maxOutputWChanged)
     // TX-0c-pa-debug — host-side TX safety timeout.  Auto-clears MOX
     // (via requestMox(false)) if the radio stays keyed continuously
@@ -725,6 +735,9 @@ public:
     quint32 rx1FreqHz()         const { return rx1FreqHz_.load(std::memory_order_relaxed); }
     bool    splitEnabled()      const { return splitEnabled_.load(std::memory_order_relaxed); }
     quint32 vfoBHz()            const { return vfoBHz_.load(std::memory_order_relaxed); }
+    bool    subEnabled()        const { return subEnabled_.load(std::memory_order_relaxed); }
+    quint32 rx2FreqHz()         const { return rx2FreqHz_.load(std::memory_order_relaxed); }
+    int     focusedRx()         const { return focusedRx_.load(std::memory_order_relaxed); }
     // Effective TX carrier the wire NCO is set to (0x02/0x08/0x0a).  Tracks
     // vfoBHz_ under SPLIT, else rx1FreqHz_ — so an out-of-band TX check reads
     // the actual transmit frequency, including split operation.
@@ -800,6 +813,16 @@ public:
     // RAW for the SWR ratio + CW-keying detect, where a trim would be wrong.)
     double  fwdPowerCalW() const;
     double  revPowerW()  const;
+    // P2/Brick forward+reverse power ingest.  The P1/HL2 path decodes fwd/rev
+    // from the EP6 `prn` telemetry inside fwdPowerW()/revPowerW(); the P2 wire
+    // has no `prn` fwd/rev, so the P2RxBridge computes coupler watts from the
+    // P2 status frame and pushes them here.  fwdPowerW()/revPowerW() prefer
+    // these ONLY while a P2 source is active (setPowerTelemetry seen, not yet
+    // cleared); on P1 the flag never sets → the working HL2 `prn` formula runs
+    // byte-for-byte unchanged.  Written on the P2 status thread, read on the
+    // UI thread (lock-free atomics).
+    void    setPowerTelemetry(double fwdW, double revW);
+    void    clearPowerTelemetry();   // P2 session teardown → fall back to prn
     // TX-0c-fsm — true while the radio is wire-level keyed (post-keydown
     // settle, pre-keyup-clear).  Read by the UI red-on-air indicator.
     bool    moxActive()  const { return moxActive_; }
@@ -832,6 +855,17 @@ public:
     // TX-0c-pa-drive — drive DAC level (Q_PROPERTY getter).  Raw 0..255
     // wire value; UI converts to/from 0..100 %.  Reads the wire atomic.
     int     txDriveLevel() const { return txDriveLevel_.load(std::memory_order_relaxed); }
+    // Drive byte actually emitted by applyTxPower_ after digital-mode cut,
+    // watts-cap ceiling, family volume, and (HL2 P1 only) CW fold.  P2 HP
+    // analog drive [345] must read this, not the operator slider.
+    int     txWireDriveByte() const {
+        return txEmittedDriveByte_.load(std::memory_order_relaxed);
+    }
+    // When true, applyTxPower_ uses the P2 analog-drive formula (linear
+    // 0..255 byte, no HL2 16-step DAC divisor) and keeps IQ fixed-gain at
+    // unity so watts live on HP [345] only.  Set by the P2 bridge on
+    // open/close.  Does not change the operator slider.
+    void    setP2DrivePath(bool on);
     // TX power model Stage 3 — per-band "PA Gain By Band" (Thetis port).
     // gbb is a per-band multiplier in the RadioVolume formula (default
     // 100 = neutral).  The operator measures each band into a dummy load
@@ -879,9 +913,12 @@ public:
         const int m = txMode_.load(std::memory_order_relaxed);
         return m == 3 || m == 4;
     }
-    // Amp-cap live indicator status (see the capStatus Q_PROPERTY): 0 hidden,
-    // 1 holding a calibrated band, 2 uncalibrated → ~30 % fallback clamp.
+    // Amp-cap live indicator (see the capStatus Q_PROPERTY): 0 off, 1 locked
+    // for this band, 2 still learning.  capLimiting: ceiling is binding.
     int     capStatus() const { return capStatus_.load(std::memory_order_relaxed); }
+    bool    capLimiting() const {
+        return capLimiting_.load(std::memory_order_relaxed);
+    }
     // Stage B — has this band been auto-tuned (TUN servo locked) for the
     // CURRENT cap?  For the PA Gain tab's per-band "tuned" indicator.
     bool    capTunedForBand(int idx) const;
@@ -1111,6 +1148,9 @@ public slots:
     // the split TX VFO and re-pushes the TX NCO when split is on.
     void setSplitEnabled(bool on);
     void setVfoBHz(quint32 hz);
+    void setSubEnabled(bool on);
+    void setRx2FreqHz(quint32 hz);
+    void setFocusedRx(int rx);
     // RIT/XIT — RIT offsets only the RX DDC NCO (via pushEffectiveRxFreq);
     // XIT offsets only the TX NCO (via pushEffectiveTxFreq, so PureSignal
     // tracks the XIT-shifted TX for free).  Both persisted; clamped ±9999 Hz.
@@ -1450,6 +1490,9 @@ signals:
     void rx1FreqChanged();
     void splitEnabledChanged();
     void vfoBHzChanged();
+    void subEnabledChanged();
+    void rx2FreqChanged();
+    void focusedRxChanged();
     void ritChanged();   // RIT enable and/or offset
     void xitChanged();   // XIT enable and/or offset
     void ctuneChanged();           // #174 CTUNE engage / locked-centre changed
@@ -1553,6 +1596,7 @@ signals:
     void maxOutputWChanged(double watts);   // Stage 3b — watts Max cap
     void capArmedChanged(bool on);          // cap arm gate (2026-07-03)
     void capStatusChanged();                // TX-panel CAP chip (0/1/2)
+    void capLimitingChanged();              // chip full vs dim (ceiling binding)
     // Fires once per auto-cut (distinct from txTimeoutFired) so the UI
     // can toast "TX cut: SWR x.x:1".
     void swrProtectCut(const QString& reason);
@@ -1696,6 +1740,9 @@ private:
     // — the single RX-NCO writer, mirror of pushEffectiveTxFreq.  Called by
     // setRx1FreqHz (every dial gesture) and the RIT setters.
     void pushEffectiveRxFreq();
+    // DDC1: RX1-mirror when SUB is off (byte-identical); independent
+    // rx2FreqHz when SUB is on.  ddc0Hz is the already-computed DDC0 NCO.
+    void writeDdc1Hz(int ddc0Hz);
     // #170a — the Max-TX-drive cap as a raw 0..255 ceiling (100 % → 255).
     // Header-safe integer rounding (no <cmath>/<algorithm> dependency);
     // maxDrivePct_ is already clamped 1..100 by its setter + the ctor.
@@ -1728,6 +1775,10 @@ private:
     // un-tuned band, + the TUN auto-learn servo.
     int    wattsFallbackCeilingRaw_(int band, double capW) const;
     void   tickCapServo_(double fwdW);
+    // Clear a watts/SWR fold and restore Drive from the persisted slider,
+    // clamped to the locked watts ceiling — never the pre-fold peak if the
+    // operator has since turned Drive down.
+    void   restoreFoldedDriveSafely_();
     bool   capTunedFor_(int band, double capW) const;
     // Recompute the OC pattern (frame-0 C2) from the current band +
     // filter-board-enabled state.  Main thread only.  `transmitting`
@@ -1794,6 +1845,11 @@ private:
     std::atomic<qint64>  txTotalDg_{0};
     std::atomic<qint64>  txWindowDg_{0};
     std::atomic<qint64>  txSendErrors_{0};
+    // P2/Brick pushed power telemetry (see setPowerTelemetry).  Default
+    // inactive → fwdPowerW()/revPowerW() use the P1 `prn` formula.
+    std::atomic<bool>    p2PowerActive_{false};
+    std::atomic<double>  pushedFwdW_{std::numeric_limits<double>::quiet_NaN()};
+    std::atomic<double>  pushedRevW_{std::numeric_limits<double>::quiet_NaN()};
     // Stage 2b2: txSeq_ retired — metis_write_frame() owns the wire
     // sequence counter via the TU-scope MetisOutBoundSeqNum, shared
     // with the priming path for PureSignal-correct posture.
@@ -1914,6 +1970,9 @@ private:
     // mirror in setRx1FreqHz, now gated on !splitEnabled_).
     std::atomic<bool>    splitEnabled_{false};
     std::atomic<quint32> vfoBHz_{7074000};
+    std::atomic<bool>    subEnabled_{false};
+    std::atomic<quint32> rx2FreqHz_{7074000};
+    std::atomic<int>     focusedRx_{1};
     // RIT/XIT — signed Hz offsets, ±9999 Hz, default disabled / 0.  RIT
     // folds into the RX DDC NCO (pushEffectiveRxFreq); XIT into the TX NCO
     // (pushEffectiveTxFreq → set_tx_freq, so PS tracks the XIT-shifted TX).
@@ -1925,13 +1984,15 @@ private:
     std::atomic<double>  ctuneDispSpanHz_{0.0}; // #174 CTUNE Stage2 — display span (Hz, from WdspEngine.spanHz; 0=unknown→full IQ)
     std::atomic<int>     ctuneFiltLoHz_{0};   // #174 CTUNE Stage2 — signed RX filter low edge (Hz)
     std::atomic<int>     ctuneFiltHiHz_{3000};// #174 CTUNE Stage2 — signed RX filter high edge (Hz)
-    std::atomic<int>     txDriveLevel_{0};      // 0..255; 0x12 C1 (16 steps)
-    // TX power model Stage 3 — per-band "PA Gain By Band" (Thetis port).
-    // 11 HF/6m bands (amateurBands() order, 160m..6m); default 100 =
+    std::atomic<int>     txDriveLevel_{0};      // 0..255 operator setpoint
+    std::atomic<int>     txEmittedDriveByte_{0}; // applyTxPower_ output (wire)
+    std::atomic<bool>    p2DrivePath_{false};   // P2 analog drive vs HL2 P1
+    // TX power model Stage 3 — per-band "PA Gain By Band".
+    // amateurBands() 160m..6m plus 11m (kPaPowerBandElevenM). Default 100 =
     // neutral.  Atomic per element: read on the power chokepoint
     // (applyTxPower_), written by the PA Gain Settings tab.  Loaded from
     // QSettings pa_gain/<band>/gain in the ctor.
-    static constexpr int    kNumPaGainBands = 11;
+    static constexpr int    kNumPaGainBands = 12;  // == lyra::kPaPowerBandCount
     static constexpr double kPaGainDefault  = 100.0;
     std::atomic<double>  paGainByBand_[kNumPaGainBands];
     // Stage 3b — per-band measured full output (W); 0 = not measured.
@@ -1943,6 +2004,7 @@ private:
     // capStatus Q_PROPERTY).  Recomputed at the drive chokepoint so it
     // tracks every drive / PA-gain / band / cap change with no extra timer.
     std::atomic<int>     capStatus_{0};
+    std::atomic<bool>    capLimiting_{false};
     // Stage B — per-band AUTO-LEARNED drive ceiling for the watts cap.
     // The TUN servo walks this UP from the conservative fallback until the
     // PWR meter reaches the cap, then locks it (approach-from-below = never
@@ -1973,8 +2035,13 @@ private:
     std::atomic<int>     capturedDrive_[kNumPaGainBands];
     int                  capServoTicks_ = 0;   // throttle (let the meter settle)
     static constexpr int    kCapServoStepTicks = 3;    // step every 3 ticks (150 ms)
-    static constexpr int    kCapServoStepRaw   = 3;    // ~1.2 % drive per step
-    static constexpr double kWattsFallbackExp  = 2.0;  // conservative un-tuned-band exp
+    static constexpr int    kCapServoStepRaw   = 3;    // P1 ~1.2 % drive per step
+    static constexpr int    kCapServoStepRawP2 = 12;   // P2 analog: ~5 % / 150 ms
+    static constexpr double kWattsFallbackExp  = 2.0;  // HL2 P1: under-shoot vs ~drive^2
+    // P2 analog HP [345] is closer to linear watts vs byte. Square-law seed
+    // overshoots the cap (e.g. 3 W / 17 W → ~42 % → ~7 W) and trips fold.
+    static constexpr double kWattsFallbackExpP2 = 1.0;
+    static constexpr double kWattsFallbackHeadroomP2 = 0.85;
     // Last TX band applyTxPower_ ran for — so a freq dial tick only
     // re-applies the power when the band (gbb) actually changed.
     std::atomic<int>     lastTxBand_{-2};

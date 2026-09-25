@@ -9,9 +9,10 @@ Quick answers to common questions and fixes. For full detail see the
 ## General
 
 **What hardware does Lyra support?**
-Hermes Lite 2 and 2+ over HPSDR Protocol 1. (Dual receiver / RX2 and
-PureSignal are on the roadmap.) Other ANAN / HPSDR radios aren't supported
-yet.
+Hermes Lite 2 and 2+ over HPSDR Protocol 1, and **BrickSDR2** over Protocol 2.
+BrickSDR2 has **SUB / RX2** (second DDC). PureSignal and ANAN family radios
+are still on the roadmap. Dual RX on Hermes Lite 2 Protocol 1 is not this
+release.
 
 **Is it free? What's the license?**
 Yes — GPL v3+ (compatible with the WDSP DSP engine it uses). See
@@ -47,7 +48,17 @@ only today. See
 
 **Do I need to "Run as administrator"?**
 No. The installer adds the firewall rules Lyra needs. If you skipped that or
-removed the rules, re‑run the installer.
+removed the rules, re‑run the installer. If Lyra **won't even launch** unless
+you elevate: close leftover `lyra.exe` in Task Manager (or reboot), then start
+normally. Current builds also start if a leftover instance's ping fails
+instead of blocking forever. "Run as administrator" is not the intended way
+to start Lyra.
+
+**Settings lists my Brick as Hermes / firmware v0.**
+A Brick2 that still reports the Hermes board ID is labelled **Brick** when
+Lyra already knows it. Firmware is **v{code/10}.{code%10}** (e.g. code 106
+→ **v10.6**), matching deskHPSDR. Dual RX needs current Brick2 FPGA; flashing
+does not change the Ethernet MAC.
 
 **It froze / connected to the wrong IP on launch.**
 Fixed in current versions: Lyra probes the remembered IP first and
@@ -82,6 +93,11 @@ at a time. The connected one is shown green/bold in the list.
 **How do I get RX audio into WSJT‑X / FLDigi / a logger?**
 Use a **Virtual Audio Cable** (VAC) as the PC output, or **TCI**. See
 **[User Guide → Digital modes](User-Guide#digital-modes--getting-rx-audio-to-another-program)**.
+**Enable VAC1** starts the engine and RX→PC. Transmit from the cable also
+needs **Settings → TX → Mic source = PC Soundcard (VAC1)** (or **Use VAC1
+as TX source**) plus a VAC **Input** device. **TCI** as mic source is
+exclusive — Lyra will not also arm VAC TX. If **Auto-enable for digital**
+is on, switch to **DIGU / DIGL**; USB turns that auto path off.
 
 ---
 
@@ -101,8 +117,11 @@ stays on RX during CW so you still see the keyed carrier.
 
 **I'm running an amplifier — anything to set first?**
 Yes — configure **TR‑sequencing** and the **RF‑delay / ATT‑on‑TX**
-protections before keying into an amp. Read
-**[User Guide → external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**.
+protections before keying into an amp. Per-band **PA Gain / Full Output (W)**
+and the optional **watts cap** live on **Settings → PA Gain** (including a
+dedicated **11m** slot). Read
+**[User Guide → external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**
+and **[Settings → PA Gain](User-Guide#settings--pa-gain)**.
 
 **JTDX won't connect over TCI (but MSHV does).**
 Fixed in current versions (the TCI audio handshake now echoes the ack JTDX

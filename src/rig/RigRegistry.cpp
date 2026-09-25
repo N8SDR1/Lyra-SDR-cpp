@@ -88,6 +88,12 @@ RadioFamily familyForDiscovery(int protocol, const QString &boardName) {
         // than guessing — none of those has a P2-capable catalog entry.
         if (boardName.startsWith(QStringLiteral("Saturn")))
             return RadioFamily::AnanP2;
+        // Brick3 is Angelia-class (deskHPSDR hermes_mode Brick3 /
+        // ANAN-100D). Brick2 and generic P2 Hermes stay BrickP2.
+        if (boardName.startsWith(QStringLiteral("Brick3")))
+            return RadioFamily::AnanP2;
+        if (boardName.startsWith(QStringLiteral("Brick")))
+            return RadioFamily::BrickP2;
         if (boardName == QStringLiteral("HermesII")  ||
             boardName == QStringLiteral("Angelia")   ||
             boardName == QStringLiteral("Orion")     ||
@@ -133,6 +139,9 @@ RigProfile rig(const QString &rigId) {
         p.audioRoute = s.value(QStringLiteral("audioRoute")).toString();
         p.firstSeen  = s.value(QStringLiteral("firstSeen")).toString();
         p.lastSeen   = s.value(QStringLiteral("lastSeen")).toString();
+        p.codeVersion = s.value(QStringLiteral("codeVersion"), 0).toInt();
+        p.betaVersion = s.value(QStringLiteral("betaVersion"), 0).toInt();
+        p.numRxs      = s.value(QStringLiteral("numRxs"), 0).toInt();
     }
     s.endGroup();
     return p;
@@ -163,6 +172,9 @@ void upsertRig(const RigProfile &p) {
     s.setValue(QStringLiteral("audioRoute"), p.audioRoute);
     s.setValue(QStringLiteral("firstSeen"), p.firstSeen);
     s.setValue(QStringLiteral("lastSeen"),  p.lastSeen);
+    s.setValue(QStringLiteral("codeVersion"), p.codeVersion);
+    s.setValue(QStringLiteral("betaVersion"), p.betaVersion);
+    s.setValue(QStringLiteral("numRxs"),      p.numRxs);
     s.endGroup();
 }
 

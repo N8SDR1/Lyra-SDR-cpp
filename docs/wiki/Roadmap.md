@@ -8,11 +8,12 @@ page.
 
 ## Major features
 
-### 🗺️ RX2 — dual receiver
+### ✅ SUB / RX2 on BrickSDR2 · 🗺️ SPLIT pile-up polish
 
-A second receiver: watch two frequencies at once, stereo-split audio
-(one receiver in each ear), a focus model for which VFO the controls follow,
-and **SPLIT** operation for working DX pile-ups. RIT/XIT extend per-receiver.
+**BrickSDR2** already runs a second receiver (DDC1): two VFOs, a second
+pan/waterfall overlay, and audio, including split-band and an off-span jump
+to the other RX. Still planned: **SPLIT** pile-up UX (dedicated TX marker /
+tri-state SUB–SPLIT) and dual RX on Hermes Lite 2 Protocol 1.
 
 ### 🗺️ PureSignal — adaptive predistortion
 
@@ -21,12 +22,13 @@ for a cleaner, stronger signal with less IMD. Requires the HL2 PureSignal
 hardware mod. (A **2-tone test generator** ships alongside it as the tune-up
 companion.)
 
-### 🗺️ HPSDR Protocol 2 + ANAN family
+### ✅ Protocol 2 on BrickSDR2 · 🗺️ ANAN family still planned
 
-Add HPSDR **Protocol 2** so the **ANAN** family (G2, G2-1K, 7000DLE, 8000, …)
-becomes first-class, alongside the existing HL2 Protocol-1 path. Other HPSDR
-Protocol-1 boards are planned too — those mostly need a **tester with the
-hardware** to bring live.
+HPSDR **Protocol 2** is live on the **BrickSDR2** (RX + TX, including radio
+mic → modulator, analog drive, watts-cap, ATT-on-TX). Making the **ANAN**
+family (G2, G2-1K, 7000DLE, 8000, …) first-class is still roadmap work —
+same protocol family, different DDC/PA/filter models, and it needs a tester
+with the hardware. Other HPSDR Protocol-1 boards are planned the same way.
 
 ## Platforms
 
@@ -40,7 +42,8 @@ these are real roadmap items, not "maybe someday."
 
 - 🗺️ **VAC2** — a second independent virtual-audio channel (e.g. a logger's
   audio separate from your digital-mode app)
-- 🗺️ **2-tone test generator** — the PureSignal / linearity tune-up tool
+- ✅ **2-tone test generator** — on the TX panel (linearity / dummy-load
+  tune-up); PureSignal still uses it as a companion when PS lands
 - 🗺️ Per-profile independent RX/TX filter lows
 - 🗺️ Continued polish across the DSP, UI, and metering as testers report back
 
@@ -54,9 +57,10 @@ features above and may change shape or timing.
 Run a radio at one location from a Lyra somewhere else, over the internet — a
 purpose-built **Lyra-to-Lyra** link that carries the DSP, compressed audio, and
 spectrum, with the operating position's controls driving the remote radio. This
-is an early idea, not a dated feature: it sits **behind RX2 and PureSignal**,
-and would only ship with **mandatory authentication, encryption, and fail-safe
-transmit** — a dropped or degraded link must never leave the transmitter keyed.
+is an early idea, not a dated feature: it sits **behind SPLIT polish and
+PureSignal**, and would only ship with **mandatory authentication, encryption,
+and fail-safe transmit** — a dropped or degraded link must never leave the
+transmitter keyed.
 
 ## Want to influence it?
 

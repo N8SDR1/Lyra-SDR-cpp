@@ -43,6 +43,10 @@ Rectangle {
     readonly property color cMuted:  "#8a9aac"
     readonly property color cDim:    "#5a7080"
     readonly property color cOn:     "#ff9a3c"   // "engaged" orange (old-Lyra dsp_btn)
+    // QQuickWidget: a direct Stream.subEnabled binding can stay stale after
+    // the SUB click (same lesson as PanadapterPanel). Vol2/MUTE2 must track
+    // the signal so RX2 gain is reachable when SUB is on.
+    property bool subOn: false
 
     // Small toggle button matching old Lyra's dsp_btn (orange when on).
     component DspToggle: Button {
@@ -73,6 +77,12 @@ Rectangle {
             elide: Text.ElideRight
             clip: true
         }
+    }
+
+    Component.onCompleted: subOn = Stream.subEnabled
+    Connections {
+        target: Stream
+        function onSubEnabledChanged() { root.subOn = Stream.subEnabled }
     }
 
     ColumnLayout {
@@ -235,8 +245,8 @@ Rectangle {
             Label { text: qsTr("Vol"); color: root.cMuted }
             LyraSlider {
                 id: volSlider
-                // 150 -> 126, paired with the LNA trim above (see there).
-                Layout.preferredWidth: 126
+                // Shorten when Vol2 is on the row so MUTE/Bal still fit.
+                Layout.preferredWidth: 78
                 from: 0.0; to: 1.0
                 value: WdspEngine.volume
                 onMoved: WdspEngine.setVolume(value)
@@ -253,7 +263,7 @@ Rectangle {
                       ? qsTr("-∞ dB")
                       : Math.round(WdspEngine.volumeDb) + qsTr(" dB")
                 color: root.cText; font.family: "Consolas"
-                Layout.preferredWidth: 52
+                Layout.preferredWidth: 44
             }
             Button {
                 text: WdspEngine.muted ? qsTr("MUTED") : qsTr("MUTE")
@@ -262,6 +272,39 @@ Rectangle {
                 onToggled: WdspEngine.setMuted(checked)
                 implicitWidth: 66; implicitHeight: 24
                 ToolTip.text: qsTr("Silence output without changing the Volume slider.")
+                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
+            }
+
+            Label {
+                text: qsTr("Vol2"); color: root.cMuted
+            }
+            LyraSlider {
+                Layout.preferredWidth: 78
+                from: 0.0; to: 1.0
+                value: WdspEngine.volumeRx2
+                onMoved: WdspEngine.setVolumeRx2(value)
+                WheelHandler {
+                    onWheel: (ev) => {
+                        var nv = WdspEngine.volumeRx2
+                                 + (ev.angleDelta.y > 0 ? 0.02 : -0.02)
+                        WdspEngine.setVolumeRx2(Math.max(0.0, Math.min(1.0, nv)))
+                    }
+                }
+            }
+            Label {
+                text: WdspEngine.volumeRx2 <= 0.0
+                      ? qsTr("-∞ dB")
+                      : Math.round(WdspEngine.volumeDbRx2) + qsTr(" dB")
+                color: root.cText; font.family: "Consolas"
+                Layout.preferredWidth: 44
+            }
+            Button {
+                text: WdspEngine.mutedRx2 ? qsTr("MUTED") : qsTr("MUTE2")
+                checkable: true
+                checked: WdspEngine.mutedRx2
+                onToggled: WdspEngine.setMutedRx2(checked)
+                implicitWidth: 66; implicitHeight: 24
+                ToolTip.text: qsTr("Silence RX2 without changing Vol2.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
 
@@ -275,8 +318,10 @@ Rectangle {
                 value: WdspEngine.balance
                 // Snap to dead-centre near 0 so it's easy to recentre.
                 onMoved: WdspEngine.setBalance(Math.abs(value) < 0.06 ? 0.0 : value)
-                ToolTip.text: qsTr("Stereo balance — pan the audio left/right "
-                    + "(centre = both channels equal; snaps to centre near the middle).")
+                ToolTip.text: root.subOn
+                    ? qsTr("Pan RX1 (left) vs RX2 (right). Centre = both equal; snaps to centre.")
+                    : qsTr("Stereo balance — pan the audio left/right "
+                        + "(centre = both channels equal; snaps to centre near the middle).")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
 

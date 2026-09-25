@@ -107,6 +107,16 @@ Item {
     // this QQuickWidget setup (same lesson as the Band panel), which
     // would leave the freq labels stale after a tune.
     property int centerHz: 0
+    property int rx2Hz: 0
+    // Same QQuickWidget lesson as rx2Hz: bind VFO B / SPLIT / key / SUB
+    // through local copies so overlays track the wire (a direct
+    // Stream.subEnabled binding can stay stale after the SUB click).
+    property int vfoBHz: 0
+    property bool splitOn: false
+    property bool txKeyed: false
+    property bool subOn: false
+    property int focusedRx: 1
+    readonly property int panTuneRx: ((subOn || splitOn) && focusedRx === 2) ? 2 : 1
     // #174 CTUN: the dial's offset from the LOCKED display centre.  Under
     // CTUN the spectrum is frozen at ctuneCenterHz, so the carrier marker +
     // filter passband must slide to (rx1FreqHz − centre) for the operator to
@@ -127,8 +137,45 @@ Item {
         return Stream.rx1FreqHz
              + (Stream.ritEnabled ? Stream.ritOffsetHz : 0)
     }
+    // Off-span ◀ RX2 / RX2 ▶ cue: the single panadapter is RX1 IQ, so
+    // "show me that frequency" means swap VFOs (RX1 + pan land on the
+    // parked RX2, RX2 keeps the band you left).  Matches TuningPanel.swapAB.
+    function jumpPanToRx2() {
+        if (!root.subOn)
+            return
+        if (Stream.ctuneEnabled)
+            Stream.setCtuneEnabled(false)
+        var a = Stream.rx1FreqHz
+        if (Stream.splitEnabled) {
+            var bSplit = Stream.vfoBHz
+            Stream.setVfoBHz(a)
+            Stream.setRx1FreqHz(bSplit)
+        } else {
+            var b = Stream.rx2FreqHz
+            Stream.setRx2FreqHz(a)
+            Stream.setRx1FreqHz(b)
+        }
+        var m = Prefs.mode
+        var bw = Prefs.rxBandwidth
+        Prefs.mode = Prefs.modeRx2
+        Prefs.rxBandwidth = Prefs.rx2Bandwidth
+        Prefs.modeRx2 = m
+        Prefs.rx2Bandwidth = bw
+        Stream.setFocusedRx(1)
+    }
+    function rx2CueTooltip() {
+        var hz = Stream.splitEnabled ? Stream.vfoBHz : Stream.rx2FreqHz
+        var mhz = (hz / 1e6).toFixed(6)
+        return qsTr("Show RX2 on the panadapter (%1 MHz)").arg(mhz)
+    }
     Component.onCompleted: {
         centerHz = effCenterHz()
+        rx2Hz = Stream.rx2FreqHz
+        vfoBHz = Stream.vfoBHz
+        splitOn = Stream.splitEnabled
+        txKeyed = Stream.txDisplayActive
+        subOn = Stream.subEnabled
+        focusedRx = Stream.focusedRx
         effMin = pan.effDbMin
         effMax = pan.effDbMax
     }
@@ -142,6 +189,21 @@ Item {
             // centre.  QML is a pure reader: just track the (possibly re-locked)
             // centre.  (The old QML hard ±halfSpan snap is gone.)
             root.centerHz = root.effCenterHz()
+        }
+        function onRx2FreqChanged() { root.rx2Hz = Stream.rx2FreqHz }
+        function onVfoBHzChanged() { root.vfoBHz = Stream.vfoBHz }
+        function onSplitEnabledChanged() {
+            root.splitOn = Stream.splitEnabled
+            root.focusedRx = Stream.focusedRx
+        }
+        function onSubEnabledChanged() {
+            root.subOn = Stream.subEnabled
+            root.rx2Hz = Stream.rx2FreqHz
+            root.focusedRx = Stream.focusedRx
+        }
+        function onFocusedRxChanged() { root.focusedRx = Stream.focusedRx }
+        function onTxDisplayActiveChanged() {
+            root.txKeyed = Stream.txDisplayActive
         }
         function onRitChanged()     { root.centerHz = root.effCenterHz() }
         function onCtuneChanged()   { root.centerHz = root.effCenterHz() }
@@ -575,23 +637,124 @@ Item {
                 y: 0
             }
 
-            // ---- SPLIT TX marker — VFO B (the transmit freq) ----
-            // Shown only in SPLIT: a SOLID vertical line at VFO B's offset
-            // from the RX centre.  LIME while armed (where TX WILL go),
-            // RED on key (the locked indication model — red = on the air).
-            // VFO B is the carrier, so its offset from the RX DDS centre =
-            // (vfoBHz − centerHz).  Off-span → it clips off-screen.
-            Rectangle {
-                visible: Stream.splitEnabled
-                z: 4
-                width: 2
-                height: spectrumArea.height
-                color: Stream.txDisplayActive ? "#ff4136" : "#a6ff00"
-                opacity: 0.85
-                x: Math.round(spectrumArea.width
-                              * (0.5 + (Stream.vfoBHz - root.centerHz)
-                                       / Math.max(1, WdspEngine.spanHz)))
-                y: 0
+            // ---- SPLIT TX overlay — VFO B (the transmit freq) ----
+            // Lime armed / red keyed.  In-span: passband + carrier at VFO B.
+            // Off-span: edge chevrons so keyed TX is still visible when VFO B
+            // is outside the RX1 pan (do not recenter the whole display).
+            Item {
+                id: splitTxMark
+                visible: root.splitOn
+                // Above band-plan colour strip + spots legend (both z:6)
+                // so off-span TX cues are not painted over at the top edge.
+                z: 12
+                anchors.fill: parent
+                readonly property real spanHz: Math.max(1, WdspEngine.spanHz)
+                readonly property real txOffHz: root.vfoBHz - root.centerHz
+                readonly property real carrierX: spectrumArea.width
+                    * (0.5 + txOffHz / spanHz)
+                readonly property bool inSpan: carrierX >= 0
+                    && carrierX <= spectrumArea.width
+                readonly property color ink: root.txKeyed ? "#ff4136" : "#a6ff00"
+                function xOfAbs(hz) {
+                    return spectrumArea.width
+                           * (0.5 + (hz - root.centerHz) / spanHz)
+                }
+                function txEdgesHz() {
+                    var carrier = root.vfoBHz
+                    var mode = (Prefs.mode || "").toUpperCase()
+                    var hi = Prefs.txBandwidth
+                    var lo = Prefs.filterLow
+                    if (mode === "CWU" || mode === "CWL" || mode === "CW")
+                        return [carrier - 150, carrier + 150]
+                    if (mode === "USB" || mode === "DIGU")
+                        return [carrier + lo, carrier + hi]
+                    if (mode === "LSB" || mode === "DIGL")
+                        return [carrier - hi, carrier - lo]
+                    if (mode === "FM") {
+                        var half = Stream.fmDeviationHz + 3000
+                        return [carrier - half, carrier + half]
+                    }
+                    return [carrier - hi, carrier + hi]
+                }
+                readonly property var edges: txEdgesHz()
+                readonly property real loX: xOfAbs(edges[0])
+                readonly property real hiX: xOfAbs(edges[1])
+
+                Rectangle {
+                    visible: splitTxMark.inSpan
+                    x: Math.min(splitTxMark.loX, splitTxMark.hiX)
+                    width: Math.max(2, Math.abs(splitTxMark.hiX - splitTxMark.loX))
+                    y: 0; height: spectrumArea.height
+                    color: splitTxMark.ink
+                    opacity: root.txKeyed ? 0.22 : 0.10
+                }
+                Rectangle {
+                    visible: splitTxMark.inSpan
+                    x: Math.round(splitTxMark.carrierX)
+                    y: 0
+                    width: 2
+                    height: spectrumArea.height
+                    color: splitTxMark.ink
+                    opacity: 0.90
+                }
+                Text {
+                    visible: splitTxMark.inSpan
+                    text: qsTr("TX")
+                    color: splitTxMark.ink
+                    font.pixelSize: 10
+                    font.bold: true
+                    x: Math.round(splitTxMark.carrierX) + 4
+                    y: 2
+                }
+                // Off-span: mid-height of the spectrum (not y=0) so the
+                // band-plan colour strip and top-right legend cannot hide it.
+                Item {
+                    id: txLeftCue
+                    visible: !splitTxMark.inSpan && splitTxMark.carrierX < 0
+                    x: 6
+                    y: Math.round((spectrumArea.height - height) / 2)
+                    width: txLeftTxt.implicitWidth + 16
+                    height: txLeftTxt.implicitHeight + 10
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 4
+                        color: "#e00a0f14"
+                        border.color: splitTxMark.ink
+                        border.width: 1
+                    }
+                    Text {
+                        id: txLeftTxt
+                        anchors.centerIn: parent
+                        text: "◀ TX"
+                        color: splitTxMark.ink
+                        font.pixelSize: 12
+                        font.bold: true
+                    }
+                }
+                Item {
+                    id: txRightCue
+                    visible: !splitTxMark.inSpan
+                             && splitTxMark.carrierX > spectrumArea.width
+                    x: spectrumArea.width - width - 6
+                    y: Math.round((spectrumArea.height - height) / 2)
+                    width: txRightTxt.implicitWidth + 16
+                    height: txRightTxt.implicitHeight + 10
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 4
+                        color: "#e00a0f14"
+                        border.color: splitTxMark.ink
+                        border.width: 1
+                    }
+                    Text {
+                        id: txRightTxt
+                        anchors.centerIn: parent
+                        text: "TX ▶"
+                        color: splitTxMark.ink
+                        font.pixelSize: 12
+                        font.bold: true
+                    }
+                }
             }
 
             // ---- RIT dial marker — where the VFO reads vs where you listen ----
@@ -715,8 +878,6 @@ Item {
                 z: 5
                 visible: Prefs.cursorReadout && specMouse.containsMouse
                          && !specMouse.tuning && specMouse.dbMode === ""
-                // Full-Hz, dot-grouped (14.234.723) so the readout shows the
-                // exact frequency under the cursor, not a 100 Hz-rounded one.
                 text: specMouse.fmtHzGrouped(specMouse.cursorHz)
                 color: "#cdd9e5"
                 font.pixelSize: 12
@@ -727,6 +888,21 @@ Item {
                                         specMouse.mouseX + 12))
                 y: Math.max(2, Math.min(spectrumArea.height - height - 2,
                                         specMouse.mouseY - 18))
+            }
+            Text {
+                z: 6
+                visible: specMouse.containsMouse && specMouse.dbMode === ""
+                text: root.panTuneRx === 2 ? qsTr("TUNE B") : qsTr("TUNE A")
+                color: root.panTuneRx === 2 ? "#a6ff00" : "#ffaa50"
+                font.pixelSize: 11
+                font.bold: true
+                font.family: "Consolas"
+                style: Text.Outline
+                styleColor: "#cc000000"
+                x: Math.max(2, Math.min(spectrumArea.width - width - 2,
+                                        specMouse.mouseX + 12))
+                y: Math.max(2, Math.min(spectrumArea.height - height - 2,
+                                        specMouse.mouseY + 4))
             }
 
             // ---- Panafall crosshair — spectrum-pane segment (paneId 1) ----
@@ -741,7 +917,7 @@ Item {
             MouseArea {
                 id: specMouse
                 anchors.fill: parent
-                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
                 hoverEnabled: true
                 readonly property int zonePx: 50
                 readonly property int dragThreshPx: 6
@@ -751,6 +927,7 @@ Item {
                 property bool rightPress: false
                 property bool rightDragged: false
                 property real rightX: 0
+                property bool middlePress: false
 
                 // dB-drag (right edge) state
                 property string dbMode: ""
@@ -814,16 +991,49 @@ Item {
                 //                      1k… land on that grid).
                 // Then offset by the CW pitch so the DDS lands the signal in
                 // the filter.
-                function tuneCarrier(carrierHz) {
+                function snapCarrier(carrierHz) {
                     var c = carrierHz
                     if (Prefs.panRound100)
                         c = Math.round(c / 100) * 100
                     else if (Prefs.panScrollStepHz > 1)
                         c = Math.round(c / Prefs.panScrollStepHz)
                               * Prefs.panScrollStepHz
-                    // Dial = carrier − CW pitch − RIT offset, so the RX DDC
-                    // (dial + RIT) still lands the carrier in the filter even
-                    // with RIT engaged.
+                    return c
+                }
+                function currentCarrierHz(rx) {
+                    if (rx === 2) {
+                        if (root.splitOn)
+                            return Stream.vfoBHz
+                        return Stream.rx2FreqHz + WdspEngine.markerOffsetHzRx2
+                    }
+                    return Stream.rx1FreqHz + WdspEngine.markerOffsetHz
+                           + (Stream.ritEnabled ? Stream.ritOffsetHz : 0)
+                }
+                function tuneVfoBAt(carrierHz) {
+                    var c = Math.round(snapCarrier(carrierHz))
+                    Stream.setVfoBHz(c)
+                    if (root.subOn)
+                        Stream.setRx2FreqHz(c - WdspEngine.markerOffsetHzRx2)
+                }
+                // Tune to an operator-facing CARRIER freq, snapped to a grid:
+                //   • "100 Hz" toggle → round to the 100 Hz grid (override).
+                //   • "Exact"        → snap to the selected Panafall step
+                //                      grid (step 1 Hz = truly exact; 10/50/
+                //                      1k… land on that grid).
+                // Then offset by the CW pitch so the DDS lands the signal in
+                // the filter.  rx 1 = VFO A / RX1; rx 2 = VFO B / RX2.
+                function tuneCarrier(carrierHz, rx) {
+                    if (rx === undefined)
+                        rx = root.panTuneRx
+                    var c = snapCarrier(carrierHz)
+                    if (rx === 2) {
+                        if (root.splitOn)
+                            Stream.setVfoBHz(Math.round(c))
+                        else
+                            Stream.setRx2FreqHz(Math.round(
+                                c - WdspEngine.markerOffsetHzRx2))
+                        return
+                    }
                     var ritOff = Stream.ritEnabled ? Stream.ritOffsetHz : 0
                     Stream.setRx1FreqHz(Math.round(
                         c - WdspEngine.markerOffsetHz - ritOff))
@@ -848,6 +1058,10 @@ Item {
                         rightPress = true
                         rightDragged = false
                         rightX = mouse.x
+                        return
+                    }
+                    if (mouse.button === Qt.MiddleButton) {
+                        middlePress = true
                         return
                     }
                     dbMode = dbModeAt(mouse.x, mouse.y)
@@ -894,6 +1108,18 @@ Item {
                                 freqAtX(rightX) - root.centerHz, 200)
                         rightPress = false
                         rightDragged = false
+                        return
+                    }
+                    if (mouse.button === Qt.MiddleButton) {
+                        if (middlePress) {
+                            if (root.panTuneRx === 2)
+                                Stream.setFocusedRx(1)
+                            else {
+                                tuneVfoBAt(freqAtX(mouse.x))
+                                Stream.setFocusedRx(2)
+                            }
+                        }
+                        middlePress = false
                         return
                     }
                     if (dbMode === "" && tuning && !dragged) {
@@ -983,11 +1209,10 @@ Item {
                         WdspEngine.setZoom(WdspEngine.zoom
                             * (wheel.angleDelta.y > 0 ? 1.25 : 0.8))
                     } else {
-                        // Wheel = tune by the Panafall step (Display panel).
                         var dir = wheel.angleDelta.y > 0 ? 1 : -1
-                        var carrier = Stream.rx1FreqHz + WdspEngine.markerOffsetHz
-                                      + (Stream.ritEnabled ? Stream.ritOffsetHz : 0)
-                        tuneCarrier(carrier + dir * Prefs.panScrollStepHz)
+                        var rx = root.panTuneRx
+                        tuneCarrier(currentCarrierHz(rx)
+                                    + dir * Prefs.panScrollStepHz, rx)
                     }
                     wheel.accepted = true
                 }
@@ -1205,6 +1430,168 @@ Item {
                 }
             }
 
+            // ---- RX2 passband (SUB) — same panadapter, second overlay ----
+            // z above the band-plan strip (z:6) so off-span RX2 cues are not
+            // painted over at the top edge (same lesson as SPLIT TX).
+            Item {
+                id: passbandRx2
+                visible: root.subOn
+                anchors.fill: parent
+                z: 12
+                readonly property real spanHz: Math.max(1, WdspEngine.spanHz)
+                readonly property real rx2OffHz: root.rx2Hz - root.centerHz
+                readonly property real carrierX: spectrumArea.width
+                    * (0.5 + (rx2OffHz + WdspEngine.markerOffsetHzRx2) / spanHz)
+                function xOf(offHz) {
+                    return spectrumArea.width
+                           * (0.5 + (offHz + rx2OffHz) / spanHz)
+                }
+                readonly property real loX: xOf(WdspEngine.passbandLowHzRx2)
+                readonly property real hiX: xOf(WdspEngine.passbandHighHzRx2)
+                readonly property real visLo:
+                    Math.max(0, Math.min(loX, hiX))
+                readonly property real visHi:
+                    Math.min(spectrumArea.width, Math.max(loX, hiX))
+                readonly property bool inSpan: visHi > visLo + 0.5
+
+                Rectangle {
+                    visible: passbandRx2.inSpan
+                    x: passbandRx2.visLo
+                    width: Math.max(2, passbandRx2.visHi - passbandRx2.visLo)
+                    y: 0; height: spectrumArea.height
+                    color: "#34c759"
+                    opacity: 0.18
+                }
+                Rectangle {
+                    visible: passbandRx2.carrierX >= 0
+                             && passbandRx2.carrierX <= spectrumArea.width
+                    x: Math.round(passbandRx2.carrierX)
+                    y: 0
+                    width: 2
+                    height: spectrumArea.height
+                    color: "#34c759"
+                    opacity: 0.85
+                }
+                Repeater {
+                    model: 2
+                    delegate: Item {
+                        required property int index
+                        readonly property bool isLo: index === 0
+                        visible: {
+                            var px = isLo ? passbandRx2.loX : passbandRx2.hiX
+                            return px >= -4 && px <= spectrumArea.width + 4
+                        }
+                        x: (isLo ? passbandRx2.loX : passbandRx2.hiX) - width / 2
+                        y: 0; width: 9; height: spectrumArea.height
+                        Rectangle {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: 0; width: 2; height: parent.height
+                            color: "#8fe08f"; opacity: 0.9
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.SizeHorCursor
+                            preventStealing: true
+                            property double lastMs: 0
+                            onPositionChanged: (m) => {
+                                var nowMs = Date.now()
+                                if (nowMs - lastMs < 33) return
+                                lastMs = nowMs
+                                var px = mapToItem(spectrumArea, m.x, m.y).x
+                                var off = (px / Math.max(1, spectrumArea.width)
+                                           - 0.5) * passbandRx2.spanHz
+                                          - passbandRx2.rx2OffHz
+                                var mode = Prefs.modeRx2
+                                var isSsbOrDig = (mode === "USB" || mode === "LSB"
+                                               || mode === "DIGU" || mode === "DIGL")
+                                if (isSsbOrDig) {
+                                    var isLsb = (mode === "LSB" || mode === "DIGL")
+                                    var isInnerEdge = isLsb ? !isLo : isLo
+                                    if (isInnerEdge) {
+                                        var flo = Math.abs(off)
+                                        Prefs.filterLow =
+                                            Math.max(0, Math.min(500, Math.round(flo)))
+                                    } else {
+                                        Prefs.rx2Bandwidth =
+                                            WdspEngine.bandwidthForModeEdge(mode, off)
+                                    }
+                                } else {
+                                    Prefs.rx2Bandwidth =
+                                        WdspEngine.bandwidthForModeEdge(mode, off)
+                                }
+                            }
+                        }
+                    }
+                }
+                Item {
+                    visible: !passbandRx2.inSpan && passbandRx2.hiX < 4
+                    x: 6
+                    y: Math.round((spectrumArea.height - height) / 2)
+                    width: rx2LeftTxt.implicitWidth + 16
+                    height: rx2LeftTxt.implicitHeight + 10
+                    z: 1
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 4
+                        color: rx2LeftMA.containsMouse ? "#e0183a28" : "#e00a0f14"
+                        border.color: "#34c759"
+                        border.width: 1
+                    }
+                    Text {
+                        id: rx2LeftTxt
+                        anchors.centerIn: parent
+                        text: "◀ RX2"
+                        color: "#8fe08f"
+                        font.pixelSize: 12
+                        font.bold: true
+                    }
+                    MouseArea {
+                        id: rx2LeftMA
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.jumpPanToRx2()
+                        ToolTip.visible: containsMouse && Prefs.tooltipsEnabled
+                        ToolTip.delay: 400
+                        ToolTip.text: root.rx2CueTooltip()
+                    }
+                }
+                Item {
+                    visible: !passbandRx2.inSpan
+                             && passbandRx2.loX > spectrumArea.width - 4
+                    x: spectrumArea.width - width - 6
+                    y: Math.round((spectrumArea.height - height) / 2)
+                    width: rx2RightTxt.implicitWidth + 16
+                    height: rx2RightTxt.implicitHeight + 10
+                    z: 1
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 4
+                        color: rx2RightMA.containsMouse ? "#e0183a28" : "#e00a0f14"
+                        border.color: "#34c759"
+                        border.width: 1
+                    }
+                    Text {
+                        id: rx2RightTxt
+                        anchors.centerIn: parent
+                        text: "RX2 ▶"
+                        color: "#8fe08f"
+                        font.pixelSize: 12
+                        font.bold: true
+                    }
+                    MouseArea {
+                        id: rx2RightMA
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.jumpPanToRx2()
+                        ToolTip.visible: containsMouse && Prefs.tooltipsEnabled
+                        ToolTip.delay: 400
+                        ToolTip.text: root.rx2CueTooltip()
+                    }
+                }
+            }
+
             // ---- Band-plan overlay (top strip: segments / edges /
             // landmarks) ----  Advisory amateur band plan from BandPlan
             // (region + data) gated by the Prefs layer toggles.  Maps a
@@ -1247,11 +1634,11 @@ Item {
                 // key-down.  Returns { out: bool, text: string }.  Advisory
                 // only; nothing here inhibits TX.
                 readonly property var txWarn: {
-                    if (!Stream.txDisplayActive || !Prefs.bandPlanTxWarn
+                    if (!root.txKeyed || !Prefs.bandPlanTxWarn
                         || BandPlan.region === "NONE")
                         return { out: false, text: "" }
-                    var carrier = Stream.splitEnabled ? Stream.vfoBHz
-                                                      : Stream.rx1FreqHz
+                    var carrier = root.splitOn ? root.vfoBHz
+                                               : Stream.rx1FreqHz
                     // If the operator has enabled the 11m/CB band and is
                     // tuned there, this is a deliberate non-amateur band —
                     // don't nag "outside the amateur bands".
@@ -1803,15 +2190,12 @@ Item {
             // stray wiggle can't retune.
             MouseArea {
                 anchors.fill: parent
-                acceptedButtons: Qt.LeftButton
+                acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                 cursorShape: Qt.CrossCursor
                 hoverEnabled: true
                 property bool dragged: false
                 property real downX: 0
                 onPressed: (m) => { dragged = false; downX = m.x }
-                // Panafall crosshair over the waterfall (pane 2): publish X + Y
-                // so the vertical rail tracks and the Crosshair style's
-                // horizontal arm can draw here too.
                 onMouseXChanged: root.panafallSetCursor(2, mouseX, mouseY,
                                                         containsMouse)
                 onMouseYChanged: root.panafallSetCursor(2, mouseX, mouseY,
@@ -1823,8 +2207,15 @@ Item {
                 }
                 onReleased: (m) => {
                     if (dragged) return
-                    // Under CTUN, a click inside the passband must not jump the
-                    // 0-beat to the cursor (matches the spectrum).
+                    if (m.button === Qt.MiddleButton) {
+                        if (root.panTuneRx === 2)
+                            Stream.setFocusedRx(1)
+                        else {
+                            specMouse.tuneVfoBAt(specMouse.freqAtX(m.x))
+                            Stream.setFocusedRx(2)
+                        }
+                        return
+                    }
                     if (!(Stream.ctuneEnabled && specMouse.inPassband(m.x)))
                         specMouse.tuneCarrier(specMouse.freqAtX(m.x))
                 }
@@ -1834,9 +2225,10 @@ Item {
                             * (wheel.angleDelta.y > 0 ? 1.25 : 0.8))
                     } else {
                         var dir = wheel.angleDelta.y > 0 ? 1 : -1
-                        var carrier = Stream.rx1FreqHz + WdspEngine.markerOffsetHz
-                                      + (Stream.ritEnabled ? Stream.ritOffsetHz : 0)
-                        specMouse.tuneCarrier(carrier + dir * Prefs.panScrollStepHz)
+                        var rx = root.panTuneRx
+                        specMouse.tuneCarrier(
+                            specMouse.currentCarrierHz(rx)
+                            + dir * Prefs.panScrollStepHz, rx)
                     }
                     wheel.accepted = true
                 }

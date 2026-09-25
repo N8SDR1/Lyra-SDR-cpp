@@ -65,10 +65,19 @@ generic loop. (A TX-bit change forces an immediate DDC0-freq C&C re-send at
 
 > **nddc=4 on HL2.** DDC count encoded `C4 |= (nddc-1)<<3` (`:968`) and in the
 > start/force frame (`:118`). The DDC2/DDC3 freq slots are hardwired to
-> `tx[0].frequency` (cases 5/6, `:1023`/`:1036`; case 7/`:1046` = DDC4/RX5) — the **non-PS / Hermes-II
-> mirror**, NOT the HL2 PureSignal feedback path. **HL2 PS feedback is DDC0(+DDC1)
-> via the `cntrl1=4` ADC-mux** (see §5.1/§5.2), a different mechanism — do not
-> conflate them.
+> `tx[0].frequency` (cases 5/6, `:1023`/`:1036`; case 7/`:1046` = DDC4/RX5).
+> **⚠ CORRECTED 2026-09-11 (RTL-verified; supersedes §5.1/§5.2 below):**
+> DDC2/DDC3 @ TX freq **ARE** the HL2 PureSignal feedback path — **DDC2 =
+> PA-coupler/ADC @ TX = feedback (`pscc rx`), DDC3 = DAC loopback @ TX =
+> reference (`pscc tx`)**, consumed via the existing `twist(DDC2,DDC3)` →
+> router source 1. The HL2+ ak4951v4 gateware RTL confirms: the 2nd mixer
+> ("for PureSignal support") feeds receivers 1&3 with
+> `(tx_on & pure_signal) ? tx_data_dac : adc`. **The earlier "DDC0/DDC1 via
+> `cntrl1=4` ADC-mux" model in §5.1/§5.2 is WRONG** — `cntrl1` never reaches
+> the P1 wire (its `rx_adc` field is P2-only). PS enable = the one bit
+> `C0=0x14 C2 bit6`; `nddc=4` unchanged. Authoritative:
+> `docs/architecture/hl2_puresignal_plan.md §2` + memory
+> `project_lyra_cpp_puresignal`.
 
 ### 1.3 EP6 radio→host TX telemetry (`MetisReadThreadMainLoop_HL2`, `:422-586`)
 - Control bytes `ControlBytesIn[0..4] = bptr[3..7]` (`:475-476`). HL2 first checks
@@ -380,6 +389,18 @@ owning source drops.
 ---
 
 ## 5. PureSignal — build-requirements map
+
+> **⚠ SUPERSEDED on the HL2-feedback-DDC point (2026-09-11, RTL-verified).**
+> §5.1 / §5.2 / §5.5 / §5.6 below describe HL2/P1 PS feedback as
+> **DDC0(+DDC1) via a `cntrl1=4` ADC-mux**. That is **WRONG**: `cntrl1` /
+> `rx_adc` never reaches the P1 wire (it is emitted only in the P2 `CmdRx`
+> packet), and the HL2+ ak4951v4 gateware RTL shows HL2 PS feedback is on
+> **DDC2 (PA/ADC @ TX = feedback → `pscc rx`) + DDC3 (DAC loopback @ TX =
+> reference → `pscc tx`)** — the already-correct `twist(DDC2,DDC3)` → router
+> source 1. PS enable = the single wire bit `C0=0x14 C2 bit6`; keep `nddc=4`.
+> Everything else here (WDSP modules §5.3, FSM §5.4, the P2 branch which uses
+> DDC0=fb/DDC1=ref) stands. Authoritative build map:
+> `hl2_puresignal_plan.md §2` + memory `project_lyra_cpp_puresignal`.
 
 PS needs two synced I/Q streams during TX: **TX reference** (what we send) and
 **RX feedback** (PA output via a directional coupler). On HL2 both come back as

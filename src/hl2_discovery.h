@@ -62,6 +62,7 @@
 #include <QUdpSocket>
 #include <QTimer>
 #include <QList>
+#include <QStringList>
 #include <QSet>
 #include <QVariantMap>
 #include <cstdint>
@@ -111,6 +112,13 @@ public:
                                    int codeVersion, int betaVersion,
                                    bool busy, int numRxs, int protocol = 1);
     Q_INVOKABLE QVariantMap savedRadio() const;
+
+    // Operator-facing firmware string, matching deskHPSDR discovery.c:
+    //   P1: "v{code}.{beta}"  (HL2 gateware, e.g. v74.0)
+    //   P2: "v{code/10}.{code%10}" plus ".{beta}" when beta is set
+    //       (FPGA 106 → v10.6; 21 with beta 18 → v2.1.18).
+    static QString formatFirmware(int protocol, int codeVersion,
+                                  int betaVersion);
 
     // Remove a radio from persistence: clears the remembered record
     // (lastRadio group) AND the auto-connect IP (radio/lastIp) when
@@ -168,6 +176,10 @@ private:
         QHostAddress broadcast;   // may be null if the OS didn't supply one
     };
     QList<LocalIf> localIPv4Interfaces() const;
+    // Known radio IPs to ALSO hit with a directed unicast probe each sweep
+    // (Thetis's cross-subnet mechanism): the persisted knownRadios/ips list
+    // plus lastRadio/ip and radio/lastIp, de-duped + IPv4-validated.
+    QStringList knownRadioIps() const;
     static QByteArray buildDiscoveryPacket();     // P1 (Metis) — 63 B
     static QByteArray buildDiscoveryPacketP2();   // P2 (openHPSDR) — 60 B
     bool parseReply(const QByteArray &data,
@@ -181,6 +193,13 @@ private:
     std::vector<std::unique_ptr<QUdpSocket>> sockets_;
     // Per-socket subnet-directed broadcast, index-aligned with sockets_.
     std::vector<QHostAddress>           socketBroadcast_;
+    // Directed-unicast leg (Thetis cross-subnet parity): the known radio IPs
+    // this sweep ALSO unicasts the P1+P2 probe to, from each per-NIC socket in
+    // sendBroadcastFromAllSockets().  Captured at scan() start; replies land on
+    // the shared onReadyRead + foundMacs_ de-dup.  No extra socket — reuses the
+    // per-NIC sockets_ so the probe fans out every interface (robust on a
+    // multi-NIC host), exactly as Thetis does.
+    QStringList                         sweepKnownIps_;
     QSet<QString>                       foundMacs_;
     QTimer                              deadline_;
     QTimer                              attemptTimer_;

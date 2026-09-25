@@ -144,6 +144,7 @@ ParamEq::Band ParamEq::band(int i) const {
 
 void ParamEq::reset() {
     for (auto &s : state_) { s.z1 = 0.0; s.z2 = 0.0; }
+    for (auto &s : stateR_) { s.z1 = 0.0; s.z2 = 0.0; }
 }
 
 void ParamEq::process(float *x, int n) {
@@ -221,6 +222,42 @@ void ParamEq::processMonoDup(double *x, int n) {
         const double out = y * mk;
         x[2 * s + 0] = out;                    // write BOTH lanes — keep L==R
         x[2 * s + 1] = out;
+    }
+}
+
+void ParamEq::processStereoIndependent(double *x, int n) {
+    if (stageDirty_.load(std::memory_order_acquire)) {
+        if (stageMtx_.try_lock()) {
+            active_ = staged_;
+            stageDirty_.store(false, std::memory_order_release);
+            stageMtx_.unlock();
+        }
+    }
+    if (bypass_.load(std::memory_order_relaxed)) return;
+    const double mk = makeupLin_.load(std::memory_order_relaxed);
+
+    for (int s = 0; s < n; ++s) {
+        double yL = x[2 * s + 0];
+        double yR = x[2 * s + 1];
+        for (int b = 0; b < kNumBands; ++b) {
+            const Coeffs &c = active_[b];
+            {
+                State &st = state_[b];
+                const double in = yL;
+                yL = c.b0 * in + st.z1;
+                st.z1 = c.b1 * in - c.a1 * yL + st.z2;
+                st.z2 = c.b2 * in - c.a2 * yL;
+            }
+            {
+                State &st = stateR_[b];
+                const double in = yR;
+                yR = c.b0 * in + st.z1;
+                st.z1 = c.b1 * in - c.a1 * yR + st.z2;
+                st.z2 = c.b2 * in - c.a2 * yR;
+            }
+        }
+        x[2 * s + 0] = yL * mk;
+        x[2 * s + 1] = yR * mk;
     }
 }
 

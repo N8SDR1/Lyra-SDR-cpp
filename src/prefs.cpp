@@ -90,7 +90,9 @@ constexpr auto kDspGrouped = "visuals/dspPanelsGrouped";
 constexpr auto kOptGrouped = "visuals/optionsPanelsGrouped";
 constexpr auto kZoom   = "panadapter/zoom";
 constexpr auto kRxMode = "modefilter/mode";
+constexpr auto kRxModeRx2 = "modefilter/modeRx2";
 constexpr auto kBwPrefix = "modefilter/bw/";   // + <MODE>
+constexpr auto kBwPrefixRx2 = "modefilter/bw_rx2/";   // + <FAMILY>
 // TX Component 8c — per-mode TX bandwidth + the lock flag.  Prefix
 // mirrors kBwPrefix so a future Settings sweep can read both with
 // one wildcard.
@@ -114,6 +116,7 @@ constexpr auto kBpTxWarn   = "band_plan/tx_warn";
 constexpr auto kBpColorPfx = "band_plan/color_";   // + <kind>
 constexpr auto kCbBand     = "bands/cb_enabled";
 constexpr auto kPanStep    = "panadapter/scroll_step_hz";
+constexpr auto kSplitShift = "tx/splitShiftHz/";   // + MODE
 constexpr auto kPanRound   = "panadapter/round_100hz";
 constexpr auto kDebugLog   = "debug/logging";
 // Task #36 — Hardware PTT input opt-in (default OFF per §10 Q#1).
@@ -253,6 +256,7 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     optionsPanelsGrouped_ = s.value(kOptGrouped, false).toBool();
     zoom_             = std::clamp(s.value(kZoom, 1.0).toDouble(), 1.0, 32.0);
     mode_             = s.value(kRxMode, QStringLiteral("USB")).toString();
+    modeRx2_          = s.value(kRxModeRx2, QStringLiteral("USB")).toString();
     // Per-FAMILY RX bandwidth (bwFamilyKey): USB/LSB share "SSB", etc.
     // Load the family key; if absent, migrate a legacy per-exact-mode
     // value (older installs stored "<prefix>USB" / "LSB" / …).  Families
@@ -263,6 +267,13 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
         QVariant v = s.value(QString(kBwPrefix) + fam);   // new family key
         if (!v.isValid()) v = s.value(QString(kBwPrefix) + m);  // legacy exact-mode
         if (v.isValid()) bwByMode_.insert(fam, v.toInt());
+    }
+    for (const QString &m : kModes) {
+        const QString fam = bwFamilyKey(m);
+        if (bwByModeRx2_.contains(fam)) continue;
+        QVariant v = s.value(QString(kBwPrefixRx2) + fam);
+        if (!v.isValid()) v = s.value(QString(kBwPrefixRx2) + m);
+        if (v.isValid()) bwByModeRx2_.insert(fam, v.toInt());
     }
     // TX Component 8c — per-family TX bandwidth, same family-collapse +
     // legacy migration as RX BW.
@@ -305,6 +316,11 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     }
     cbBandEnabled_ = s.value(kCbBand, false).toBool();
     panScrollStepHz_ = s.value(kPanStep, 1000).toInt();
+    for (const QString &m : kModes) {
+        const QVariant v = s.value(QString(kSplitShift) + m);
+        if (v.isValid())
+            splitShiftHz_.insert(m, v.toInt());
+    }
     panRound100_ = s.value(kPanRound, false).toBool();
     debugLogging_ = s.value(kDebugLog, false).toBool();
     // Task #36 — HW PTT opt-in.  Default false (operator must explicitly
@@ -1018,6 +1034,31 @@ void Prefs::setMode(const QString &m) {
     emit txBandwidthChanged();
 }
 
+void Prefs::setModeRx2(const QString &m) {
+    if (m.isEmpty() || m == modeRx2_) {
+        return;
+    }
+    modeRx2_ = m;
+    QSettings().setValue(kRxModeRx2, m);
+    emit modeRx2Changed();
+    emit rx2BandwidthChanged();
+}
+
+int Prefs::rx2Bandwidth() const {
+    return bwByModeRx2_.value(bwFamilyKey(modeRx2_),
+                              defaultBandwidthFor(modeRx2_));
+}
+
+void Prefs::setRx2Bandwidth(int hz) {
+    if (hz <= 0 || hz == rx2Bandwidth()) {
+        return;
+    }
+    const QString key = bwFamilyKey(modeRx2_);
+    bwByModeRx2_.insert(key, hz);
+    QSettings().setValue(QString(kBwPrefixRx2) + key, hz);
+    emit rx2BandwidthChanged();
+}
+
 void Prefs::setRxBandwidth(int hz) {
     if (hz <= 0 || hz == rxBandwidth()) {
         return;
@@ -1271,6 +1312,25 @@ void Prefs::setCbBandEnabled(bool v) {
         QSettings().setValue(kCbBand, v);
         emit cbBandEnabledChanged();
     }
+}
+
+int Prefs::splitShiftHz(const QString &mode) const {
+    const QString m = mode.toUpper();
+    if (splitShiftHz_.contains(m))
+        return splitShiftHz_.value(m);
+    if (m.startsWith(QLatin1String("CW")))
+        return 1000;
+    return 5000;
+}
+
+void Prefs::setSplitShiftHz(const QString &mode, int hz) {
+    const QString m = mode.toUpper();
+    if (m.isEmpty())
+        return;
+    if (splitShiftHz_.contains(m) && splitShiftHz_.value(m) == hz)
+        return;
+    splitShiftHz_.insert(m, hz);
+    QSettings().setValue(QString(kSplitShift) + m, hz);
 }
 
 void Prefs::setPanScrollStepHz(int hz) {

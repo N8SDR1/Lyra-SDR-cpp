@@ -5,6 +5,8 @@
 #include <QStringList>
 #include <QVariantMap>
 
+#include <array>
+
 namespace lyra {
 
 const std::vector<Band> &amateurBands() {
@@ -80,6 +82,41 @@ int cbBandIndexForFreq(int hz) {
         }
     }
     return -1;
+}
+
+const char *paPowerBandName(int idx) {
+    const auto &a = amateurBands();
+    if (idx >= 0 && idx < static_cast<int>(a.size()))
+        return a[static_cast<size_t>(idx)].name;
+    if (idx == kPaPowerBandElevenM)
+        return "11m";
+    return "";
+}
+
+int paPowerBandIndexForFreq(int hz) {
+    const int a = bandIndexForFreq(hz);
+    if (a >= 0)
+        return a;
+    if (cbBandIndexForFreq(hz) >= 0)
+        return kPaPowerBandElevenM;
+    return -1;
+}
+
+int paPowerBandMidHz(int idx) {
+    const auto &a = amateurBands();
+    if (idx >= 0 && idx < static_cast<int>(a.size()))
+        return (a[static_cast<size_t>(idx)].low + a[static_cast<size_t>(idx)].high) / 2;
+    if (idx == kPaPowerBandElevenM) {
+        const auto &cb = cbBands();
+        if (!cb.empty())
+            return (cb[0].low + cb[0].high) / 2;
+    }
+    return 0;
+}
+
+std::array<int, kPaPowerBandCount> paPowerBandDisplayOrder() {
+    return {0, 1, 2, 3, 4, 5, 6, 7, 8,
+            kPaPowerBandElevenM, 9, 10};
 }
 
 int n2adrOcPattern(int bandIndex, bool transmitting) {

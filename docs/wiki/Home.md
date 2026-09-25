@@ -2,9 +2,9 @@
 
 <img src="https://n8sdr1.github.io/Lyra-SDR-cpp/logo.png" width="120" alt="Lyra logo">
 
-# Lyra — Hermes Lite 2 / 2+ SDR Transceiver
+# Lyra — Hermes Lite 2 / 2+ and BrickSDR2 SDR Transceiver
 
-**A native C++23 / Qt 6 SDR transceiver for the Hermes Lite 2 / 2+ — full receive *and* transmit, a GPU-accelerated panadapter, and a studio-grade TX audio rack. No Python, no GIL, nothing in the signal path but native code.**
+**A native C++23 / Qt 6 SDR transceiver for the Hermes Lite 2 / 2+ (Protocol 1) and BrickSDR2 (Protocol 2) — full receive *and* transmit, a GPU-accelerated panadapter, and a studio-grade TX audio rack. No Python, no GIL, nothing in the signal path but native code.**
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D6?logo=windows&logoColor=white)](PC-Requirements)
 [![Latest release](https://img.shields.io/github/v/release/N8SDR1/Lyra-SDR-cpp?label=latest&color=2f81f7)](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest)
@@ -42,9 +42,10 @@ wired Ethernet link to the radio.
 
 | Radio | Status |
 |---|---|
-| **Hermes Lite 2** | ✅ Supported |
-| **Hermes Lite 2+ (AK4951)** | ✅ Supported |
-| ANAN family (HPSDR Protocol 2) | 🗺️ Planned |
+| **Hermes Lite 2** | ✅ Supported (Protocol 1) |
+| **Hermes Lite 2+ (AK4951)** | ✅ Supported (Protocol 1) |
+| **BrickSDR2** | ✅ Supported (Protocol 2) |
+| ANAN family (HPSDR Protocol 2) | 🗺️ Planned *(P2 wire is live on Brick; ANAN models still need bring-up)* |
 | Other HPSDR Protocol-1 boards | 🗺️ Planned *(needs a tester with the hardware)* |
 
 Full detail on the **[Supported Radios](Supported-Radios)** page.
@@ -61,7 +62,8 @@ Full detail on the **[Supported Radios](Supported-Radios)** page.
 
 ✅ Full **receive** (all modes, the complete WDSP noise/filter toolkit, RX EQ,
 captured-noise reduction, CTUN, RIT) · ✅ Full **transmit** — SSB / AM / SAM /
-DSB / FM / CW plus digital over TCI & VAC · ✅ a **native TX audio rack**
+DSB / FM / CW plus digital over TCI & VAC · ✅ **SUB / RX2 on BrickSDR2** ·
+✅ a **native TX audio rack**
 (8-band EQ, multiband Combinator, plate reverb, speech processing, voice
 keyer, VOX, TX profiles) · ✅ **CW** send + on-screen **CW decode** · ✅
 **DX spots**, **frequency calibration**, **tuner memory**, **CAT / TCI /
@@ -83,9 +85,9 @@ gear — all native, all in front of the WDSP transmitter:
 
 ## On the roadmap
 
-🗺️ **RX2** dual receiver · 🗺️ **PureSignal** adaptive predistortion · 🗺️
-**HPSDR Protocol 2 + ANAN** · 🗺️ **Linux, then macOS** · plus a 2-tone test
-generator and a second virtual-audio channel (VAC2).
+🗺️ **SPLIT** pile-up polish · 🗺️ **PureSignal** adaptive predistortion · 🗺️
+**ANAN family** as first-class Protocol 2 radios · 🗺️ **Linux, then macOS** ·
+plus a second virtual-audio channel (VAC2).
 
 Details, ordering, and status on the **[Roadmap](Roadmap)**.
 

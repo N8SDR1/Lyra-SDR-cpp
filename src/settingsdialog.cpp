@@ -511,11 +511,25 @@ QWidget *SettingsDialog::buildAudioTab() {
             tr("Auto-enable for digital modes (disable for others)"), grp);
         vacAuto->setChecked(engine_->vac1AutoDigital());
         vacAuto->setToolTip(tr(
-            "When ON, VAC1 turns on automatically whenever you switch to a "
-            "digital mode (DIGU / DIGL) and off for all other modes — the "
-            "Enable checkbox above is then the moot baseline.  Leave OFF if "
-            "you drive digital modes a different way (e.g. TCI)."));
+            "When ON, VAC1's RX path turns on in DIGU / DIGL and off for "
+            "other modes.  VAC TX (PC → radio) only follows this if a VAC "
+            "Input device is selected AND Mic source is not TCI.  If the "
+            "digital app uses TCI for CAT and TX audio, leave this OFF or "
+            "set Mic source to TCI — do not also route VAC into TX."));
         vf->addRow(vacAuto);
+
+        auto *vacAsTx = new QCheckBox(
+            tr("Use VAC1 as TX source (required to transmit through the cable)"),
+            grp);
+        vacAsTx->setChecked(prefs_ && prefs_->micSource() == QLatin1String("micpc"));
+        vacAsTx->setEnabled(!(prefs_ && prefs_->micSource() == QLatin1String("tci")));
+        vacAsTx->setToolTip(tr(
+            "Same as Settings → TX → Mic source = PC Soundcard (VAC1).  "
+            "Tick this for Fldigi / WSJT-X / VarAC over a virtual cable.  "
+            "Do NOT tick this if the digital app sends TX audio over TCI "
+            "(set Mic source to TCI instead).  TCI and VAC TX are "
+            "mutually exclusive — TCI always wins when the picker is TCI."));
+        vf->addRow(vacAsTx);
 
         // #158 DL-3 — "Driver" (PortAudio host API) picker, Thetis-faithful.
         // Selecting a driver repopulates the Output/Input device combos with
@@ -676,6 +690,32 @@ QWidget *SettingsDialog::buildAudioTab() {
                 [this](bool on) { engine_->setVac1Enabled(on); });
         connect(vacAuto, &QCheckBox::toggled, engine_,
                 [this](bool on) { engine_->setVac1AutoDigital(on); });
+        connect(vacAsTx, &QCheckBox::toggled, this, [this](bool on) {
+            if (!prefs_) return;
+            const QString cur = prefs_->micSource();
+            // Never yank TCI — a digital app using TCI audio + CAT would
+            // go silent on TX if this box stole the picker.
+            if (cur == QLatin1String("tci"))
+                return;
+            if (on) {
+                if (cur != QLatin1String("micpc"))
+                    prefs_->setMicSource(QStringLiteral("micpc"));
+            } else if (cur == QLatin1String("micpc")) {
+                prefs_->setMicSource(QStringLiteral("mic1"));
+            }
+        });
+        if (prefs_) {
+            connect(prefs_, &Prefs::micSourceChanged, vacAsTx, [this, vacAsTx]() {
+                const QString src = prefs_ ? prefs_->micSource() : QString();
+                const bool tci = src == QLatin1String("tci");
+                const bool on  = src == QLatin1String("micpc");
+                vacAsTx->setEnabled(!tci);
+                if (vacAsTx->isChecked() != on) {
+                    QSignalBlocker b(vacAsTx);
+                    vacAsTx->setChecked(on);
+                }
+            });
+        }
         // #158 DL-3 — Driver (host-API) change → persist + repopulate the
         // device combos for the new host API (preserve selection by name).
         connect(vacDriver, &QComboBox::activated, engine_,
@@ -2691,25 +2731,51 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     break;
                 }
             }
+            QString boardName = board;
             if (!it)
                 it = new QListWidgetItem(list);
+            else {
+                // Discovery names a Brick as Hermes (board_id=1) unless
+                // the MAC is 02:B2/02:B3. Keep the catalog/operator
+                // Brick label; firmware still updates from the reply.
+                const QString prev =
+                    it->data(Qt::UserRole + 2).toString();
+                if (!prev.isEmpty() &&
+                    prev.contains(QStringLiteral("Brick"),
+                                  Qt::CaseInsensitive) &&
+                    boardName.compare(QStringLiteral("Hermes"),
+                                  Qt::CaseInsensitive) == 0) {
+                    boardName = prev;
+                }
+            }
+            // A registry seed with unknown firmware must not wipe a
+            // live discovery (or a previously persisted probe).
+            if (codeVer == 0 && numRxs == 0 && it->data(Qt::UserRole + 3).isValid()) {
+                const int oldCv = it->data(Qt::UserRole + 3).toInt();
+                const int oldNr = it->data(Qt::UserRole + 6).toInt();
+                if (oldCv != 0 || oldNr != 0) {
+                    codeVer = oldCv;
+                    betaVer = it->data(Qt::UserRole + 4).toInt();
+                    numRxs  = oldNr;
+                }
+            }
             if (protocol == 2) {
-                // Protocol 2 (Saturn / ANAN G2 / Brick): DDC count in
-                // place of "rx"; fw = FPGA version from the P2 reply.
-                // Opens via the P2 bridge like any other radio.
+                // deskHPSDR discovery.c: v{code/10}.{code%10}[.beta]
+                const QString fw =
+                    lyra::ipc::HL2Discovery::formatFirmware(2, codeVer, betaVer);
                 it->setText(
-                    tr("%1  —  %2  (P2, fw v%3, %4 DDC)%5")
-                        .arg(ip, board).arg(codeVer).arg(numRxs)
+                    tr("%1  —  %2  (P2, fw %3, %4 DDC)%5")
+                        .arg(ip, boardName, fw).arg(numRxs)
                         .arg(busy ? tr("  [BUSY]") : QString()));
             } else {
                 it->setText(
                     tr("%1  —  %2  (gw v%3.%4, %5 rx)%6")
-                        .arg(ip, board).arg(codeVer).arg(betaVer).arg(numRxs)
+                        .arg(ip, boardName).arg(codeVer).arg(betaVer).arg(numRxs)
                         .arg(busy ? tr("  [BUSY]") : QString()));
             }
             it->setData(Qt::UserRole,     ip);
             it->setData(Qt::UserRole + 1, mac);
-            it->setData(Qt::UserRole + 2, board);
+            it->setData(Qt::UserRole + 2, boardName);
             it->setData(Qt::UserRole + 3, codeVer);
             it->setData(Qt::UserRole + 4, betaVer);
             it->setData(Qt::UserRole + 5, busy);
@@ -2733,7 +2799,8 @@ QWidget *SettingsDialog::buildHardwareTab() {
             addRadio(rp.lastIp, rp.mac,
                      d ? QString::fromLatin1(d->displayName)
                        : (rp.label.isEmpty() ? tr("saved radio") : rp.label),
-                     0, 0, false, 0, protocol);
+                     rp.codeVersion, rp.betaVersion, false, rp.numRxs,
+                     protocol);
         }
 
         // Show the remembered radio on open so the operator sees what
@@ -2997,14 +3064,22 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (p1Running)
                 status->setText(tr("Connected to %1").arg(stream_->targetIp()));
             else if (p2Running)
-                status->setText(tr("Connected to %1 (Saturn / ANAN G2, "
-                                   "Protocol 2 — RX)").arg(p2_->targetIp()));
+                status->setText(
+                    tr("Connected to %1 (%2, Protocol 2 — RX)")
+                        .arg(p2_->targetIp(),
+                             p2_->modelLabel().isEmpty()
+                                 ? tr("Protocol 2 radio")
+                                 : p2_->modelLabel()));
             else if (p2Open)
                 status->setText(tr("Opening %1 (Protocol 2)… click Close "
                                    "to abort.").arg(p2_->targetIp()));
             markConnected();
         };
         refresh();
+        // Unicast discovery while connected: fills FPGA fw / DDC from
+        // the live P2 reply (deskHPSDR reads the same bytes [13]/[20]/[23]).
+        if (discovery_ && p2_ && p2_->isOpen())
+            discovery_->probe(p2_->targetIp());
         connect(list, &QListWidget::currentRowChanged, radioBox,
                 [refresh](int) { refresh(); });
 
@@ -3015,9 +3090,26 @@ QWidget *SettingsDialog::buildHardwareTab() {
                         discovery_->scan(1.5, 2);
                     });
             connect(discovery_, &lyra::ipc::HL2Discovery::radioFound, radioBox,
-                    [addRadio](QString ip, QString mac, QString board,
+                    [this, addRadio](QString ip, QString mac, QString board,
                                int cv, int bv, bool busy, int nr, int proto) {
                         addRadio(ip, mac, board, cv, bv, busy, nr, proto);
+                        const QString rigId =
+                            lyra::rig::registry::rigIdForMac(mac);
+                        if (!rigId.isEmpty()) {
+                            auto p = lyra::rig::registry::rig(rigId);
+                            if (p.isValid()) {
+                                p.lastIp      = ip;
+                                p.codeVersion = cv;
+                                p.betaVersion = bv;
+                                p.numRxs      = nr;
+                                lyra::rig::registry::upsertRig(p);
+                            }
+                        }
+                        if (discovery_ && p2_ && p2_->isOpen() &&
+                            ip == p2_->targetIp()) {
+                            discovery_->rememberRadio(
+                                ip, mac, board, cv, bv, busy, nr, proto);
+                        }
                     });
             connect(discovery_, &lyra::ipc::HL2Discovery::scanFinished, radioBox,
                     [status](int count) {
@@ -3058,6 +3150,18 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 lyra::rig::registry::ensureRig(
                     mac, lyra::rig::registry::familyForDiscovery(proto, board),
                     QString(), ip);
+                {
+                    const QString rigId =
+                        lyra::rig::registry::rigIdForMac(mac);
+                    auto p = lyra::rig::registry::rig(rigId);
+                    if (p.isValid()) {
+                        p.codeVersion = it->data(Qt::UserRole + 3).toInt();
+                        p.betaVersion = it->data(Qt::UserRole + 4).toInt();
+                        p.numRxs      = it->data(Qt::UserRole + 6).toInt();
+                        p.lastIp      = ip;
+                        lyra::rig::registry::upsertRig(p);
+                    }
+                }
 
                 // If this radio carries a DIFFERENT per-rig profile than the
                 // one currently loaded, opening it under the wrong profile is
@@ -3093,6 +3197,16 @@ QWidget *SettingsDialog::buildHardwareTab() {
                         // MAC selects the radio's Layer-2 profile
                         // (model + antenna) inside the bridge.
                         p2_->open(ip, mac);
+                        if (discovery_) {
+                            discovery_->rememberRadio(
+                                ip, mac, board,
+                                it->data(Qt::UserRole + 3).toInt(),
+                                it->data(Qt::UserRole + 4).toInt(),
+                                it->data(Qt::UserRole + 5).toBool(),
+                                it->data(Qt::UserRole + 6).toInt(),
+                                proto);
+                            discovery_->probe(ip);
+                        }
                         status->setText(
                             tr("Opening %1 (Protocol 2) — RX only for now.")
                                 .arg(ip));
@@ -3641,6 +3755,11 @@ QWidget *SettingsDialog::buildHardwareTab() {
         if (prefs_) {
             auto *sbBox = new QCheckBox(
                 tr("Space bar keys PTT (push-to-talk)"), grp);
+            // NoFocus: this checkbox's whole subject IS the space bar.  If it
+            // can take keyboard focus, Space toggles it (standard QCheckBox) —
+            // so the operator trying to set the option just flips it on/off
+            // endlessly.  Mouse-click still toggles it; Space never lands here.
+            sbBox->setFocusPolicy(Qt::NoFocus);
             sbBox->setChecked(prefs_->spaceBarPttEnabled());
             sbBox->setToolTip(tr(
                 "When ON, holding the space bar transmits and releasing "
@@ -5443,13 +5562,15 @@ QWidget *SettingsDialog::buildPaGainTab() {
     grid->addWidget(new QLabel(tr("Cap tuned"),       grp), 0, 3);
 
     constexpr int kPaSpinW = 96;   // plenty for "100.0" + the up/down arrows
-    const auto &bands = lyra::amateurBands();
-    const int n = static_cast<int>(bands.size());
-    auto *tunedLabels = new QVector<QLabel *>();   // Stage B — live "tuned" marks
-    auto *fullSpins   = new QVector<QDoubleSpinBox *>();  // for the cap-uncalibrated warning
-    for (int i = 0; i < n; ++i) {
+    const int nPa = lyra::kPaPowerBandCount;
+    const auto paOrder = lyra::paPowerBandDisplayOrder();
+    auto *tunedLabels = new QVector<QLabel *>(nPa, nullptr);
+    auto *fullSpins   = new QVector<QDoubleSpinBox *>(nPa, nullptr);
+    for (int row = 0; row < nPa; ++row) {
+        const int i = paOrder[static_cast<size_t>(row)];
         grid->addWidget(
-            new QLabel(QString::fromUtf8(bands[i].name), grp), i + 1, 0);
+            new QLabel(QString::fromUtf8(lyra::paPowerBandName(i)), grp),
+            row + 1, 0);
 
         auto *gainSpin = new QDoubleSpinBox(grp);
         gainSpin->setRange(0.0, 200.0);   // Thetis range; 100 = neutral
@@ -5457,7 +5578,7 @@ QWidget *SettingsDialog::buildPaGainTab() {
         gainSpin->setSingleStep(1.0);
         gainSpin->setFixedWidth(kPaSpinW);
         gainSpin->setValue(stream_ ? stream_->paGainForBand(i) : 100.0);
-        grid->addWidget(gainSpin, i + 1, 1);
+        grid->addWidget(gainSpin, row + 1, 1);
         connect(gainSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
                 this, [this, i](double v) {
                     if (stream_) stream_->setPaGainForBand(i, v);
@@ -5472,20 +5593,20 @@ QWidget *SettingsDialog::buildPaGainTab() {
         fullSpin->setFixedWidth(kPaSpinW);
         fullSpin->setSpecialValueText(tr("—"));   // 0 shows as "not measured"
         fullSpin->setValue(stream_ ? stream_->fullOutputForBand(i) : 0.0);
-        grid->addWidget(fullSpin, i + 1, 2);
+        grid->addWidget(fullSpin, row + 1, 2);
         connect(fullSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
                 this, [this, i](double v) {
                     if (stream_) stream_->setFullOutputForBand(i, v);
                 });
-        fullSpins->append(fullSpin);
+        (*fullSpins)[i] = fullSpin;
 
         // Stage B — per-band "is the cap auto-tuned for the current cap?"
         // indicator; refreshed live so the operator watches each band turn
         // ✓ as they TUN it.
         auto *tuned = new QLabel(grp);
         tuned->setMinimumWidth(56);
-        tunedLabels->append(tuned);
-        grid->addWidget(tuned, i + 1, 3);
+        (*tunedLabels)[i] = tuned;
+        grid->addWidget(tuned, row + 1, 3);
 
         // Per-row Clear (operator ask 2026-07-03) — wipe this band's PA-Gain
         // calibration: PA Gain → 100, Full Output → 0 (which also drops the
@@ -5499,7 +5620,7 @@ QWidget *SettingsDialog::buildPaGainTab() {
                     if (fullSpin) fullSpin->setValue(0.0);
                     if (stream_)  stream_->clearCapLearnForBand(i);
                 });
-        grid->addWidget(clrPa, i + 1, 4);
+        grid->addWidget(clrPa, row + 1, 4);
     }
     rightCol->addWidget(grp);
 
@@ -5612,10 +5733,11 @@ QWidget *SettingsDialog::buildPaGainTab() {
         tr("“Cap tuned” marks:  green ✓ = this band is locked to your cap; "
            "red — = not tuned for the current cap yet.  Note that changing "
            "the cap value clears every ✓ — re-key TUN on each band to "
-           "re-learn (that is expected, not lost calibration).  While you "
-           "transmit, the TX panel also shows a live CAP chip (amber = "
-           "uncalibrated ~30% fallback, cyan = holding a tuned band at your "
-           "cap), so you can see the cap's state at a glance."),
+           "re-learn (that is expected, not lost calibration).  While Max "
+           "cap is armed, the TX panel shows a CAP chip on every band "
+           "(amber = still learning, cyan = locked).  Full brightness means "
+           "the cap is cutting Drive/Tune; dim means the slider is already "
+           "under the ceiling."),
         capGrp);
     capTicks->setWordWrap(true);
     capTicks->setProperty("paDir", true);
@@ -5646,7 +5768,7 @@ QWidget *SettingsDialog::buildPaGainTab() {
     auto refreshCapUncal = [capChk, capUncal, fullSpins, armChk]() {
         bool anyMeasured = false;
         for (auto *fs : *fullSpins)
-            if (fs->value() > 0.0) { anyMeasured = true; break; }
+            if (fs && fs->value() > 0.0) { anyMeasured = true; break; }
         const bool capOn = capChk->isChecked();
         const bool armed = armChk->isChecked();
         // Arm a FRESH cap only after ≥1 band is calibrated (the foolproof
@@ -5661,9 +5783,11 @@ QWidget *SettingsDialog::buildPaGainTab() {
     refreshCapUncal();
     connect(capChk, &QCheckBox::toggled, this,
             [refreshCapUncal](bool) { refreshCapUncal(); });
-    for (auto *fs : *fullSpins)
+    for (auto *fs : *fullSpins) {
+        if (!fs) continue;
         connect(fs, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [refreshCapUncal](double) { refreshCapUncal(); });
+    }
     rightCol->addStretch(1);
     // Max Output spans the FULL width UNDER the two columns (operator ask
     // 2026-07-03 — balances the page vs stacking it under the right column).
@@ -5697,7 +5821,10 @@ QWidget *SettingsDialog::buildPaGainTab() {
                "•  Turn the Max cap OFF while calibrating — an armed cap "
                "holds the drive down and spoils the reading.\n"
                "•  Not in CW — CW won't make a steady tune carrier; use "
-               "SSB / AM / FM."),
+               "SSB / AM / FM.\n"
+               "•  Split OFF — RF follows VFO B, but Calibrate stamps the "
+               "RX band. A leftover split TX (e.g. 20 m) makes every band "
+               "look the same."),
             mcGrp);
         mcWarn->setWordWrap(true);
         mcWarn->setProperty("lyraWarn", true);
@@ -5750,25 +5877,27 @@ QWidget *SettingsDialog::buildPaGainTab() {
         mcGrid->addWidget(new QLabel(tr("Band"),     mcGrp), 0, 0);
         mcGrid->addWidget(new QLabel(tr("Mid-band"), mcGrp), 0, 1);
         mcGrid->addWidget(new QLabel(tr("Trim"),     mcGrp), 0, 2);
-        const auto &pbands = lyra::amateurBands();
-        const int   pn     = static_cast<int>(pbands.size());
-        auto *trimLabels = new QVector<QLabel *>();
-        for (int i = 0; i < pn; ++i) {
+        const int pn = lyra::kPaPowerBandCount;
+        const auto pOrder = lyra::paPowerBandDisplayOrder();
+        auto *trimLabels = new QVector<QLabel *>(pn, nullptr);
+        for (int row = 0; row < pn; ++row) {
+            const int i = pOrder[static_cast<size_t>(row)];
             mcGrid->addWidget(
-                new QLabel(QString::fromUtf8(pbands[i].name), mcGrp), i + 1, 0);
-            const double midMHz = (pbands[i].low + pbands[i].high) / 2.0 / 1e6;
+                new QLabel(QString::fromUtf8(lyra::paPowerBandName(i)), mcGrp),
+                row + 1, 0);
+            const double midMHz = lyra::paPowerBandMidHz(i) / 1e6;
             mcGrid->addWidget(
                 new QLabel(QStringLiteral("%1 MHz").arg(midMHz, 0, 'f', 3), mcGrp),
-                i + 1, 1);
+                row + 1, 1);
             auto *tl = new QLabel(mcGrp);
             tl->setMinimumWidth(96);
-            trimLabels->append(tl);
-            mcGrid->addWidget(tl, i + 1, 2);
+            (*trimLabels)[i] = tl;
+            mcGrid->addWidget(tl, row + 1, 2);
             auto *clr = new QPushButton(tr("Clear"), mcGrp);
             clr->setFixedWidth(64);
             connect(clr, &QPushButton::clicked, this,
                     [this, i]() { if (stream_) stream_->setPwrTrimForBand(i, 1.0); });
-            mcGrid->addWidget(clr, i + 1, 3);
+            mcGrid->addWidget(clr, row + 1, 3);
         }
         mcBox->addLayout(mcGrid);
         leftCol->addWidget(mcGrp);
@@ -5783,10 +5912,28 @@ QWidget *SettingsDialog::buildPaGainTab() {
             if (!stream_) return;
             // Amber for every refusal below; flipped to green on a real cal.
             mcResult->setStyleSheet(QStringLiteral("color:#e5a54e;"));
-            const int b = lyra::bandIndexForFreq(
+            const int b = lyra::paPowerBandIndexForFreq(
                               static_cast<int>(stream_->rx1FreqHz()));
             if (b < 0) {
-                mcResult->setText(tr("Tune to an amateur band first."));
+                mcResult->setText(tr("Tune to an amateur band or 11 m first."));
+                return;
+            }
+            // Guard — Split: RF is VFO B, but this stamps the RX (VFO A) band.
+            if (stream_->splitEnabled()) {
+                auto nameOf = [](int idx) -> QString {
+                    if (idx < 0 || idx >= lyra::kPaPowerBandCount)
+                        return QStringLiteral("?");
+                    return QString::fromUtf8(lyra::paPowerBandName(idx));
+                };
+                const int txB = lyra::paPowerBandIndexForFreq(
+                    static_cast<int>(stream_->txFreqHz()));
+                const QString msg = tr(
+                    "Split is on — RF is on VFO B (%1), but Calibrate would "
+                    "write %2. Turn Split off, TUN the band you mean, then "
+                    "calibrate.")
+                    .arg(nameOf(txB), nameOf(b));
+                mcResult->setText(msg);
+                QMessageBox::warning(this, tr("Split is on"), msg);
                 return;
             }
             // Guard — CW won't make a steady tune carrier.
@@ -5812,9 +5959,9 @@ QWidget *SettingsDialog::buildPaGainTab() {
             const double entered = mcSpin->value();
             stream_->setPwrTrimForBand(b, entered / raw);
             mcResult->setStyleSheet(QStringLiteral("color:#4ccf6b;"));  // success
-            const auto &bs = lyra::amateurBands();
-            const QString bn = b < int(bs.size())
-                ? QString::fromUtf8(bs[b].name) : QString::number(b);
+            const QString bn = (b >= 0 && b < lyra::kPaPowerBandCount)
+                ? QString::fromUtf8(lyra::paPowerBandName(b))
+                : QString::number(b);
             // At FULL drive (255) the entered watts IS this band's Full Output
             // — set it too (feeds the amp cap).  Writing the spin fires its
             // valueChanged → setFullOutputForBand + the cap-gate refresh.
@@ -5871,7 +6018,21 @@ QWidget *SettingsDialog::buildPaGainTab() {
                 static const char *kChipGreen =
                     "background:#12252e; border:2px solid #4ccf6b; border-radius:4px;"
                     "color:#4ccf6b; font-weight:700; padding:3px 10px;";
-                if (stream_->txModeIsCw()) {
+                if (stream_->splitEnabled()) {
+                    const int txB = lyra::paPowerBandIndexForFreq(
+                        static_cast<int>(stream_->txFreqHz()));
+                    const QString txBn = (txB >= 0 && txB < lyra::kPaPowerBandCount)
+                        ? QString::fromUtf8(lyra::paPowerBandName(txB))
+                        : QStringLiteral("?");
+                    mcDrive->setText(
+                        tr("⚠ Split is on — RF is on VFO B (%1). Turn Split "
+                           "off before you calibrate, or every band will get "
+                           "that same watt-meter reading.")
+                            .arg(txBn));
+                    mcDrive->setStyleSheet(amber);
+                    mcChip->setText(tr("⚠  SPLIT ON — TX %1").arg(txBn));
+                    mcChip->setStyleSheet(QString::fromLatin1(kChipRed));
+                } else if (stream_->txModeIsCw()) {
                     mcDrive->setText(tr("⚠ You're in CW — switch to SSB / AM / FM "
                         "to calibrate (CW won't make a steady tune carrier)."));
                     mcDrive->setStyleSheet(amber);
@@ -5890,16 +6051,27 @@ QWidget *SettingsDialog::buildPaGainTab() {
                     mcChip->setStyleSheet(QString::fromLatin1(kChipGreen));
                 }
             }
-            const int    b     = lyra::bandIndexForFreq(
+            const int    b     = lyra::paPowerBandIndexForFreq(
                                      static_cast<int>(stream_->rx1FreqHz()));
+            const int    txB   = lyra::paPowerBandIndexForFreq(
+                                     static_cast<int>(stream_->txFreqHz()));
             const bool   keyed = stream_->moxActive() || stream_->cwKeyingActive();
-            const auto  &bs    = lyra::amateurBands();
-            if (b < 0) {
+            auto nameOf = [](int idx) -> QString {
+                if (idx < 0 || idx >= lyra::kPaPowerBandCount)
+                    return QStringLiteral("?");
+                return QString::fromUtf8(lyra::paPowerBandName(idx));
+            };
+            if (stream_->splitEnabled()) {
                 mcLive->setText(
-                    tr("Tune to an amateur band, TUN a full-drive carrier, "
-                       "then Calibrate."));
+                    tr("Split on — RX %1, TX %2. Turn Split off, then TUN "
+                       "and Calibrate.")
+                        .arg(nameOf(b), nameOf(txB)));
+            } else if (b < 0) {
+                mcLive->setText(
+                    tr("Tune to an amateur band or 11 m, TUN a full-drive "
+                       "carrier, then Calibrate."));
             } else {
-                const QString bn   = QString::fromUtf8(bs[b].name);
+                const QString bn   = nameOf(b);
                 const double  live = stream_->fwdPowerW();
                 if (keyed && !std::isnan(live) && live >= 0.25) {
                     const bool full = stream_->txDriveLevel() >= 255;
@@ -5925,8 +6097,9 @@ QWidget *SettingsDialog::buildPaGainTab() {
                 }
             }
             for (int i = 0; i < trimLabels->size(); ++i) {
-                const double t   = stream_->pwrTrimForBand(i);
-                QLabel      *lab = (*trimLabels)[i];
+                QLabel *lab = (*trimLabels)[i];
+                if (!lab) continue;
+                const double t = stream_->pwrTrimForBand(i);
                 if (std::abs(t - 1.0) < 1e-3) {
                     lab->setText(tr("—"));
                     lab->setStyleSheet(QString());
@@ -5953,8 +6126,9 @@ QWidget *SettingsDialog::buildPaGainTab() {
     auto refresh = [this, tunedLabels, capChk]() {
         const bool capOn = capChk->isChecked();
         for (int i = 0; i < tunedLabels->size(); ++i) {
-            const bool tuned = capOn && stream_ && stream_->capTunedForBand(i);
             QLabel *lab = (*tunedLabels)[i];
+            if (!lab) continue;
+            const bool tuned = capOn && stream_ && stream_->capTunedForBand(i);
             lab->setText(capOn ? (tuned ? tr("✓") : tr("—")) : QString());
             // Green ✓ = locked at the cap; red — = not yet tuned for this cap.
             lab->setStyleSheet(
@@ -6364,9 +6538,7 @@ QWidget *SettingsDialog::buildTxTab() {
         //   Mic In  — HL2/HL2+ codec mic (the v0.2.0..v0.2.2 default)
         //   TCI     — inbound TX_AUDIO_STREAM from a digital-modes
         //             TCI client (MSHV / JTDX / FlDigi / etc.)
-        //   Line In / VAC1 / VAC2 — pending v0.2.x (disabled but
-        //             visible so the dropdown layout is final;
-        //             tooltip explains each).
+        //   PC Soundcard (VAC1) — live (#158); VAC2 still pending.
         //
         // Token strings match the TCI v2 §3.3 TRX source-token enum
         // so a TCI client that sends `trx:0,true,tci` automatically
@@ -6396,10 +6568,11 @@ QWidget *SettingsDialog::buildTxTab() {
                 if (idx >= 0) combo->setCurrentIndex(idx);
             }
             combo->setToolTip(tr(
-                "TX audio source.  Pick TCI for digital modes — your TCI "
-                "client (MSHV / JTDX / FlDigi) streams audio over the TCI "
-                "WebSocket and bypasses the mic.  Line In / VAC1 / VAC2 "
-                "are spec'd in v0.2.x; hover any entry for its status."));
+                "TX audio source.  Mic In = radio codec jack.  TCI = a "
+                "TCI client streams TX audio.  PC Soundcard (VAC1) = "
+                "virtual cable / USB mic from Settings → Audio (VAC1 "
+                "Input device) — required for Fldigi / WSJT-X over VAC.  "
+                "VAC2 is not shipped yet."));
             connect(combo, qOverload<int>(&QComboBox::currentIndexChanged),
                     grp, [this, combo](int) {
                 if (!prefs_) return;

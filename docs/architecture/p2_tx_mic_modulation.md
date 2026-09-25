@@ -1,11 +1,11 @@
 # P2 TX Stage 2 — front-panel mic → modulator (SSB/AM/FM)
 
-**Status:** reference-locked, implementation started 2026-09-06.
-**Goal:** get the Brick/ANAN **front-panel mic** to actually modulate
-(SSB/AM/FM), not just TUN/two-tone. TUN/two-tone work today because they
-are **postgen** (injected at the WDSP *output*, after the modulator);
-real modulation needs audio at the modulator *input*, and Lyra currently
-feeds the modulator **zeros** (the `P2TxPump` placeholder).
+**Status:** S2a + S2b **shipped** (2026-09). Front-panel mic on UDP 1026
+is decoded and FIFO-fed into the modulator; `P2TxPump` is the 48 kHz
+cadence clock, not a zero-only placeholder.
+**Goal (original):** get the Brick **front-panel mic** to actually modulate
+(SSB/AM/FM), not just TUN/two-tone. TUN/two-tone stay **postgen** (injected
+at the WDSP *output*); real voice uses the modulator *input*.
 
 ---
 
@@ -47,38 +47,28 @@ fexchange0 → xilv → Outbound → port 1029`. Lyra even already has the
 **VAC/TCI override layer** in `xcmaster` (`use_vac_audio`/`use_tci_audio`,
 CMaster.cpp:426-439) that matches the reference source precedence.
 
-**The one missing piece:** Lyra never receives the radio's mic stream.
-`P2Session::onReadyRead` (P2Session.cpp:727-747) dispatches by sender port
-and handles only status (1025) + RX-IQ (1035+); line 747 says *"Phase D
-adds: 1026 mic, wideband."* So the modulator is fed the **`P2TxPump` zero
-placeholder** instead of real mic audio → no SSB/AM/FM RF.
+**Was the gap; closed in S2a/S2b:** `P2Session::onReadyRead` now dispatches
+mic on sender port **1026** (`parseMic`) into a FIFO; `feedTxProducer`
+drains `{I=mic, Q=0}` on the pump clock into `feedP2TxCmasterInput`. VAC/TCI
+overrides still win when selected. Residual: **S2c** (RX↔TX pre-fill / flush
+/ gap-fill) if bench shows a click or a stalled mic stream.
 
 ---
 
 ## 3. Staged plan (smallest revertable step → bench → next)
 
-- **S2a — RECEIVE + DECODE + DIAGNOSTIC (zero TX risk). ✅ IMPLEMENTED
-  2026-09-06 (built clean, unshipped).** `P2Session::onReadyRead` now has
-  a `senderPort == kPortMicFromSdr (1026)` + `size == kMicPktLen (132)`
-  case → `parseMic()` decodes 4-byte BE seq + 64×int16-BE ×1/32768,
-  tracks packet rate + peak + seq gaps, and emits one `logLine` per
-  second: `P2 mic: <N> pkt/s  peak=<x.xxx>  seqErr=<n>`. Does NOT feed the
-  modulator yet (P2TxPump still owns the zero-feed). **Bench:** confirm
-  the Brick streams mic on 1026 at ~750 pkt/s and the peak tracks your
-  voice. If NO `P2 mic:` line ever appears, the Brick isn't streaming mic
-  on 1026 (or a firewall blocks it) → that's the finding before S2b.
-- **S2b — WIRE INTO THE MODULATOR.** Feed the decoded mic `{I=mic, Q=0}`
-  into `feedP2TxCmasterInput(iq, 64)` on arrival, and retire/gate the
-  `P2TxPump` zero-feed (the mic stream becomes the continuous 48 kHz
-  input; the CMB ring absorbs its jitter). RF stays MOX-gated. Mic gain =
-  the existing Mic slider (WDSP `SetTXAPanelGain1`). **Bench:** real SSB
-  into the dummy, watch it on the panadapter + a second receiver. Confirm
-  USB/LSB sideband correct (this is also the definitive sideband test the
-  two-tone couldn't give). The VAC/TCI override stays the opt-in
+- **S2a — RECEIVE + DECODE + DIAGNOSTIC. ✅ SHIPPED.** `onReadyRead`
+  dispatches sender port **1026** / 132-byte packets → `parseMic()`
+  (BE seq + 64×int16 ×1/32768) with pkt/s, peak, and seq-gap logs. S2b
+  then FIFO-feeds that decode into the modulator.
+- **S2b — WIRE INTO THE MODULATOR. ✅ SHIPPED.** Decoded mic `{I=mic, Q=0}`
+  is FIFO-fed; `P2TxPump` ticks the 48 kHz drain into
+  `feedP2TxCmasterInput`. RF stays MOX-gated. Mic gain = the existing Mic
+  slider (WDSP `SetTXAPanelGain1`). VAC/TCI override stays the opt-in
   alternative (reference precedence).
-- **S2c — edges:** RX→TX pre-fill / TX→RX flush if bench shows a click;
-  gap-fill zeros if the mic stream stalls (network jitter) so the DUC
-  FIFO can't underrun.
+- **S2c — edges (open if bench shows it):** RX→TX pre-fill / TX→RX flush if
+  a click appears; gap-fill zeros if the mic stream stalls so the DUC FIFO
+  cannot underrun.
 
 Deferred/unchanged: CW keying (own path), EER (post-modulator), hardware
 mic-boost/line/XLR C&C bits (separate from host DSP gain).
