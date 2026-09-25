@@ -388,7 +388,7 @@ All operator-adjustable in Settings → TX.
    wheel-tune.
 
 ### 5.6 Tuning panel
-🟢 Independent **SUB** (BrickSDR2 RX2) and **SPLIT** (TX on VFO B) —
+🟢 Independent **SUB** (HL2 P1 and BrickSDR2 RX2, same ADC) and **SPLIT** (TX on VFO B) —
    not a tri-state cycle. Gray TX pips, right-click SPLIT per-mode
    1/5/10 kHz shift, TUNE A/B pan tooltip, middle-click focus swap.
 🟡 RIT toggle + ±9999 Hz offset, 1 Hz click / 10 Hz Shift+click /

@@ -14,9 +14,10 @@
 What's still open as of **v0.7.0** (2026-06-29). The list keeps shrinking —
 the big TX bring-up, the native DSP rack, CW transmit + decoder, Profiles,
 VAC, the panadapter/tuning UI, Spots, the Tuner memory, and the FM transmit
-refinements are all **shipped and on-air-confirmed**. What's left is mostly
-two large arcs (RX2/Split and PureSignal) plus a handful of smaller TX and
-CW follow-ons.
+refinements are all **shipped and on-air-confirmed**. **RX2 / SUB + SPLIT**
+later shipped on HL2 Protocol 1 and BrickSDR2 (same ADC; N2ADR follows RX1).
+What's left from this snapshot is mostly **PureSignal** plus smaller TX and
+CW follow-ons. The #96–#101 list below is historical.
 
 ---
 

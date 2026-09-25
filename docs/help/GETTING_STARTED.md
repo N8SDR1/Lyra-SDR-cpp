@@ -61,12 +61,13 @@ CPU — a one-time step. Let it finish; it opens by itself.)*
 - Turn the **Volume** up.
 - **Click on the panadapter or the waterfall** to tune to a signal, and set
   the **mode** — SSB (**USB** above 10 MHz, **LSB** below), or **AM** / **FM**.
-- On a **BrickSDR2**, **SUB** is a second receiver (independent of **SPLIT**
-  pile-up TX on VFO B). Shift+click or right-click a band chip to hop SUB
-  (**green** chip = RX2's band, **red** = RX1). Panadapter: orange **TUNE A**
-  vs lime **TUNE B**; RX2 is a **green** passband. If RX2 is off the picture,
-  click **◀ RX2** or **RX2 ▶** at the edge to swap it onto the display.
-  Details: User Guide — **Second receiver (SUB / RX2)**.
+- On **Hermes Lite 2 / 2+** and **BrickSDR2**, **SUB** is a second receiver
+  (independent of **SPLIT** pile-up TX on VFO B). Shift+click or right-click
+  a band chip to hop SUB (**green** chip = RX2's band, **red** = RX1).
+  Panadapter: orange **TUNE A** vs lime **TUNE B**; RX2 is a **green**
+  passband. If RX2 is off the picture, click **◀ RX2** or **RX2 ▶** at the
+  edge. One ADC — N2ADR / analog filter follows RX1, so cross-band SUB is
+  much weaker. Details: User Guide — **Second receiver (SUB / RX2)**.
 
 ## 5 — Talk 🎙️
 

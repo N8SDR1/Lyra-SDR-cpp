@@ -2,8 +2,9 @@
 
 **[SDRLogger+](https://n8sdr1.github.io/SDRLoggerPlus/)** is the companion
 logging program — a modern contest/DX logger by the same developer. Over an
-ordinary **TCI** connection it already drives Lyra (including **BrickSDR2 SUB /
-RX2** and **SPLIT VFO B**) and shows spots, but turning on **Combo** upgrades
+ordinary **TCI** connection it already drives Lyra (including **HL2 /
+BrickSDR2 SUB / RX2** and **SPLIT VFO B**) and shows spots, but turning on
+**Combo** upgrades
 that one-way link into a two-way *collaboration* that runs over the **same TCI
 socket** — no bridge app, no second connection, no extra port. The CW Console,
 the CW Decoder and the logger's Log-Entry row start working as one.
