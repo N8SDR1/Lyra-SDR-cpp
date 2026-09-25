@@ -30,9 +30,9 @@ These are on the roadmap, not broken:
 
 * **PureSignal** — adaptive pre-distortion (linearizer) is on the roadmap,
   not present yet.
-* **Second virtual audio cable (VAC2)** — Lyra bridges one virtual audio
-  cable today; an independent second cable (e.g. a logger separate from your
-  digital-mode app) is designed but waits on RX2.
+* **Second virtual audio cable (VAC2)** — VAC1 is the live cable. Engine
+  slots for VAC2 exist; Settings + RX2 tee (independent second device pair)
+  are next.
 * **macOS / Linux** — **Windows only.** The DSP engine and wire layer are
   Windows binaries today; Linux/macOS are planned but **not yet buildable**.
   The native Windows installer is the only supported way to run Lyra.

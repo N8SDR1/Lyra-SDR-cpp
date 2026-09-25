@@ -806,13 +806,13 @@ public:
     // Persisted (QSettings vac1/*); applied live (rebuild on enable/device,
     // SetIVACrxscale on gain).  vac1OutputDevices() is the PC output list
     // for the picker (= IvacAudio::outputDevices()).
-    bool    vac1Enabled() const           { return vac1Enabled_; }
-    QString vac1OutputDeviceName() const  { return vac1OutName_; }
-    double  vac1RxGainDb() const          { return vac1RxGainDb_; }
+    bool    vac1Enabled() const           { return vac_[kVac1Id].enabled; }
+    QString vac1OutputDeviceName() const  { return vac_[kVac1Id].outName; }
+    double  vac1RxGainDb() const          { return vac_[kVac1Id].rxGainDb; }
     // Reference "Auto Enable for Digital modes": when on, VAC1 follows the
     // operating mode (live in DIGU/DIGL, off otherwise) and the manual
     // Enable is the moot baseline; when off, the manual Enable applies.
-    bool    vac1AutoDigital() const       { return vac1AutoDigital_; }
+    bool    vac1AutoDigital() const       { return vac_[kVac1Id].autoDigital; }
     Q_INVOKABLE QStringList vac1OutputDevices() const;
     // #158 DL-3 — Thetis-faithful "Driver" (host-API) + PortAudio device
     // pickers.  vac1HostApiNames() lists host APIs that have devices (parallel
@@ -823,7 +823,7 @@ public:
     QList<int>              vac1HostApiPaIndices() const;
     Q_INVOKABLE QStringList vac1OutputDevicesFor(int paHostApi) const;
     Q_INVOKABLE QStringList vac1InputDevicesFor(int paHostApi) const;
-    QString                 vac1HostApiName() const { return vac1HostApiName_; }
+    QString                 vac1HostApiName() const { return vac_[kVac1Id].hostApiName; }
     Q_INVOKABLE void        setVac1HostApi(const QString &name);
     Q_INVOKABLE void setVac1Enabled(bool on);
     Q_INVOKABLE void setVac1OutputDeviceName(const QString &name);
@@ -833,8 +833,8 @@ public:
     // vac_preamp).  TX also arms when Auto-enable for digital modes is on,
     // mode is DIGU/DIGL, a VAC Input device is selected, AND Mic source is
     // not TCI (TCI CAT + TCI audio is left alone).
-    QString vac1InputDeviceName() const   { return vac1InName_; }
-    double  vac1TxGainDb() const          { return vac1TxGainDb_; }
+    QString vac1InputDeviceName() const   { return vac_[kVac1Id].inName; }
+    double  vac1TxGainDb() const          { return vac_[kVac1Id].txGainDb; }
     Q_INVOKABLE QStringList vac1InputDevices() const;
     Q_INVOKABLE void setVac1InputDeviceName(const QString &name);
     Q_INVOKABLE void setVac1TxGainDb(double db);
@@ -843,8 +843,8 @@ public:
     // ring depth (+ PA suggested latency); vac1VacSize = PortAudio block.  Both
     // are create-time / ring-rebuild params, so the setters reopen VAC when
     // live (like the device setters).  Carried per-profile (schema v5).
-    int     vac1LatencyMs() const         { return vac1LatencyMs_; }
-    int     vac1VacSize() const           { return vac1VacSize_; }
+    int     vac1LatencyMs() const         { return vac_[kVac1Id].latencyMs; }
+    int     vac1VacSize() const           { return vac_[kVac1Id].vacSize; }
     Q_INVOKABLE void setVac1LatencyMs(int ms);
     Q_INVOKABLE void setVac1VacSize(int frames);
     // Live rmatchV ring diagnostics for the Settings VAC tab (reference VAC1
@@ -855,12 +855,12 @@ public:
     // (cable→TX).  (The reference ivac.c comment reverses these; the code's
     // rmatchOUT/IN mapping is authoritative — Ivac.cpp:797-800.)
     Q_INVOKABLE QVariantMap vac1Diags();
-    bool    vac1CombineInput() const      { return vac1CombineInput_; }
+    bool    vac1CombineInput() const      { return vac_[kVac1Id].combineInput; }
     Q_INVOKABLE void setVac1CombineInput(bool on);
     // #161 — "Mute will mute VAC".  Reference MuteWillMuteVAC1: when set, the
     // operator mute also zeroes the RX→VAC feed (the monitor volume rides it
     // unconditionally — see dispatchAudioFrame).  Default ON.
-    bool    muteWillMuteVac() const       { return muteWillMuteVac_.load(std::memory_order_relaxed); }
+    bool    muteWillMuteVac() const       { return vac_[kVac1Id].muteWillMuteVac_.load(std::memory_order_relaxed); }
     Q_INVOKABLE void setMuteWillMuteVac(bool on);
     // #158 DL-4 — RX→VAC muted during TX (reference SetIVACmox what-flag
     // gating).  Driven off the HL2Stream MOX edge (connected in main.cpp);
@@ -1014,9 +1014,10 @@ private:
     static void aamixOutbound(int id, int nsamples, double *buff);
     // #158 (#161 UAF fix) — VAC-in → TX bridge.  Like aamixOutbound, a
     // static member so the wire's plain void(*)(int,double*) fn ptr can
-    // still reach the private vac1Active_/vacMtx_ via g_aamixOutboundSelf.
+    // still reach per-VAC active_/mtx_ via g_aamixOutboundSelf.
     // The cm_main TX pump calls it at the mic block rate when the mic
-    // source is VAC1; the vacMtx_+vac1Active_ gate (mirroring
+    // source is the selected VAC (VAC1 until V2-3); the per-id mutex+
+    // active_ gate (mirroring
     // dispatchAudioFrame) keeps xvacIN off a freed / mid-rebuilt rmatchIN
     // during a VAC device change or enable/disable.
     static void vacInboundCb(int nsamples, double *buff);
@@ -1409,37 +1410,42 @@ private:
     // the verbatim wire/AAMix.h direct port.
     lyra::wire::AAMIX aaMix_ = nullptr;
 
-    // ── #158 Stage 3 — VAC1 VAC-out (radio RX audio → a PC output
-    // device, for WSJT-X / MSHV / etc.).  The IVAC engine instance
-    // (wire/Ivac, id kVac1Id) + its Qt device layer (IvacAudio).  RX
-    // audio is teed POST-RXA — the dispatchAudioFrame `audio` param,
-    // BEFORE the operator's monitor volume/mute/balance — so a digital
-    // app receives steady-level audio regardless of how the operator
-    // rides their speaker volume (matches the reference's separate
-    // VAC vs AF-gain paths).  Fed via xvacOUT(stream=1); IvacAudio
-    // drains rmatchOUT to the sink.  vac1Active_ gates the hot-path
-    // tee; vacMtx_ serialises the mix-thread xvacOUT against
-    // main-thread (re)build/teardown so destroy_ivac can never free a
-    // ring mid-xvacOUT.  Lifecycle hangs off openRx1/closeRx1, so a
-    // sample-rate reopen rebuilds at the new audio_size/audio_rate.
-    // Bench-enabled via LYRA_VAC1_OUT (Stage 6 adds the Settings UI);
-    // VAC-in (mic → TX) is Stage 4.
-    static constexpr int kVac1Id = 0;
-    void rebuildVac1();      // reconcile: teardown then (re)start iff should-be-on
-    void teardownVac1();     // StopAudioIVAC + destroy_ivac; idempotent
+    // ── VAC (wire/Ivac) — V2-0/V2-1: two slots, only id 0 (VAC1) is
+    // started.  Public QML/Settings still speak vac1*; internals index
+    // vac_[id].  Per-id mtx_ serialises mix-thread xvacOUT / TX-pump
+    // xvacIN against main-thread rebuild/teardown.  VAC2 UI + second
+    // PortAudio stream land in V2-2.
+    static constexpr int kVacCount = 2;
+    static constexpr int kVac1Id   = 0;
+    static constexpr int kVac2Id   = 1;
+    struct VacState {
+        bool enabled      = false;
+        bool autoDigital  = false;
+        bool combineInput = true;
+        QString outName;
+        QString inName;
+        QString hostApiName;
+        double rxGainDb = 0.0;
+        double txGainDb = 3.0;
+        int    vacSize  = 2048;
+        int    latencyMs = 120;
+        std::atomic<bool> active_{false};
+        std::mutex        mtx_;
+        std::atomic<bool> muteWillMuteVac_{true};
+        std::vector<double> rxScaled_;
+    };
+    VacState vac_[kVacCount];
+    // Which VAC feeds the TX modulator.  VAC1 until V2-3; then the
+    // operator's source picker (one modulator).
+    int txSourceVacId_ = kVac1Id;
+
+    void rebuildVac(int id);   // teardown then (re)start iff should-be-on
+    void teardownVac(int id);  // StopAudioIVAC + destroy_ivac; idempotent
+    void rebuildVac1()  { rebuildVac(kVac1Id); }
+    void teardownVac1() { teardownVac(kVac1Id); }
     void applyVacEnvOnce();  // read LYRA_VAC1_OUT / _VAC_SIZE once (bench hook)
-    // Desired live state: auto-digital mode → on iff the current mode is
-    // DIGU/DIGL; otherwise the operator's manual Enable.
-    bool vac1ShouldBeOn() const;
-    // #158 DL-2 — the device layer is the reference's single full-duplex
-    // PortAudio stream owned by the wire/Ivac engine instance (StartAudioIVAC /
-    // StopAudioIVAC on kVac1Id), NOT a Qt IvacAudio member.  IvacAudio's static
-    // outputDevices()/inputDevices() still feed the Settings combos until DL-3.
-    std::atomic<bool>     vac1Active_{false};
-    std::mutex            vacMtx_;
-    // #161 — operator "Mute will mute VAC" (reference MuteWillMuteVAC1).
-    // Read on the audio thread in dispatchAudioFrame; default ON.
-    std::atomic<bool>     muteWillMuteVac_{true};
+    bool vacShouldBeOn(int id) const;
+    bool vac1ShouldBeOn() const { return vacShouldBeOn(kVac1Id); }
 
     // #59 RX EQ — engine + analyzer (RX EqModel-owned; atomic for the audio
     // thread), the digital-mode auto-bypass flag (set in setMode), and the
@@ -1499,31 +1505,11 @@ private:
     std::atomic<bool>                    cwDecodeOn_{false};
     std::atomic<bool>                    cwModeActive_{false};
     std::vector<float>                   cwMonoBuf_;
-    bool                  vac1Enabled_   = false;  // operator opt-in (Settings / env)
-    bool                  vac1AutoDigital_ = false; // auto-enable for DIGU/DIGL
-    QString               vac1OutName_;            // PC output device description ("" = none)
-    QString               vac1InName_;             // PC input device description ("" = none)
-    QString               vac1HostApiName_;        // #158 DL-3 chosen PA host API ("" = first WASAPI)
-    bool                  vacMox_ = false;         // #158 DL-4 last MOX state (re-applied on rebuild)
-    double                vac1TxGainDb_  = 3.0;    // VAC TX gain (reference default +3 dB) → vac_preamp
-    bool                  vac1CombineInput_ = true; // mono-combine VAC-in I=Q=(L+R) (reference vac_combine_input)
-    int                   vac1VacSize_   = 2048;   // VAC buffer (reference default 2048)
-    int                   vac1LatencyMs_ = 120;    // rmatchV ring depth (reference VAC default)
-    // VAC RX gain (reference "Gain RX (dB)" → vac_rx_scale → SetIVACrxscale
-    // → the mixer's input-0 gain).  Reference default 0 dB (unity).
-    // Operator-adjustable (env LYRA_VAC1_RX_GAIN_DB now; a dB spinner in
-    // Settings at Stage 6, mirroring the Thetis VAC dialog).  Stored as the
-    // linear scale SetIVACrxscale wants (0 dB = 1.0).  NOTE: the Stage-3 tap
-    // is post-RXA so it also tracks AF Gain — keep AF Gain nominal, then
-    // trim here, until a pre-AF tap lands.
-    double                vac1RxGainDb_  = 0.0;     // reference default 0 dB
+    bool                  vacMox_ = false;         // #158 DL-4 last MOX (re-applied on rebuild)
     bool                  vacEnvApplied_ = false;
-    // The IVAC mixer is a 2-input AAMix (RX audio + TX monitor) created
-    // active=3, so its mix_main WaitForMultipleObjects(…, TRUE) blocks
-    // until BOTH inputs signal Ready each block.  Stage 3 has no TX-monitor
-    // tap yet, so we feed input 1 (xvacOUT stream 2) a silence block every
-    // RX frame to keep the mixer synced — exactly as the reference feeds a
-    // silent TX monitor during RX.  Sized 2*outSize_ in rebuildVac1.
+    // Shared 2-input IVAC mixer silence for stream 2 (TX monitor) during
+    // RX.  Sized 2*outSize_ in rebuildVac(id).  Shared across VAC1/VAC2
+    // until V2-2 (same outSize_).
     std::vector<double>   vacMonSilence_;
     // #90 TX monitor — post-rack mic captured on the cm_main TX thread
     // (txMonitorTapCb), drained on the audio thread (dispatchAudioFrame,
@@ -1531,10 +1517,6 @@ private:
     lyra::dsp::MonitorRing monitorRing_;
     std::vector<double>    monScratch_;   // #90 audio-thread drain scratch (mono)
     std::vector<double>    vacMonStereo_; // #90 Route 2 — VAC stream-2 stereo feed
-    // #161 — RX audio scaled by the monitor volume(+mute) for the VAC tee
-    // (reference RXOutputGain is pre-tap).  Kept separate so the sink loop
-    // still receives the raw post-RXA `audio`.  Sized 2*outSize_ on first use.
-    std::vector<double>   vacRxScaled_;
 };
 
 } // namespace lyra::dsp
