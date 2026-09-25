@@ -16,7 +16,8 @@ up rewrite using the architecture the project should have started with.
 > https://github.com/ramdor/Thetis) for the TX baseline ChannelMaster
 > architecture.  Both upstream projects are GPL v3+; per-file copyright
 > headers are preserved in every ported file.  See [NOTICE.md](NOTICE.md)
-> and [CREDITS.md](CREDITS.md) for full attribution.
+> and [CREDITS.md](CREDITS.md) for full attribution (including testers
+> and development assistance from Cursor Grok 4.6).
 
 > ## ⚠️ Platform support — Windows only (for now)
 >
@@ -312,6 +313,20 @@ in this directory.  VS auto-configures, then F5 to build + run.
 
 Or **Qt Creator**: File -> Open File or Project -> pick `CMakeLists.txt`,
 let it configure, hit the green Run button.
+
+### Contributors
+
+- **Rick Langford (N8SDR)** — project author, architecture, bench operator.
+- **Brent Crier (N9BC)** — co-contributor and tester.
+- **Timmy Davis (KC8TYK)** — tester (v0.1 tester flight).
+- **W5UDX** — DSP2024P Plate Reverb presets and verification.
+- **Cursor Grok 4.6** ([@cursoragent](https://github.com/cursoragent),
+  SpaceXAI / Cursor) — coding assistant for implementation and debug
+  pairing on the native C++ rebuild.  Rick remains the project author;
+  this is pairing help, not a licensed-operator co-author credit.
+
+See [CREDITS.md](CREDITS.md) for testers, upstream authors, and
+full attribution.
 
 ## License
 
