@@ -231,7 +231,7 @@
 
     <section id="puresignal">
       <h2>PureSignal — adaptive predistortion</h2>
-      <p class="marquee-sub">Live on coupler-mod HL2 / HL2+ and BrickSDR2. Dummy load first. Amp View is the live GetPSDisp plot.</p>
+      <p class="marquee-sub">Live on coupler-mod HL2 / HL2+ and BrickSDR2. Amp View is the live GetPSDisp plot.</p>
       <div style="display:flex; gap:22px; align-items:flex-start; flex-wrap:wrap; justify-content:center;">
         <div class="shot" style="width:min(480px,100%); flex:1 1 320px;">
           <img src="feat-puresignal.jpg" alt="Lyra PureSignal dock and Amp View on the console — FB in the green zone" loading="lazy">
@@ -243,7 +243,7 @@
         </div>
       </div>
       <p class="shot-note" style="margin-top:18px;">
-        Attestation is off by default in Settings → TX. Keep a kilowatt linear out until PS is settled.
+        Attestation is off by default in Settings → TX. HL2 / HL2+ needs the coupler mod; BrickSDR2 uses ADC0 feedback.
         Operator detail is in the <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/User-Guide#puresignal">User Guide</a>.
       </p>
     </section>
@@ -253,7 +253,7 @@
       <div class="grid">
         <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on the Hermes&nbsp;Lite&nbsp;2 / 2+ — a complete, native HPSDR console with a real TX chain, not just a receiver.</p></div>
         <div class="card"><h3><span class="ico">📊</span> GPU panadapter</h3><p>A Vulkan-accelerated spectrum and waterfall with click-to-tune, centre-tune (CTUN), RIT / XIT, peak hold and eight colour palettes.</p></div>
-        <div class="card"><h3><span class="ico">✨</span> PureSignal</h3><p>Adaptive TX predistortion on coupler-mod HL2 / HL2+ and BrickSDR2, with a compact dock and an Amp View plot (Snap / Hold). Dummy load first — <a href="#puresignal">see it up close</a>.</p></div>
+        <div class="card"><h3><span class="ico">✨</span> PureSignal</h3><p>Adaptive TX predistortion on coupler-mod HL2 / HL2+ and BrickSDR2, with a compact dock and an Amp View plot (Snap / Hold). <a href="#puresignal">See it up close</a>.</p></div>
         <div class="card"><h3><span class="ico">🎚️</span> Studio TX chain</h3><p>8-band parametric EQ, a multiband combinator, tube-plate reverb, speech processing, a voice keyer and VOX — shape your audio like a broadcast desk, saved as recallable profiles.</p></div>
         <div class="card"><h3><span class="ico">🔇</span> Noise reduction</h3><p>WDSP noise reduction, noise blanker, auto-notch and LMS, plus a captured-noise profile that samples your own band noise and subtracts it.</p></div>
         <div class="card"><h3><span class="ico">📡</span> CW</h3><p>An on-screen CW decoder with a choice of engine — the classic fldigi reader or the <a href="#deepfist">DeepFist neural decoder</a> — plus click-to-send macros, an internal / Winkeyer keyer, and a callsign ID rendered right into your waterfall.</p></div>
