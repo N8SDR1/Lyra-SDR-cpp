@@ -1871,75 +1871,37 @@ void MainWindow::buildMenus() {
         box.setTextFormat(Qt::RichText);
         box.setIcon(QMessageBox::Information);
         const QString starName = QLatin1String(LYRA_VERSION_NAME);
-        box.setText(
-            tr("<h2 style='margin-bottom:2px'>Lyra "
-               "<span style='color:#00e5ff'>v%1</span></h2>").arg(ver)
-            + QStringLiteral(
-               "<p style='color:#e8c477;margin:0;letter-spacing:2px;"
-               "text-transform:uppercase;font-size:13px'>%1</p>").arg(starName.toHtmlEscaped())
-            + tr("<p style='color:#8a9aac;margin-top:8px'>"
-               "HPSDR transceivers — native C++23 / Qt 6 rebuild</p>"
-               "<p>A desktop SDR transceiver for HPSDR radios — the "
-               "Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 "
-               "(Protocol 2) — rebuilt in native C++ (Qt Quick + "
-               "Vulkan/RHI) — no Python, no GIL anywhere.</p>"
-               "<p style='color:#8a9aac'><i>Named for Apollo's lyre and "
-               "the constellation Lyra — home of Vega. (See the User "
-               "Guide for the full story.)</i></p>"
-               "<p>Author: <b>Rick Langford (N8SDR)</b><br>"
-               "With <b>Brent Crier (N9BC)</b> and "
-               "<b>Timmy Davis (KC8TYK)</b><br>"
-               "Development assistance: <b>Cursor Grok 4.6</b> "
-               "(SpaceXAI / Cursor)<br>"
-               "Repository: <a href='https://github.com/N8SDR1/Lyra-SDR-cpp'>"
-               "github.com/N8SDR1/Lyra-SDR-cpp</a><br>"
-               "License: <b>GPL v3 or later</b></p>"
-               "<p>Lyra is <b>free</b> and ad-free, built by a fellow ham "
-               "for the community. If it's useful to you, consider buying "
-               "the developer a coffee — 73 de N8SDR. ☕</p>"
-               "<hr style='border-color:#1a2632'>"
-               "<p style='color:#8a9aac;font-size:11px'>"
-               "<b>Inspiration and references</b> — these projects were "
-               "studied for conventions, ballistics, and protocol "
-               "structure while building Lyra.  No source code was "
-               "copied; each was a reference for \"how the standard "
-               "idiom works.\":<br>"
-               "Thetis SDR (openHPSDR) · PowerSDR · HermesLite 2 wiki "
-               "and ak4951v4 gateware · pihpsdr · Quisk · linHPSDR · "
-               "EESDR V3 · Behringer X-Air mixer series · SparkSDR.<br>"
-               "Full credits and reference notes: see the "
-               "<i>Credits and References</i> section in the User Guide.</p>"
-               "<p style='color:#8a9aac;font-size:11px'>"
-               "<b>Licensed components (GPL v3+)</b><br>"
-               "• DSP engine: <b>WDSP</b> by Warren Pratt (NR0V).  Lyra "
-               "links to the WDSP shared library and calls its public "
-               "API; no source modifications.<br>"
-               "• RX CW decoder: faithful source port of <b>fldigi</b>'s "
-               "CW receive chain by Dave Freese (W1HKJ), with adaptive "
-               "speed tracking by Lawrence Glaister (VE7IT).<br>"
-               "• TCI server protocol — Expert Electronics public "
-               "specification (EESDR).  Lyra implements a TCI server "
-               "compatible with the v1.9 / v2.0 spec."
-               "</p>"
-               "<hr style='border-color:#1a2632'>"
-               "<p style='color:#8a9aac;font-size:11px'>"
-               "<b>Disclaimer — use at your own risk.</b>  Lyra is provided "
-               "<b>“as is”</b>, with <b>no warranty</b> of any kind, express "
-               "or implied (see the GPL v3+ for the full terms).  It "
-               "controls a radio transmitter and drives external equipment; "
-               "<b>you, the licensed operator, are solely responsible</b> "
-               "for legal, correct, and safe operation — including staying "
-               "within your licence privileges, band and power limits, and "
-               "RF-exposure rules, and for protecting your amplifier, "
-               "antenna, and other gear.  The authors accept "
-               "<b>no liability</b> for any damage, interference, injury, "
-               "loss, or violation arising from the use, misuse, "
-               "misconfiguration, or malfunction of this software or any "
-               "equipment connected to it.  Amplifier-protection features "
-               "(watts cap, SWR fold, TX timeout, etc.) are aids, "
-               "<b>not guarantees</b> — always verify with a dummy load and "
-               "your own instruments before trusting them on the air."
-               "</p>");
+        // Raw string: MSVC /Zc:preprocessor + Qt tr() will not parse a
+        // multi-line HTML tr() that also has a second % placeholder.
+        const QString aboutHtml = QString::fromUtf8(R"HTML(
+<h2 style='margin-bottom:2px'>Lyra <span style='color:#00e5ff'>v%1</span></h2>
+<p style='color:#e8c477;margin:0;letter-spacing:2px;text-transform:uppercase;font-size:13px'>%2</p>
+<p style='color:#8a9aac;margin-top:8px'>HPSDR transceivers — native C++23 / Qt 6 rebuild</p>
+<p>A desktop SDR transceiver for HPSDR radios — the Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 (Protocol 2) — rebuilt in native C++ (Qt Quick + Vulkan/RHI) — no Python, no GIL anywhere.</p>
+<p style='color:#8a9aac'><i>Named for Apollo's lyre and the constellation Lyra — home of Vega. (See the User Guide for the full story.)</i></p>
+<p>Author: <b>Rick Langford (N8SDR)</b><br>
+With <b>Brent Crier (N9BC)</b> and <b>Timmy Davis (KC8TYK)</b><br>
+Development assistance: <b>Cursor Grok 4.6</b> (SpaceXAI / Cursor)<br>
+Repository: <a href='https://github.com/N8SDR1/Lyra-SDR-cpp'>github.com/N8SDR1/Lyra-SDR-cpp</a><br>
+License: <b>GPL v3 or later</b></p>
+<p>Lyra is <b>free</b> and ad-free, built by a fellow ham for the community. If it's useful to you, consider buying the developer a coffee — 73 de N8SDR. ☕</p>
+<hr style='border-color:#1a2632'>
+<p style='color:#8a9aac;font-size:11px'>
+<b>Inspiration and references</b> — these projects were studied for conventions, ballistics, and protocol structure while building Lyra.  No source code was copied; each was a reference for "how the standard idiom works.":<br>
+Thetis SDR (openHPSDR) · PowerSDR · HermesLite 2 wiki and ak4951v4 gateware · pihpsdr · Quisk · linHPSDR · EESDR V3 · Behringer X-Air mixer series · SparkSDR.<br>
+Full credits and reference notes: see the <i>Credits and References</i> section in the User Guide.</p>
+<p style='color:#8a9aac;font-size:11px'>
+<b>Licensed components (GPL v3+)</b><br>
+• DSP engine: <b>WDSP</b> by Warren Pratt (NR0V).  Lyra links to the WDSP shared library and calls its public API; no source modifications.<br>
+• RX CW decoder: faithful source port of <b>fldigi</b>'s CW receive chain by Dave Freese (W1HKJ), with adaptive speed tracking by Lawrence Glaister (VE7IT).<br>
+• TCI server protocol — Expert Electronics public specification (EESDR).  Lyra implements a TCI server compatible with the v1.9 / v2.0 spec.
+</p>
+<hr style='border-color:#1a2632'>
+<p style='color:#8a9aac;font-size:11px'>
+<b>Disclaimer — use at your own risk.</b>  Lyra is provided <b>“as is”</b>, with <b>no warranty</b> of any kind, express or implied (see the GPL v3+ for the full terms).  It controls a radio transmitter and drives external equipment; <b>you, the licensed operator, are solely responsible</b> for legal, correct, and safe operation — including staying within your licence privileges, band and power limits, and RF-exposure rules, and for protecting your amplifier, antenna, and other gear.  The authors accept <b>no liability</b> for any damage, interference, injury, loss, or violation arising from the use, misuse, misconfiguration, or malfunction of this software or any equipment connected to it.  Amplifier-protection features (watts cap, SWR fold, TX timeout, etc.) are aids, <b>not guarantees</b> — always verify with a dummy load and your own instruments before trusting them on the air.
+</p>
+)HTML").arg(ver).arg(starName);
+        box.setText(aboutHtml);
         QPushButton *donate =
             box.addButton(tr("☕ Donate via PayPal"), QMessageBox::ActionRole);
         box.addButton(QMessageBox::Close);
