@@ -5,6 +5,7 @@
 
 #include "capturedprofile.h"
 #include "noisereducer.h"
+#include "ps/DdcMap.h"
 
 #include <QAudioDevice>
 #include <QAudioFormat>
@@ -4983,7 +4984,8 @@ void WdspEngine::feedIq(const double *iq, int nframes)
         // Same-count interface → just swap the pointer (one window of
         // latency lives inside the reducer).  Off/no-profile → unchanged.
         double *dspPtr = blockPtr;
-        if (applyEnabled_.load(std::memory_order_relaxed) && reducer_ &&
+        if (applyEnabled_.load(std::memory_order_relaxed) &&
+            !lyra::ps::captured_profile_ps_bypass() && reducer_ &&
             reducer_->ready()) {
             if (static_cast<int>(cleanBuf_.size()) < 2 * cfg_.inSize) {
                 cleanBuf_.resize(static_cast<size_t>(2 * cfg_.inSize));

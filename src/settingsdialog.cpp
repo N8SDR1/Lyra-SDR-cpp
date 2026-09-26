@@ -3918,6 +3918,48 @@ QWidget *SettingsDialog::buildHardwareTab() {
             g->addWidget(p2Wrap, 5, 0, 1, 2);
         }
 
+        if (stream_) {
+            auto *psAtt = new QCheckBox(
+                tr("I have the PureSignal hardware coupler installed"), grp);
+            psAtt->setChecked(stream_->psAttestation());
+            psAtt->setToolTip(tr(
+                "Default OFF. Check only if this radio has the PureSignal "
+                "mod. Until then the PS arm switch and cntrl1=4 mux stay "
+                "off. First RF is dummy-load only."));
+            connect(psAtt, &QCheckBox::toggled, stream_,
+                    &lyra::ipc::HL2Stream::setPsAttestation);
+            connect(stream_, &lyra::ipc::HL2Stream::psAttestationChanged, psAtt,
+                    [psAtt](bool on) {
+                        if (psAtt->isChecked() != on) psAtt->setChecked(on);
+                    });
+            g->addWidget(psAtt, 6, 0, 1, 2);
+
+            auto *psArm = new QCheckBox(tr("Arm PureSignal"), grp);
+            psArm->setChecked(stream_->psArmed());
+            psArm->setEnabled(stream_->psAttestation());
+            psArm->setToolTip(tr(
+                "Sets puresignal_run (frames 11/16 C2 bit 6). HL2 mux "
+                "cntrl1=4 only while MOX is also on. Requires attestation."));
+            connect(psArm, &QCheckBox::toggled, stream_,
+                    &lyra::ipc::HL2Stream::setPsArmed);
+            connect(stream_, &lyra::ipc::HL2Stream::psArmedChanged, psArm,
+                    [psArm](bool on) {
+                        if (psArm->isChecked() != on) psArm->setChecked(on);
+                    });
+            connect(stream_, &lyra::ipc::HL2Stream::psAttestationChanged, psArm,
+                    [psArm](bool att) { psArm->setEnabled(att); });
+            g->addWidget(psArm, 7, 0, 1, 2);
+
+            auto *psHelp = new QLabel(grp);
+            psHelp->setText(tr(
+                "PureSignal: dummy load first. See the PureSignal dock "
+                "(ON / 2-tone / feedback / Reset). Live gates: "
+                "docs/architecture/puresignal_hl2_bench.md."));
+            psHelp->setWordWrap(true);
+            psHelp->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+            g->addWidget(psHelp, 8, 0, 1, 2);
+        }
+
         // --- Auto-mute RX while transmitting (task #26) ---
         // Default ON.  When the wire MOX bit settles true (post TR-delay),
         // the WdspEngine drops RX audio to silence so the operator
@@ -3945,7 +3987,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 const bool on = engine_->autoMuteOnTx();
                 if (amBox->isChecked() != on) amBox->setChecked(on);
             });
-            g->addWidget(amBox, 6, 0, 1, 2);
+            g->addWidget(amBox, 9, 0, 1, 2);
         }
 
         // --- RX-on-unkey delay (queued thud/echo fix) ---
@@ -3988,7 +4030,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     rxdSpin->setValue(v);
                 }
             });
-            g->addWidget(rxdWrap, 7, 0, 1, 2);
+            g->addWidget(rxdWrap, 10, 0, 1, 2);
         }
 
         // --- Task #36: Hardware PTT input forwarder (default OFF) ---
@@ -4037,7 +4079,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     hwBox->setChecked(on);
                 }
             });
-            g->addWidget(hwBox, 8, 0, 1, 2);
+            g->addWidget(hwBox, 11, 0, 1, 2);
         }
 
         // --- Task #157: Space-bar PTT enable/disable ---
@@ -4077,7 +4119,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     sbBox->setChecked(on);
                 }
             });
-            g->addWidget(sbBox, 9, 0, 1, 2);
+            g->addWidget(sbBox, 12, 0, 1, 2);
         }
 
         // --- Auto-start on launch (opt-out) ---
@@ -4106,7 +4148,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     asBox->setChecked(on);
                 }
             });
-            g->addWidget(asBox, 10, 0, 1, 2);
+            g->addWidget(asBox, 13, 0, 1, 2);
         }
 
         // Mic source picker + Mic Boost checkbox MOVED to the TX

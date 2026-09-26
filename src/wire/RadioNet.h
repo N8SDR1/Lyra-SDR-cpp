@@ -442,6 +442,9 @@ public:
     int reset_on_disconnect{0};
     int swap_audio_channels{0};
 
+    // C2 bit 6 on P1 frames 11 (0x14) and 16 (0x20). Armed+attested
+    // stays 1 in RX so the radio is primed; ADC mux stays off until
+    // MOX+PS (P1_adc_cntrl=4 on HL2). Host never calls SetTXAiqc*.
     int puresignal_run{0};
 
     int lr_audio_swap{0};
@@ -798,6 +801,9 @@ extern int           P1_en_diversity;
 // bits to C1 and bits 8-9 to C2.  HL2 / HL2+ uses ADC0 for all
 // DDCs (default `0`); per-family init at session start overwrites
 // for ANAN models.  Added 2026-06-05 per §4b-1 source-verification.
+// Thetis HL2 MOX+PS: set to 4 (cntrl1=4) so the PA coupler feeds
+// DDC0 and DDC1 is sync-paired at TX freq. Default 0 = RX (ADC0).
+// Gate: mox && ps_armed && attestation && family==Hl2. Frame 4 C1/C2.
 extern int           P1_adc_cntrl;
 
 // §4b-2 supplement (added 2026-06-05 per §4b-2 source-verification).

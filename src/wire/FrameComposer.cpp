@@ -290,9 +290,10 @@ void compose_case_0([[maybe_unused]] unsigned char& C0,
 // =================== §4a.4 case 2 ====================================
 //
 // Source: networkproto1.c:982-993, HL2 dispatch.
-// DDC0 is always RX1 frequency, except in the nddc=2 (Hermes II)
-// PS-on TX state where it carries TX frequency.  On HL2 nddc=4 the
-// nddc==2 branch is a structural no-op (preserved verbatim).
+// DDC0 is RX1 frequency, except while PureSignal is live on TX:
+//   nddc=2 (Hermes II) and nddc=4 (HL2 Thetis) both lock DDC0 to TX
+//   frequency without mutating stored rx[0] (VFO A).  The old
+//   nddc==2-only branch was a no-op on HL2.
 
 void compose_case_2(unsigned char& C0, unsigned char& C1,
                                    unsigned char& C2, unsigned char& C3,
@@ -301,7 +302,8 @@ void compose_case_2(unsigned char& C0, unsigned char& C1,
     C0 |= 4;  // addr 2: C0 |= (addr << 1) → 0x04
 
     int ddc_freq;
-    if ((nddc == 2) && (XmitBit == 1) && (prn->puresignal_run))
+    if ((XmitBit == 1) && (prn->puresignal_run)
+        && (nddc == 2 || nddc == 4))
         ddc_freq = prn->tx[0].frequency;
     else
         ddc_freq = prn->rx[0].frequency;
@@ -315,10 +317,9 @@ void compose_case_2(unsigned char& C0, unsigned char& C1,
 // =================== §4a.5 case 3 ====================================
 //
 // Source: networkproto1.c:995-1010, HL2 dispatch.
-// Three-way conditional preserved verbatim:
-//   (1) Hermes-II nddc=2 + PS + TX → DDC1 = TX freq;
+//   (1) PS live + TX: DDC1 = TX freq (Hermes II nddc=2 and HL2 nddc=4);
 //   (2) Orion / ANAN P1 nddc=5 → DDC1 = RX1 freq;
-//   (3) default HL2 nddc=4 → DDC1 = RX2 freq.
+//   (3) default HL2 RX → DDC1 = RX2 / VFO B.
 
 void compose_case_3(unsigned char& C0, unsigned char& C1,
                                    unsigned char& C2, unsigned char& C3,
@@ -327,7 +328,8 @@ void compose_case_3(unsigned char& C0, unsigned char& C1,
     C0 |= 6;  // addr 3: C0 |= (addr << 1) → 0x06
 
     int ddc_freq;
-    if ((nddc == 2) && (XmitBit == 1) && (prn->puresignal_run))
+    if ((XmitBit == 1) && (prn->puresignal_run)
+        && (nddc == 2 || nddc == 4))
         ddc_freq = prn->tx[0].frequency;
     else if (nddc == 5)
         ddc_freq = prn->rx[0].frequency;
@@ -361,6 +363,8 @@ void compose_case_1(unsigned char& C0, unsigned char& C1,
 //
 // Source: networkproto1.c:1015-1021, HL2 dispatch.
 // ADC assignments (`P1_adc_cntrl`) + TX step attenuator narrow 5-bit
+// form.  Live HL2 PureSignal: `P1_adc_cntrl=4` (Thetis cntrl1=4) only
+// while MOX+PS+attestation — written by ddc_map, not hardcoded here.
 // form.  The wider 6-bit MOX-gated form lives in case 11 (§4b-2) —
 // both read the same `prn->adc[0].tx_step_attn` field.  No `31 - x`
 // inversion at this layer; the inversion is the setter's job

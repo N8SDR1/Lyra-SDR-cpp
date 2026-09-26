@@ -409,6 +409,8 @@ qt_add_executable(lyra
     src/ps/PsCalcThread.cpp
     src/ps/PsFsm.h
     src/ps/PsFsm.cpp
+    src/ps/DdcMap.h
+    src/ps/DdcMap.cpp
     src/iqstft.h
     src/iqstft.cpp
     src/capturedprofile.h
@@ -525,6 +527,7 @@ qt_add_qml_module(lyra
         src/qml/TuningPanel.qml
         src/qml/AudioPanel.qml
         src/qml/TxPanel.qml
+        src/qml/PsPanel.qml
         src/qml/EqPanel.qml
         src/qml/RxEqPanel.qml
         src/qml/SpeechPanel.qml
@@ -783,6 +786,16 @@ target_include_directories(test_profile PRIVATE src)
 target_link_libraries(test_profile PRIVATE Qt6::Core)
 if(MSVC)
     target_compile_options(test_profile PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+add_executable(test_puresignal_ddc_map EXCLUDE_FROM_ALL
+    scratch/test_puresignal_ddc_map.cpp
+    src/ps/DdcMap.cpp
+)
+target_include_directories(test_puresignal_ddc_map PRIVATE src)
+target_link_libraries(test_puresignal_ddc_map PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_puresignal_ddc_map PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # P2 Phase B — Saturn / ANAN G2 control-plane session bench test.

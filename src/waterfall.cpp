@@ -133,6 +133,13 @@ void Waterfall::onFrame() {
     if (!engine_ || !isVisible()) {
         return;
     }
+    {
+        const qint64 now = rowClock_.elapsed();
+        const qint64 minMs = 1000 / std::max(1, targetFps_);
+        if (lastFrameMs_ >= 0 && (now - lastFrameMs_) < (minMs / 2))
+            return;
+        lastFrameMs_ = now;
+    }
     const int n = engine_->spectrumPixelCount();
     if (n < 2) {
         return;

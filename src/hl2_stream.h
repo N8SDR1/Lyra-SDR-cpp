@@ -99,6 +99,7 @@
 
 // #105 CW-3a — host CW keyer (CWX); the full type is pulled in the .cpp.
 namespace lyra::tx { class CwKeyer; }
+namespace lyra::ps { class PsFsm; }
 
 namespace lyra::ipc {
 
@@ -312,6 +313,18 @@ class HL2Stream : public QObject {
                NOTIFY tuneEnabledChanged)
     Q_PROPERTY(bool twoToneEnabled READ twoToneEnabled WRITE setTwoToneEnabled
                NOTIFY twoToneEnabledChanged)
+    Q_PROPERTY(bool psAttestation READ psAttestation WRITE setPsAttestation
+               NOTIFY psAttestationChanged)
+    Q_PROPERTY(bool psArmed READ psArmed WRITE setPsArmed
+               NOTIFY psArmedChanged)
+    Q_PROPERTY(int psFeedbackLevel READ psFeedbackLevel
+               NOTIFY psFeedbackLevelChanged)
+    Q_PROPERTY(int psFsmState READ psFsmState NOTIFY psFsmStateChanged)
+    Q_PROPERTY(bool psCorrecting READ psCorrecting NOTIFY psCorrectingChanged)
+    Q_PROPERTY(int psCalCount READ psCalCount NOTIFY psCalCountChanged)
+    Q_PROPERTY(int psDdc0Dbfs READ psDdc0Dbfs NOTIFY psDdc0DbfsChanged)
+    Q_PROPERTY(int psDdc1Dbfs READ psDdc1Dbfs NOTIFY psDdc1DbfsChanged)
+    Q_PROPERTY(int psFeedSpr READ psFeedSpr NOTIFY psFeedSprChanged)
     // TX-1 component 6 — SSB modulator I/Q injection.  When TRUE
     // *and* the wire MOX bit is high, the EP2 writer pulls 126
     // complex<float> samples per datagram from the registered TX
@@ -932,6 +945,15 @@ public:
     // whenever MOX is active"; auto-clears on the next MOX-off edge.
     bool    tuneEnabled() const { return tuneEnabled_.load(std::memory_order_relaxed); }
     bool    twoToneEnabled() const { return twoToneEnabled_.load(std::memory_order_relaxed); }
+    bool    psAttestation() const { return psAttestation_; }
+    bool    psArmed() const { return psArmed_; }
+    int     psFeedbackLevel() const;
+    int     psFsmState() const;
+    bool    psCorrecting() const;
+    int     psCalCount() const;
+    int     psDdc0Dbfs() const;
+    int     psDdc1Dbfs() const;
+    int     psFeedSpr() const;
     // TX-1 component 6 — SSB modulator I/Q injection gate (Q_PROPERTY
     // getter).  See the Q_PROPERTY decl above for the full contract.
     bool    injectTxIq() const { return injectTxIq_.load(std::memory_order_relaxed); }
@@ -1186,6 +1208,9 @@ public slots:
     // Arm/disarm the Thetis-compatible continuous two-tone generator.
     // Mutually exclusive with Tune and auto-cleared when MOX drops.
     void setTwoToneEnabled(bool on);
+    void setPsAttestation(bool on);
+    void setPsArmed(bool on);
+    Q_INVOKABLE void resetPureSignal();
 
     // ---- TX-0c-fsm: MOX/PTT sequencer (single funnel) ----------------
     // Operator/CAT/PTT/TUN intent gets funneled here.  Internally drives
@@ -1551,6 +1576,15 @@ signals:
     // operator unarm, or the moxActiveChanged(false) safety auto-clear).
     void tuneEnabledChanged(bool on);
     void twoToneEnabledChanged(bool on);
+    void psAttestationChanged(bool on);
+    void psArmedChanged(bool on);
+    void psFeedbackLevelChanged(int level);
+    void psFsmStateChanged(int state);
+    void psCorrectingChanged(bool on);
+    void psCalCountChanged(int n);
+    void psDdc0DbfsChanged(int db);
+    void psDdc1DbfsChanged(int db);
+    void psFeedSprChanged(int n);
     // P4.b TUN display-honesty — the TX-analyzer NCO−dial offset (Hz)
     // changed.  Wired to WdspEngine::setTxAnalyzerOffsetHz so the panadapter
     // crop renders the TUN carrier at its true RF (the dial) rather than
@@ -1654,6 +1688,7 @@ private:
     void safetyLog(const QString& msg);
     void fatalLog(const QString& msg);
     void lnaLog(const QString& msg);   // Auto-LNA / overload diagnostics
+    void refreshPsWire();
 
     // (§7) txWorkerLoop retired — EP2 writer is the verbatim
     // sendProtocol1Samples thread (prn->hWriteThreadMain).
@@ -2066,6 +2101,10 @@ private:
     // needed since only that thread mutates it).
     std::atomic<bool>    tuneEnabled_{false};
     std::atomic<bool>    twoToneEnabled_{false};
+    bool                 psAttestation_{false};
+    bool                 psArmed_{false};
+    bool                 subPausedForPs_{false};
+    std::unique_ptr<lyra::ps::PsFsm> psFsm_;
 
     // Task #36 — Hardware PTT input forwarder.
     //

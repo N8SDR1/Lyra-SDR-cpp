@@ -8,6 +8,7 @@
 #include <QtEndian>
 #include <QAbstractSocket>
 #include <QNetworkInterface>
+#include <QSettings>
 #include <QVariant>
 #include <QTimer>
 #include <algorithm>
@@ -526,11 +527,12 @@ void P2Session::sendDdcSpecificToRadio(bool logConfig) {
 QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     QByteArray pkt(kHpLen, char{0});
     const auto tx = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
-    // [0..3] sequence 0 (control). [4]: bit0 run, bit1 gated transmit;
-    // PureSignal bit7 remains off until its separate validation phase.
+    // [0..3] sequence 0 (control). [4]: bit0 run, bit1 gated transmit,
+    // bit7 PureSignal (DeskHPSDR new_protocol.c — only when armed).
     const bool transmit = run && tx.transmit;
     pkt[4] = static_cast<char>((run ? 0x01 : 0x00) |
-                               (transmit ? 0x02 : 0x00));
+                               (transmit ? 0x02 : 0x00) |
+                               (psArmed_ ? 0x80 : 0x00));
     // [5] CWX off; [6..8] must be zero (hardened p2app rejects the
     // packet otherwise — protocol2_command.c validation).
     for (std::size_t i = 0; i < ddcFreqHz_.size(); ++i)
@@ -577,6 +579,19 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
         // DDC0 stays disabled; only the phase word is overlaid.
         wrBeU32(pkt.data() + 9, phaseWord(ducFreqHz_));
     }
+    // P7 scaffold: DeskHPSDR ALEX_PS_BIT (bit 18). Alex1 whenever PS
+    // is on; Alex0 TX halfword + DDC0/DDC1 lock to DUC while keyed.
+    // After Brick overlay so they compose. brick_ddc0_fix stays for
+    // non-PS TX. Thetis mux only if DeskHPSDR and hardware disagree.
+    if (psArmed_)
+        pkt[1429] = static_cast<char>(
+            static_cast<unsigned char>(pkt[1429]) | 0x04);
+    if (psArmed_ && transmit) {
+        wrBeU32(pkt.data() + 9, phaseWord(ducFreqHz_));
+        wrBeU32(pkt.data() + 13, phaseWord(ducFreqHz_));
+        pkt[1433] = static_cast<char>(
+            static_cast<unsigned char>(pkt[1433]) | 0x04);
+    }
     const bool keyedWithPa = transmit && tx.paEnabled;
     pkt[1442] = static_cast<char>(overlayAdcAttByte(1, keyedWithPa));
     pkt[1443] = static_cast<char>(overlayAdcAttByte(0, keyedWithPa));
@@ -593,6 +608,12 @@ void P2Session::setAdcAttenuation(int adc, int db) {
     adcAttenuation_[static_cast<std::size_t>(adc)] =
         static_cast<quint8>(std::clamp(db, 0, 31));
     sendDucSpecificIfOpen();
+}
+
+void P2Session::setPureSignalArmed(bool on) {
+    if (psArmed_ == on) return;
+    psArmed_ = on;
+    applyTxControlNow();
 }
 
 void P2Session::setAttOnTx(bool enabled, int db) {
@@ -817,21 +838,46 @@ void P2Session::open(const QString &ip) {
         nicIp.isNull() ? QHostAddress(QHostAddress::AnyIPv4) : nicIp;
     const auto bindFlags =
         QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint;
-    if (!sock_.bind(bindAddr, 0, bindFlags)) {
+    // Prefer a stable host port so later P1 Start can send run=0 from
+    // the same 5-tuple the Brick is still streaming to.
+    constexpr quint16 kHostBindPort = 1025;
+    auto tryBind = [&](const QHostAddress &addr, quint16 port) {
         sock_.abort();
-        if (!nicIp.isNull() &&
-            sock_.bind(QHostAddress(QHostAddress::AnyIPv4), 0, bindFlags)) {
-            emit logLine(QStringLiteral(
-                "P2: NIC bind %1 failed (%2) — falling back to AnyIPv4")
-                             .arg(nicIp.toString(), sock_.errorString()));
-        } else {
-            emit logLine(QStringLiteral("P2: bind failed: %1")
-                             .arg(sock_.errorString()));
-            return;
-        }
+        return sock_.bind(addr, port, bindFlags);
+    };
+    const bool bound =
+        tryBind(bindAddr, kHostBindPort) ||
+        tryBind(bindAddr, 0) ||
+        (!nicIp.isNull() && tryBind(QHostAddress(QHostAddress::AnyIPv4),
+                                    kHostBindPort)) ||
+        (!nicIp.isNull() && tryBind(QHostAddress(QHostAddress::AnyIPv4), 0));
+    if (!bound) {
+        emit logLine(QStringLiteral("P2: bind failed: %1")
+                         .arg(sock_.errorString()));
+        return;
+    }
+    if (sock_.localPort() != kHostBindPort) {
+        emit logLine(QStringLiteral(
+            "P2: port 1025 unavailable — using %1:%2")
+                         .arg(sock_.localAddress().toString())
+                         .arg(sock_.localPort()));
     }
     sock_.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption,
                           QVariant(0x80000));
+
+    {
+        QSettings s;
+        QHostAddress local = sock_.localAddress();
+        if (local.isNull() || local == QHostAddress::AnyIPv4)
+            local = QHostAddress(QHostAddress::AnyIPv4);
+        s.setValue(QStringLiteral("p2/lastBindIp"), local.toString());
+        s.setValue(QStringLiteral("p2/lastBindPort"), sock_.localPort());
+        s.setValue(QStringLiteral("p2/lastRadioIp"), ip);
+        emit logLine(QStringLiteral("P2: remembered bind %1:%2 → %3")
+                         .arg(local.toString())
+                         .arg(sock_.localPort())
+                         .arg(ip));
+    }
 
     radioAddr_     = target;
     radioIp_       = ip;
@@ -950,6 +996,85 @@ void P2Session::close() {
     emit logLine(QStringLiteral(
         "P2: session closed (%1 status packets received)").arg(statusCount_));
     emit stopped();
+}
+
+void P2Session::sendRunOff(const QHostAddress &ip) {
+    if (ip.isNull() || ip.protocol() != QAbstractSocket::IPv4Protocol)
+        return;
+    // Firmware captures the controller from the General packet's source
+    // IP/port. An unbound QUdpSocket often leaves the ham NIC (e.g.
+    // 169.254 Brick APIPA) so run=0 never reaches the leftover session.
+    // First reuse the last real P2 5-tuple (the port the Brick is still
+    // streaming to). Then scatter from every local IPv4:ephemeral.
+    QByteArray general(kGeneralLen, char{0});
+    general[37] = char{0x08};
+    general[38] = char{0x01};
+    QByteArray hp(kHpLen, char{0});
+    QByteArray ddc(kDdcSpecificLen, char{0});
+    ddc[4] = char{2};
+
+    const auto sendThree = [&](QUdpSocket &sock) {
+        for (int i = 0; i < 3; ++i) {
+            wrBeU32(ddc.data(), static_cast<quint32>(i + 1));
+            sock.writeDatagram(general, ip, kPortCommand);
+            sock.writeDatagram(ddc, ip, kPortDdcConfig);
+            sock.writeDatagram(hp, ip, kPortHpToSdr);
+        }
+    };
+
+    const auto bindFlags =
+        QAbstractSocket::ShareAddress | QAbstractSocket::ReuseAddressHint;
+
+    QSettings s;
+    const QString lastLip = s.value(QStringLiteral("p2/lastBindIp")).toString();
+    const quint16 lastPort =
+        static_cast<quint16>(s.value(QStringLiteral("p2/lastBindPort")).toUInt());
+    if (lastPort != 0) {
+        QHostAddress local;
+        if (lastLip.isEmpty() || !local.setAddress(lastLip))
+            local = QHostAddress(QHostAddress::AnyIPv4);
+        QUdpSocket sock;
+        if (sock.bind(local, lastPort, bindFlags) ||
+            sock.bind(QHostAddress(QHostAddress::AnyIPv4), lastPort, bindFlags)) {
+            sendThree(sock);
+            qWarning("[wire] P2 run=0 from remembered %s:%u → %s",
+                     qPrintable(sock.localAddress().toString()),
+                     sock.localPort(),
+                     qPrintable(ip.toString()));
+        } else {
+            qWarning("[wire] P2 remembered bind %s:%u failed (%s)",
+                     qPrintable(local.toString()), lastPort,
+                     qPrintable(sock.errorString()));
+        }
+    }
+
+    constexpr quint16 kHostBindPort = 1025;
+    const auto sendFrom = [&](const QHostAddress &local, quint16 port) {
+        QUdpSocket sock;
+        if (!sock.bind(local, port, bindFlags))
+            return;
+        sendThree(sock);
+    };
+
+    bool any = false;
+    const auto ifaces = QNetworkInterface::allInterfaces();
+    for (const QNetworkInterface &iface : ifaces) {
+        const auto flags = iface.flags();
+        if (!(flags & QNetworkInterface::IsUp) ||
+            (flags & QNetworkInterface::IsLoopBack))
+            continue;
+        for (const QNetworkAddressEntry &e : iface.addressEntries()) {
+            if (e.ip().protocol() != QAbstractSocket::IPv4Protocol)
+                continue;
+            sendFrom(e.ip(), kHostBindPort);
+            sendFrom(e.ip(), 0);
+            any = true;
+        }
+    }
+    if (!any) {
+        sendFrom(QHostAddress(QHostAddress::AnyIPv4), kHostBindPort);
+        sendFrom(QHostAddress(QHostAddress::AnyIPv4), 0);
+    }
 }
 
 void P2Session::onHpTick() {

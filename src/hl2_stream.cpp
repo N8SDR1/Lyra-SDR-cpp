@@ -15,6 +15,10 @@
 #include "dsp/WaterfallId.h"    // #175 — TX waterfall callsign-ID raster generator
 #include "tci/TciTxBridge.h"    // #175 bench — synthetic TX-audio injection seam
 #include "wire/RadioNet.h"      // RadioNet, prn, UpdateRadioProtocolSampleSize, SampleRateIn2Bits
+#include "ps/DdcMap.h"
+#include "ps/PsFsm.h"
+#include "ps/PsCalcThread.h"
+#include "rig/RadioCapabilities.h"
 #include "wire/MetisFrame.h"    // metis_wire_bind, metis_socket_fd
 #include "wire/ObBuffs.h"       // destroy_obbuffs (P3 — close() ring teardown)
 #include "wire/FrameComposer.h" // §5 control-plane mapping: set_rx_freq / set_tx_freq / set_rx_step_attn_db (P4.b RX side)
@@ -338,6 +342,21 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         kTxTimeoutMinSec, kTxTimeoutMaxSec);
     txTimeoutBypass_ = QSettings().value(
         QStringLiteral("tx/timeoutBypass"), false).toBool();
+    psAttestation_ = QSettings().value(
+        QStringLiteral("tx/psAttestation"), false).toBool();
+    psArmed_ = psAttestation_ && QSettings().value(
+        QStringLiteral("tx/psArmed"), false).toBool();
+    psFsm_ = std::make_unique<lyra::ps::PsFsm>();
+    psFsm_->setAttnWriter([this](int db) { setTxStepAttnDb(db); });
+    connect(psFsm_.get(), &lyra::ps::PsFsm::telemetryChanged, this, [this]() {
+        emit psFeedbackLevelChanged(psFeedbackLevel());
+        emit psFsmStateChanged(psFsmState());
+        emit psCorrectingChanged(psCorrecting());
+        emit psCalCountChanged(psCalCount());
+        emit psDdc0DbfsChanged(psDdc0Dbfs());
+        emit psDdc1DbfsChanged(psDdc1Dbfs());
+        emit psFeedSprChanged(psFeedSpr());
+    });
     // #91 — VOX state.  All persisted; VOX itself is default-OFF (no
     // surprise auto-keying on a fresh launch).  Params clamped to the
     // same ranges the setters enforce.  applyVoxParams() (called from
@@ -1017,6 +1036,22 @@ void HL2Stream::open(const QString &ip) {
     const quint16 lport = localPortOf(socket_);
 
     targetIp_ = ip;
+    // UDP connect so the kernel drops packets from other radios
+    // (leftover Brick P2 IQ on a reused ephemeral port). sendto to
+    // the same peer remains valid.
+    {
+        sockaddr_in peer{};
+        peer.sin_family = AF_INET;
+        peer.sin_port   = htons(kRadioPort);
+        ::inet_pton(AF_INET, ip.toLatin1().constData(), &peer.sin_addr);
+        if (::connect(static_cast<SOCKET>(socket_),
+                      reinterpret_cast<sockaddr*>(&peer),
+                      sizeof(peer)) != 0) {
+            qWarning("[hl2] UDP connect(%s) failed: %s",
+                     qPrintable(ip),
+                     qPrintable(winsockError(::WSAGetLastError())));
+        }
+    }
     // Stage 2b2: totalDg_/seqErrors_/framingErrors_/windowDg_ retired
     // from HL2Stream — Ep6RecvThread owns them as TU-scope atomics and
     // re-inits to 0 at run_loop thread entry on every start.
@@ -1117,14 +1152,20 @@ void HL2Stream::open(const QString &ip) {
     // Radio memory: remember this radio so the next launch can
     // auto-connect without a Discover (read in main()).
     QSettings().setValue(QStringLiteral("radio/lastIp"), ip);
-    // Multi-rig: keep the ACTIVE rig's lastIp current so a rig switch — and
-    // the next launch's auto-connect — targets the radio this rig was last on.
+    // Multi-rig: keep lastIp current on a Protocol-1 active rig only.
+    // Writing an HL2 address onto a Brick/Saturn (P2) profile made the
+    // next Start drive Protocol 2 at the HL2.
     if (const QString activeRig = lyra::rig::registry::activeRigId();
             !activeRig.isEmpty()) {
         auto r = lyra::rig::registry::rig(activeRig);
         if (r.isValid() && r.lastIp != ip) {
-            r.lastIp = ip;
-            lyra::rig::registry::upsertRig(r);
+            if (lyra::rig::capabilitiesFor(r.family).protocol == 2) {
+                qWarning("[wire] P1 open %s — not writing lastIp onto P2 rig %s",
+                         qPrintable(ip), qPrintable(activeRig));
+            } else {
+                r.lastIp = ip;
+                lyra::rig::registry::upsertRig(r);
+            }
         }
     }
 
@@ -1189,6 +1230,7 @@ void HL2Stream::open(const QString &ip) {
         lyra::wire::prn->base_outbound_port = kRadioPort;
         lyra::wire::metis_wire_bind(static_cast<int>(socket_),
                                     ipv4.s_addr);
+        refreshPsWire();
         // (§7) The OutboundRing cv-translation + its per-session
         // outbound_init() reset retired with the wire-LIVE switchover:
         // the verbatim chain pairs/refills via prn->hsendLRSem /
@@ -1516,6 +1558,14 @@ void HL2Stream::close() {
     // create_xmtr's PS surface (out[3]/peer/…) is NOT torn down here
     // (that's app-quit destroy_xmtr), so it survives stop/start intact.
     lyra::wire::io_keep_running = 0;                  // ref network.c:1438
+    // Unblock EP6 recv before join.  close() used to join first and
+    // only then closesocket — if WSAWait was infinite and IQ had
+    // already stopped, the GUI froze here (lyra-log stuck at
+    // `ep6Thread_.stop() - start`, weather SSL still flushing).
+    if (socket_ != kInvalidSocket) {
+        ::shutdown(static_cast<SOCKET>(socket_), SD_BOTH);
+        qWarning("[shutdown] HL2Stream::close socket shutdown (wake EP6)");
+    }
     qWarning("[shutdown] HL2Stream::close ep6Thread_.stop() - start");
     ep6Thread_.stop();   // ref: wait the read thread (producers quiesce; ob_main parks on Sem_BuffReady)
     qWarning("[shutdown] HL2Stream::close ep6Thread_.stop() - done");
@@ -3027,6 +3077,80 @@ void HL2Stream::setTwoToneEnabled(bool on) {
     emit twoToneEnabledChanged(on);
 }
 
+void HL2Stream::setPsAttestation(bool on) {
+    if (psAttestation_ == on) return;
+    psAttestation_ = on;
+    QSettings().setValue(QStringLiteral("tx/psAttestation"), on);
+    emit psAttestationChanged(on);
+    if (!on)
+        setPsArmed(false);
+    else
+        refreshPsWire();
+}
+
+void HL2Stream::setPsArmed(bool on) {
+    if (!psAttestation_)
+        on = false;
+    if (psArmed_ == on) return;
+    psArmed_ = on;
+    QSettings().setValue(QStringLiteral("tx/psArmed"), on);
+    emit psArmedChanged(on);
+    refreshPsWire();
+}
+
+void HL2Stream::resetPureSignal() {
+    if (psFsm_)
+        psFsm_->reset();
+}
+
+int HL2Stream::psFeedbackLevel() const {
+    return psFsm_ ? psFsm_->feedbackLevel() : 0;
+}
+
+int HL2Stream::psFsmState() const {
+    return psFsm_ ? psFsm_->fsmState() : 0;
+}
+
+bool HL2Stream::psCorrecting() const {
+    return psFsm_ && psFsm_->correcting();
+}
+
+int HL2Stream::psCalCount() const {
+    return psFsm_ ? psFsm_->calCount() : 0;
+}
+
+int HL2Stream::psDdc0Dbfs() const {
+    return psFsm_ ? psFsm_->ddc0Dbfs() : -999;
+}
+
+int HL2Stream::psDdc1Dbfs() const {
+    return psFsm_ ? psFsm_->ddc1Dbfs() : -999;
+}
+
+int HL2Stream::psFeedSpr() const {
+    return psFsm_ ? psFsm_->feedSpr() : 0;
+}
+
+void HL2Stream::refreshPsWire() {
+    using namespace lyra::ps;
+    const bool liveArmed = psAttestation_ && psArmed_;
+    const bool mox = lyra::wire::XmitBit != 0;
+    const auto r = ddc_map(mox, liveArmed, subEnabled_.load(),
+                           lyra::rig::RadioFamily::Hl2);
+    if (lyra::wire::prn)
+        lyra::wire::prn->puresignal_run = r.puresignalRun ? 1 : 0;
+    lyra::wire::P1_adc_cntrl = r.adcCntrl1;
+    set_captured_profile_ps_bypass(r.bypassCapturedProfile);
+    subPausedForPs_ = r.pauseSub;
+    PsCalcThread::instance().setRun(r.feedPsccFromDdc0Ddc1);
+    if (psFsm_) {
+        psFsm_->setArmed(liveArmed);
+        psFsm_->setMox(mox && liveArmed);
+        const int rate = 48000 << sampleRateBits_.load();
+        psFsm_->setFeedbackRateHz(rate);
+    }
+}
+
 void HL2Stream::requestMox(bool on) {
     requestMox(on, PttSource::Manual);
 }
@@ -3494,6 +3618,7 @@ void HL2Stream::fsmKeydownPostMox() {
     // mic→TXA→OutBound(1) modulator I/Q reach the wire.  Set alongside
     // mox_ so the §15.25 keydown ordering already in place governs it.
     lyra::wire::XmitBit = 1;
+    refreshPsWire();
 
     // §15.25 keydown ordering CORRECTED 2026-06-09 per Thetis
     // console.cs:30342-30345 read 3× verified:
@@ -3652,6 +3777,7 @@ void HL2Stream::fsmKeyupTxOff() {
     // txStopDelayMs_ (§15.25), so the faded cos² tail already reached
     // the wire while XmitBit was still 1.
     lyra::wire::XmitBit = 0;
+    refreshPsWire();
     // ptt_out_delay (Thetis line 30377-30378) gives the hardware T/R
     // relay time to physically switch back to RX before any RX-side
     // restoration logic runs.  Then fsmKeyupSettled does cleanup.

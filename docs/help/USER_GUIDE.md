@@ -1770,6 +1770,30 @@ identifying by voice.
 
 ---
 
+## PureSignal
+
+HL2 / HL2+ with the coupler mod, **dummy load first**. The **PureSignal**
+dock (chip **PS**) and **Settings → TX** attestation checkbox are the
+operator surface.
+
+- **Attestation** (Settings → TX, default **off**) — check only if this
+  radio has the hardware coupler. Until then the arm switch and the HL2
+  mux (`cntrl1=4`) stay off.
+- **ON** (dock) / **Arm PureSignal** (Settings) — sets `puresignal_run`
+  (frames 11/16 C2 bit 6). The coupler mux runs only while MOX is also
+  on. Dual-RX is paused for that window without changing your saved SUB
+  preference.
+- **2-tone** — reuses the TX dock two-tone generator (keys MOX).
+- **Feedback / correcting / cal** — live `GetPSInfo` readouts.
+- **Reset** — `SetPSControl` restart of the calibrator.
+
+Auto-att writes the same TX step attenuator as ATT-on-TX. Brick P2
+(`ALEX_PS_BIT`, DDC0+DDC1 lock) is scaffolded and stays off until HL2
+dummy-load PS is proven. See `docs/architecture/puresignal_hl2.md` and
+`docs/architecture/puresignal_hl2_bench.md`.
+
+---
+
 ## TX DSP rack (EQ + Speech + Combinator + Plating)
 
 Lyra ships four native, operator-tunable DSP stages that sit on the mic

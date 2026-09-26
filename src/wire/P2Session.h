@@ -183,6 +183,8 @@ public:
     // is not mutated. Protection is active only while the safety gate
     // authorises transmit WITH PA enabled.
     void setAttOnTx(bool enabled, int db);
+    // P7 scaffold: DeskHPSDR generic P2 PS (ALEX_PS_BIT + DDC0/DDC1 lock).
+    void setPureSignalArmed(bool on);
     void setTxProducerSink(P2TxPump::InputSink sink) {
         txProducerTerminal_ = std::move(sink);
         // The pump ticks the 48 kHz modulator-input cadence; feedTxProducer
@@ -252,6 +254,12 @@ public slots:
     // cadence, close the socket.  Releases the radio's controller
     // lease so another client (Thetis) can claim it immediately.
     void close();
+
+    // Fire-and-forget P2 idle: first from the last remembered P2 bind
+    // 5-tuple (the port firmware is still streaming to), then General
+    // + DDC mask 0 + HP run=0 from every local IPv4. Used when a P1
+    // session is opening so leftover Brick IQ cannot flood the host.
+    static void sendRunOff(const QHostAddress &ip);
 
 signals:
     void started(QString ip);
@@ -401,6 +409,7 @@ private:
     std::array<quint8, 2> adcAttenuation_{};
     bool         attOnTxEnabled_ = true;
     int          attOnTxDb_      = 31;
+    bool         psArmed_{false};
     quint32      ddcSpecificSeq_ = 0;             // DDC-specific (receive_specific)
     quint32      spkrSeq_      = 0;               // speaker stream sequence
     QByteArray   spkrStage_;                      // partial-packet staging

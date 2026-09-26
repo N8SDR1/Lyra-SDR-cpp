@@ -279,6 +279,16 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 [this](bool) { pushAttOnTxToSession(); });
         connect(stream_, &lyra::ipc::HL2Stream::attOnTxDbChanged, this,
                 [this](int) { pushAttOnTxToSession(); });
+        auto pushPs = [this]() {
+            if (!session_ || !stream_) return;
+            session_->setPureSignalArmed(
+                stream_->psArmed() && stream_->psAttestation());
+        };
+        connect(stream_, &lyra::ipc::HL2Stream::psArmedChanged, this,
+                [pushPs](bool) { pushPs(); }, Qt::QueuedConnection);
+        connect(stream_, &lyra::ipc::HL2Stream::psAttestationChanged, this,
+                [pushPs](bool) { pushPs(); }, Qt::QueuedConnection);
+        pushPs();
     }
 
     // IQ-rate follow: the Display panel's rate switch reopens the WDSP
@@ -620,6 +630,8 @@ quint16 P2RxBridge::chooseRateKhz() {
 
 void P2RxBridge::open(const QString &ip, const QString &mac,
                       const QString &boardName) {
+    qWarning("[wire] P2RxBridge::open ip=%s mac=%s board=%s",
+             qPrintable(ip), qPrintable(mac), qPrintable(boardName));
     if (open_) {
         if (ip_ == ip) return;
         close();
