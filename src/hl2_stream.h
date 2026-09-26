@@ -71,6 +71,7 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <QVariantList>
 #include <atomic>
 #include <limits>
 #include <complex>
@@ -325,6 +326,16 @@ class HL2Stream : public QObject {
     Q_PROPERTY(int psDdc0Dbfs READ psDdc0Dbfs NOTIFY psDdc0DbfsChanged)
     Q_PROPERTY(int psDdc1Dbfs READ psDdc1Dbfs NOTIFY psDdc1DbfsChanged)
     Q_PROPERTY(int psFeedSpr READ psFeedSpr NOTIFY psFeedSprChanged)
+    Q_PROPERTY(double psHwPeak READ psHwPeak WRITE setPsHwPeak
+               NOTIFY psHwPeakChanged)
+    Q_PROPERTY(double psMaxTx READ psMaxTx NOTIFY psMaxTxChanged)
+    Q_PROPERTY(double psGetPk READ psGetPk NOTIFY psGetPkChanged)
+    Q_PROPERTY(bool psAmpPlotHeld READ psAmpPlotHeld WRITE setPsAmpPlotHeld
+               NOTIFY psAmpPlotHeldChanged)
+    Q_PROPERTY(QVariantList psAmpMagX READ psAmpMagX NOTIFY psAmpPlotChanged)
+    Q_PROPERTY(QVariantList psAmpMagY READ psAmpMagY NOTIFY psAmpPlotChanged)
+    Q_PROPERTY(QVariantList psAmpCorrX READ psAmpCorrX NOTIFY psAmpPlotChanged)
+    Q_PROPERTY(QVariantList psAmpCorrY READ psAmpCorrY NOTIFY psAmpPlotChanged)
     // TX-1 component 6 — SSB modulator I/Q injection.  When TRUE
     // *and* the wire MOX bit is high, the EP2 writer pulls 126
     // complex<float> samples per datagram from the registered TX
@@ -954,6 +965,14 @@ public:
     int     psDdc0Dbfs() const;
     int     psDdc1Dbfs() const;
     int     psFeedSpr() const;
+    double  psHwPeak() const;
+    double  psMaxTx() const;
+    double  psGetPk() const;
+    bool    psAmpPlotHeld() const;
+    QVariantList psAmpMagX() const;
+    QVariantList psAmpMagY() const;
+    QVariantList psAmpCorrX() const;
+    QVariantList psAmpCorrY() const;
     // TX-1 component 6 — SSB modulator I/Q injection gate (Q_PROPERTY
     // getter).  See the Q_PROPERTY decl above for the full contract.
     bool    injectTxIq() const { return injectTxIq_.load(std::memory_order_relaxed); }
@@ -1211,6 +1230,9 @@ public slots:
     void setPsAttestation(bool on);
     void setPsArmed(bool on);
     Q_INVOKABLE void resetPureSignal();
+    Q_INVOKABLE void capturePsGetPk();
+    Q_INVOKABLE void setPsAmpPlotHeld(bool on);
+    void setPsHwPeak(double peak);
 
     // ---- TX-0c-fsm: MOX/PTT sequencer (single funnel) ----------------
     // Operator/CAT/PTT/TUN intent gets funneled here.  Internally drives
@@ -1585,6 +1607,11 @@ signals:
     void psDdc0DbfsChanged(int db);
     void psDdc1DbfsChanged(int db);
     void psFeedSprChanged(int n);
+    void psHwPeakChanged(double peak);
+    void psMaxTxChanged(double v);
+    void psGetPkChanged(double v);
+    void psAmpPlotHeldChanged(bool on);
+    void psAmpPlotChanged();
     // P4.b TUN display-honesty — the TX-analyzer NCO−dial offset (Hz)
     // changed.  Wired to WdspEngine::setTxAnalyzerOffsetHz so the panadapter
     // crop renders the TUN carrier at its true RF (the dial) rather than

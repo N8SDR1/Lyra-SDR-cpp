@@ -348,6 +348,9 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         QStringLiteral("tx/psArmed"), false).toBool();
     psFsm_ = std::make_unique<lyra::ps::PsFsm>();
     psFsm_->setAttnWriter([this](int db) { setTxStepAttnDb(db); });
+    psFsm_->setHwPeak(std::clamp(
+        QSettings().value(QStringLiteral("tx/psHwPeak"), 0.233).toDouble(),
+        0.05, 1.0));
     connect(psFsm_.get(), &lyra::ps::PsFsm::telemetryChanged, this, [this]() {
         emit psFeedbackLevelChanged(psFeedbackLevel());
         emit psFsmStateChanged(psFsmState());
@@ -356,6 +359,11 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         emit psDdc0DbfsChanged(psDdc0Dbfs());
         emit psDdc1DbfsChanged(psDdc1Dbfs());
         emit psFeedSprChanged(psFeedSpr());
+        emit psHwPeakChanged(psHwPeak());
+        emit psMaxTxChanged(psMaxTx());
+        emit psGetPkChanged(psGetPk());
+        emit psAmpPlotHeldChanged(psAmpPlotHeld());
+        emit psAmpPlotChanged();
     });
     // #91 — VOX state.  All persisted; VOX itself is default-OFF (no
     // surprise auto-keying on a fresh launch).  Params clamped to the
@@ -3101,6 +3109,56 @@ void HL2Stream::setPsArmed(bool on) {
 void HL2Stream::resetPureSignal() {
     if (psFsm_)
         psFsm_->reset();
+}
+
+void HL2Stream::capturePsGetPk() {
+    if (psFsm_)
+        psFsm_->captureGetPk();
+}
+
+void HL2Stream::setPsAmpPlotHeld(bool on) {
+    if (psFsm_)
+        psFsm_->setPlotHeld(on);
+}
+
+bool HL2Stream::psAmpPlotHeld() const {
+    return psFsm_ && psFsm_->plotHeld();
+}
+
+void HL2Stream::setPsHwPeak(double peak) {
+    peak = std::clamp(peak, 0.05, 1.0);
+    if (psFsm_)
+        psFsm_->setHwPeak(peak);
+    QSettings().setValue(QStringLiteral("tx/psHwPeak"), peak);
+    emit psHwPeakChanged(psHwPeak());
+}
+
+double HL2Stream::psHwPeak() const {
+    return psFsm_ ? psFsm_->hwPeak() : 0.233;
+}
+
+double HL2Stream::psMaxTx() const {
+    return psFsm_ ? psFsm_->maxTx() : 0.0;
+}
+
+double HL2Stream::psGetPk() const {
+    return psFsm_ ? psFsm_->getPkHold() : 0.0;
+}
+
+QVariantList HL2Stream::psAmpMagX() const {
+    return psFsm_ ? psFsm_->ampMagX() : QVariantList{};
+}
+
+QVariantList HL2Stream::psAmpMagY() const {
+    return psFsm_ ? psFsm_->ampMagY() : QVariantList{};
+}
+
+QVariantList HL2Stream::psAmpCorrX() const {
+    return psFsm_ ? psFsm_->ampCorrX() : QVariantList{};
+}
+
+QVariantList HL2Stream::psAmpCorrY() const {
+    return psFsm_ ? psFsm_->ampCorrY() : QVariantList{};
 }
 
 int HL2Stream::psFeedbackLevel() const {

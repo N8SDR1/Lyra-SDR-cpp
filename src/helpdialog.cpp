@@ -50,6 +50,7 @@ const QHash<QString, QString> &topicHeads() {
         // guide subsection so "?" = fast "what does this do?").
         {QStringLiteral("tx"),        QStringLiteral("TX panel")},
         {QStringLiteral("ps"),        QStringLiteral("PureSignal")},
+        {QStringLiteral("ampview"),   QStringLiteral("Amp View")},
         {QStringLiteral("txeq"),      QStringLiteral("TX EQ — 10-band parametric")},
         {QStringLiteral("rxeq"),      QStringLiteral("RX EQ — receive parametric EQ")},
         {QStringLiteral("txspeech"),

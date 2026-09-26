@@ -528,6 +528,7 @@ qt_add_qml_module(lyra
         src/qml/AudioPanel.qml
         src/qml/TxPanel.qml
         src/qml/PsPanel.qml
+        src/qml/AmpViewPanel.qml
         src/qml/EqPanel.qml
         src/qml/RxEqPanel.qml
         src/qml/SpeechPanel.qml

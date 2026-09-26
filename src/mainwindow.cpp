@@ -231,7 +231,8 @@ inline bool isChipSummonedPanel(const QString &objectName) {
         || objectName == QLatin1String("tuner")
         || objectName == QLatin1String("freqcal")
         || objectName == QLatin1String("recorder")
-        || objectName == QLatin1String("ps");
+        || objectName == QLatin1String("ps")
+        || objectName == QLatin1String("ampview");
 }
 
 // Diagnostic: LYRA_TEST_SIZE=WxH opens the window at exactly that LOGICAL size.
@@ -1588,6 +1589,10 @@ void MainWindow::buildDocks() {
                  QStringLiteral("PsPanel.qml"),
                  QStringLiteral("ps"), Qt::BottomDockWidgetArea,
                  /*resizable=*/true);
+    addQuickDock(QStringLiteral("ampview"), tr("Amp View"),
+                 QStringLiteral("AmpViewPanel.qml"),
+                 QStringLiteral("ampview"), Qt::BottomDockWidgetArea,
+                 /*resizable=*/true);
     // TX Speech (#88) — Noise Gate + Auto-AGC + De-esser, the pre-EQ mic
     // rack stage.  Its OWN dock so it moves / resizes / floats / collapses
     // like every Lyra panel; drag it onto the TX EQ dock to tab the two into
@@ -1701,7 +1706,7 @@ void MainWindow::buildDocks() {
     // remembers what's open + where.  restoreLayout() below overrides this
     // with the operator's saved arrangement when one exists.
     for (const char *nm : {"txspeech", "txeq", "txcombinator", "txplate",
-                           "rxeq", "ps"}) {
+                           "rxeq", "ps", "ampview"}) {
         if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
             d->setFloating(true);
             d->hide();
@@ -1780,6 +1785,9 @@ void MainWindow::buildMenus() {
     // View — one show/hide toggle per dock + Lock panels.
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
     for (auto it = docks_.cbegin(); it != docks_.cend(); ++it) {
+        // Amp View is a header chip only — not a View-menu item.
+        if (it.key() == QLatin1String("ampview"))
+            continue;
         viewMenu->addAction(it.value()->toggleViewAction());
     }
     viewMenu->addSeparator();
@@ -2266,8 +2274,7 @@ void MainWindow::buildToolbar() {
         txDspLabel->setToolTip(tr("Mic-rack panels — click to open one as a "
                                   "movable window; layout is remembered."));
         tb->addWidget(txDspLabel);
-        for (const char *nm : {"txspeech", "txeq", "txcombinator", "txplate",
-                               "ps"}) {
+        for (const char *nm : {"txspeech", "txeq", "txcombinator", "txplate"}) {
             if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
                 QAction *act = d->toggleViewAction();
                 tb->addAction(act);
@@ -2316,6 +2323,7 @@ void MainWindow::buildToolbar() {
                                                 QStringLiteral("rxeq") });
             dspRack_ = dr.first; dspRackChip_ = dr.second;
         }
+        tb->addSeparator();
         // #201 Session recorder — ONE always-visible header chip between RX DSP
         // and Options.  Idle: a "Recorder" launcher chip (click pops the panel
         // out / hides it, same idiom as the DSP chips).  While recording: it
@@ -2364,8 +2372,9 @@ void MainWindow::buildToolbar() {
         auto *optsLabel = new QLabel(tr("Options:"), tb);
         optsLabel->setContentsMargins(8, 0, 4, 0);
         optsLabel->setToolTip(tr("Operating tools — center-tune lock (CTUN), the "
-                                 "Tuner memory, the CW console / decoder, and the "
-                                 "waterfall callsign ID (WF-ID)."));
+                                 "Tuner memory, the CW console / decoder, "
+                                 "waterfall callsign ID (WF-ID), PureSignal, "
+                                 "and Amp View."));
         tb->addWidget(optsLabel);
         // CTUN (#174) — Center-tune lock.  NOT a dock; a state toggle on the
         // stream (lock the panadapter/DDC centre, tune the VFO within the
@@ -2598,6 +2607,23 @@ void MainWindow::buildToolbar() {
             connect(prefs_, &Prefs::bandPlanRegionChanged, wfid, onPlanChanged);
             connect(prefs_, &Prefs::bandPlanCountryChanged, wfid, onPlanChanged);
         }
+        // PureSignal + Amp View sit at the end of Options (not TX DSP).
+        // Stay individual chips even when Options is grouped — they are
+        // not rack members.
+        auto addOptDockChip = [&](const char *nm, const QString &label) {
+            if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
+                QAction *act = d->toggleViewAction();
+                act->setText(label);
+                tb->addAction(act);
+                if (auto *btn = qobject_cast<QToolButton *>(
+                        tb->widgetForAction(act))) {
+                    btn->setObjectName(QStringLiteral("txDspChip"));
+                    btn->setStyleSheet(QString::fromLatin1(kTxDspChipQss));
+                }
+            }
+        };
+        addOptDockChip("ps", tr("PureSignal"));
+        addOptDockChip("ampview", tr("Amp View"));
     }
 
     // #94 External TX Inhibit — prominent always-visible indicator.  Hidden

@@ -5,7 +5,9 @@
 
 #include <QObject>
 #include <QTimer>
+#include <QVariantList>
 #include <functional>
+#include <vector>
 
 namespace lyra::ps {
 
@@ -20,6 +22,10 @@ public:
     void setArmed(bool on);
     void setMox(bool on);
     void reset();
+    void setHwPeak(double peak);
+    void captureGetPk();
+    void setPlotHeld(bool on);
+    bool plotHeld() const { return plotHeld_; }
 
     int  feedbackLevel() const { return feedbackLevel_; }
     int  fsmState() const { return fsmState_; }
@@ -28,6 +34,13 @@ public:
     int  ddc0Dbfs() const { return ddc0Dbfs_; }
     int  ddc1Dbfs() const { return ddc1Dbfs_; }
     int  feedSpr() const { return feedSpr_; }
+    double hwPeak() const { return hwPeak_; }
+    double maxTx() const { return maxTx_; }
+    double getPkHold() const { return getPkHold_; }
+    const QVariantList &ampMagX() const { return ampMagX_; }
+    const QVariantList &ampMagY() const { return ampMagY_; }
+    const QVariantList &ampCorrX() const { return ampCorrX_; }
+    const QVariantList &ampCorrY() const { return ampCorrY_; }
 
 signals:
     void telemetryChanged();
@@ -36,6 +49,7 @@ private:
     void onTick();
     void pushArm();
     void pushDisarm();
+    void pollAmpPlot();
 
     QTimer timer_;
     std::function<void(int)> attnWriter_;
@@ -50,6 +64,23 @@ private:
     int  ddc0Dbfs_ = -999;
     int  ddc1Dbfs_ = -999;
     int  feedSpr_ = 0;
+    double hwPeak_ = 0.233;
+    double maxTx_ = 0.0;
+    double getPkHold_ = 0.0;
+    bool plotHeld_ = false;
+    std::vector<double> magEwma_;
+    std::vector<double> corrEwma_;
+    std::vector<double> dispX_;
+    std::vector<double> dispYm_;
+    std::vector<double> dispYc_;
+    std::vector<double> dispYs_;
+    std::vector<double> dispCm_;
+    std::vector<double> dispCc_;
+    std::vector<double> dispCs_;
+    QVariantList ampMagX_;
+    QVariantList ampMagY_;
+    QVariantList ampCorrX_;
+    QVariantList ampCorrY_;
 };
 
 }  // namespace lyra::ps
