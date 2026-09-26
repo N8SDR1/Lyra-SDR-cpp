@@ -157,7 +157,7 @@
       <img class="logo" src="logo.png" alt="Lyra logo">
       <div class="wordmark">LYRA<span class="accent"> SDR</span></div>
       <p class="tagline">A modern, GPU-accelerated SDR transceiver for HPSDR radios — the Hermes&nbsp;Lite&nbsp;2 / 2+ and the BrickSDR2.</p>
-      <div><span class="badge">Free &amp; open source · GPL v3</span></div>
+      <div><span class="badge">v0.25.0 Sheliak · Free &amp; open source · GPL v3</span></div>
       <div class="cta">
         <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases">⬇ Download</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki">📖 Docs</a>
@@ -229,11 +229,31 @@
       </div>
     </section>
 
+    <section id="puresignal">
+      <h2>PureSignal — adaptive predistortion</h2>
+      <p class="marquee-sub">Live on coupler-mod HL2 / HL2+ and BrickSDR2. Dummy load first. Amp View is the live GetPSDisp plot.</p>
+      <div style="display:flex; gap:22px; align-items:flex-start; flex-wrap:wrap; justify-content:center;">
+        <div class="shot" style="width:min(480px,100%); flex:1 1 320px;">
+          <img src="feat-puresignal.jpg" alt="Lyra PureSignal dock and Amp View on the console — FB in the green zone" loading="lazy">
+          <div class="cap"><b>PureSignal</b> &mdash; compact dock, FB chip, auto-att that holds across PTT</div>
+        </div>
+        <div class="shot" style="width:min(420px,100%); flex:0 1 360px;">
+          <img src="feat-ampview.jpg" alt="Lyra Amp View — plasma GetPSDisp plot with Snap and Hold" loading="lazy">
+          <div class="cap"><b>Amp View</b> &mdash; Snap captures GetPk; Hold freezes the plot</div>
+        </div>
+      </div>
+      <p class="shot-note" style="margin-top:18px;">
+        Attestation is off by default in Settings → TX. Keep a kilowatt linear out until PS is settled.
+        Operator detail is in the <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/User-Guide#puresignal">User Guide</a>.
+      </p>
+    </section>
+
     <section>
       <h2>What it does</h2>
       <div class="grid">
         <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on the Hermes&nbsp;Lite&nbsp;2 / 2+ — a complete, native HPSDR console with a real TX chain, not just a receiver.</p></div>
         <div class="card"><h3><span class="ico">📊</span> GPU panadapter</h3><p>A Vulkan-accelerated spectrum and waterfall with click-to-tune, centre-tune (CTUN), RIT / XIT, peak hold and eight colour palettes.</p></div>
+        <div class="card"><h3><span class="ico">✨</span> PureSignal</h3><p>Adaptive TX predistortion on coupler-mod HL2 / HL2+ and BrickSDR2, with a compact dock and an Amp View plot (Snap / Hold). Dummy load first — <a href="#puresignal">see it up close</a>.</p></div>
         <div class="card"><h3><span class="ico">🎚️</span> Studio TX chain</h3><p>8-band parametric EQ, a multiband combinator, tube-plate reverb, speech processing, a voice keyer and VOX — shape your audio like a broadcast desk, saved as recallable profiles.</p></div>
         <div class="card"><h3><span class="ico">🔇</span> Noise reduction</h3><p>WDSP noise reduction, noise blanker, auto-notch and LMS, plus a captured-noise profile that samples your own band noise and subtracts it.</p></div>
         <div class="card"><h3><span class="ico">📡</span> CW</h3><p>An on-screen CW decoder with a choice of engine — the classic fldigi reader or the <a href="#deepfist">DeepFist neural decoder</a> — plus click-to-send macros, an internal / Winkeyer keyer, and a callsign ID rendered right into your waterfall.</p></div>
@@ -249,7 +269,6 @@
       <p class="marquee-sub">Where Lyra is headed &mdash; planned for future releases.</p>
       <div class="grid">
         <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">📡</span> More radios</h3><p>HPSDR <strong style="color:var(--head)">Protocol 2</strong> is live — the <strong style="color:var(--head)">BrickSDR2</strong> runs on it with full RX/TX. Next up: the <strong style="color:var(--head)">ANAN</strong> family (G2, G2-1K, 7000DLE, 8000) on that same P2 path.</p></div>
-        <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">✨</span> Adaptive predistortion</h3><p>A PureSignal-style adaptive predistortion loop for a cleaner, more linear transmit signal and lower splatter.</p></div>
         <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">💻</span> macOS &amp; Linux</h3><p>Native cross-platform builds so Lyra runs beyond Windows.</p></div>
       </div>
     </section>
