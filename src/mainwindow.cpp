@@ -1873,10 +1873,11 @@ void MainWindow::buildMenus() {
         const QString starName = QLatin1String(LYRA_VERSION_NAME);
         box.setText(
             tr("<h2 style='margin-bottom:2px'>Lyra "
-               "<span style='color:#00e5ff'>v%1</span></h2>"
+               "<span style='color:#00e5ff'>v%1</span></h2>").arg(ver)
+            + QStringLiteral(
                "<p style='color:#e8c477;margin:0;letter-spacing:2px;"
-               "text-transform:uppercase;font-size:13px'>%2</p>"
-               "<p style='color:#8a9aac;margin-top:8px'>"
+               "text-transform:uppercase;font-size:13px'>%1</p>").arg(starName.toHtmlEscaped())
+            + tr("<p style='color:#8a9aac;margin-top:8px'>"
                "HPSDR transceivers — native C++23 / Qt 6 rebuild</p>"
                "<p>A desktop SDR transceiver for HPSDR radios — the "
                "Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 "
@@ -1938,7 +1939,7 @@ void MainWindow::buildMenus() {
                "(watts cap, SWR fold, TX timeout, etc.) are aids, "
                "<b>not guarantees</b> — always verify with a dummy load and "
                "your own instruments before trusting them on the air."
-               "</p>").arg(ver).arg(starName);
+               "</p>");
         QPushButton *donate =
             box.addButton(tr("☕ Donate via PayPal"), QMessageBox::ActionRole);
         box.addButton(QMessageBox::Close);
