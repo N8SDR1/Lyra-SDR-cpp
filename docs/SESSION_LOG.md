@@ -4,6 +4,17 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-09-26 — v0.25.0 Sheliak (PureSignal)
+
+- Version bump **0.24.5 → 0.25.0**. Star name **Sheliak** (β Lyrae);
+  Vega remains identity / watermark only.
+- PureSignal + Amp View already in tree (`a853560`). About / window title
+  show the star name. Wiki Home gallery + gh-pages shots prepared.
+- Installer `dist/Lyra-Setup-0.25.0.exe`. Tag `v0.25.0`. Issues #14 / #16
+  stay open. WDSP 2.10 after this cut.
+
+---
+
 ## 2026-09-25 — v0.24.5 graphics pin + VAC2 profiles
 
 - **Graphics:** pinned Settings backend (vulkan/d3d12/d3d11/opengl) is

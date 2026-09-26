@@ -1,5 +1,7 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
+**v0.25.0 Sheliak** — PureSignal + Amp View.
+
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 
 Native rebuild of [Lyra](../lyra) (the Python+Qt6 desktop SDR transceiver

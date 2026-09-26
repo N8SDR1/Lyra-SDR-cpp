@@ -381,7 +381,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
       wdsp_(wdsp), wdspEngine_(wdspEngine), prefs_(prefs), wx_(wx),
       profiles_(profiles) {
     setWindowTitle(QStringLiteral(
-        "Lyra — v" LYRA_VERSION " (C++23 / Qt 6)"));
+        "Lyra — v" LYRA_VERSION " " LYRA_VERSION_NAME " (C++23 / Qt 6)"));
     setObjectName(QStringLiteral("LyraMainWindow"));
     resize(1100, 760);
 
@@ -1873,7 +1873,9 @@ void MainWindow::buildMenus() {
         box.setText(
             tr("<h2 style='margin-bottom:2px'>Lyra "
                "<span style='color:#00e5ff'>v%1</span></h2>"
-               "<p style='color:#8a9aac;margin-top:0'>"
+               "<p style='color:#e8c477;margin:0;letter-spacing:2px;"
+               "text-transform:uppercase;font-size:13px'>%2</p>"
+               "<p style='color:#8a9aac;margin-top:8px'>"
                "HPSDR transceivers — native C++23 / Qt 6 rebuild</p>"
                "<p>A desktop SDR transceiver for HPSDR radios — the "
                "Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 "
@@ -1935,7 +1937,7 @@ void MainWindow::buildMenus() {
                "(watts cap, SWR fold, TX timeout, etc.) are aids, "
                "<b>not guarantees</b> — always verify with a dummy load and "
                "your own instruments before trusting them on the air."
-               "</p>").arg(ver));
+               "</p>").arg(ver, QStringLiteral(LYRA_VERSION_NAME));
         QPushButton *donate =
             box.addButton(tr("☕ Donate via PayPal"), QMessageBox::ActionRole);
         box.addButton(QMessageBox::Close);

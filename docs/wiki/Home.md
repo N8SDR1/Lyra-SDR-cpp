@@ -81,6 +81,9 @@ gear — all native, all in front of the WDSP transmitter:
 |:---:|:---:|:---:|
 | [![TX EQ](https://n8sdr1.github.io/Lyra-SDR-cpp/feat-eq.jpg)](https://n8sdr1.github.io/Lyra-SDR-cpp/) | [![TX Combinator](https://n8sdr1.github.io/Lyra-SDR-cpp/feat-combinator.jpg)](https://n8sdr1.github.io/Lyra-SDR-cpp/) | [![TX Speech rack](https://n8sdr1.github.io/Lyra-SDR-cpp/feat-speech.jpg)](https://n8sdr1.github.io/Lyra-SDR-cpp/) |
 | Draggable response curve over a live analyzer | Multiband compression, X-Air-style | Noise gate, auto-AGC, de-esser, DX cut-through |
+| **PureSignal** | **Amp View** | |
+| [![PureSignal](https://n8sdr1.github.io/Lyra-SDR-cpp/feat-puresignal.jpg)](https://n8sdr1.github.io/Lyra-SDR-cpp/) | [![Amp View](https://n8sdr1.github.io/Lyra-SDR-cpp/feat-ampview.jpg)](https://n8sdr1.github.io/Lyra-SDR-cpp/) | |
+| Compact PS dock, FB chip, auto-att | Live GetPSDisp plot — Snap / Hold | |
 
 <sub>Screens from the [feature tour](https://n8sdr1.github.io/Lyra-SDR-cpp/). Plus plate reverb, voice keyer, VOX, and save/recall TX profiles — see **[Feature Status](Feature-Status)**.</sub>
 
