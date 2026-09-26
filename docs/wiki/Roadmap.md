@@ -26,9 +26,8 @@ Live on **HL2 / HL2+** (coupler hardware mod) and **BrickSDR2** (Protocol-2
 feedback / ADC0 pad). Compact **PureSignal** dock plus **Amp View** plot
 (Snap / Hold). Feedback glance chip (teal below 129, green 129–181, red
 above). Auto-att **persists across PTT** so SSB does not re-hunt every
-keyup. Attestation in **Settings → TX** (default off). **Dummy load
-first**; do a kill-test before antenna. Keep a kilowatt linear out until
-PS is settled. **2-tone** on the TX panel is the usual tune-up carrier.
+keyup. Attestation in **Settings → TX** (default off). **2-tone** on the
+TX panel is the usual tune-up carrier.
 Operator detail: **[User Guide → PureSignal](User-Guide#puresignal)**.
 
 ### ✅ Protocol 2 on BrickSDR2 · 🚧 Classic ANAN P2 dummy-load · 🗺️ 7000/8000

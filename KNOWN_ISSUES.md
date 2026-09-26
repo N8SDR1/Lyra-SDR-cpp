@@ -21,7 +21,7 @@ Current tree: **v0.25.0 Sheliak**. Always grab the latest from the
 > against WWV / CHU, a **Backup & Restore** tab (whole-config export +
 > selective restore + automatic dated snapshots that survive a reinstall), a
 > layout **undo**, TCI server for logging / cluster software, and
-> **PureSignal** (HL2 coupler mod / Brick ADC0; dummy load first).
+> **PureSignal** (HL2 coupler mod / Brick ADC0).
 
 ---
 
@@ -38,8 +38,7 @@ These are on the roadmap, not broken:
 * **PureSignal needs a coupler and RF.** HL2 / HL2+ without the hardware
   mod, or dummy-load drive of only 2–3 W, often shows **FB ≈ 0**. Raise
   drive (typically ~5–8 W on a bare HL2) and attest in Settings → TX.
-  Bring-up is **dummy load**; keep a kilowatt linear out until PS is
-  settled. SUB is paused while MOX+PS is live (preference is not wiped).
+  SUB is paused while MOX+PS is live (preference is not wiped).
 * **Cross-band SUB is much weaker** (HL2 and BrickSDR2). One ADC and
   one analog filter. With an N2ADR / filter board on, OC follows
   **RX1** — RX2 on another amateur band sits behind that LPF/BPF.

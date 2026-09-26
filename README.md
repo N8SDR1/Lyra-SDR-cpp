@@ -127,8 +127,7 @@ ADC0 feedback) is live — dummy-load first; see the User Guide.
   coupler (HL2 / HL2+ hardware mod; BrickSDR2 Protocol-2 feedback).
   Compact **PureSignal** dock plus **Amp View** plot (Snap / Hold),
   FB colour window (teal / green / red), auto-att that **persists
-  across PTT**. Attestation in Settings → TX (default off). Dummy
-  load first; not a substitute for a dummy-load kill-test.
+  across PTT**. Attestation in Settings → TX (default off).
 * **TX safety** — ATT-on-TX RX-front-end protection, TR-sequencing for amp
   hot-switch safety, an operator TX time-out, and a hard External TX Inhibit
   lockout (for sharing the antenna/bench with sensitive gear).

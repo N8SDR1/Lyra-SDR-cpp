@@ -166,8 +166,7 @@ You need the **coupler mod** (HL2) or Brick feedback path, **attestation**
 ticked (Settings → TX), and **enough RF** — often **more than 2–3 W** on
 a bare HL2 (try ~5–8 W / high drive into a dummy). Arm the **PureSignal**
 dock, then key **2-tone**. FB **teal** = too low, **green** = 129–181,
-**red** = too hot. SUB pauses while MOX+PS is live. Keep the kilowatt
-amp out until this is boring on a dummy. See
+**red** = too hot. SUB pauses while MOX+PS is live. See
 **[User Guide → PureSignal](User-Guide#puresignal)**.
 
 **JTDX won't connect over TCI (but MSHV does).**

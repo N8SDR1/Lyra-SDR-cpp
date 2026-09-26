@@ -36,7 +36,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **Digital** via **TCI** and **VAC1 / VAC2** — WSJT-X / MSHV / JTDX / FLDigi / VarAC, or a logger on a second cable. VAC **Enable** is RX; **Mic source = VAC1 or VAC2** is TX. VAC2 carries **RX2** (turn **SUB** on). TCI audio and VAC TX are mutually exclusive.
 - ✅ TX power / drive, separate **tune drive**, AM carrier level, mic gain + **20 dB mic boost**; Protocol 2 uses analog drive (HP [345]) plus per-band **PA Gain / Full Output / CAP**, including a dedicated **11m** slot
 - ✅ Always-on **ALC** + operator **Leveler**, **PHROT** phase rotator
-- ✅ **PureSignal** — adaptive TX predistortion (HL2 / HL2+ coupler mod; BrickSDR2 ADC0 feedback). Compact **PureSignal** dock + **Amp View** (Snap / Hold), FB window 129–181, auto-att persisted across PTT. Attestation in Settings → TX (default off). Dummy load first; kill-test before antenna.
+- ✅ **PureSignal** — adaptive TX predistortion (HL2 / HL2+ coupler mod; BrickSDR2 ADC0 feedback). Compact **PureSignal** dock + **Amp View** (Snap / Hold), FB window 129–181, auto-att persisted across PTT. Attestation in Settings → TX (default off).
 - ✅ **Waterfall callsign ID** — paints your call in the SSB passband (ham bands only)
 
 ### Native TX audio rack (studio-in-the-radio)

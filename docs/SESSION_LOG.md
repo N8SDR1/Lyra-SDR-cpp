@@ -10,8 +10,8 @@ Running EOD log. Newest entry on top. Short rough-outline format.
   Vega remains identity / watermark only.
 - PureSignal + Amp View already in tree (`a853560`). About / window title
   show the star name. Wiki Home gallery + gh-pages shots prepared.
-- Installer `dist/Lyra-Setup-0.25.0.exe`. Tag `v0.25.0`. Issues #14 / #16
-  stay open. WDSP 2.10 after this cut.
+- Installer `dist/Lyra-Setup-0.25.0.exe`. Tag `v0.25.0`. Issue #16 closed
+  (Bob). #14 still open. WDSP 2.10 after this cut.
 
 ---
 

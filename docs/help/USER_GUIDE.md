@@ -1793,10 +1793,9 @@ installed — without a coupler you get garbage feedback and a worse
 signal.
 
 **Dummy load first.** Bring PS up into a **dummy load**, not the
-antenna, and **not** a 1 kW linear. You need enough RF for the coupler
-to see (on a bare HL2 that is often **more than 2–3 W** — typically
-closer to **5–8 W** / high drive). Leave the kilowatt amp out until this
-feels boring on the dummy.
+antenna. You need enough RF for the coupler to see (on a bare HL2 that
+is often **more than 2–3 W** — typically closer to **5–8 W** / high
+drive).
 
 **Kill-test (before any antenna).** While keyed with PS armed into the
 dummy, force-kill Lyra (`taskkill /F` on `lyra.exe` / `python` is not
@@ -1872,8 +1871,7 @@ plot (live `GetPSDisp` curve).
 5. Open **Amp View** if you want the curve. Snap / Hold as needed.
 6. Unkey — FB goes idle/muted; **ATT stays** at the last pad.
 7. Next keyup should land **near** the previous FB, not a full hunt.
-8. Kill-test once. Only then think about antenna — still **no**
-   kilowatt linear until you are comfortable.
+8. Kill-test once, then antenna when you are ready.
 
 > **ANAN-7000 / 8000** TX stays locked; do not expect PS there yet.
 > Classic ANAN P2 TX is dummy-load / not on-air validated.

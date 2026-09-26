@@ -89,7 +89,7 @@ gear — all native, all in front of the WDSP transmitter:
 
 ## Shipped highlights
 
-✅ **PureSignal** (HL2 coupler mod / Brick ADC0; dummy load first) · ✅
+✅ **PureSignal** (HL2 coupler mod / Brick ADC0) · ✅
 **VAC2** · ✅ **SUB / SPLIT** (independent) · 🚧 **ANAN-10…200D** P2 dummy-load · 🗺️
 **ANAN-7000DLE / 8000** · 🗺️ **Linux, then macOS**.
 
