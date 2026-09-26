@@ -99,6 +99,15 @@ public:
     // "Connecting…" to a radio that moved / changed lease / is off.
     void beginConnect(const QString &preferIp);
 
+    bool docksAreReady() const { return docksReadyEmitted_; }
+
+signals:
+    // Emitted once all deferred QML docks have finished loading. Auto-start
+    // must wait for this — opening the radio during QQuickWidget/Vulkan
+    // construction freezes the panadapter.
+    void docksReady();
+
+public:
     // Startup "radio never answered" watchdog. armConnWatchdog() starts a
     // one-shot timer when a connect is initiated; a successful connection
     // (runningChanged) or a manual Stop cancels it via disarmConnWatchdog();
@@ -155,6 +164,8 @@ private:
     // crash AFTER first paint (e.g. a DSP/network fault) is then not
     // mis-attributed to graphics.  One-shot guard.
     bool gfxSentinelCleared_ = false;
+    bool docksReadyEmitted_ = false;
+    bool connectInFlight_ = false;
     bool quickSourcesPending_ = true;
     QStringList dockQmlOrder_;
     // Build a QQuickWidget that hosts <qmlFile> from the Lyra QML

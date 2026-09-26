@@ -131,16 +131,17 @@ public:
 public slots:
     // Fire one discovery sweep.  Safe to call repeatedly; each
     // sweep opens its own sockets, broadcasts, listens, closes.
-    void scan(double timeoutSeconds = 1.5, int attempts = 2);
+    // protocolOnly: 0 = P1+P2 (default), 1 = Metis only, 2 = P2 only.
+    // HL2 Start must probe/scan P1-only so a powered Brick2 on the LAN
+    // cannot steal lastRadio or answer a P2 probe first.
+    void scan(double timeoutSeconds = 1.5, int attempts = 2,
+              int protocolOnly = 0);
 
     // Directed UNICAST discovery probe to ONE radio IP — for a fixed-IP /
     // different-subnet / broadcast-blocked radio the sweep can't reach.
-    // Sends the same 0xEFFE 0x02 packet to <ip>:1024; on a reply, emits
-    // radioFound with the real board/gw/rx info (so an "Add by IP" entry
-    // shows real details instead of "manual").  No reply within the
-    // timeout → silent (the caller's manual entry stays; Open still works).
-    // Independent of scan() — its own socket, its own deadline.
-    void probe(const QString &ip, double timeoutSeconds = 1.0);
+    // protocolOnly: 0 = P1+P2, 1 = Metis only, 2 = P2 only.
+    void probe(const QString &ip, double timeoutSeconds = 1.0,
+               int protocolOnly = 0);
 
 signals:
     // Emitted once per UNIQUE radio found (de-duped by MAC).  `protocol`
@@ -157,7 +158,8 @@ signals:
     // the connect logic probe a remembered IP and fall back to a scan when
     // the radio isn't there (DHCP lease changed, moved subnets, powered
     // off) instead of blindly opening a dead IP.
-    void probeFinished(bool found, QString ip);
+    // protocol is 1 (P1) / 2 (P2) when found, else 0.
+    void probeFinished(bool found, QString ip, int protocol);
     // Diagnostic log line — fed to the QML view for the operator.
     void logLine(QString line);
 
@@ -186,6 +188,12 @@ private:
                     const QHostAddress &sender,
                     RadioInfo &out) const;
     void sendBroadcastFromAllSockets();
+    // Never unique_ptr::reset() a QUdpSocket from inside its own
+    // readyRead (or while a queued readyRead can still fire): that is
+    // a Qt Network use-after-free (0xc0000005). Disconnect, abort,
+    // deleteLater, then drop the unique_ptr.
+    void releaseUdpLater(std::unique_ptr<QUdpSocket> &sock);
+    void releaseScanSockets();
 
     // std::vector (not QList) because QList is value-semantic
     // (implicitly shared / copy-on-write) and unique_ptr is
@@ -211,6 +219,8 @@ private:
     QTimer                              probeDeadline_;
     QString                             probeIp_;            // IP this probe targets
     bool                                probeResolved_ = false;  // probeFinished emitted?
+    int                                 probeProtocolOnly_ = 0;  // 0=both, 1=P1, 2=P2
+    int                                 scanProtocolOnly_  = 0;
 
     static constexpr quint16 kDiscoveryPort = 1024;
     static constexpr int     kPacketLen     = 63;   // P1 probe size

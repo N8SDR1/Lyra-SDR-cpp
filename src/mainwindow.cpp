@@ -230,7 +230,8 @@ inline bool isChipSummonedPanel(const QString &objectName) {
         || objectName == QLatin1String("voicekeyer")
         || objectName == QLatin1String("tuner")
         || objectName == QLatin1String("freqcal")
-        || objectName == QLatin1String("recorder");
+        || objectName == QLatin1String("recorder")
+        || objectName == QLatin1String("ps");
 }
 
 // Diagnostic: LYRA_TEST_SIZE=WxH opens the window at exactly that LOGICAL size.
@@ -352,6 +353,21 @@ public:
 private:
     Prefs *prefs_;
 };
+
+int protocolHintForIp(lyra::ipc::HL2Discovery *disc, const QString &ip) {
+    if (ip.isEmpty()) return 0;
+    if (disc) {
+        const auto saved = disc->savedRadio();
+        if (saved.value(QStringLiteral("ip")).toString() == ip)
+            return saved.value(QStringLiteral("protocol"), 1).toInt();
+    }
+    for (const auto &r : lyra::rig::registry::rigs()) {
+        if (r.lastIp == ip)
+            return lyra::rig::capabilitiesFor(r.family).protocol;
+    }
+    return 0;
+}
+
 } // namespace
 
 MainWindow::MainWindow(QObject *discovery, QObject *stream,
@@ -1313,12 +1329,27 @@ void MainWindow::loadDeferredQuickSources() {
         if (isChipSummonedPanel(name)) loadDock(name);
     }
     qWarning("[startup] docks ready");
+    docksReadyEmitted_ = true;
+    emit docksReady();
 }
 
 void MainWindow::showEvent(QShowEvent *event) {
     QMainWindow::showEvent(event);
     if (quickSourcesPending_)
         QTimer::singleShot(0, this, &MainWindow::loadDeferredQuickSources);
+    // 1 Hz GUI-thread heartbeat in lyra-log.txt.  If the UI freezes,
+    // copy the log while it is stuck: last `[hb] gui` is when the
+    // event loop last ran; later lines from other threads still flush.
+    static bool hbArmed = false;
+    if (!hbArmed) {
+        hbArmed = true;
+        auto *hb = new QTimer(this);
+        hb->setInterval(1000);
+        connect(hb, &QTimer::timeout, this, [] {
+            qWarning("[hb] gui");
+        });
+        hb->start();
+    }
 }
 
 void MainWindow::captureRecorderSnapshot() {
@@ -1553,6 +1584,10 @@ void MainWindow::buildDocks() {
     addQuickDock(QStringLiteral("tx"), tr("TX"),
                  QStringLiteral("TxPanel.qml"),
                  QStringLiteral("tx"), Qt::BottomDockWidgetArea);
+    addQuickDock(QStringLiteral("ps"), tr("PureSignal"),
+                 QStringLiteral("PsPanel.qml"),
+                 QStringLiteral("ps"), Qt::BottomDockWidgetArea,
+                 /*resizable=*/true);
     // TX Speech (#88) — Noise Gate + Auto-AGC + De-esser, the pre-EQ mic
     // rack stage.  Its OWN dock so it moves / resizes / floats / collapses
     // like every Lyra panel; drag it onto the TX EQ dock to tab the two into
@@ -1666,7 +1701,7 @@ void MainWindow::buildDocks() {
     // remembers what's open + where.  restoreLayout() below overrides this
     // with the operator's saved arrangement when one exists.
     for (const char *nm : {"txspeech", "txeq", "txcombinator", "txplate",
-                           "rxeq"}) {
+                           "rxeq", "ps"}) {
         if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
             d->setFloating(true);
             d->hide();
@@ -2231,7 +2266,8 @@ void MainWindow::buildToolbar() {
         txDspLabel->setToolTip(tr("Mic-rack panels — click to open one as a "
                                   "movable window; layout is remembered."));
         tb->addWidget(txDspLabel);
-        for (const char *nm : {"txspeech", "txeq", "txcombinator", "txplate"}) {
+        for (const char *nm : {"txspeech", "txeq", "txcombinator", "txplate",
+                               "ps"}) {
             if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
                 QAction *act = d->toggleViewAction();
                 tb->addAction(act);
@@ -2826,17 +2862,34 @@ void MainWindow::onStartStop() {
         st->close();
         return;
     }
-    // Stopped → connect.  Prefer the remembered radio (probe-verified by
-    // beginConnect, NOT opened blind); if none / not there, scan.
+    // Stopped → connect.  Prefer the ACTIVE rig's lastIp (family-matched).
+    // lastRadio is discovery's most recent reply — with Brick2 powered it
+    // is often the Brick, which then got opened as P1 and locked the HL2.
     QString ip;
-    if (auto *disc = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_))
-        ip = disc->savedRadio().value(QStringLiteral("ip")).toString();
+    const auto rp = lyra::rig::registry::rig(
+        lyra::rig::registry::activeRigId());
+    if (!rp.lastIp.isEmpty())
+        ip = rp.lastIp;
+    if (auto *disc = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_)) {
+        if (ip.isEmpty()) {
+            const auto saved = disc->savedRadio();
+            const QString sip =
+                saved.value(QStringLiteral("ip")).toString();
+            const int proto =
+                saved.value(QStringLiteral("protocol"), 1).toInt();
+            const int want =
+                lyra::rig::capabilitiesFor(rp.family).protocol;
+            if (!sip.isEmpty() && (want == 0 || proto == want))
+                ip = sip;
+        }
+    }
     beginConnect(ip);
 }
 
 void MainWindow::beginConnect(const QString &preferIp) {
     auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-    if (!st || st->isRunning()) return;
+    if (!st || st->isRunning() || connectInFlight_) return;
+    connectInFlight_ = true;
     // Arm the "radio never answered" watchdog for this attempt. It's cancelled
     // by updateConnState() the moment either wire path reports running, or by
     // a manual Stop; on timeout it tells the operator the radio wasn't found
@@ -2869,12 +2922,47 @@ void MainWindow::beginConnect(const QString &preferIp) {
             lyra::rig::registry::activeRigId());
         const bool isP2 =
             lyra::rig::capabilitiesFor(rp.family).protocol == 2;
-        if (rp.isValid() && isP2 && !rp.lastIp.isEmpty()) {
-            if (connStatus_)
-                connStatus_->setText(tr("Opening %1…").arg(
-                    rp.label.isEmpty() ? rp.lastIp : rp.label));
-            p2Bridge_->open(rp.lastIp, rp.mac);
-            return;
+        // A P1 open used to stamp radio/lastIp onto whichever rig was
+        // *active* — including a Brick/Saturn profile. Next Start then
+        // sent Protocol 2 at the HL2 (operator: "trying to use the HL2
+        // as a p2 unit"). Never P2-open an address last seen as P1/HL2.
+        bool ipIsP1 = (rp.family == lyra::rig::RadioFamily::Hl2);
+        if (auto *d = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_)) {
+            const auto saved = d->savedRadio();
+            const QString sip = saved.value(QStringLiteral("ip")).toString();
+            const int proto =
+                saved.value(QStringLiteral("protocol"), 1).toInt();
+            const QString board =
+                saved.value(QStringLiteral("boardName")).toString();
+            if (!sip.isEmpty() && sip == rp.lastIp &&
+                (proto == 1 ||
+                 board.contains(QLatin1String("HermesLite"),
+                                Qt::CaseInsensitive))) {
+                ipIsP1 = true;
+                qWarning("[wire] lastRadio %s is P1/HL2 — not opening as P2",
+                         qPrintable(sip));
+            }
+        }
+        if (rp.isValid() && isP2 && !rp.lastIp.isEmpty() && !ipIsP1) {
+            auto *d = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_);
+            const int prefHint = protocolHintForIp(d, preferIp);
+            if (!preferIp.isEmpty() && prefHint == 1) {
+                qWarning("[wire] active rig is P2 but Start IP %s is P1 — "
+                         "not opening Brick as P2",
+                         qPrintable(preferIp));
+            } else {
+                const QString target =
+                    (!preferIp.isEmpty() && prefHint == 2)
+                        ? preferIp : rp.lastIp;
+                if (connStatus_)
+                    connStatus_->setText(tr("Opening %1…").arg(
+                        rp.label.isEmpty() ? target : rp.label));
+                qWarning("[wire] Protocol 2 open %s (%s)",
+                         qPrintable(target), qPrintable(rp.label));
+                p2Bridge_->open(target, rp.mac);
+                connectInFlight_ = false;
+                return;
+            }
         }
     }
     // Leaving Disconnected — show the connect attempt in amber (not the
@@ -2882,41 +2970,22 @@ void MainWindow::beginConnect(const QString &preferIp) {
     if (connStatus_)
         connStatus_->setStyleSheet(
             QStringLiteral("QLabel{color:#f0c040;font-weight:bold;}"));
-    auto *disc = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_);
-    if (!disc) {
-        // No discovery service — best effort: open the saved IP directly.
-        if (!preferIp.isEmpty()) {
-            if (connStatus_) connStatus_->setText(tr("Connecting to %1…").arg(preferIp));
-            st->open(preferIp);
-        } else if (connStatus_) {
-            connStatus_->setText(tr("No saved radio"));
-            disarmConnWatchdog();  // nothing was attempted — no "not found" popup
-        }
+    // Thetis-style: the chosen radio is an IP, not a LAN sweep.
+    // DeskHPSDR mixed P1+P2 discovery on GUI sockets (probe/scan at Start)
+    // is what started the Brick-on / HL2-Start freeze-crash. Scan stays
+    // on Settings → Hardware → Scan only; after that, Start opens the
+    // saved HL2 address and does not keep discovering.
+    QObject::disconnect(probeConn_);
+    if (preferIp.isEmpty()) {
+        if (connStatus_) connStatus_->setText(tr("No saved radio — Scan in Settings"));
+        disarmConnWatchdog();
+        connectInFlight_ = false;
         return;
     }
-    if (preferIp.isEmpty()) { scanAndOpenFirst(); return; }
-    // Probe the remembered IP first (fast unicast, ~1 s).  Open it only on
-    // a reply; on no reply the radio isn't there (DHCP lease changed, moved
-    // subnets, powered off) → scan and self-heal to its real address instead
-    // of opening a dead IP and sitting frozen on "Connecting…".
-    if (connStatus_) connStatus_->setText(tr("Locating %1…").arg(preferIp));
-    QObject::disconnect(probeConn_);
-    probeConn_ = connect(
-        disc, &lyra::ipc::HL2Discovery::probeFinished, this,
-        [this, st, preferIp](bool found, const QString &ip) {
-            if (ip != preferIp) return;           // a different probe
-            QObject::disconnect(probeConn_);
-            if (st->isRunning()) return;          // raced with another open
-            if (found) {
-                if (connStatus_) connStatus_->setText(tr("Connecting to %1…").arg(preferIp));
-                st->open(preferIp);
-            } else {
-                if (connStatus_)
-                    connStatus_->setText(tr("Saved radio not at %1 — scanning…").arg(preferIp));
-                scanAndOpenFirst();
-            }
-        });
-    disc->probe(preferIp, 1.5);
+    if (connStatus_)
+        connStatus_->setText(tr("Connecting to %1…").arg(preferIp));
+    st->open(preferIp);
+    connectInFlight_ = false;
 }
 
 void MainWindow::scanAndOpenFirst() {
@@ -2972,7 +3041,7 @@ void MainWindow::scanAndOpenFirst() {
                 connStatus_->setText(tr("No radio found"));
             }
         });
-    disc->scan(1.5, 2);
+    disc->scan(1.5, 2, 1);
 }
 
 void MainWindow::armConnWatchdog() {

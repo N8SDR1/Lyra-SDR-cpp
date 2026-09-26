@@ -442,14 +442,15 @@ int main(int argc, char *argv[])
             qWarning("[gfx] MSAA disabled (software renderer or graphics safe mode)");
     }
 
-    // QQuickWidget + the software scene-graph requires the basic (single-
-    // thread) render loop.  The default Windows loop can wait forever for a
-    // swapchain that never appears while docks are built before the window
-    // is shown.  Must be set BEFORE QApplication.  Honour an explicit
+    // QQuickWidget + a threaded scene-graph loop can stall the GUI thread
+    // after a few seconds of live panadapter/waterfall updates (P1 IQ
+    // starts that pump immediately on Start).  The basic loop is the
+    // documented host for QQuickWidget on every backend, not only
+    // software.  Must be set BEFORE QApplication.  Honour an explicit
     // QSG_RENDER_LOOP if a tester already set one.
-    if (skipMsaa && qEnvironmentVariableIsEmpty("QSG_RENDER_LOOP")) {
+    if (qEnvironmentVariableIsEmpty("QSG_RENDER_LOOP")) {
         qputenv("QSG_RENDER_LOOP", "basic");
-        qWarning("[gfx] QSG_RENDER_LOOP=basic (software / graphics safe mode)");
+        qWarning("[gfx] QSG_RENDER_LOOP=basic (QQuickWidget docks)");
     }
 
     QApplication app(argc, argv);
@@ -2102,12 +2103,28 @@ int main(int argc, char *argv[])
         if (!lastIp.isEmpty()
             && prefs->autoStartOnLaunch()
             && !qEnvironmentVariableIsSet("LYRA_SAFE")) {
-            // Resilient connect: probe the remembered IP and open it only
-            // if the radio answers; otherwise scan and self-heal to its
-            // real address.  Prevents a blind open of a stale saved IP
-            // (e.g. the radio's DHCP lease changed) leaving the window
-            // stuck "Connecting…" to a dead host on launch.
-            win->beginConnect(lastIp);
+            // After docks are up — never during QML/Vulkan construction.
+            // loadDeferredQuickSources pumps processEvents between docks,
+            // which used to run this lambda mid-panadapter and open the
+            // radio while scene graphs were still coming up.
+            // One-shot only. docksReady (queued) AND a singleShot(0)
+            // fallback must not both call beginConnect — processEvents
+            // during dock load can make both look live.
+            auto started = std::make_shared<std::atomic<bool>>(false);
+            auto kick = [win, lastIp, started]() {
+                bool expected = false;
+                if (!started->compare_exchange_strong(expected, true))
+                    return;
+                win->beginConnect(lastIp);
+            };
+            if (win->docksAreReady()) {
+                QTimer::singleShot(0, win, kick);
+            } else {
+                QObject::connect(win, &lyra::ui::MainWindow::docksReady, win,
+                                 kick,
+                                 static_cast<Qt::ConnectionType>(
+                                     Qt::QueuedConnection | Qt::SingleShotConnection));
+            }
         }
 
         // Safety net: if the window was deferred for a wisdom build but
