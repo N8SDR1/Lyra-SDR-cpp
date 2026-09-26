@@ -47,7 +47,7 @@ threads and one wire-send thread on a two-event AND wait. NO
 polling. NO `Thread.Sleep(N)` on the audio path. The 32-stage
 WDSP TXA chain (xtxa) processes everything in-place on midbuff;
 bp0 is the always-on SSB sideband selector; ALC is the always-on
-splatter protection; sip1 is the always-on PS feedback tap.
+splatter protection; sip1 is the TX panadapter siphon (`TXASetSipDisplay`), not the calcc feed (`pscc` from radio IQ).
 
 Lyra mirrors this verbatim (Rule 1). Variations require explicit
 Rick + Claude agreement BEFORE any code is written (Rule 11) and
@@ -1464,11 +1464,10 @@ class PsFsm {
 };
 
 class PsCalcThread {     // v0.3
-    // dedicated std::thread, MMCSS Pro Audio @ ?
-    // semaphore-driven (the reference uses a sema; need to find which one)
-    // reads sip1 ring + DDC0/DDC1 feedback samples
-    // calls calcc cffi → updates coefficients
-    // signals iqc to crossover via FSM
+    // Host feed only: accumulate EP6 DDC0/DDC1 IQ pairs and call
+    // pscc(txid, n, tx, rx). WDSP owns the calc thread internally.
+    // sip1 is the TX panadapter (TXASetSipDisplay) — NOT the calcc feed.
+    // Do not call SetTXAiqc* from the host (deskHPSDR never does).
 };
 
 }  // namespace lyra::tx::ps
@@ -1477,18 +1476,14 @@ class PsCalcThread {     // v0.3
 ### 9.4 Phase 2 deliverables (v0.2) for PS forward-compat
 
 Per Rule 10, Phase 2 of the rip must include:
-1. `lyra::wdsp::TxChannel` constructor allocates calcc + iqc with
-   the reference's exact defaults (`run=0`). Inert; no operator
-   surface.
-2. sip1 always-on at construction (matches reference's `run=1`).
-3. DDC routing capability infrastructure: `ddc_map(state)` API
-   shape locked, with the (MOX, ps_armed, rx2_enabled, family)
-   axes (per CLAUDE.md §6.7 discipline #6). Implementation
-   covers MOX-no-PS today; PS path defers to v0.3 wiring.
+1. TXA channel open already constructs WDSP calcc/iqc internally
+   (`run=0` until `pscc`/`SetPSRunCal`). Host does not wrap iqc.
+2. sip1 always-on at construction = TX panadapter, not PS feedback.
+3. DDC routing: `ddc_map(mox, ps_armed, rx2, family)` — live HL2
+   MOX+PS = Thetis `cntrl1=4` + DDC0/DDC1 → `pscc`. See
+   `docs/architecture/puresignal_hl2.md`.
 4. C&C case 11 C2 bit 6 + case 16 C2 bit 6 `puresignal_run`
-   flags reachable from `set_pa_on` or a separate
-   `set_ps_armed(bool)` (default false). Wire-correct,
-   operator-inert.
+   from `set_ps_armed(bool)` (attestation default false).
 
 These four items are **prerequisites for Phase 1 sign-off** —
 v0.3 PS work otherwise re-validates every TX sub-mode.

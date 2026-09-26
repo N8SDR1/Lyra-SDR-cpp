@@ -60,14 +60,20 @@ void setActiveRigId(const QString &rigId) {
 }
 
 RadioFamily familyForBoardName(const QString &boardName) {
-    // Only HL2/ANAN-P1 ship today; anything else (or empty) is treated as
-    // HL2 — the only hardware in the field — so the discovery→rig hook and
-    // the legacy seed can't misfile a real user's radio.
+    // Protocol 1 discovery. HL2 is HermesLite*; classic ANAN / HPSDR
+    // boards must not fall through to the HL2 TX path.
     if (boardName.startsWith(QStringLiteral("HermesLite")))
         return RadioFamily::Hl2;
-    if (boardName.startsWith(QStringLiteral("Orion")))
+    if (boardName.startsWith(QStringLiteral("Orion")) ||
+        boardName == QStringLiteral("Hermes") ||
+        boardName == QStringLiteral("HermesII") ||
+        boardName == QStringLiteral("Angelia") ||
+        boardName == QStringLiteral("Atlas") ||
+        boardName.startsWith(QStringLiteral("Saturn")))
         return RadioFamily::AnanP1;
-    return RadioFamily::Hl2;
+    if (boardName.isEmpty())
+        return RadioFamily::Hl2;
+    return RadioFamily::AnanP1;
 }
 
 RadioFamily familyForDiscovery(int protocol, const QString &boardName) {

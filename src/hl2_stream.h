@@ -71,6 +71,7 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <QVariantList>
 #include <atomic>
 #include <limits>
 #include <complex>
@@ -99,6 +100,7 @@
 
 // #105 CW-3a — host CW keyer (CWX); the full type is pulled in the .cpp.
 namespace lyra::tx { class CwKeyer; }
+namespace lyra::ps { class PsFsm; }
 
 namespace lyra::ipc {
 
@@ -270,11 +272,11 @@ class HL2Stream : public QObject {
     // the codec mic is the active TX source.
     Q_PROPERTY(bool micBoost READ micBoost WRITE setMicBoost
                NOTIFY micBoostChanged)
-    // HL2 "Band Volts" output (MI0BOT / Ramdor gateware feature): C0=0x00
-    // frame C3 bit 3 (the ADC "dither" bit) → gateware band_volts_enabled →
-    // per-band analog voltage on the fan-PWM pin for amps / tuners / antenna
-    // switches that band-follow off a band voltage.  Repurposes the fan pin
-    // while on → operator opt-in, default OFF.  Persisted: hw/bandVolts.
+    // HL2 Band Volts: C0=0x00 C3 bit 3 (ADC dither) → band_volts_enabled
+    // → analog PWM on GPIO04_Fan.  On an N2ADR IO board that header is
+    // J3.  Same bit as DeskHPSDR RX "HL2 Band Volts / Dither Bit" and
+    // MI0BOT Thetis chkHL2BandVolts.  Opt-in, default OFF (fan stays a
+    // fan).  Needs GW ≥72p5 with the fan block.  Persisted: hw/bandVolts.
     Q_PROPERTY(bool bandVoltsOutput READ bandVoltsOutput WRITE setBandVoltsOutput
                NOTIFY bandVoltsOutputChanged)
     // TX-0c-pa-drive — operator-tunable drive DAC level.  Maps to
@@ -312,6 +314,30 @@ class HL2Stream : public QObject {
                NOTIFY tuneEnabledChanged)
     Q_PROPERTY(bool twoToneEnabled READ twoToneEnabled WRITE setTwoToneEnabled
                NOTIFY twoToneEnabledChanged)
+    Q_PROPERTY(bool psAttestation READ psAttestation WRITE setPsAttestation
+               NOTIFY psAttestationChanged)
+    Q_PROPERTY(bool psArmed READ psArmed WRITE setPsArmed
+               NOTIFY psArmedChanged)
+    Q_PROPERTY(int psFeedbackLevel READ psFeedbackLevel
+               NOTIFY psFeedbackLevelChanged)
+    Q_PROPERTY(int psAutoAttDb READ psAutoAttDb NOTIFY psAutoAttDbChanged)
+    Q_PROPERTY(int psFsmState READ psFsmState NOTIFY psFsmStateChanged)
+    Q_PROPERTY(bool psCorrecting READ psCorrecting NOTIFY psCorrectingChanged)
+    Q_PROPERTY(int psCalCount READ psCalCount NOTIFY psCalCountChanged)
+    Q_PROPERTY(int psDdc0Dbfs READ psDdc0Dbfs NOTIFY psDdc0DbfsChanged)
+    Q_PROPERTY(int psDdc1Dbfs READ psDdc1Dbfs NOTIFY psDdc1DbfsChanged)
+    Q_PROPERTY(int psFeedSpr READ psFeedSpr NOTIFY psFeedSprChanged)
+    Q_PROPERTY(double psHwPeak READ psHwPeak WRITE setPsHwPeak
+               NOTIFY psHwPeakChanged)
+    Q_PROPERTY(double psMaxTx READ psMaxTx NOTIFY psMaxTxChanged)
+    Q_PROPERTY(double psGetPk READ psGetPk NOTIFY psGetPkChanged)
+    Q_PROPERTY(bool psAmpPlotHeld READ psAmpPlotHeld WRITE setPsAmpPlotHeld
+               NOTIFY psAmpPlotHeldChanged)
+    Q_PROPERTY(QVariantList psAmpMagX READ psAmpMagX NOTIFY psAmpPlotChanged)
+    Q_PROPERTY(QVariantList psAmpMagY READ psAmpMagY NOTIFY psAmpPlotChanged)
+    Q_PROPERTY(QVariantList psAmpCorrX READ psAmpCorrX NOTIFY psAmpPlotChanged)
+    Q_PROPERTY(QVariantList psAmpCorrY READ psAmpCorrY NOTIFY psAmpPlotChanged)
+    Q_PROPERTY(QVariantList psInfo READ psInfo NOTIFY psInfoChanged)
     // TX-1 component 6 — SSB modulator I/Q injection.  When TRUE
     // *and* the wire MOX bit is high, the EP2 writer pulls 126
     // complex<float> samples per datagram from the registered TX
@@ -932,6 +958,25 @@ public:
     // whenever MOX is active"; auto-clears on the next MOX-off edge.
     bool    tuneEnabled() const { return tuneEnabled_.load(std::memory_order_relaxed); }
     bool    twoToneEnabled() const { return twoToneEnabled_.load(std::memory_order_relaxed); }
+    bool    psAttestation() const { return psAttestation_; }
+    bool    psArmed() const { return psArmed_; }
+    int     psFeedbackLevel() const;
+    int     psAutoAttDb() const;
+    int     psFsmState() const;
+    bool    psCorrecting() const;
+    int     psCalCount() const;
+    int     psDdc0Dbfs() const;
+    int     psDdc1Dbfs() const;
+    int     psFeedSpr() const;
+    double  psHwPeak() const;
+    double  psMaxTx() const;
+    double  psGetPk() const;
+    bool    psAmpPlotHeld() const;
+    QVariantList psAmpMagX() const;
+    QVariantList psAmpMagY() const;
+    QVariantList psAmpCorrX() const;
+    QVariantList psAmpCorrY() const;
+    QVariantList psInfo() const;
     // TX-1 component 6 — SSB modulator I/Q injection gate (Q_PROPERTY
     // getter).  See the Q_PROPERTY decl above for the full contract.
     bool    injectTxIq() const { return injectTxIq_.load(std::memory_order_relaxed); }
@@ -1100,11 +1145,12 @@ public slots:
     // (atomic).  Ignores 48 k (EP2 cadence, like old Lyra).
     void setSampleRate(int hz);
 
-    // Enable/disable the external N2ADR filter board.  When on, the
-    // per-band OC pattern is driven on frame-0 C2 and re-applied on every
-    // band change; when off, C2 OC pins are cleared (0).  Persisted to
-    // QSettings (hw/filterBoard).  Thread-safe (atomic C2; readout on the
-    // main thread).
+    // Enable/disable N2ADR / IO-board OC (filters + analog J3 band
+    // voltage via I2C 0x20).  When on, the per-band OC pattern is driven
+    // on frame-0 C2 and re-applied on every band change; when off, C2 OC
+    // pins are cleared (0).  Default ON (Thetis/Quisk-parity).  Persisted
+    // to QSettings (hw/filterBoard).  Thread-safe (atomic C2; readout on
+    // the main thread).
     void setFilterBoardEnabled(bool on);
 
     // ---- TX-state C&C registers (TX-0b foundation) -----------------
@@ -1172,6 +1218,9 @@ public slots:
     void setCtuneFilterEdges(int lowHz, int highHz);
     void setTxDriveLevel(int level);
     void setTxStepAttnDb(int db);
+    // HL2: TX step-att. Brick/Hermes P2: ADC0 coupler pad (0..31, seed 0).
+    void bindPsAttnWriter(std::function<void(int)> fn,
+                          int minDb, int maxDb, int moxSeed);
     void setPaEnabled(bool on);
     void setMicBoost(bool on);
     void setBandVoltsOutput(bool on);
@@ -1185,6 +1234,12 @@ public slots:
     // Arm/disarm the Thetis-compatible continuous two-tone generator.
     // Mutually exclusive with Tune and auto-cleared when MOX drops.
     void setTwoToneEnabled(bool on);
+    void setPsAttestation(bool on);
+    void setPsArmed(bool on);
+    Q_INVOKABLE void resetPureSignal();
+    Q_INVOKABLE void capturePsGetPk();
+    Q_INVOKABLE void setPsAmpPlotHeld(bool on);
+    void setPsHwPeak(double peak);
 
     // ---- TX-0c-fsm: MOX/PTT sequencer (single funnel) ----------------
     // Operator/CAT/PTT/TUN intent gets funneled here.  Internally drives
@@ -1550,6 +1605,22 @@ signals:
     // operator unarm, or the moxActiveChanged(false) safety auto-clear).
     void tuneEnabledChanged(bool on);
     void twoToneEnabledChanged(bool on);
+    void psAttestationChanged(bool on);
+    void psArmedChanged(bool on);
+    void psFeedbackLevelChanged(int level);
+    void psAutoAttDbChanged(int db);
+    void psFsmStateChanged(int state);
+    void psCorrectingChanged(bool on);
+    void psCalCountChanged(int n);
+    void psDdc0DbfsChanged(int db);
+    void psDdc1DbfsChanged(int db);
+    void psFeedSprChanged(int n);
+    void psHwPeakChanged(double peak);
+    void psMaxTxChanged(double v);
+    void psGetPkChanged(double v);
+    void psAmpPlotHeldChanged(bool on);
+    void psAmpPlotChanged();
+    void psInfoChanged();
     // P4.b TUN display-honesty — the TX-analyzer NCO−dial offset (Hz)
     // changed.  Wired to WdspEngine::setTxAnalyzerOffsetHz so the panadapter
     // crop renders the TUN carrier at its true RF (the dial) rather than
@@ -1653,6 +1724,7 @@ private:
     void safetyLog(const QString& msg);
     void fatalLog(const QString& msg);
     void lnaLog(const QString& msg);   // Auto-LNA / overload diagnostics
+    void refreshPsWire();
 
     // (§7) txWorkerLoop retired — EP2 writer is the verbatim
     // sendProtocol1Samples thread (prn->hWriteThreadMain).
@@ -1743,6 +1815,9 @@ private:
     // DDC1: RX1-mirror when SUB is off (byte-identical); independent
     // rx2FreqHz when SUB is on.  ddc0Hz is the already-computed DDC0 NCO.
     void writeDdc1Hz(int ddc0Hz);
+    // One log line when SUB is on another amateur band than RX1 while the
+    // N2ADR/filter board is enabled (shared analog LPF/BPF follows RX1).
+    void noteSubFrontEnd();
     // #170a — the Max-TX-drive cap as a raw 0..255 ceiling (100 % → 255).
     // Header-safe integer rounding (no <cmath>/<algorithm> dependency);
     // maxDrivePct_ is already clamped 1..100 by its setter + the ctor.
@@ -1972,6 +2047,8 @@ private:
     std::atomic<quint32> vfoBHz_{7074000};
     std::atomic<bool>    subEnabled_{false};
     std::atomic<quint32> rx2FreqHz_{7074000};
+    int lastSubWarnBandA_{-1};
+    int lastSubWarnBandB_{-1};
     std::atomic<int>     focusedRx_{1};
     // RIT/XIT — signed Hz offsets, ±9999 Hz, default disabled / 0.  RIT
     // folds into the RX DDC NCO (pushEffectiveRxFreq); XIT into the TX NCO
@@ -2060,6 +2137,10 @@ private:
     // needed since only that thread mutates it).
     std::atomic<bool>    tuneEnabled_{false};
     std::atomic<bool>    twoToneEnabled_{false};
+    bool                 psAttestation_{false};
+    bool                 psArmed_{false};
+    bool                 subPausedForPs_{false};
+    std::unique_ptr<lyra::ps::PsFsm> psFsm_;
 
     // Task #36 — Hardware PTT input forwarder.
     //
@@ -2169,7 +2250,7 @@ private:
     // Single-shot timer driving the auto-MOX-off on safety expiry.
     // Owned by this QObject (parent = this), runs on this thread.
     QTimer              *txSafetyTimer_    = nullptr;
-    bool                 filterBoardEnabled_ = false;
+    bool                 filterBoardEnabled_ = true;
     int                  ocPattern_ = 0;   // live 7-bit J16 pattern
     // #199 — the editable OC table + emit choke (Stage 1 core).  Stage 2
     // routes updateOcPattern() through it; seeded with the N2ADR preset so

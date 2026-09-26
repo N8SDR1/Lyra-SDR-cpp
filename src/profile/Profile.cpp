@@ -26,6 +26,12 @@ QJsonObject Profile::toJson() const {
     o["vac1TxGainDb"]    = vac1TxGainDb;
     o["vac1LatencyMs"]   = vac1LatencyMs;   // v5 #158
     o["vac1VacSize"]     = vac1VacSize;      // v5 #158
+    o["vac2Enabled"]     = vac2Enabled;      // v6 #103
+    o["vac2AutoDigital"] = vac2AutoDigital;
+    o["vac2RxGainDb"]    = vac2RxGainDb;
+    o["vac2TxGainDb"]    = vac2TxGainDb;
+    o["vac2LatencyMs"]   = vac2LatencyMs;
+    o["vac2VacSize"]     = vac2VacSize;
     o["agcMode"]       = agcMode;
     o["autoMuteOnTx"]  = autoMuteOnTx;
     o["alcMaxGainLinear"]     = alcMaxGainLinear;
@@ -75,6 +81,12 @@ Profile Profile::fromJson(const QString &name, const QJsonObject &o) {
     if (o.contains("vac1TxGainDb"))    p.vac1TxGainDb    = o["vac1TxGainDb"].toDouble(p.vac1TxGainDb);
     if (o.contains("vac1LatencyMs"))   p.vac1LatencyMs   = o["vac1LatencyMs"].toInt(p.vac1LatencyMs);
     if (o.contains("vac1VacSize"))     p.vac1VacSize     = o["vac1VacSize"].toInt(p.vac1VacSize);
+    if (o.contains("vac2Enabled"))     p.vac2Enabled     = o["vac2Enabled"].toBool(p.vac2Enabled);
+    if (o.contains("vac2AutoDigital")) p.vac2AutoDigital = o["vac2AutoDigital"].toBool(p.vac2AutoDigital);
+    if (o.contains("vac2RxGainDb"))    p.vac2RxGainDb    = o["vac2RxGainDb"].toDouble(p.vac2RxGainDb);
+    if (o.contains("vac2TxGainDb"))    p.vac2TxGainDb    = o["vac2TxGainDb"].toDouble(p.vac2TxGainDb);
+    if (o.contains("vac2LatencyMs"))   p.vac2LatencyMs   = o["vac2LatencyMs"].toInt(p.vac2LatencyMs);
+    if (o.contains("vac2VacSize"))     p.vac2VacSize     = o["vac2VacSize"].toInt(p.vac2VacSize);
     if (o.contains("agcMode"))       p.agcMode       = o["agcMode"].toString(p.agcMode);
     if (o.contains("autoMuteOnTx"))  p.autoMuteOnTx  = o["autoMuteOnTx"].toBool(p.autoMuteOnTx);
     if (o.contains("alcMaxGainLinear"))     p.alcMaxGainLinear     = o["alcMaxGainLinear"].toDouble(p.alcMaxGainLinear);
@@ -119,6 +131,12 @@ bool Profile::sameValues(const Profile &b) const {
         && dEq(vac1TxGainDb, b.vac1TxGainDb)
         && vac1LatencyMs == b.vac1LatencyMs
         && vac1VacSize == b.vac1VacSize
+        && vac2Enabled == b.vac2Enabled
+        && vac2AutoDigital == b.vac2AutoDigital
+        && dEq(vac2RxGainDb, b.vac2RxGainDb)
+        && dEq(vac2TxGainDb, b.vac2TxGainDb)
+        && vac2LatencyMs == b.vac2LatencyMs
+        && vac2VacSize == b.vac2VacSize
         && agcMode == b.agcMode
         && autoMuteOnTx == b.autoMuteOnTx
         && dEq(alcMaxGainLinear, b.alcMaxGainLinear)

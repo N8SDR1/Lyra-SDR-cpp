@@ -274,6 +274,16 @@ void Panadapter::onFrame() {
     if (!engine_ || pix_.empty() || !isVisible()) {
         return;
     }
+    // PreciseTimer will dump a burst of queued ticks after a GUI stall.
+    // Doing GetPixels + a full scene-graph rebuild for each one wedges
+    // the QQuickWidget host.  Keep at most one real frame per interval.
+    {
+        const qint64 now = autoClock_.elapsed();
+        const qint64 minMs = 1000 / std::max(1, targetFps_);
+        if (lastFrameMs_ >= 0 && (now - lastFrameMs_) < (minMs / 2))
+            return;
+        lastFrameMs_ = now;
+    }
     const int n = static_cast<int>(pix_.size());
     if (static_cast<int>(rawPix_.size()) != n) {
         rawPix_.assign(static_cast<size_t>(n), -200.0f);

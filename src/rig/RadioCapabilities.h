@@ -67,7 +67,7 @@ struct RadioCapabilities {
                                          // two VFOs on one ADC via SUB/DDC1.
     bool        diversityCapable = false;
     bool        psDdcReserved = false;   // DDC2/DDC3 (or P2 PS DDC) reserved for PureSignal
-    int         psDdcFirst = 2;          // first PS-reserved DDC index
+    int         psDdcFirst = 2;          // DeskHPSDR idle RX3/RX4 index; live Thetis HL2 MOX+PS is DDC0+DDC1 + cntrl1=4
     int         psDdcCount = 2;          // consecutive reserved DDC count
     int         adcBits    = 0;          // 12 (HL2) | 14 (Brick / ANAN-class)
 

@@ -1448,7 +1448,7 @@ QString Prefs::micSourceLabel(const QString &token) {
     if (token == QLatin1String("mic1"))   return QStringLiteral("Mic In");
     if (token == QLatin1String("tci"))    return QStringLiteral("TCI (digital modes)");
     if (token == QLatin1String("micpc"))  return QStringLiteral("PC Soundcard (VAC1)");
-    if (token == QLatin1String("micpc2")) return QStringLiteral("VAC2");
+    if (token == QLatin1String("micpc2")) return QStringLiteral("PC Soundcard (VAC2)");
     return token;
 }
 
@@ -1459,8 +1459,9 @@ QString Prefs::micSourceLabel(const QString &token) {
 bool Prefs::micSourceEnabled(const QString &token) {
     if (token == QLatin1String("mic1"))  return true;
     if (token == QLatin1String("tci"))   return true;
-    if (token == QLatin1String("micpc")) return true;   // #158 Stage 4 — VAC1 in
-    return false;   // micpc2 (VAC2) — future v0.2.x
+    if (token == QLatin1String("micpc"))  return true;
+    if (token == QLatin1String("micpc2")) return true;
+    return false;
 }
 
 QString Prefs::micSourceTooltip(const QString &token) {
@@ -1480,7 +1481,9 @@ QString Prefs::micSourceTooltip(const QString &token) {
             "captured audio to the transmitter (your codec mic is bypassed).");
     if (token == QLatin1String("micpc2"))
         return QStringLiteral(
-            "Second host PC audio capture device (VAC2) — pending v0.2.x.");
+            "PC audio in via VAC2 — RX2's virtual cable.  Set VAC2 Input "
+            "device + TX gain in Settings → Audio; enable SUB so VAC2 has "
+            "RX2 audio.  Mutually exclusive with VAC1 TX and with TCI audio.");
     return QString();
 }
 

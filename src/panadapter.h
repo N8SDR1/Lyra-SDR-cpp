@@ -242,6 +242,7 @@ private:
     AutoScaler             autoScaler_;          // computes the auto range
     QElapsedTimer          autoClock_;           // throttles the auto feed
     qint64                 lastAutoMs_ = -1;
+    qint64                 lastFrameMs_ = -1;    // skip PreciseTimer catch-up bursts
     int                    targetFps_ = 60;
     int                    smoothing_ = 0;     // 0..100 spatial smoothing (off = Lyra-style raw trace)
     int                    gridLevel_ = 35;    // 0..100 gridline brightness

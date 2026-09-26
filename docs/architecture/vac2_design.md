@@ -1,24 +1,30 @@
 # VAC2 — second virtual audio cable (#103) design
 
-**Status:** design COMPLETE — **DEFERRED, depends on RX2 (#96–101).** NO code
-until RX2 ships. (Operator 2026-06-19: "if it ties to RX2 then we should wait
-till we have RX2 — base the design on having RX2.")
+**Status:** V2-0 through V2-3 **shipped** — two IVAC slots, Settings VAC1 +
+VAC2, RX2 tee (`xvacOUT(1)`), Mic source **PC Soundcard (VAC2)** (`micpc2`).
+VAC2 RX is silent when SUB is off (cable stays open). One modulator: TCI
+wins; else explicit `micpc` / `micpc2`; else auto-digital (VAC1 preferred
+if both). Profile `vac2*` fields are **V2-4 shipped** (schema v6).
+WDSP 2.10 + PureSignal are **not** in this step.
 **Scope:** #103. A second, fully-independent full-duplex VAC (RX-out **and**
 TX-in), mirroring VAC1, that carries **RX2's** audio to/from its own PC device
-pair — exactly Thetis's VAC2 (which is bound to the second receiver).
-Operator decision 2026-06-19: **full-duplex like VAC1**, and **VAC2 = RX2's
-cable** (the faithful Thetis model), so it lands WITH/AFTER RX2.
+pair — exactly Thetis's VAC2 (bound to the second receiver).
+Operator: full-duplex like VAC1, VAC2 = RX2's cable.
 
-## Dependency (why this waits for RX2)
+## Dependency
 Thetis's VAC2 is the **second receiver's** audio cable (`cmaster.cs:924,
-941-944` — `VAC2Enabled` ties the VAC2 source to `RX2 = WDSP.id(2,0)`). Lyra
-has no RX2 yet (#96–101). Building VAC2 now would force a throw-away RX1-tee
-that we'd rip out when RX2 lands — so VAC2 is parked behind RX2 and designed
-*as if RX2 exists*: the RX→VAC2 tee carries the RX2 audio that **RX2 Phase 2**
-(#97, stereo-split / 2nd `WdspEngine` RxChannel) produces.
-**RX2-independent groundwork** (V2-0 state refactor + V2-1 per-VAC guards) is
-pure VAC-engine generalization and *could* land early if ever wanted, but per
-the operator it waits with the rest unless explicitly pulled forward.
+941-944` — `VAC2Enabled` ties VAC2 to `RX2 = WDSP.id(2,0)`). Lyra **SUB/RX2 is
+shipped** (WDSP ch2, DDC1). VAC2 Settings + RX2 tee + VAC2-as-TX are live.
+**Remaining:** V2-5 Brent/Timmy enable/disable crash-surface re-bench
+on **both** cables.
+
+## HL2 PureSignal × VAC2 (when PS lands)
+On HL2, MOX+PS reroutes DDC1 to TX freq, so RX2 is not VFO B. **VAC2 RX must
+pause** in that state — stop `xvacOUT(1, …)` while `(mox && ps_armed)` on HL2;
+restore on un-key. VAC1 RX may need the same pause (DDC0 is also PS feedback
+on HL2) — confirm against the PS plan when wiring. Digital modes still **turn
+PS off** (lock in `dsp_options_design.md`); that is PS-bring-up, not VAC2.
+WDSP 2.10: re-check IVAC/rmatch ABI on DLL swap.
 
 ## Ground truth (mapped 2026-06-19)
 - **Engine `wire/Ivac` is already 2-VAC** — `pvac[MAX_EXT_VACS]`; every
@@ -49,12 +55,12 @@ the real work + risk; it is NOT a copy-paste.
 1. **Per-VAC state struct, `vac_[MAX_EXT_VACS]`.** Move the single-VAC Lyra
    fields into `struct VacState { bool enabled, autoDigital, combineInput;
    QString outName, inName, hostApiName; double rxGainDb, txGainDb;
-   std::atomic<bool> active_; std::mutex mtx_; std::atomic<bool> mox_;
-   std::atomic<bool> muteWillMuteVac_; std::vector<float> rxScaled_; }`.
-   Rewrite the `vac1*` accessors/setters to indexed `vac(id)` form and
-   update the existing VAC1 call sites to `id=0` (correct rewrite, not a
-   wrapper). `g_aamixOutboundSelf` stays one self-ptr (the statics already
-   route by `id`).
+   std::atomic<bool> active_; std::mutex mtx_;
+   std::atomic<bool> muteWillMuteVac_; std::vector<double> rxScaled_; }`.
+   Shared (not per-VAC): `vacMox_`, `vacMonSilence_`, `vacMonStereo_`,
+   `vacEnvApplied_`. Public QML/Settings stay `vac1*` wrappers until V2-2.
+   Existing VAC1 call sites use `vac_[0]` / `kVac1Id`. `g_aamixOutboundSelf`
+   stays one self-ptr (the statics already route by `id`).
 2. **Device layer `rebuildVac(int id)` / `teardownVac(int id)`** (replace
    `rebuildVac1`/`teardownVac1`); each reconciles its own VacState +
    `Start`/`StopAudioIVAC(id)` + `create`/`destroy_ivac(id)` with the
@@ -77,27 +83,16 @@ the real work + risk; it is NOT a copy-paste.
 7. **Settings UI:** a second VAC2 group mirroring VAC1 (Enable / auto-digital
    / Driver / Output / RX gain / Input / TX gain / Combine / Mute-will-mute),
    `vac2/*` QSettings keys.
-8. **Profile:** mirror the 4 fields → `vac2Enabled/vac2AutoDigital/
-   vac2RxGainDb/vac2TxGainDb` (capture/apply/sameValues/JSON; devices stay
-   global, like VAC1).
+8. **Profile:** **shipped (v6)** — `vac2Enabled/vac2AutoDigital/
+   vac2RxGainDb/vac2TxGainDb/vac2LatencyMs/vac2VacSize` (capture/apply/
+   sameValues/JSON; devices stay global, like VAC1). Apply VAC2 before
+   `micSource` so a `micpc2` profile has a live inbound cb.
 
-## Build order (staged — **starts only after RX2 (#96–101) ships**)
-- **V2-0** *(RX2-independent — could land early)* — refactor single-VAC state
-  → `vac_[2]` struct + indexed accessors; rewrite VAC1 call sites to `id=0`.
-  **Behavior-neutral**; bench = VAC1 still works exactly as today. Foundation;
-  highest regression-risk-for-VAC1, zero new feature.
-- **V2-1** *(RX2-independent)* — per-VAC guards + `rebuildVac(id)`/
-  `teardownVac(id)` + per-VAC `vacInboundCb`/`txSourceVacId_`. Still only id 0
-  wired. Behavior-neutral.
-- **V2-2** *(needs RX2 Phase 2 / #97)* — Settings VAC2 group + `vac2/*`
-  persistence + `rebuildVac(1)`; the VAC2 RX tee feeds **RX2** audio.
-  **VAC2 RX-out goes live.** Bench: VAC2 → a second app receives RX2.
-- **V2-3** — "PC Soundcard (VAC2)" mic source + `txSourceVacId_` arbitration.
-  **VAC2 TX goes live.** Bench: transmit from the VAC2 app.
-- **V2-4** — Profile `vac2*` fields.
-- **V2-5** — USER_GUIDE + the **Brent/Timmy crash-surface re-bench**
-  (enable/disable + device-swap on BOTH VACs + profile flips, the exact
-  actions that used to crash) before release.
+## Build order
+- **V2-0 … V2-3** — **shipped** (engine slots, Settings, RX2 tee, `micpc2`).
+- **V2-4** — Profile `vac2*` fields — **shipped**.
+- **V2-5** — USER_GUIDE polish + Brent/Timmy crash-surface re-bench
+  (enable/disable + device-swap on BOTH VACs + profile flips).
 
 ## Thetis grounding (verified 2026-06-19 — "follow Thetis")
 - `MAX_EXT_VACS = 16` (`ivac.h:34`) — engine handles far more than 2; VAC2 = id 1.

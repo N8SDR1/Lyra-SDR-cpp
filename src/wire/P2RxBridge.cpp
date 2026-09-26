@@ -61,9 +61,10 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
     // int32, scaled by 1/2^31.
     connect(session_, &P2Session::iqFrameReceived, session_,
             [sess = session_](int ddc, quint32 /*seq*/, const QByteArray &iq) {
-                // DDC0 → RX1 (source 0). SUB → RX2 (source 2) from DDC1.
-                // Must not steal source 1 (DDC2/3 twist / PureSignal).
-                if (ddc != 0 && !sess->shouldFeedRx2(ddc)) return;
+                // DDC0 → RX1 (source 0). SUB → RX2 (source 2) from DDC1
+                // unless live PS (DDC1 is TX replica then).
+                if (ddc != 0 && ddc != 1)
+                    return;
                 static thread_local std::vector<double> buf;
                 const int n = iq.size() / 6;
                 buf.resize(static_cast<std::size_t>(n) * 2);
@@ -80,8 +81,16 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                     buf[2 * static_cast<std::size_t>(i) + 1] =
                         qRaw / 2147483648.0 * scale;
                 }
-                const int source = (ddc == 0) ? 0 : 2;
-                xrouter(router_instance(0), 0, source, n, buf.data());
+                if (sess->isPureSignalLive()) {
+                    if (ddc == 0)
+                        sess->ingestPsccInterleaved(buf.data(), n);
+                    return;
+                }
+                sess->ingestPsccIq(ddc, buf.data(), n);
+                if (ddc == 0)
+                    xrouter(router_instance(0), 0, 0, n, buf.data());
+                else if (sess->shouldFeedRx2(1))
+                    xrouter(router_instance(0), 0, 2, n, buf.data());
             });
 
     // Session diagnostics → re-emit as our own logLine.  Does NOT
@@ -279,6 +288,26 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 [this](bool) { pushAttOnTxToSession(); });
         connect(stream_, &lyra::ipc::HL2Stream::attOnTxDbChanged, this,
                 [this](int) { pushAttOnTxToSession(); });
+        auto pushPs = [this]() {
+            if (!session_ || !stream_) return;
+            const bool armed =
+                stream_->psArmed() && stream_->psAttestation();
+            const quint16 rate = rateKhz_;
+            const bool subOn = stream_->subEnabled();
+            auto *s = session_;
+            QMetaObject::invokeMethod(s, [s, armed, rate, subOn]() {
+                s->setPureSignalArmed(armed);
+                if (armed)
+                    s->enableDdc(1, rate);
+                else if (!subOn)
+                    s->disableDdc(1);
+            });
+        };
+        connect(stream_, &lyra::ipc::HL2Stream::psArmedChanged, this,
+                [pushPs](bool) { pushPs(); }, Qt::QueuedConnection);
+        connect(stream_, &lyra::ipc::HL2Stream::psAttestationChanged, this,
+                [pushPs](bool) { pushPs(); }, Qt::QueuedConnection);
+        pushPs();
     }
 
     // IQ-rate follow: the Display panel's rate switch reopens the WDSP
@@ -294,15 +323,22 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                         khz == static_cast<int>(rateKhz_)) return;
                     rateKhz_ = static_cast<quint16>(khz);
                     auto *s = session_;
-                    QMetaObject::invokeMethod(s, [s, khz, this]() {
+                    const bool subOn =
+                        stream_ && stream_->subEnabled();
+                    const bool psOn = stream_ && stream_->psArmed()
+                        && stream_->psAttestation();
+                    const quint32 hz = static_cast<quint32>(
+                        stream_ ? corrected_freq(static_cast<int>(
+                                      stream_->rx2FreqHz()))
+                                : 0);
+                    QMetaObject::invokeMethod(s, [s, khz, subOn, psOn,
+                                                  hz]() {
                         s->enableDdc(0, static_cast<quint16>(khz));
-                        if (stream_ && stream_->subEnabled()) {
-                            const quint32 hz = static_cast<quint32>(
-                                corrected_freq(static_cast<int>(
-                                    stream_->rx2FreqHz())));
+                        if (subOn)
                             s->armSubSecondaryDdcs(
                                 static_cast<quint16>(khz), hz);
-                        }
+                        else if (psOn)
+                            s->enableDdc(1, static_cast<quint16>(khz));
                         // Let timer events delayed by the RX rebuild drain,
                         // then re-prime the still-RX TX transport.
                         QTimer::singleShot(
@@ -498,7 +534,13 @@ void P2RxBridge::syncRx2Ddc()
     if (!open_ || !session_ || !stream_) return;
     auto *s = session_;
     if (!stream_->subEnabled()) {
-        QMetaObject::invokeMethod(s, [s]() { s->disarmSubSecondaryDdcs(); });
+        const bool ps = stream_->psArmed() && stream_->psAttestation();
+        const quint16 khz = rateKhz_;
+        QMetaObject::invokeMethod(s, [s, ps, khz]() {
+            s->disarmSubSecondaryDdcs();
+            if (ps)
+                s->enableDdc(1, khz);
+        });
         return;
     }
     const quint16 khz = rateKhz_;
@@ -618,7 +660,10 @@ quint16 P2RxBridge::chooseRateKhz() {
     return static_cast<quint16>(khz);
 }
 
-void P2RxBridge::open(const QString &ip, const QString &mac) {
+void P2RxBridge::open(const QString &ip, const QString &mac,
+                      const QString &boardName) {
+    qWarning("[wire] P2RxBridge::open ip=%s mac=%s board=%s",
+             qPrintable(ip), qPrintable(mac), qPrintable(boardName));
     if (open_) {
         if (ip_ == ip) return;
         close();
@@ -659,20 +704,23 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
             mac, lyra::rig::RadioFamily::Unknown, QString(), ip);
         prof = lyra::rig::registry::rig(rigId);
         // Seed sane P2 defaults the first time this rig is opened —
-        // mirrors the old RadioProfileStore::touch() seeding (a P2
-        // radio can't use the HL2-jack path, and Saturn is the only
-        // bench-verified P2 model today).
+        // mirrors the old RadioProfileStore::touch() seeding. Brick
+        // stays BRICK-SDR; AnanP2 seeds from the discovery board name
+        // (never a hardcoded Saturn board-10 default).
         bool seeded = false;
         if (prof.hardwareModelKey.isEmpty()) {
             // BrickSDR2 reports P2 board Hermes. Seed the Hermes-class
-            // Brick catalog row — never Saturn (bench 2026-07-20).
+            // Brick catalog row — never Saturn, never ANAN-100 Alex.
             if (prof.family == lyra::rig::RadioFamily::BrickP2) {
                 prof.hardwareModelKey = QStringLiteral("BRICK-SDR");
                 seeded = true;
-            } else if (prof.family == lyra::rig::RadioFamily::AnanP2 ||
-                       prof.family == lyra::rig::RadioFamily::Unknown) {
-                const auto *dm = lyra::hardware::defaultModelForBoard(10, true);
-                if (dm) { prof.hardwareModelKey = QLatin1String(dm->key); seeded = true; }
+            } else if (prof.family == lyra::rig::RadioFamily::AnanP2) {
+                const auto *dm =
+                    lyra::hardware::defaultModelForBoardName(boardName, true);
+                if (dm) {
+                    prof.hardwareModelKey = QLatin1String(dm->key);
+                    seeded = true;
+                }
             }
         }
         if (prof.audioRoute.isEmpty()) {
@@ -754,10 +802,15 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     const bool isG2 = hw &&
         (modelKey.compare(QStringLiteral("ANAN-G2"), Qt::CaseInsensitive) == 0 ||
          modelKey.compare(QStringLiteral("ANAN-G2-1K"), Qt::CaseInsensitive) == 0);
+    const bool isOrionCoupler = hw &&
+        modelKey.compare(QStringLiteral("ANAN-200D"), Qt::CaseInsensitive) == 0;
     hasPowerTelemetry_ = (hw != nullptr);
     if (isG2) {
         pcC1_ = 5.0;  pcC2Fwd_ = 0.12;  pcC2Rev_ = 0.15;  pcC2Rev6m_ = 0.7;
         pcFwdOff_ = 32;  pcRevOff_ = 28;
+    } else if (isOrionCoupler) {
+        pcC1_ = 5.0;  pcC2Fwd_ = 0.108; pcC2Rev_ = 0.108; pcC2Rev6m_ = 0.5;
+        pcFwdOff_ = 6;   pcRevOff_ = 3;
     } else {
         pcC1_ = 3.3;  pcC2Fwd_ = 0.095; pcC2Rev_ = 0.095; pcC2Rev6m_ = 0.5;
         pcFwdOff_ = 6;   pcRevOff_ = 3;
@@ -794,9 +847,8 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     // id alone is insufficient (e.g. a Brick and a genuine Hermes-class
     // ANAN can share discovery identity but not front-end hardware).
     const auto *p2hw = lyra::wire::p2ProfileForModel(modelKey);
-    // Only model-selected, bench-verified G2 profiles may expose the
-    // transient TX arm. A generic/unverified P2 radio remains RX-only even
-    // though the inert port-1029 transport can run safely in the background.
+    // A P2 hardware profile ungreys TX. On-air-validated models (Brick)
+    // skip the dummy-load arm; classic ANAN keeps that interlock.
     txHardwareSupported_ = p2hw != nullptr;
     // On-air-validated models (BrickSDR) key like HL2 — no transient arm.
     txOnAirValidated_ = p2hw && p2hw->txOnAirValidated;
@@ -822,13 +874,25 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
     auto *st = stream_;
     if (st)
         st->setP2DrivePath(true);
+    if (st) {
+        auto *sess = session_;
+        st->bindPsAttnWriter(
+            [sess](int db) {
+                if (!sess) return;
+                QMetaObject::invokeMethod(sess, [sess, db]() {
+                    sess->setPsFeedbackAttn(db);
+                });
+            },
+            0, 31, 0);
+    }
     const bool subOn = st && st->subEnabled();
+    const bool psOn = st && st->psArmed() && st->psAttestation();
     const quint32 rx2Hz = st ? st->rx2FreqHz() : 0;
     QMetaObject::invokeMethod(s, [s, ip, correctedHz, correctedTx, rate,
                                   bandAnt, p2hw,
                                   att, adc, input, bypass,
                                   attOnTxEn, attOnTxDb, st,
-                                  subOn, rx2Hz]() {
+                                  subOn, psOn, rx2Hz]() {
         s->setTxProducerSink([](const double *iq, int samples) {
             return feedP2TxCmasterInput(iq, samples);
         });
@@ -852,7 +916,10 @@ void P2RxBridge::open(const QString &ip, const QString &mac) {
             s->armSubSecondaryDdcs(
                 rate,
                 static_cast<quint32>(corrected_freq(static_cast<int>(rx2Hz))));
+        } else if (psOn) {
+            s->enableDdc(1, rate);
         }
+        s->setPureSignalArmed(psOn);
         if (st) {
             s->setWireDriveProvider([st]() {
                 return st->txWireDriveByte();
@@ -890,8 +957,12 @@ void P2RxBridge::close() {
         s->setWireDriveProvider({});
         s->close();
     }, Qt::BlockingQueuedConnection);
-    if (stream_)
+    if (stream_) {
+        stream_->bindPsAttnWriter(
+            [st = stream_](int db) { st->setTxStepAttnDb(db); },
+            -28, 31, 31);
         stream_->setP2DrivePath(false);
+    }
     deactivateTxProducerSeam();
     open_    = false;
     running_ = false;

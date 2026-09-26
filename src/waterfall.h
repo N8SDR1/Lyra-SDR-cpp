@@ -111,6 +111,7 @@ private:
     std::vector<float>   pendingMax_;     // peak-hold accumulator between rows
     QElapsedTimer        rowClock_;       // paces row pushes by speed_
     qint64               lastRowMs_ = -1; // ms of the last row push
+    qint64               lastFrameMs_ = -1; // skip PreciseTimer catch-up bursts
     bool                 dirty_ = false;  // new row since last paint?
     double               dbMin_ = -130.0;
     double               dbMax_ = -20.0;

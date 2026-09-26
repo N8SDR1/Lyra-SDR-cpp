@@ -382,8 +382,8 @@ class Prefs : public QObject {
     // Recognised tokens:
     //   "mic1"    — HL2/HL2+ codec mic input (Hl2Ep6MicSource)
     //   "tci"     — inbound TCI v2 TX_AUDIO_STREAM (TciMicSource)
-    //   "micpc"   — host PC audio capture (future v0.2.x VAC1)
-    //   "micpc2"  — second host PC capture device (future VAC2)
+    //   "micpc"   — host PC audio capture (VAC1)
+    //   "micpc2"  — host PC audio capture (VAC2 / RX2 cable)
     //
     // Unknown tokens fall back to "mic1" (safety: never end up
     // routing to an inactive source).

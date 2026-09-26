@@ -189,4 +189,8 @@ int metis_socket_fd() {
     return g_metis_socket_fd;
 }
 
+std::uint32_t metis_radio_ip_be() {
+    return g_metis_addr_be;
+}
+
 }  // namespace lyra::wire

@@ -1,5 +1,7 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
+**v0.25.0 Sheliak** — PureSignal + Amp View.
+
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 
 Native rebuild of [Lyra](../lyra) (the Python+Qt6 desktop SDR transceiver
@@ -62,9 +64,11 @@ A full receive **and transmit** SDR transceiver for HPSDR radios — the
 Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 (Protocol 2) — native
 C++ end to end.  Lyra transmits every voice mode (SSB / AM / DSB /
 SAM / FM) plus CW and digital via TCI, and ships a complete native TX audio
-processing rack. Dual receive (**SUB / RX2**) is live on **BrickSDR2**.
-Still on the roadmap: SPLIT pile-up polish, dual RX on Hermes Lite 2
-Protocol 1, and PureSignal — see below.
+processing rack. Dual receive (**SUB / RX2**) and **SPLIT** pile-up
+(VFO B TX, independent of SUB) are live on **Hermes Lite 2** (Protocol 1)
+and **BrickSDR2** (Protocol 2) — one ADC; N2ADR follows RX1 (cross-band
+SUB is much weaker). **PureSignal** (coupler-mod HL2 / HL2+, BrickSDR2
+ADC0 feedback) is live — dummy-load first; see the User Guide.
 
 * **Radio** — HPSDR Protocol 1 + Protocol 2 discovery (multi-NIC, dual
   limited + subnet-directed broadcast) + **Add by IP** unicast probe for
@@ -119,6 +123,11 @@ Protocol 1, and PureSignal — see below.
   holds it in SSB without chasing voice peaks.  Never overshoots — safe for
   an SS amp.  The on-screen watts are calibrated per band so the meter, the
   cap, and your external watt-meter all agree.  PureSignal-safe.
+* **PureSignal** — adaptive TX predistortion when the radio has a
+  coupler (HL2 / HL2+ hardware mod; BrickSDR2 Protocol-2 feedback).
+  Compact **PureSignal** dock plus **Amp View** plot (Snap / Hold),
+  FB colour window (teal / green / red), auto-att that **persists
+  across PTT**. Attestation in Settings → TX (default off).
 * **TX safety** — ATT-on-TX RX-front-end protection, TR-sequencing for amp
   hot-switch safety, an operator TX time-out, and a hard External TX Inhibit
   lockout (for sharing the antenna/bench with sensitive gear).
@@ -331,8 +340,8 @@ ground-up implementation:
 - **[WDSP](https://github.com/TAPR/OpenHPSDR-wdsp)** — Dr. Warren
   Pratt NR0V's DSP engine.  RX audio chain (NR, AGC, ANF, LMS, NB,
   AEPF, bandpass, demod, panel pan), TX audio chain (ALC, leveler,
-  compressor, CFC, PHROT), and the planned PureSignal port (calcc +
-  iqc).  Lyra-cpp links the bundled WDSP DLL and calls into
+  compressor, CFC, PHROT), and PureSignal (WDSP calcc / iqc via
+  the bundled DLL).  Lyra-cpp links the bundled WDSP DLL and calls into
   it from native C++; the bundled DLL itself carries WDSP's GPL v3+
   license and copyright.
 
@@ -346,6 +355,20 @@ ground-up implementation:
   brings tested, debugged, multi-radio (HL2/HL2+/ANAN/Orion/...) TX
   dispatch into Lyra-cpp; Lyra-native TX DSP enhancements layer on
   top.
+
+### Contributors
+
+- **Rick Langford (N8SDR)** — project author, architecture, bench operator.
+- **Brent Crier (N9BC)** — co-contributor and tester.
+- **Timmy Davis (KC8TYK)** — tester (v0.1 tester flight).
+- **W5UDX** — DSP2024P Plate Reverb presets and verification.
+- **Cursor Grok 4.6** ([@cursoragent](https://github.com/cursoragent),
+  SpaceXAI / Cursor) — coding assistant for implementation and debug
+  pairing on the native C++ rebuild.  Rick remains the project author;
+  this is pairing help, not a licensed-operator co-author credit.
+
+See [CREDITS.md](CREDITS.md) for testers, upstream authors, and
+full attribution.
 
 The Python Lyra (`../lyra/`) and Lyra-cpp are both N8SDR's projects;
 Lyra-cpp is the C++23 rebuild that makes hard-realtime audio + wire

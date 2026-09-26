@@ -823,6 +823,286 @@ QWidget *SettingsDialog::buildAudioTab() {
         form->addRow(grp);
     }
 
+    // ── VAC2 — second full-duplex cable (RX2 / SUB) ────────────────
+    {
+        auto *grp = new QGroupBox(tr("Virtual Audio Cable (VAC2)"), page);
+        auto *vf  = new QFormLayout(grp);
+
+        auto *vacEnable = new QCheckBox(tr("Enable VAC2 (RX2→PC and PC→TX)"), grp);
+        vacEnable->setChecked(engine_->vac2Enabled());
+        vacEnable->setToolTip(tr(
+            "Second virtual-cable pair for RX2.  Enable SUB so VAC2 carries "
+            "RX2 audio; with SUB off the cable stays open but silent.\n"
+            "Required to transmit through VAC2 — tick this even if you only "
+            "use the TX direction."));
+        vf->addRow(vacEnable);
+
+        auto *vacAuto = new QCheckBox(
+            tr("Auto-enable for digital modes (disable for others)"), grp);
+        vacAuto->setChecked(engine_->vac2AutoDigital());
+        vacAuto->setToolTip(tr(
+            "When ON, VAC2 turns on in DIGU / DIGL.  VAC2 TX follows this "
+            "only if a VAC2 Input device is selected, Mic source is not TCI, "
+            "and VAC1 is not already claiming TX (VAC1 wins if both auto)."));
+        vf->addRow(vacAuto);
+
+        auto *vacAsTx = new QCheckBox(
+            tr("Use VAC2 as TX source"),
+            grp);
+        vacAsTx->setChecked(prefs_ && prefs_->micSource() == QLatin1String("micpc2"));
+        vacAsTx->setEnabled(!(prefs_ && prefs_->micSource() == QLatin1String("tci")));
+        vacAsTx->setToolTip(tr(
+            "Same as Settings → TX → Mic source = PC Soundcard (VAC2).  "
+            "Mutually exclusive with VAC1 TX and with TCI."));
+        vf->addRow(vacAsTx);
+
+        auto *vacDriver = new QComboBox(grp);
+        {
+            const QStringList apis = engine_->vac2HostApiNames();
+            const QList<int>  idxs = engine_->vac2HostApiPaIndices();
+            for (int i = 0; i < apis.size(); ++i)
+                vacDriver->addItem(apis[i], i < idxs.size() ? idxs[i] : -1);
+            const int sel = vacDriver->findText(engine_->vac2HostApiName());
+            vacDriver->setCurrentIndex(sel >= 0 ? sel : 0);
+        }
+        vacDriver->setToolTip(tr(
+            "Audio backend for VAC2 devices (typically WASAPI for VB-Audio / VAC)."));
+        vf->addRow(tr("Driver"), vacDriver);
+
+        const int curApi2 = vacDriver->currentData().toInt();
+
+        auto *vacDev = new QComboBox(grp);
+        vacDev->addItem(tr("(none)"));
+        vacDev->addItems(engine_->vac2OutputDevicesFor(curApi2));
+        {
+            const int i = vacDev->findText(engine_->vac2OutputDeviceName());
+            vacDev->setCurrentIndex(i >= 0 ? i : 0);
+        }
+        vacDev->setToolTip(tr(
+            "PC output for RX2 audio.  Use a second virtual cable, not the "
+            "same cable as VAC1, and not your speakers."));
+        vf->addRow(tr("Output device"), vacDev);
+
+        auto *vacGain = new QSpinBox(grp);
+        vacGain->setRange(-60, 20);
+        vacGain->setSingleStep(1);
+        vacGain->setSuffix(tr(" dB"));
+        vacGain->setValue(qRound(engine_->vac2RxGainDb()));
+        vacGain->setToolTip(tr("RX2 gain into the VAC2 cable (default 0 dB)."));
+        vf->addRow(tr("RX gain"), vacGain);
+
+        auto *vacInDev = new QComboBox(grp);
+        vacInDev->addItem(tr("(none)"));
+        vacInDev->addItems(engine_->vac2InputDevicesFor(curApi2));
+        {
+            const int i = vacInDev->findText(engine_->vac2InputDeviceName());
+            vacInDev->setCurrentIndex(i >= 0 ? i : 0);
+        }
+        vacInDev->setToolTip(tr(
+            "PC input used as TX mic when Mic source is VAC2."));
+        vf->addRow(tr("Input device"), vacInDev);
+
+        auto *vacTxGain = new QSpinBox(grp);
+        vacTxGain->setRange(-60, 20);
+        vacTxGain->setSingleStep(1);
+        vacTxGain->setSuffix(tr(" dB"));
+        vacTxGain->setValue(qRound(engine_->vac2TxGainDb()));
+        vacTxGain->setToolTip(tr("TX gain (preamp) on VAC2 inbound (default +3 dB)."));
+        vf->addRow(tr("TX gain"), vacTxGain);
+
+        auto *vacBuf = new QComboBox(grp);
+        struct BufChoice2 { int frames; const char *label; };
+        static const BufChoice2 kBufChoices2[] = {
+            {128,  "128 (~3 ms)"},   {256,  "256 (~5 ms)"},
+            {512,  "512 (~11 ms)"},  {1024, "1024 (~21 ms)"},
+            {2048, "2048 (~43 ms)"}, {4096, "4096 (~85 ms)"},
+            {8192, "8192 (~171 ms)"},
+        };
+        for (const auto &c : kBufChoices2)
+            vacBuf->addItem(QString::fromLatin1(c.label), c.frames);
+        {
+            const int i = vacBuf->findData(engine_->vac2VacSize());
+            vacBuf->setCurrentIndex(i >= 0 ? i : 4);
+        }
+        vacBuf->setToolTip(tr("PortAudio buffer block for VAC2 (same meaning as VAC1)."));
+        vf->addRow(tr("Buffer size"), vacBuf);
+
+        auto *vacLat = new QSpinBox(grp);
+        vacLat->setRange(5, 500);
+        vacLat->setSingleStep(5);
+        vacLat->setSuffix(tr(" ms"));
+        vacLat->setValue(engine_->vac2LatencyMs());
+        vacLat->setToolTip(tr("VAC2 ring latency each direction (default 120 ms)."));
+        vf->addRow(tr("Latency"), vacLat);
+
+        auto *vacMon = new QLabel(grp);
+        vacMon->setWordWrap(true);
+        vacMon->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+        vf->addRow(tr("Monitor"), vacMon);
+        auto refreshMon2 = [this, vacMon]() {
+            const QVariantMap d = engine_->vac2Diags();
+            if (!d.value(QStringLiteral("active")).toBool()) {
+                vacMon->setText(tr("VAC2 not running — enable it (and pick "
+                                   "devices) to see ring fill / overflow / "
+                                   "underflow."));
+                return;
+            }
+            vacMon->setText(tr("TO VAC: %1%% full · %2 ovf / %3 unf      "
+                               "FROM VAC: %4%% full · %5 ovf / %6 unf")
+                .arg(d.value(QStringLiteral("outPct")).toInt())
+                .arg(d.value(QStringLiteral("outOver")).toInt())
+                .arg(d.value(QStringLiteral("outUnder")).toInt())
+                .arg(d.value(QStringLiteral("inPct")).toInt())
+                .arg(d.value(QStringLiteral("inOver")).toInt())
+                .arg(d.value(QStringLiteral("inUnder")).toInt()));
+        };
+        refreshMon2();
+        auto *vacMonTimer = new QTimer(grp);
+        vacMonTimer->setInterval(500);
+        connect(vacMonTimer, &QTimer::timeout, vacMon, refreshMon2);
+        vacMonTimer->start();
+
+        auto *vacCombine = new QCheckBox(tr("Combine input (mono)"), grp);
+        vacCombine->setChecked(engine_->vac2CombineInput());
+        vacCombine->setToolTip(tr(
+            "Sum VAC2 left + right to mono before the transmitter. Leave ON "
+            "for a typical digital-mode cable."));
+        vf->addRow(QString(), vacCombine);
+
+        auto *vacMuteVac = new QCheckBox(tr("Mute will mute VAC"), grp);
+        vacMuteVac->setChecked(engine_->vac2MuteWillMuteVac());
+        vacMuteVac->setToolTip(tr(
+            "When ON, Mute-B also silences the VAC2 RX feed. Turn OFF so "
+            "the decoder keeps RX2 while you mute the room."));
+        vf->addRow(QString(), vacMuteVac);
+
+        connect(vacEnable, &QCheckBox::toggled, engine_,
+                [this](bool on) { engine_->setVac2Enabled(on); });
+        connect(vacAuto, &QCheckBox::toggled, engine_,
+                [this](bool on) { engine_->setVac2AutoDigital(on); });
+        connect(vacAsTx, &QCheckBox::toggled, this, [this](bool on) {
+            if (!prefs_) return;
+            const QString cur = prefs_->micSource();
+            if (cur == QLatin1String("tci"))
+                return;
+            if (on) {
+                if (cur != QLatin1String("micpc2"))
+                    prefs_->setMicSource(QStringLiteral("micpc2"));
+            } else if (cur == QLatin1String("micpc2")) {
+                prefs_->setMicSource(QStringLiteral("mic1"));
+            }
+        });
+        if (prefs_) {
+            connect(prefs_, &Prefs::micSourceChanged, vacAsTx, [this, vacAsTx]() {
+                const QString src = prefs_ ? prefs_->micSource() : QString();
+                const bool tci = src == QLatin1String("tci");
+                const bool on  = src == QLatin1String("micpc2");
+                vacAsTx->setEnabled(!tci);
+                if (vacAsTx->isChecked() != on) {
+                    QSignalBlocker b(vacAsTx);
+                    vacAsTx->setChecked(on);
+                }
+            });
+        }
+        connect(vacDriver, &QComboBox::activated, engine_,
+                [this, vacDriver, vacDev, vacInDev](int) {
+                    const int api = vacDriver->currentData().toInt();
+                    engine_->setVac2HostApi(vacDriver->currentText());
+                    auto repop = [this](QComboBox *c, const QStringList &devs) {
+                        const QString keep = c->currentText();
+                        c->blockSignals(true);
+                        c->clear();
+                        c->addItem(tr("(none)"));
+                        c->addItems(devs);
+                        const int i = c->findText(keep);
+                        c->setCurrentIndex(i >= 0 ? i : 0);
+                        c->blockSignals(false);
+                    };
+                    repop(vacDev,   engine_->vac2OutputDevicesFor(api));
+                    repop(vacInDev, engine_->vac2InputDevicesFor(api));
+                    engine_->setVac2OutputDeviceName(
+                        vacDev->currentIndex() <= 0 ? QString() : vacDev->currentText());
+                    engine_->setVac2InputDeviceName(
+                        vacInDev->currentIndex() <= 0 ? QString() : vacInDev->currentText());
+                });
+        connect(vacDev, &QComboBox::activated, engine_,
+                [this, vacDev](int idx) {
+                    engine_->setVac2OutputDeviceName(
+                        idx <= 0 ? QString() : vacDev->currentText());
+                });
+        connect(vacGain, qOverload<int>(&QSpinBox::valueChanged), engine_,
+                [this](int db) { engine_->setVac2RxGainDb(db); });
+        connect(vacInDev, &QComboBox::activated, engine_,
+                [this, vacInDev](int idx) {
+                    engine_->setVac2InputDeviceName(
+                        idx <= 0 ? QString() : vacInDev->currentText());
+                });
+        connect(vacTxGain, qOverload<int>(&QSpinBox::valueChanged), engine_,
+                [this](int db) { engine_->setVac2TxGainDb(db); });
+        connect(vacBuf, qOverload<int>(&QComboBox::activated), engine_,
+                [this, vacBuf](int) {
+                    engine_->setVac2VacSize(vacBuf->currentData().toInt());
+                });
+        connect(vacLat, qOverload<int>(&QSpinBox::valueChanged), engine_,
+                [this](int ms) { engine_->setVac2LatencyMs(ms); });
+        connect(vacCombine, &QCheckBox::toggled, engine_,
+                [this](bool on) { engine_->setVac2CombineInput(on); });
+        connect(vacMuteVac, &QCheckBox::toggled, engine_,
+                [this](bool on) { engine_->setVac2MuteWillMuteVac(on); });
+
+        connect(engine_, &lyra::dsp::WdspEngine::vac2Changed, grp,
+                [this, vacEnable, vacAuto, vacGain, vacTxGain, vacCombine,
+                 vacBuf, vacLat]() {
+                    if (const int bi = vacBuf->findData(engine_->vac2VacSize());
+                        bi >= 0 && vacBuf->currentIndex() != bi) {
+                        vacBuf->blockSignals(true);
+                        vacBuf->setCurrentIndex(bi);
+                        vacBuf->blockSignals(false);
+                    }
+                    if (vacLat->value() != engine_->vac2LatencyMs()) {
+                        vacLat->blockSignals(true);
+                        vacLat->setValue(engine_->vac2LatencyMs());
+                        vacLat->blockSignals(false);
+                    }
+                    if (vacEnable->isChecked() != engine_->vac2Enabled()) {
+                        vacEnable->blockSignals(true);
+                        vacEnable->setChecked(engine_->vac2Enabled());
+                        vacEnable->blockSignals(false);
+                    }
+                    if (vacAuto->isChecked() != engine_->vac2AutoDigital()) {
+                        vacAuto->blockSignals(true);
+                        vacAuto->setChecked(engine_->vac2AutoDigital());
+                        vacAuto->blockSignals(false);
+                    }
+                    const int gi = qRound(engine_->vac2RxGainDb());
+                    if (vacGain->value() != gi) {
+                        vacGain->blockSignals(true);
+                        vacGain->setValue(gi);
+                        vacGain->blockSignals(false);
+                    }
+                    const int ti = qRound(engine_->vac2TxGainDb());
+                    if (vacTxGain->value() != ti) {
+                        vacTxGain->blockSignals(true);
+                        vacTxGain->setValue(ti);
+                        vacTxGain->blockSignals(false);
+                    }
+                    if (vacCombine->isChecked() != engine_->vac2CombineInput()) {
+                        vacCombine->blockSignals(true);
+                        vacCombine->setChecked(engine_->vac2CombineInput());
+                        vacCombine->blockSignals(false);
+                    }
+                });
+
+        auto *vnote = new QLabel(tr(
+            "VAC2 is RX2's cable.  Turn SUB on so a second app hears RX2.  "
+            "Use a different virtual-cable pair from VAC1."), grp);
+        vnote->setWordWrap(true);
+        vnote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+        vf->addRow(vnote);
+
+        form->addRow(grp);
+    }
+
     // ── #89 — Voice keyer recording options ──────────────────────────
     if (voiceKeyer_) {
         auto *grp = new QGroupBox(tr("Voice keyer recording"), page);
@@ -3184,19 +3464,17 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     }
                 }
 
-                // Protocol 2 (Saturn / ANAN G2): opens through the P2
-                // bridge (session thread + DDC0 IQ → the same WDSP RX
-                // chain).  RX-only today; the P1 rememberRadio /
-                // auto-connect persistence stays HL2-only.  (A Brick, or
-                // any other P2 family the bridge doesn't have a verified
-                // front-end profile for, still opens — P2Session logs a
-                // warning and the receiver runs without antenna/filter
-                // control rather than refusing outright.)
+                // Protocol 2 (Saturn / ANAN G2 / Brick / classic ANAN):
+                // session thread + DDC0 IQ → the same WDSP RX chain.
+                // Auto-connect persistence for Protocol 1 stays HL2-only.
+                // A Brick, or any other P2 family without a front-end
+                // profile, still opens — P2Session logs a warning and
+                // the receiver runs without antenna/filter control.
                 if (proto == 2) {
                     if (p2_) {
                         // MAC selects the radio's Layer-2 profile
                         // (model + antenna) inside the bridge.
-                        p2_->open(ip, mac);
+                        p2_->open(ip, mac, board);
                         if (discovery_) {
                             discovery_->rememberRadio(
                                 ip, mac, board,
@@ -3208,9 +3486,28 @@ QWidget *SettingsDialog::buildHardwareTab() {
                             discovery_->probe(ip);
                         }
                         status->setText(
-                            tr("Opening %1 (Protocol 2) — RX only for now.")
-                                .arg(ip));
+                            tr("Opening %1 (Protocol 2).").arg(ip));
                     }
+                    return;
+                }
+                if (lyra::rig::registry::familyForBoardName(board) !=
+                    lyra::rig::RadioFamily::Hl2) {
+                    status->setText(
+                        tr("Protocol 1 ANAN / HPSDR TX is not enabled — "
+                           "this radio would be driven as an HL2. Open it "
+                           "in Protocol 2, or pick the marketed model after "
+                           "a P2 discovery."));
+                    QMessageBox::information(
+                        this, tr("Protocol 1 ANAN"),
+                        tr("Lyra does not drive classic ANAN / Hermes "
+                           "over Protocol 1 (that would use the HL2 "
+                           "wire layout).\n\n"
+                           "Most of these boxes that can run Protocol 2 "
+                           "already have a P2 FPGA. Discover the P2 "
+                           "row, then pick the marketed model "
+                           "(ANAN-10 / 10E / 100 / 100B / 100D / 200D) "
+                           "in Settings → Hardware. TX stays dummy-load "
+                           "until that model is on-air validated."));
                     return;
                 }
                 if (discovery_) {
@@ -3621,6 +3918,48 @@ QWidget *SettingsDialog::buildHardwareTab() {
             g->addWidget(p2Wrap, 5, 0, 1, 2);
         }
 
+        if (stream_) {
+            auto *psAtt = new QCheckBox(
+                tr("I have the PureSignal hardware coupler installed"), grp);
+            psAtt->setChecked(stream_->psAttestation());
+            psAtt->setToolTip(tr(
+                "Default OFF. Check only if this radio has the PureSignal "
+                "mod. Until then the PS arm switch and cntrl1=4 mux stay "
+                "off. First RF is dummy-load only."));
+            connect(psAtt, &QCheckBox::toggled, stream_,
+                    &lyra::ipc::HL2Stream::setPsAttestation);
+            connect(stream_, &lyra::ipc::HL2Stream::psAttestationChanged, psAtt,
+                    [psAtt](bool on) {
+                        if (psAtt->isChecked() != on) psAtt->setChecked(on);
+                    });
+            g->addWidget(psAtt, 6, 0, 1, 2);
+
+            auto *psArm = new QCheckBox(tr("Arm PureSignal"), grp);
+            psArm->setChecked(stream_->psArmed());
+            psArm->setEnabled(stream_->psAttestation());
+            psArm->setToolTip(tr(
+                "Sets puresignal_run (frames 11/16 C2 bit 6). HL2 mux "
+                "cntrl1=4 only while MOX is also on. Requires attestation."));
+            connect(psArm, &QCheckBox::toggled, stream_,
+                    &lyra::ipc::HL2Stream::setPsArmed);
+            connect(stream_, &lyra::ipc::HL2Stream::psArmedChanged, psArm,
+                    [psArm](bool on) {
+                        if (psArm->isChecked() != on) psArm->setChecked(on);
+                    });
+            connect(stream_, &lyra::ipc::HL2Stream::psAttestationChanged, psArm,
+                    [psArm](bool att) { psArm->setEnabled(att); });
+            g->addWidget(psArm, 7, 0, 1, 2);
+
+            auto *psHelp = new QLabel(grp);
+            psHelp->setText(tr(
+                "PureSignal: dummy load first. See the PureSignal dock "
+                "(ON / 2-tone / feedback / Reset). Live gates: "
+                "docs/architecture/puresignal_hl2_bench.md."));
+            psHelp->setWordWrap(true);
+            psHelp->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+            g->addWidget(psHelp, 8, 0, 1, 2);
+        }
+
         // --- Auto-mute RX while transmitting (task #26) ---
         // Default ON.  When the wire MOX bit settles true (post TR-delay),
         // the WdspEngine drops RX audio to silence so the operator
@@ -3648,7 +3987,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 const bool on = engine_->autoMuteOnTx();
                 if (amBox->isChecked() != on) amBox->setChecked(on);
             });
-            g->addWidget(amBox, 6, 0, 1, 2);
+            g->addWidget(amBox, 9, 0, 1, 2);
         }
 
         // --- RX-on-unkey delay (queued thud/echo fix) ---
@@ -3691,7 +4030,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     rxdSpin->setValue(v);
                 }
             });
-            g->addWidget(rxdWrap, 7, 0, 1, 2);
+            g->addWidget(rxdWrap, 10, 0, 1, 2);
         }
 
         // --- Task #36: Hardware PTT input forwarder (default OFF) ---
@@ -3740,7 +4079,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     hwBox->setChecked(on);
                 }
             });
-            g->addWidget(hwBox, 8, 0, 1, 2);
+            g->addWidget(hwBox, 11, 0, 1, 2);
         }
 
         // --- Task #157: Space-bar PTT enable/disable ---
@@ -3780,7 +4119,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     sbBox->setChecked(on);
                 }
             });
-            g->addWidget(sbBox, 9, 0, 1, 2);
+            g->addWidget(sbBox, 12, 0, 1, 2);
         }
 
         // --- Auto-start on launch (opt-out) ---
@@ -3809,7 +4148,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     asBox->setChecked(on);
                 }
             });
-            g->addWidget(asBox, 10, 0, 1, 2);
+            g->addWidget(asBox, 13, 0, 1, 2);
         }
 
         // Mic source picker + Mic Boost checkbox MOVED to the TX
@@ -3937,11 +4276,18 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         // --- master enable + live hardware pin-state strip ---
         auto *topRow = new QHBoxLayout;
         auto *fb = new QCheckBox(
-            tr("Enable external filter board (N2ADR / compatible)"));
+            tr("Enable N2ADR / IO board (filters + Pico analog, not J3)"));
         fb->setChecked(stream_->filterBoardEnabled());
-        fb->setToolTip(tr("Switches the HL2 open-collector outputs per band to "
-                          "drive an external band-pass filter board.\n"
-                          "Off = OC pins idle (harmless with no board)."));
+        fb->setToolTip(tr(
+            "DeskHPSDR: HL2 filter_board = N2ADR, OC on every frame.\n"
+            "Thetis/Quisk send the same OC bits with no extra checkbox.\n\n"
+            "Drives J16 open-collectors. Gateware relays them over I2C "
+            "(addr 0x20) for N2ADR LPFs. A Pico (M0AWS / KP4RX) can turn "
+            "those bits into analog PWM — stock N2ADR firmware is J4 pin 8, "
+            "not J3.\n\n"
+            "IO-board J3 is the fan-PWM header. Analog on J3 uses the Band "
+            "Volts checkbox below (DeskHPSDR dither / MI0BOT HL2 Band Volts).\n\n"
+            "Off = OC pins idle (harmless with no board)."));
         connect(fb, &QCheckBox::toggled, stream_,
                 &lyra::ipc::HL2Stream::setFilterBoardEnabled);
         connect(stream_, &lyra::ipc::HL2Stream::filterBoardChanged, fb,
@@ -4078,50 +4424,43 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         // ocBox (enable + live pins + grid + preset buttons) is complete.
         root->addWidget(ocBox);
 
-        // --- HL2 Band-Voltage output (MI0BOT / Ramdor gateware) -----------
-        // Separate from the OC/J16 pins: this repurposes the fan-PWM pin to
-        // emit a per-band analog voltage (the gateware "band volts" feature,
-        // enabled by the C0=0x00 dither bit).  Used by amps / tuners / ant
-        // switches that band-follow off a band voltage.  Thetis exposes the
-        // identical bit as its "HL2 Band Volts" checkbox.
+        // --- HL2 Band Volts on J3 / fan PWM (DeskHPSDR + MI0BOT) ----------
+        // IO-board J3 is GPIO04_Fan. Gateware Band Volts (wiki) hijacks
+        // that PWM when C0=0x00 C3 bit 3 (ADC dither) is set. DeskHPSDR:
+        // RX menu "HL2 Band Volts / Dither Bit". MI0BOT Thetis:
+        // chkHL2BandVolts → NetworkIO.SetADCDither. Default OFF in both
+        // (fan stays a fan). Needs gateware ≥72p5 with the fan/band-volts
+        // block; stock ak4951 without fan leaves the pin low.
         {
             auto *bvBox = section(
-                tr("Band-voltage output on the fan-PWM pin — special gateware only"));
+                tr("IO-board J3 analog (fan PWM / Band Volts)"));
             auto *bvv = new QVBoxLayout(bvBox);
 
-            // Prominent pointer: the common case (N2ADR filter / IO board driving
-            // a band-following amp such as the Xiegu GP100) is NOT this checkbox.
-            // Per the HL2 gateware, band data for a companion board rides the
-            // Open-Collector outputs, which the gateware relays to the board over
-            // I2C (addr 0x20).  So it's the OC grid above, not the fan-PWM pin.
             auto *note = new QLabel(tr(
-                "Using an N2ADR filter / IO board (e.g. band voltage to a Xiegu "
-                "amp)?  That is NOT this checkbox.  The HL2 sends the "
-                "Open-Collector outputs above to the board over its I2C bus — "
-                "so configure the per-band OC pins in the grid above and enable "
-                "the filter board there.  This checkbox below is a separate, "
-                "rarely-used feature."));
+                "If your amp/tuner takes analog band voltage from IO-board "
+                "J3 (the fan header), use this checkbox — same wire bit as "
+                "DeskHPSDR’s “HL2 Band Volts / Dither Bit” and MI0BOT "
+                "Thetis “HL2 Band Volts”. Leave it off if J3 is a cooling "
+                "fan. N2ADR filters still use the OC enable above; stock "
+                "Pico analog PWM is J4 pin 8."));
             note->setWordWrap(true);
             note->setStyleSheet(QStringLiteral("color:#e0b060;"));  // amber caution
             bvv->addWidget(note);
 
             auto *bv = new QCheckBox(
-                tr("Output per-band analog voltage on the fan-PWM pin"));
+                tr("HL2 Band Volts on J3 / fan-PWM pin (dither bit)"));
             bv->setChecked(stream_->bandVoltsOutput());
             bv->setToolTip(tr(
-                "HL2 gateware \"band volts\" feature — ONLY on special gateware\n"
-                "builds compiled with fan support (MI0BOT / Ramdor).  The stock\n"
-                "HL2/HL2+ (ak4951) gateware ships with the fan block disabled, so\n"
-                "on those builds this bit does NOTHING (the fan-PWM pin is held\n"
-                "low regardless).\n\n"
-                "When present, it drives a band-dependent voltage on the fan-PWM\n"
-                "pin for an amp / tuner / antenna switch that band-follows off a\n"
-                "single band voltage (e.g. a HardRock-50 set to Transceiver: None).\n\n"
-                "This is NOT the path for an N2ADR filter/IO board — those follow\n"
-                "the Open-Collector outputs relayed over I2C (see the note above).\n\n"
-                "TRADE-OFF (on fan-enabled gateware): while on, that pin outputs\n"
-                "band voltage INSTEAD of fan speed control — leave OFF unless your\n"
-                "wiring uses it."));
+                "Sets Protocol-1 C0=0x00 C3 bit 3 (ADC dither).\n"
+                "DeskHPSDR: RX menu → HL2 Band Volts / Dither Bit.\n"
+                "MI0BOT Thetis: Setup → HL2 Band Volts → SetADCDither.\n"
+                "HL2 wiki Band-Volts: gateware ≥72p5; J3 on an N2ADR IO "
+                "board is GPIO04_Fan, the same PWM net.\n\n"
+                "Needs a gateware build with the fan/band-volts block. "
+                "Stock HL2/HL2+ ak4951 without that block holds the pin "
+                "low — this bit then does nothing.\n\n"
+                "TRADE-OFF: while on, J3/fan PWM is band voltage instead "
+                "of fan speed. Default off, matching DeskHPSDR and MI0BOT."));
             connect(bv, &QCheckBox::toggled, stream_,
                     &lyra::ipc::HL2Stream::setBandVoltsOutput);
             connect(stream_, &lyra::ipc::HL2Stream::bandVoltsOutputChanged, bv,
@@ -6538,7 +6877,7 @@ QWidget *SettingsDialog::buildTxTab() {
         //   Mic In  — HL2/HL2+ codec mic (the v0.2.0..v0.2.2 default)
         //   TCI     — inbound TX_AUDIO_STREAM from a digital-modes
         //             TCI client (MSHV / JTDX / FlDigi / etc.)
-        //   PC Soundcard (VAC1) — live (#158); VAC2 still pending.
+        //   PC Soundcard (VAC1 / VAC2) — Settings → Audio cables.
         //
         // Token strings match the TCI v2 §3.3 TRX source-token enum
         // so a TCI client that sends `trx:0,true,tci` automatically
@@ -6569,10 +6908,9 @@ QWidget *SettingsDialog::buildTxTab() {
             }
             combo->setToolTip(tr(
                 "TX audio source.  Mic In = radio codec jack.  TCI = a "
-                "TCI client streams TX audio.  PC Soundcard (VAC1) = "
-                "virtual cable / USB mic from Settings → Audio (VAC1 "
-                "Input device) — required for Fldigi / WSJT-X over VAC.  "
-                "VAC2 is not shipped yet."));
+                "TCI client streams TX audio.  PC Soundcard (VAC1) / "
+                "(VAC2) = virtual cable from Settings → Audio.  TCI "
+                "audio and VAC TX are exclusive — TCI always wins."));
             connect(combo, qOverload<int>(&QComboBox::currentIndexChanged),
                     grp, [this, combo](int) {
                 if (!prefs_) return;
@@ -8726,16 +9064,20 @@ QWidget *SettingsDialog::buildVisualsTab() {
                    QStringLiteral("auto")).toString().toLower();
         const int idx = std::max(0, gfx->findData(cur));
         gfx->setCurrentIndex(idx);
-        connect(gfx, &QComboBox::currentIndexChanged, gfx, [gfx](int i) {
+        auto persistGfx = [gfx](int i) {
             QSettings s;
             s.setValue(QStringLiteral("ui/graphicsBackend"),
                        gfx->itemData(i).toString());
             // The operator is taking control, so leave graphics safe mode
             // (a prior startup crash may have forced OpenGL) — their pick is
-            // honoured next launch.
+            // honoured next launch.  activated() fires even when they
+            // re-choose the already-selected item (Vulkan→Vulkan), which
+            // currentIndexChanged does not.
             s.remove(QStringLiteral("ui/gfxSafeMode"));
             s.remove(QStringLiteral("ui/gfxSafeDepth"));
-        });
+        };
+        connect(gfx, &QComboBox::currentIndexChanged, gfx, persistGfx);
+        connect(gfx, &QComboBox::activated, gfx, persistGfx);
         gh->addWidget(gfx);
 
         auto *note = new QLabel(tr("Restart Lyra to apply"), gbox);
@@ -8749,11 +9091,27 @@ QWidget *SettingsDialog::buildVisualsTab() {
         // point back to this control (the notice at launch does too).
         if (QSettings().value(QStringLiteral("ui/gfxSafeMode"), false).toBool()) {
             auto *sm = new QLabel(
-                tr("⚠  Running in graphics safe mode after a startup problem — "
-                   "pick a backend above (then restart) to leave it."), page);
+                tr("⚠  Graphics safe mode is latched from an incomplete start "
+                   "(not a weak GPU).  Re-select the backend above, or click "
+                   "Leave safe mode, then restart — an already-selected Vulkan "
+                   "entry does not count as a change."), page);
             sm->setWordWrap(true);
             sm->setStyleSheet(QStringLiteral("QLabel{color:#ffb74d;}"));
             form->addRow(QString(), sm);
+            auto *leave = new QPushButton(tr("Leave safe mode"), page);
+            leave->setToolTip(tr("Clears the crash-ladder latch.  Restart Lyra "
+                                 "to run the backend selected above."));
+            connect(leave, &QPushButton::clicked, page, [leave, sm]() {
+                QSettings s;
+                s.remove(QStringLiteral("ui/gfxSafeMode"));
+                s.remove(QStringLiteral("ui/gfxSafeDepth"));
+                leave->setEnabled(false);
+                leave->setText(tr("Leave safe mode (cleared — restart Lyra)"));
+                sm->setText(tr("Safe mode cleared.  Restart Lyra to apply the "
+                               "backend selected above."));
+                sm->setStyleSheet(QStringLiteral("QLabel{color:#8fa0aa;}"));
+            });
+            form->addRow(QString(), leave);
         }
     }
 

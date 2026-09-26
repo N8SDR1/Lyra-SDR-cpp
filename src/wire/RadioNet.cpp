@@ -427,7 +427,9 @@ int           P1_en_diversity   = 0;
 // §3.5 supplement (added 2026-06-05 per §4b-1 source-verification).
 // `P1_adc_cntrl` — per-family ADC-to-DDC routing.  HL2 / HL2+ uses
 // ADC0 for all DDCs, so default 0 works on the wire (case 4 emits
-// C1=0, C2=0).  ANAN models set non-zero values at session open.
+// C1=0, C2=0).  Live Thetis HL2 MOX+PS writes 4 (`cntrl1=4`) via
+// `lyra::ps::ddc_map` / `HL2Stream::refreshPsWire`.  ANAN models set
+// non-zero values at session open.
 int P1_adc_cntrl = 0;
 
 // §4b-2 supplement (added 2026-06-05 per §4b-2 source-verification;

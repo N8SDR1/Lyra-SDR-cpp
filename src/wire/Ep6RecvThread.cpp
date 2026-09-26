@@ -37,18 +37,20 @@
 //   - `AvSetMmThreadPriority(hTask, AVRT_PRIORITY_HIGH)` (= 2)
 //     added after `AvSetMmThreadCharacteristicsW("Pro Audio")` —
 //     matches reference `networkproto1.c:243-244` verbatim.
-//   - `WSASetEvent` on stop DROPPED.  Reference relies on the
-//     `prn->wdt` timeout-based wake (`if(prn->wdt)` → 3000ms,
-//     else WSA_INFINITE) for shutdown wake — `io_keep_running=0`
-//     just makes the loop exit on the next iteration.  Lyra's
-//     `stop_request_` flag does the same; the manual `WSASetEvent`
-//     was a Lyra-native deviation now removed.
+//   - `WSASetEvent` on stop is REQUIRED in Lyra.  Reference
+//     `prn->wdt` is often 1 so WSAWait times out at 3000 ms;
+//     Lyra's RadioNet default is `wdt=0` → WSA_INFINITE.  Stop
+//     then deadlocks the GUI thread on join() until the next
+//     EP6 datagram.  If the radio already dropped IQ (EP2 stall),
+//     that wait never ends — operator sees a hard lock with the
+//     log stuck at `ep6Thread_.stop() - start`.
 
 #include "wire/Ep6RecvThread.h"
 #include "wire/ForceCandC.h"
 #include "wire/MetisFrame.h"
 #include "wire/RadioNet.h"
 #include "wire/Router.h"
+#include "ps/PsCalcThread.h"
 #include "wire/CmBuffs.h"   // P4.b — Inbound(): mic → stream-1 TX input ring
 #include "wire/cmsetup.h"   // P4.b — inid()
 
@@ -70,6 +72,7 @@
   using socket_recv_size_t = int;
 #else
   #include <sys/socket.h>
+  #include <netinet/in.h>
   #include <unistd.h>
   using socket_recv_len_t  = ssize_t;
   using socket_recv_size_t = size_t;
@@ -277,14 +280,14 @@ void Ep6RecvThread::start(int socket_fd) {
 void Ep6RecvThread::stop() {
     stop_request_.store(true, std::memory_order_release);
 
-    // Reference shutdown: `io_keep_running = 0;` makes the loop
-    // exit on its next iteration; the loop wakes naturally via
-    // either the FD_READ event firing OR the `prn->wdt` 3000ms
-    // timeout (whichever the wait was using).  No manual event-
-    // signal is needed — Lyra mirrors verbatim per the
-    // operator-locked "do as reference, period" directive
-    // (2026-06-06).  The earlier `WSASetEvent` was a Lyra-native
-    // deviation caught by Round-1 audit 2026-06-06 and removed.
+    // Wake WSAWaitForMultipleEvents.  Default `prn->wdt == 0` uses
+    // WSA_INFINITE; without this signal, join() blocks the GUI until
+    // the next EP6 packet (forever if the radio already went silent).
+#if defined(_WIN32)
+    if (prn != nullptr && prn->hDataEvent != WSA_INVALID_EVENT) {
+        WSASetEvent(prn->hDataEvent);
+    }
+#endif
 
     if (thread_ && thread_->joinable()) {
         thread_->join();
@@ -593,11 +596,23 @@ void Ep6RecvThread::run_loop() {
         socket_recv_len_t n = 0;
         {
             std::lock_guard<std::mutex> lk(prn->rcvpktp1);
-            n = ::recv(
+            sockaddr_in from{};
+#if defined(_WIN32)
+            int fromlen = static_cast<int>(sizeof(from));
+#else
+            socklen_t fromlen = static_cast<socklen_t>(sizeof(from));
+#endif
+            n = ::recvfrom(
                 metis_socket_fd(),
                 reinterpret_cast<char*>(readbuf),
                 static_cast<socket_recv_size_t>(sizeof(readbuf)),
-                0);
+                0,
+                reinterpret_cast<sockaddr*>(&from),
+                &fromlen);
+            const std::uint32_t expect = metis_radio_ip_be();
+            if (expect != 0 && from.sin_addr.s_addr != expect) {
+                continue;
+            }
             if (n != static_cast<socket_recv_len_t>(kEp6DatagramBytes)) {
                 g_framing_errors.fetch_add(1, std::memory_order_relaxed);
                 continue;  // lock released by guard's destructor
@@ -809,7 +824,14 @@ void Ep6RecvThread::process_usb_frame(const uint8_t* frame) {
                   prn->TxReadBufp,
                   /*source=*/1,
                   router_, router_id_);
-            xrouter(router_, router_id_, 2, spr, prn->RxBuff[1].data());
+            // Thetis HL2 MOX+PS: coupler on DDC0, TX replica on DDC1.
+            // Feed pscc; skip DDC1 xrouter (pause SUB without persisting).
+            if (XmitBit && prn->puresignal_run) {
+                lyra::ps::PsCalcThread::instance().feed(
+                    spr, prn->RxBuff[0].data(), prn->RxBuff[1].data());
+            } else {
+                xrouter(router_, router_id_, 2, spr, prn->RxBuff[1].data());
+            }
         }
         break;
     case 5:

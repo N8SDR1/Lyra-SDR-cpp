@@ -4,15 +4,19 @@
 #include "P2Session.h"
 
 #include "P2TxCmaster.h"   // setP2TxCmasterChannelRunning — run the TXA channel with the DUC transport
+#include "ps/PsCalcThread.h"
 
 #include <QtEndian>
 #include <QAbstractSocket>
 #include <QNetworkInterface>
+#include <QSettings>
 #include <QVariant>
 #include <QTimer>
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <vector>
 
 namespace lyra::wire {
 
@@ -98,6 +102,27 @@ quint16 saturnAlexRxWord(quint32 hz, P2RxInput input, bool hpfBypass) {
     return w | (1u << 12); // outside Thetis's configured BPF1 table
 }
 
+// Classic Alex HPF (ANAN-10 / 10E / 100 / 100B / 100D / 200D). deskHPSDR
+// new_protocol.c default HPF path — same wire bits as Saturn BPF, older
+// band edges (1.8 / 6.5 / 9.5 / 13 / 20 / 50 MHz). Do not use on
+// OrionMkII / Saturn (those stay saturnAlexRxWord).
+quint16 classicAlexRxWord(quint32 hz, P2RxInput input, bool hpfBypass) {
+    quint16 w = 0;
+    switch (input) {
+        case P2RxInput::Bypass: w |= 1u << 10; break;
+        case P2RxInput::Ext1:   w |= 1u << 9;  break;
+        case P2RxInput::Xvtr:   w |= 1u << 8;  break;
+        case P2RxInput::Trx:                         break;
+    }
+    if (hpfBypass || hz < 1'800'000u) return w | (1u << 12);
+    if (hz <  6'500'000u) return w | (1u << 6); // 1.5 MHz HPF
+    if (hz <  9'500'000u) return w | (1u << 5); // 6.5 MHz HPF
+    if (hz < 13'000'000u) return w | (1u << 4); // 9.5 MHz HPF
+    if (hz < 20'000'000u) return w | (1u << 1); // 13 MHz HPF
+    if (hz < 50'000'000u) return w | (1u << 2); // 20 MHz HPF
+    return w | (1u << 3);                       // 6 m preamp
+}
+
 // TX halfword bits (32-bit word bits 16..31 → u16 0..15):
 //   4=30/20 LPF  5=60/40 LPF  6=80 LPF  7=160 LPF  8/9/10=ANT1/2/3
 //   11=TR relay (0 = RX)  13=6 LPF  14=12/10 LPF  15=17/15 LPF
@@ -125,6 +150,17 @@ quint16 saturnAlexTxWord(quint32 hz, int trxAnt) {
 const P2HardwareProfile kSaturnProfile = {
     "ANAN-G2", "Saturn (ANAN G2)", 10, 10, 2,
     &saturnAlexRxWord, &saturnAlexTxWord,
+};
+
+// Classic-Alex ANAN on Protocol 2. TX is dummy-load / Arm-P2-TX only
+// (txOnAirValidated=false) until a tester benches RF on that box.
+const P2HardwareProfile kHermesAlexP2 = {
+    "ANAN-100", "Hermes-class ANAN (classic Alex)", 1, 10, 1,
+    &classicAlexRxWord, &saturnAlexTxWord,
+};
+const P2HardwareProfile kAngeliaOrionAlexP2 = {
+    "ANAN-100D", "Angelia/Orion ANAN (classic Alex)", 3, 10, 2,
+    &classicAlexRxWord, &saturnAlexTxWord,
 };
 
 // BrickSDR (Hermes-class P2) has NO Alex front end -- its onboard LPF
@@ -164,6 +200,18 @@ const P2HardwareProfile *p2ProfileForModel(const QString &modelKey) {
     if (modelKey.compare(QLatin1String("BRICK-SDR"), Qt::CaseInsensitive) == 0 ||
         modelKey.compare(QLatin1String("BRICK-SDR2"), Qt::CaseInsensitive) == 0)
         return &kBrickProfile;
+    // Hermes-class ANAN (1 ADC, classic HPF). Shipped as P1; P2 FPGA is
+    // the Lyra path. Discovery "Hermes" still defaults to BrickP2 — pick
+    // these keys in Settings.
+    if (modelKey.compare(QLatin1String("ANAN-10"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ANAN-10E"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ANAN-100"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ANAN-100B"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("HERMES"), Qt::CaseInsensitive) == 0)
+        return &kHermesAlexP2;
+    if (modelKey.compare(QLatin1String("ANAN-100D"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ANAN-200D"), Qt::CaseInsensitive) == 0)
+        return &kAngeliaOrionAlexP2;
     return nullptr;
 }
 
@@ -258,6 +306,7 @@ void P2Session::disableDdc(int ddc) {
 }
 
 void P2Session::armSubSecondaryDdcs(quint16 rateKhz, quint32 freqHz) {
+    subRx2Wanted_ = true;
     const bool alreadyArmed =
         ddcEnabled_[1] && ddcRateKhz_[1] == rateKhz;
     ddcFreqHz_[1] = freqHz;
@@ -293,6 +342,7 @@ void P2Session::armSubSecondaryDdcs(quint16 rateKhz, quint32 freqHz) {
 }
 
 void P2Session::disarmSubSecondaryDdcs() {
+    subRx2Wanted_ = false;
     subIqLatchDdc_ = -1;
     warnedNoDdc1Iq_ = false;
     ddc1IqOkLogged_ = false;
@@ -305,7 +355,8 @@ void P2Session::disarmSubSecondaryDdcs() {
 }
 
 bool P2Session::shouldFeedRx2(int ddc) {
-    if (!ddcEnabled_[1] || ddc != 1) return false;
+    if (ddc != 1 || !subRx2Wanted_ || !ddcEnabled_[1]) return false;
+    if (isPureSignalLive()) return false;
     if (subIqLatchDdc_ != 1) {
         subIqLatchDdc_ = 1;
         emit logLine(QStringLiteral(
@@ -403,16 +454,17 @@ QByteArray P2Session::buildDdcSpecificPacket() const {
     // rejects the packet otherwise), then per-DDC config at
     // [17 + 6*n]: +0 source (0 = ADC1), +1..2 sample rate in kHz
     // (BE u16, one of 48/96/192/384/768/1536), +5 sample size (24).
-    // Interleave sync words [1363+2p] stay zero.  Disabled DDCs may
-    // leave rate/size zero (unvalidated while off).
+    // Interleave sync [1363+2p] is zero in RX. Live PS TX: pair 0 = 0x02
+    // so DDC1 rides DDC0 on one IQ UDP (enable mask bit 0 only).
     QByteArray pkt(kDdcSpecificLen, char{0});
     pkt[4] = static_cast<char>(profile_ ? profile_->adcCount : 1);
     quint16 mask = 0;
-    // deskHPSDR programs every receiver slot (RECEIVERS=2 on Hermes/Brick)
-    // even when RX2 is off. Only the enable bits gate the stream. Slot 1
-    // left at rate=0 while SUB is later armed is a firmware-miss we hit
-    // on this Brick (DDC1 never emitted). Always fill DDC0+DDC1.
+    // Program DDC0+DDC1 always (Hermes/Brick 2-receiver). Slot 1 left
+    // at rate=0 while SUB is later armed is a firmware-miss we hit on
+    // this Brick (DDC1 never emitted).
     const int fillSlots = 2;
+    const int nAdc = profile_ ? profile_->adcCount : 1;
+    const bool psTx = isPureSignalLive();
     for (int i = 0; i < kNumDdc; ++i) {
         const auto n = static_cast<std::size_t>(i);
         if (ddcEnabled_[n])
@@ -420,18 +472,27 @@ QByteArray P2Session::buildDdcSpecificPacket() const {
         if (i >= fillSlots && !ddcEnabled_[n])
             continue;
         const int off = 17 + 6 * i;
-        // deskHPSDR: n_adc<=1 always assigns ADC 0. A persisted ADC1
-        // index on a 1-ADC Brick leaves DDC1 on a missing converter.
         quint8 adc = ddcAdc_[n];
-        if (!profile_ || profile_->adcCount <= 1)
-            adc = 0;
         quint16 rate = ddcRateKhz_[n];
+        if (psTx) {
+            rate = 192;
+            if (i == 0)
+                adc = 0;
+            else
+                adc = static_cast<quint8>(nAdc);  // TX replica; not ADC0
+        } else if (nAdc <= 1) {
+            adc = 0;
+        }
         if (rate == 0)
             rate = ddcRateKhz_[0] ? ddcRateKhz_[0] : quint16{192};
         pkt[off]     = static_cast<char>(adc);
         pkt[off + 1] = static_cast<char>(rate >> 8);
         pkt[off + 2] = static_cast<char>(rate & 0xFF);
         pkt[off + 5] = char{24};                       // 24-bit samples
+    }
+    if (psTx) {
+        mask = 0x0001;
+        pkt[1363] = 0x02;
     }
     pkt[7] = static_cast<char>(mask & 0xFF);           // LE enable mask
     pkt[8] = static_cast<char>(mask >> 8);
@@ -460,10 +521,11 @@ void P2Session::sendDdcSpecificToRadio(bool logConfig) {
                           static_cast<quint8>(pkt[31]);
     const quint16 rate3 = (static_cast<quint8>(pkt[36]) << 8) |
                           static_cast<quint8>(pkt[37]);
+    const quint8 sync0 = static_cast<quint8>(pkt[1363]);
     emit logLine(
         QStringLiteral(
             "P2: DDC-specific seq=%1 mask=0x%2 adcCount=%3 "
-            "DDC0 adc=%4 %5 kHz DDC1 adc=%6 %7 kHz")
+            "DDC0 adc=%4 %5 kHz DDC1 adc=%6 %7 kHz sync0=0x%8")
             .arg(seq)
             .arg(mask, 4, 16, QLatin1Char('0'))
             .arg(profile_ ? profile_->adcCount : 0)
@@ -471,6 +533,7 @@ void P2Session::sendDdcSpecificToRadio(bool logConfig) {
             .arg(rate0)
             .arg(adc1)
             .arg(rate1)
+            .arg(sync0, 2, 16, QLatin1Char('0'))
         + QStringLiteral(" DDC2 adc=%1 %2 kHz DDC3 adc=%3 %4 kHz DDC1Hz=%5")
               .arg(adc2)
               .arg(rate2)
@@ -482,11 +545,12 @@ void P2Session::sendDdcSpecificToRadio(bool logConfig) {
 QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     QByteArray pkt(kHpLen, char{0});
     const auto tx = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
-    // [0..3] sequence 0 (control). [4]: bit0 run, bit1 gated transmit;
-    // PureSignal bit7 remains off until its separate validation phase.
+    // [0..3] sequence 0 (control). [4]: bit0 run, bit1 gated transmit,
+    // bit7 PureSignal (DeskHPSDR new_protocol.c — only when armed).
     const bool transmit = run && tx.transmit;
     pkt[4] = static_cast<char>((run ? 0x01 : 0x00) |
-                               (transmit ? 0x02 : 0x00));
+                               (transmit ? 0x02 : 0x00) |
+                               (psArmed_ ? 0x80 : 0x00));
     // [5] CWX off; [6..8] must be zero (hardened p2app rejects the
     // packet otherwise — protocol2_command.c validation).
     for (std::size_t i = 0; i < ddcFreqHz_.size(); ++i)
@@ -533,6 +597,19 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
         // DDC0 stays disabled; only the phase word is overlaid.
         wrBeU32(pkt.data() + 9, phaseWord(ducFreqHz_));
     }
+    // P7 scaffold: DeskHPSDR ALEX_PS_BIT (bit 18). Alex1 whenever PS
+    // is on; Alex0 TX halfword + DDC0/DDC1 lock to DUC while keyed.
+    // After Brick overlay so they compose. brick_ddc0_fix stays for
+    // non-PS TX. Thetis mux only if DeskHPSDR and hardware disagree.
+    if (psArmed_)
+        pkt[1429] = static_cast<char>(
+            static_cast<unsigned char>(pkt[1429]) | 0x04);
+    if (psArmed_ && transmit) {
+        wrBeU32(pkt.data() + 9, phaseWord(ducFreqHz_));
+        wrBeU32(pkt.data() + 13, phaseWord(ducFreqHz_));
+        pkt[1433] = static_cast<char>(
+            static_cast<unsigned char>(pkt[1433]) | 0x04);
+    }
     const bool keyedWithPa = transmit && tx.paEnabled;
     pkt[1442] = static_cast<char>(overlayAdcAttByte(1, keyedWithPa));
     pkt[1443] = static_cast<char>(overlayAdcAttByte(0, keyedWithPa));
@@ -551,6 +628,78 @@ void P2Session::setAdcAttenuation(int adc, int db) {
     sendDucSpecificIfOpen();
 }
 
+void P2Session::setPsFeedbackAttn(int db) {
+    psFeedbackAttnDb_ = std::clamp(db, 0, 31);
+    sendDucSpecificIfOpen();
+    if (!open_)
+        return;
+    if (P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit)
+        applyTxControlNow();
+}
+
+void P2Session::setPureSignalArmed(bool on) {
+    if (psArmed_ == on) return;
+    psArmed_ = on;
+    if (!on)
+        clearPsccIq();
+    applyTxControlNow();
+}
+
+bool P2Session::isPureSignalLive() const {
+    return psArmed_ && P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit;
+}
+
+void P2Session::clearPsccIq() {
+    psccRx_.clear();
+    psccTx_.clear();
+}
+
+void P2Session::ingestPsccInterleaved(const double *iq, int nComplex) {
+    if (!iq || nComplex < 2)
+        return;
+    const int pairs = nComplex / 2;
+    if (pairs <= 0)
+        return;
+    std::vector<double> rx(static_cast<std::size_t>(pairs) * 2);
+    std::vector<double> tx(static_cast<std::size_t>(pairs) * 2);
+    for (int i = 0; i < pairs; ++i) {
+        rx[static_cast<std::size_t>(2 * i)]     = iq[4 * i];
+        rx[static_cast<std::size_t>(2 * i) + 1] = iq[4 * i + 1];
+        tx[static_cast<std::size_t>(2 * i)]     = iq[4 * i + 2];
+        tx[static_cast<std::size_t>(2 * i) + 1] = iq[4 * i + 3];
+    }
+    ingestPsccIq(0, rx.data(), pairs);
+    ingestPsccIq(1, tx.data(), pairs);
+}
+
+void P2Session::ingestPsccIq(int ddc, const double *iq, int nComplex) {
+    if (!iq || nComplex <= 0 || (ddc != 0 && ddc != 1))
+        return;
+    if (!isPureSignalLive()) {
+        if (!psccRx_.empty() || !psccTx_.empty())
+            clearPsccIq();
+        return;
+    }
+    auto &dst = (ddc == 0) ? psccRx_ : psccTx_;
+    dst.insert(dst.end(), iq, iq + static_cast<std::size_t>(nComplex) * 2);
+    constexpr std::size_t kCapDoubles = 16384;
+    if (dst.size() > kCapDoubles) {
+        std::size_t drop = dst.size() - kCapDoubles;
+        if (drop % 2u != 0)
+            ++drop;
+        dst.erase(dst.begin(),
+                  dst.begin() + static_cast<std::ptrdiff_t>(drop));
+    }
+    const std::size_t n = std::min(psccRx_.size(), psccTx_.size()) / 2;
+    if (n == 0)
+        return;
+    lyra::ps::PsCalcThread::instance().feed(
+        static_cast<int>(n), psccRx_.data(), psccTx_.data());
+    const auto used = static_cast<std::ptrdiff_t>(n * 2);
+    psccRx_.erase(psccRx_.begin(), psccRx_.begin() + used);
+    psccTx_.erase(psccTx_.begin(), psccTx_.begin() + used);
+}
+
 void P2Session::setAttOnTx(bool enabled, int db) {
     attOnTxEnabled_ = enabled;
     attOnTxDb_ = std::clamp(db, 0, 31);
@@ -562,6 +711,10 @@ void P2Session::setAttOnTx(bool enabled, int db) {
 }
 
 quint8 P2Session::overlayAdcAttByte(int adcIndex, bool keyedWithPa) const {
+    // Live PS: coupler is ADC0. ATT-on-TX 31 would mute feedback.
+    // Auto-att writes psFeedbackAttnDb_ (starts at 0 = full coupler).
+    if (isPureSignalLive() && adcIndex == 0)
+        return static_cast<quint8>(std::clamp(psFeedbackAttnDb_, 0, 31));
     if (keyedWithPa && attOnTxEnabled_)
         return static_cast<quint8>(std::clamp(attOnTxDb_, 0, 31));
     if (adcIndex < 0 ||
@@ -717,6 +870,7 @@ void P2Session::applyTxControlNow() {
         sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
     }
     sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_, kPortDucConfig);
+    sendDdcSpecificToRadio(psArmed_);
 }
 
 void P2Session::emitTxState(const QString &detail) {
@@ -773,21 +927,46 @@ void P2Session::open(const QString &ip) {
         nicIp.isNull() ? QHostAddress(QHostAddress::AnyIPv4) : nicIp;
     const auto bindFlags =
         QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint;
-    if (!sock_.bind(bindAddr, 0, bindFlags)) {
+    // Prefer a stable host port so later P1 Start can send run=0 from
+    // the same 5-tuple the Brick is still streaming to.
+    constexpr quint16 kHostBindPort = 1025;
+    auto tryBind = [&](const QHostAddress &addr, quint16 port) {
         sock_.abort();
-        if (!nicIp.isNull() &&
-            sock_.bind(QHostAddress(QHostAddress::AnyIPv4), 0, bindFlags)) {
-            emit logLine(QStringLiteral(
-                "P2: NIC bind %1 failed (%2) — falling back to AnyIPv4")
-                             .arg(nicIp.toString(), sock_.errorString()));
-        } else {
-            emit logLine(QStringLiteral("P2: bind failed: %1")
-                             .arg(sock_.errorString()));
-            return;
-        }
+        return sock_.bind(addr, port, bindFlags);
+    };
+    const bool bound =
+        tryBind(bindAddr, kHostBindPort) ||
+        tryBind(bindAddr, 0) ||
+        (!nicIp.isNull() && tryBind(QHostAddress(QHostAddress::AnyIPv4),
+                                    kHostBindPort)) ||
+        (!nicIp.isNull() && tryBind(QHostAddress(QHostAddress::AnyIPv4), 0));
+    if (!bound) {
+        emit logLine(QStringLiteral("P2: bind failed: %1")
+                         .arg(sock_.errorString()));
+        return;
+    }
+    if (sock_.localPort() != kHostBindPort) {
+        emit logLine(QStringLiteral(
+            "P2: port 1025 unavailable — using %1:%2")
+                         .arg(sock_.localAddress().toString())
+                         .arg(sock_.localPort()));
     }
     sock_.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption,
                           QVariant(0x80000));
+
+    {
+        QSettings s;
+        QHostAddress local = sock_.localAddress();
+        if (local.isNull() || local == QHostAddress::AnyIPv4)
+            local = QHostAddress(QHostAddress::AnyIPv4);
+        s.setValue(QStringLiteral("p2/lastBindIp"), local.toString());
+        s.setValue(QStringLiteral("p2/lastBindPort"), sock_.localPort());
+        s.setValue(QStringLiteral("p2/lastRadioIp"), ip);
+        emit logLine(QStringLiteral("P2: remembered bind %1:%2 → %3")
+                         .arg(local.toString())
+                         .arg(sock_.localPort())
+                         .arg(ip));
+    }
 
     radioAddr_     = target;
     radioIp_       = ip;
@@ -908,6 +1087,85 @@ void P2Session::close() {
     emit stopped();
 }
 
+void P2Session::sendRunOff(const QHostAddress &ip) {
+    if (ip.isNull() || ip.protocol() != QAbstractSocket::IPv4Protocol)
+        return;
+    // Firmware captures the controller from the General packet's source
+    // IP/port. An unbound QUdpSocket often leaves the ham NIC (e.g.
+    // 169.254 Brick APIPA) so run=0 never reaches the leftover session.
+    // First reuse the last real P2 5-tuple (the port the Brick is still
+    // streaming to). Then scatter from every local IPv4:ephemeral.
+    QByteArray general(kGeneralLen, char{0});
+    general[37] = char{0x08};
+    general[38] = char{0x01};
+    QByteArray hp(kHpLen, char{0});
+    QByteArray ddc(kDdcSpecificLen, char{0});
+    ddc[4] = char{2};
+
+    const auto sendThree = [&](QUdpSocket &sock) {
+        for (int i = 0; i < 3; ++i) {
+            wrBeU32(ddc.data(), static_cast<quint32>(i + 1));
+            sock.writeDatagram(general, ip, kPortCommand);
+            sock.writeDatagram(ddc, ip, kPortDdcConfig);
+            sock.writeDatagram(hp, ip, kPortHpToSdr);
+        }
+    };
+
+    const auto bindFlags =
+        QAbstractSocket::ShareAddress | QAbstractSocket::ReuseAddressHint;
+
+    QSettings s;
+    const QString lastLip = s.value(QStringLiteral("p2/lastBindIp")).toString();
+    const quint16 lastPort =
+        static_cast<quint16>(s.value(QStringLiteral("p2/lastBindPort")).toUInt());
+    if (lastPort != 0) {
+        QHostAddress local;
+        if (lastLip.isEmpty() || !local.setAddress(lastLip))
+            local = QHostAddress(QHostAddress::AnyIPv4);
+        QUdpSocket sock;
+        if (sock.bind(local, lastPort, bindFlags) ||
+            sock.bind(QHostAddress(QHostAddress::AnyIPv4), lastPort, bindFlags)) {
+            sendThree(sock);
+            qWarning("[wire] P2 run=0 from remembered %s:%u → %s",
+                     qPrintable(sock.localAddress().toString()),
+                     sock.localPort(),
+                     qPrintable(ip.toString()));
+        } else {
+            qWarning("[wire] P2 remembered bind %s:%u failed (%s)",
+                     qPrintable(local.toString()), lastPort,
+                     qPrintable(sock.errorString()));
+        }
+    }
+
+    constexpr quint16 kHostBindPort = 1025;
+    const auto sendFrom = [&](const QHostAddress &local, quint16 port) {
+        QUdpSocket sock;
+        if (!sock.bind(local, port, bindFlags))
+            return;
+        sendThree(sock);
+    };
+
+    bool any = false;
+    const auto ifaces = QNetworkInterface::allInterfaces();
+    for (const QNetworkInterface &iface : ifaces) {
+        const auto flags = iface.flags();
+        if (!(flags & QNetworkInterface::IsUp) ||
+            (flags & QNetworkInterface::IsLoopBack))
+            continue;
+        for (const QNetworkAddressEntry &e : iface.addressEntries()) {
+            if (e.ip().protocol() != QAbstractSocket::IPv4Protocol)
+                continue;
+            sendFrom(e.ip(), kHostBindPort);
+            sendFrom(e.ip(), 0);
+            any = true;
+        }
+    }
+    if (!any) {
+        sendFrom(QHostAddress(QHostAddress::AnyIPv4), kHostBindPort);
+        sendFrom(QHostAddress(QHostAddress::AnyIPv4), 0);
+    }
+}
+
 void P2Session::onHpTick() {
     if (!open_) return;
     // Once keying is requested the radio reports status at ~1 kHz, and
@@ -994,8 +1252,8 @@ void P2Session::onHpTick() {
             ddc1IqOkLogged_ = true;
             ddc1IqLogLeft_ = 0;
             emit logLine(QStringLiteral(
-                "P2 IQ: SUB flowing DDC1=%1 pkt/s (DDC0=%2; DDC2=%3 DDC3=%4 "
-                "count-only, not RX2)")
+                "P2 IQ: DDC1=%1 pkt/s (DDC0=%2; DDC2=%3 DDC3=%4 "
+                "count-only)")
                 .arg(d1).arg(d0).arg(d2).arg(d3));
         } else if (subArmed && ddc1IqLogLeft_ > 0) {
             --ddc1IqLogLeft_;

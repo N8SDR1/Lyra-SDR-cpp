@@ -1,16 +1,8 @@
-// Lyra — calcc cffi declarations (§9 / §10.2 ps layer).
-//
-// Header-only cffi declarations for create_calcc / destroy_calcc /
-// calc().  Inert in v0.2 (Rule 10) — present but empty; filled in
-// v0.3 PureSignal.
-//
-// Phase 1 empty skeleton — populated in Phase 2 per
-// docs/TX_ARCHITECTURAL_MAPPING.md §9.
+// Host PureSignal uses the existing wdspcalls.h pscc / SetPS* table.
+// Do not add SetTXAiqc* — deskHPSDR never calls them; WDSP 2.0 dropped
+// the public iqc wrappers. iqc runs inside the TXA chain from pscc.
 
 #pragma once
 
 namespace lyra::ps {
-
-// cffi declarations populated in Phase 2 / v0.3 PureSignal.
-
 }  // namespace lyra::ps

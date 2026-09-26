@@ -29,9 +29,8 @@
 // the HL2.  A rate change while running re-sends the DDC config live.
 //
 // TX: a dedicated 48 kHz CMaster/TXA pump feeds the session's bounded
-// 192 kHz FIFO and continuous port-1029 writer. RF remains fail-closed
-// on every open; the operator must explicitly arm the transient P2 bench
-// interlock before the normal Lyra MOX/PTT FSM can raise transmit/PA/drive.
+// 192 kHz FIFO and continuous port-1029 writer. On-air-validated models
+// (Brick) key like HL2. Classic ANAN stays fail-closed until Arm P2 TX.
 //
 // Threading: P2Session (QUdpSocket + timers) lives on thread_; every
 // session mutation is marshalled onto that thread via
@@ -154,7 +153,8 @@ public slots:
     // <mac>, when known (discovery rows carry it), selects the
     // radio's Layer-2 profile — its model + antenna override the
     // global defaults.
-    void open(const QString &ip, const QString &mac = QString());
+    void open(const QString &ip, const QString &mac = QString(),
+              const QString &boardName = QString());
     // Tear down (HP run=0) and release the radio's controller lease.
     void close();
     void setRxAttenuationDb(int db);

@@ -15,6 +15,10 @@
 #include "dsp/WaterfallId.h"    // #175 — TX waterfall callsign-ID raster generator
 #include "tci/TciTxBridge.h"    // #175 bench — synthetic TX-audio injection seam
 #include "wire/RadioNet.h"      // RadioNet, prn, UpdateRadioProtocolSampleSize, SampleRateIn2Bits
+#include "ps/DdcMap.h"
+#include "ps/PsFsm.h"
+#include "ps/PsCalcThread.h"
+#include "rig/RadioCapabilities.h"
 #include "wire/MetisFrame.h"    // metis_wire_bind, metis_socket_fd
 #include "wire/ObBuffs.h"       // destroy_obbuffs (P3 — close() ring teardown)
 #include "wire/FrameComposer.h" // §5 control-plane mapping: set_rx_freq / set_tx_freq / set_rx_step_attn_db (P4.b RX side)
@@ -349,8 +353,12 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         std::memory_order_relaxed);
     // External filter board: restore enable state + seed the OC pattern
     // for the restored band (so the board is correct from the first send).
+    // Default ON: DeskHPSDR sets filter_board=N2ADR and emits OC on
+    // every HL2 (Thetis/Quisk same OC→I²C 0x20 with no extra checkbox).
+    // That drives N2ADR LPFs and Pico PWM analog (stock firmware is
+    // J4 pin 8, not J3).  Off is still available; idle OC is harmless.
     filterBoardEnabled_ =
-        QSettings().value(QStringLiteral("hw/filterBoard"), false).toBool();
+        QSettings().value(QStringLiteral("hw/filterBoard"), true).toBool();
     // #199 Stage 2 — seed the editable OC table with the N2ADR preset (so an
     // enabled board reproduces today's per-band pattern byte-for-byte) + set
     // the family + sync the master gate to the restored enable state, THEN
@@ -387,6 +395,31 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         kTxTimeoutMinSec, kTxTimeoutMaxSec);
     txTimeoutBypass_ = QSettings().value(
         QStringLiteral("tx/timeoutBypass"), false).toBool();
+    psAttestation_ = QSettings().value(
+        QStringLiteral("tx/psAttestation"), false).toBool();
+    psArmed_ = psAttestation_ && QSettings().value(
+        QStringLiteral("tx/psArmed"), false).toBool();
+    psFsm_ = std::make_unique<lyra::ps::PsFsm>();
+    psFsm_->setAttnWriter([this](int db) { setTxStepAttnDb(db); });
+    psFsm_->setHwPeak(std::clamp(
+        QSettings().value(QStringLiteral("tx/psHwPeak"), 0.233).toDouble(),
+        0.05, 1.0));
+    connect(psFsm_.get(), &lyra::ps::PsFsm::telemetryChanged, this, [this]() {
+        emit psFeedbackLevelChanged(psFeedbackLevel());
+        emit psAutoAttDbChanged(psAutoAttDb());
+        emit psFsmStateChanged(psFsmState());
+        emit psCorrectingChanged(psCorrecting());
+        emit psCalCountChanged(psCalCount());
+        emit psDdc0DbfsChanged(psDdc0Dbfs());
+        emit psDdc1DbfsChanged(psDdc1Dbfs());
+        emit psFeedSprChanged(psFeedSpr());
+        emit psHwPeakChanged(psHwPeak());
+        emit psMaxTxChanged(psMaxTx());
+        emit psGetPkChanged(psGetPk());
+        emit psAmpPlotHeldChanged(psAmpPlotHeld());
+        emit psAmpPlotChanged();
+        emit psInfoChanged();
+    });
     // #91 — VOX state.  All persisted; VOX itself is default-OFF (no
     // surprise auto-keying on a fresh launch).  Params clamped to the
     // same ranges the setters enforce.  applyVoxParams() (called from
@@ -1066,6 +1099,22 @@ void HL2Stream::open(const QString &ip) {
     const quint16 lport = localPortOf(socket_);
 
     targetIp_ = ip;
+    // UDP connect so the kernel drops packets from other radios
+    // (leftover Brick P2 IQ on a reused ephemeral port). sendto to
+    // the same peer remains valid.
+    {
+        sockaddr_in peer{};
+        peer.sin_family = AF_INET;
+        peer.sin_port   = htons(kRadioPort);
+        ::inet_pton(AF_INET, ip.toLatin1().constData(), &peer.sin_addr);
+        if (::connect(static_cast<SOCKET>(socket_),
+                      reinterpret_cast<sockaddr*>(&peer),
+                      sizeof(peer)) != 0) {
+            qWarning("[hl2] UDP connect(%s) failed: %s",
+                     qPrintable(ip),
+                     qPrintable(winsockError(::WSAGetLastError())));
+        }
+    }
     // Stage 2b2: totalDg_/seqErrors_/framingErrors_/windowDg_ retired
     // from HL2Stream — Ep6RecvThread owns them as TU-scope atomics and
     // re-inits to 0 at run_loop thread entry on every start.
@@ -1166,14 +1215,20 @@ void HL2Stream::open(const QString &ip) {
     // Radio memory: remember this radio so the next launch can
     // auto-connect without a Discover (read in main()).
     QSettings().setValue(QStringLiteral("radio/lastIp"), ip);
-    // Multi-rig: keep the ACTIVE rig's lastIp current so a rig switch — and
-    // the next launch's auto-connect — targets the radio this rig was last on.
+    // Multi-rig: keep lastIp current on a Protocol-1 active rig only.
+    // Writing an HL2 address onto a Brick/Saturn (P2) profile made the
+    // next Start drive Protocol 2 at the HL2.
     if (const QString activeRig = lyra::rig::registry::activeRigId();
             !activeRig.isEmpty()) {
         auto r = lyra::rig::registry::rig(activeRig);
         if (r.isValid() && r.lastIp != ip) {
-            r.lastIp = ip;
-            lyra::rig::registry::upsertRig(r);
+            if (lyra::rig::capabilitiesFor(r.family).protocol == 2) {
+                qWarning("[wire] P1 open %s — not writing lastIp onto P2 rig %s",
+                         qPrintable(ip), qPrintable(activeRig));
+            } else {
+                r.lastIp = ip;
+                lyra::rig::registry::upsertRig(r);
+            }
         }
     }
 
@@ -1238,6 +1293,7 @@ void HL2Stream::open(const QString &ip) {
         lyra::wire::prn->base_outbound_port = kRadioPort;
         lyra::wire::metis_wire_bind(static_cast<int>(socket_),
                                     ipv4.s_addr);
+        refreshPsWire();
         // (§7) The OutboundRing cv-translation + its per-session
         // outbound_init() reset retired with the wire-LIVE switchover:
         // the verbatim chain pairs/refills via prn->hsendLRSem /
@@ -1353,6 +1409,13 @@ void HL2Stream::open(const QString &ip) {
         lyra::wire::SampleRateIn2Bits =     // sample-rate code (case 0 C1)
             sampleRateBits_.load(std::memory_order_relaxed);
         lyra::wire::prn->oc_output = ocPattern_;  // OC pins (case 0 C2)
+        // IO-board J3 = GPIO04_Fan.  DeskHPSDR "HL2 Band Volts / Dither
+        // Bit" and MI0BOT Thetis chkHL2BandVolts both write this same
+        // C0=0x00 C3 bit 3.  Ctor can run before create_rnet, so re-seed
+        // here or a persisted ON never reaches the wire until the box is
+        // toggled again (GitHub #14).
+        lyra::wire::set_band_volts_output(
+            bandVolts_.load(std::memory_order_relaxed));
 
         // §5 control-plane mapping (TX side) — seed the TX homes too so
         // the first composed frame carries the operator's persisted TX
@@ -1558,6 +1621,14 @@ void HL2Stream::close() {
     // create_xmtr's PS surface (out[3]/peer/…) is NOT torn down here
     // (that's app-quit destroy_xmtr), so it survives stop/start intact.
     lyra::wire::io_keep_running = 0;                  // ref network.c:1438
+    // Unblock EP6 recv before join.  close() used to join first and
+    // only then closesocket — if WSAWait was infinite and IQ had
+    // already stopped, the GUI froze here (lyra-log stuck at
+    // `ep6Thread_.stop() - start`, weather SSL still flushing).
+    if (socket_ != kInvalidSocket) {
+        ::shutdown(static_cast<SOCKET>(socket_), SD_BOTH);
+        qWarning("[shutdown] HL2Stream::close socket shutdown (wake EP6)");
+    }
     qWarning("[shutdown] HL2Stream::close ep6Thread_.stop() - start");
     ep6Thread_.stop();   // ref: wait the read thread (producers quiesce; ob_main parks on Sem_BuffReady)
     qWarning("[shutdown] HL2Stream::close ep6Thread_.stop() - done");
@@ -2071,6 +2142,31 @@ void HL2Stream::pushEffectiveRxFreq() {
         // CTUNE off: non-CTUNE path stays byte-identical — no shift emit
         // here.  The one disengage shift-off is emitted from setCtuneCenterHz.
     }
+    noteSubFrontEnd();
+}
+
+void HL2Stream::noteSubFrontEnd() {
+    if (!subEnabled_.load(std::memory_order_relaxed) || !filterBoardEnabled_) {
+        lastSubWarnBandA_ = -1;
+        lastSubWarnBandB_ = -1;
+        return;
+    }
+    const int a = lyra::bandIndexForFreq(
+        static_cast<int>(rx1FreqHz_.load(std::memory_order_relaxed)));
+    const int b = lyra::bandIndexForFreq(
+        static_cast<int>(rx2FreqHz_.load(std::memory_order_relaxed)));
+    if (a < 0 || b < 0 || a == b) {
+        lastSubWarnBandA_ = -1;
+        lastSubWarnBandB_ = -1;
+        return;
+    }
+    if (a == lastSubWarnBandA_ && b == lastSubWarnBandB_)
+        return;
+    lastSubWarnBandA_ = a;
+    lastSubWarnBandB_ = b;
+    emit logLine(QStringLiteral(
+        "SUB: N2ADR/filter board follows RX1 — RX2 on another ham band "
+        "will be much weaker (shared analog filter, one ADC)."));
 }
 
 void HL2Stream::setCtuneEnabled(bool on) {
@@ -2791,6 +2887,13 @@ void HL2Stream::setTxStepAttnDb(int db) {
     if (lyra::wire::prn != nullptr) lyra::wire::set_tx_step_attn_db(clamped);
 }
 
+void HL2Stream::bindPsAttnWriter(std::function<void(int)> fn,
+                                 int minDb, int maxDb, int moxSeed) {
+    if (!psFsm_) return;
+    psFsm_->setAttnRange(minDb, maxDb, moxSeed);
+    psFsm_->setAttnWriter(std::move(fn));
+}
+
 void HL2Stream::setPaEnabled(bool on) {
     // Lands C2 bit 3 (0x08) of slot 10 (frame 0x12) — gateware
     // PA-enable, active-high.  Operator-gated via the Settings checkbox
@@ -2838,18 +2941,15 @@ void HL2Stream::setMicBoost(bool on) {
 }
 
 void HL2Stream::setBandVoltsOutput(bool on) {
-    // HL2 "Band Volts" gateware feature (MI0BOT / Ramdor Thetis builds):
-    // sets the C0=0x00 frame C3 bit 3 (the ADC "dither" bit), which the
-    // gateware decodes as `band_volts_enabled` (control.v:582-584) and then
-    // emits a per-band analog voltage on the fan-PWM pin — used by amps,
-    // tuners, and antenna switches that band-follow off a band voltage.
+    // IO-board J3 = GPIO04_Fan.  Same C0=0x00 C3 bit 3 as DeskHPSDR
+    // (RX menu "HL2 Band Volts / Dither Bit") and MI0BOT Thetis
+    // (chkHL2BandVolts → SetADCDither).  Gateware latches it as
+    // band_volts_enabled and PWM's analog band voltage on that pin
+    // (HL2 wiki Band-Volts; needs GW ≥72p5 with the fan block).
     //
-    // Thetis parity: `chkHL2BandVolts` -> NetworkIO.SetADCDither ->
-    // prn->adc[0].dither -> WriteMainLoop_HL2 case 0 C3 bit 3.
-    //
-    // TRADE-OFF: while on, the fan-PWM pin outputs band voltage instead of
-    // fan control (control.v:604-714) — operator opt-in, default OFF.  No
-    // MOX gating (band data should be current in RX too).  Persisted.
+    // TRADE-OFF: while on, J3/fan-PWM is band voltage instead of fan
+    // speed — opt-in, default OFF (MI0BOT checkbox default unchecked).
+    // No MOX gating.  Persisted.  open() re-seeds prn.
     const bool prev = bandVolts_.exchange(on, std::memory_order_relaxed);
     if (prev == on) return;
     if (lyra::wire::prn != nullptr) lyra::wire::set_band_volts_output(on);
@@ -3045,6 +3145,140 @@ void HL2Stream::setTwoToneEnabled(bool on) {
     }
     if (fwd) fwd(on);
     emit twoToneEnabledChanged(on);
+}
+
+void HL2Stream::setPsAttestation(bool on) {
+    if (psAttestation_ == on) return;
+    psAttestation_ = on;
+    QSettings().setValue(QStringLiteral("tx/psAttestation"), on);
+    emit psAttestationChanged(on);
+    if (!on)
+        setPsArmed(false);
+    else
+        refreshPsWire();
+}
+
+void HL2Stream::setPsArmed(bool on) {
+    if (!psAttestation_)
+        on = false;
+    if (psArmed_ == on) return;
+    psArmed_ = on;
+    QSettings().setValue(QStringLiteral("tx/psArmed"), on);
+    emit psArmedChanged(on);
+    refreshPsWire();
+}
+
+void HL2Stream::resetPureSignal() {
+    if (psFsm_)
+        psFsm_->reset();
+}
+
+void HL2Stream::capturePsGetPk() {
+    if (psFsm_)
+        psFsm_->captureGetPk();
+}
+
+void HL2Stream::setPsAmpPlotHeld(bool on) {
+    if (psFsm_)
+        psFsm_->setPlotHeld(on);
+}
+
+bool HL2Stream::psAmpPlotHeld() const {
+    return psFsm_ && psFsm_->plotHeld();
+}
+
+void HL2Stream::setPsHwPeak(double peak) {
+    peak = std::clamp(peak, 0.05, 1.0);
+    if (psFsm_)
+        psFsm_->setHwPeak(peak);
+    QSettings().setValue(QStringLiteral("tx/psHwPeak"), peak);
+    emit psHwPeakChanged(psHwPeak());
+}
+
+double HL2Stream::psHwPeak() const {
+    return psFsm_ ? psFsm_->hwPeak() : 0.233;
+}
+
+double HL2Stream::psMaxTx() const {
+    return psFsm_ ? psFsm_->maxTx() : 0.0;
+}
+
+double HL2Stream::psGetPk() const {
+    return psFsm_ ? psFsm_->getPkHold() : 0.0;
+}
+
+QVariantList HL2Stream::psAmpMagX() const {
+    return psFsm_ ? psFsm_->ampMagX() : QVariantList{};
+}
+
+QVariantList HL2Stream::psAmpMagY() const {
+    return psFsm_ ? psFsm_->ampMagY() : QVariantList{};
+}
+
+QVariantList HL2Stream::psAmpCorrX() const {
+    return psFsm_ ? psFsm_->ampCorrX() : QVariantList{};
+}
+
+QVariantList HL2Stream::psAmpCorrY() const {
+    return psFsm_ ? psFsm_->ampCorrY() : QVariantList{};
+}
+
+QVariantList HL2Stream::psInfo() const {
+    return psFsm_ ? psFsm_->info() : QVariantList{};
+}
+
+int HL2Stream::psFeedbackLevel() const {
+    return psFsm_ ? psFsm_->feedbackLevel() : 0;
+}
+
+int HL2Stream::psAutoAttDb() const {
+    return psFsm_ ? psFsm_->autoAttDb() : 0;
+}
+
+int HL2Stream::psFsmState() const {
+    return psFsm_ ? psFsm_->fsmState() : 0;
+}
+
+bool HL2Stream::psCorrecting() const {
+    return psFsm_ && psFsm_->correcting();
+}
+
+int HL2Stream::psCalCount() const {
+    return psFsm_ ? psFsm_->calCount() : 0;
+}
+
+int HL2Stream::psDdc0Dbfs() const {
+    return psFsm_ ? psFsm_->ddc0Dbfs() : -999;
+}
+
+int HL2Stream::psDdc1Dbfs() const {
+    return psFsm_ ? psFsm_->ddc1Dbfs() : -999;
+}
+
+int HL2Stream::psFeedSpr() const {
+    return psFsm_ ? psFsm_->feedSpr() : 0;
+}
+
+void HL2Stream::refreshPsWire() {
+    using namespace lyra::ps;
+    const bool liveArmed = psAttestation_ && psArmed_;
+    const bool mox = lyra::wire::XmitBit != 0;
+    const auto fam = p2DrivePath_.load(std::memory_order_relaxed)
+                         ? lyra::rig::RadioFamily::BrickP2
+                         : lyra::rig::RadioFamily::Hl2;
+    const auto r = ddc_map(mox, liveArmed, subEnabled_.load(), fam);
+    if (lyra::wire::prn)
+        lyra::wire::prn->puresignal_run = r.puresignalRun ? 1 : 0;
+    lyra::wire::P1_adc_cntrl = r.adcCntrl1;
+    set_captured_profile_ps_bypass(r.bypassCapturedProfile);
+    subPausedForPs_ = r.pauseSub;
+    PsCalcThread::instance().setRun(r.feedPsccFromDdc0Ddc1);
+    if (psFsm_) {
+        psFsm_->setArmed(liveArmed);
+        psFsm_->setMox(mox && liveArmed);
+        const int rate = 48000 << sampleRateBits_.load();
+        psFsm_->setFeedbackRateHz(rate);
+    }
 }
 
 void HL2Stream::requestMox(bool on) {
@@ -3514,6 +3748,7 @@ void HL2Stream::fsmKeydownPostMox() {
     // mic→TXA→OutBound(1) modulator I/Q reach the wire.  Set alongside
     // mox_ so the §15.25 keydown ordering already in place governs it.
     lyra::wire::XmitBit = 1;
+    refreshPsWire();
 
     // §15.25 keydown ordering CORRECTED 2026-06-09 per Thetis
     // console.cs:30342-30345 read 3× verified:
@@ -3672,6 +3907,7 @@ void HL2Stream::fsmKeyupTxOff() {
     // txStopDelayMs_ (§15.25), so the faded cos² tail already reached
     // the wire while XmitBit was still 1.
     lyra::wire::XmitBit = 0;
+    refreshPsWire();
     // ptt_out_delay (Thetis line 30377-30378) gives the hardware T/R
     // relay time to physically switch back to RX before any RX-side
     // restoration logic runs.  Then fsmKeyupSettled does cleanup.
@@ -5023,6 +5259,7 @@ void HL2Stream::setFilterBoardEnabled(bool on) {
     oc_.setEnabled(on);
     QSettings().setValue(QStringLiteral("hw/filterBoard"), on);
     updateOcPattern();
+    noteSubFrontEnd();
     emit filterBoardChanged(on);
     emit logLine(QStringLiteral("Filter board %1")
                  .arg(on ? QStringLiteral("ENABLED") : QStringLiteral("off")));
@@ -5047,11 +5284,10 @@ void HL2Stream::updateOcPattern(bool transmitting) {
     if (filterBoardEnabled_) {
         const int bi = lyra::bandIndexForFreq(
             static_cast<int>(rx1FreqHz_.load(std::memory_order_relaxed)));
-        // Non-split (RX2 not built): bandA == bandB == the RX1 band, and the
-        // TX OC band == the RX1 band today.  When RX2/split lands the TX path
-        // passes the TX-freq-derived index as bandA (§7.3); compute() already
-        // takes bandB.  pa=false: no external-PA-override state is wired yet
-        // and every xPA gate defaults off, so it is ignored (Stage 4 wires it).
+        // One analog filter (N2ADR): OC follows RX1.  SUB is a second DDC
+        // on the same ADC; cross-band SUB stays behind RX1's LPF/BPF.
+        // TX OC band is RX1 today; SPLIT TX still uses this until TX-band
+        // OC is a separate pass.  pa=false: no external-PA-override yet.
         bits = oc_.compute(bi, bi, transmitting, /*tune*/ false,
                            /*twoTone*/ false, /*pa*/ false);
     }

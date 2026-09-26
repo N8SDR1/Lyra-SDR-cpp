@@ -4,8 +4,9 @@
 // loop on the EP6 socket (per §5.10 / §1-C Stage 4B); parses
 // each datagram, dispatches per-DDC samples to per-stream rings
 // via an INLINE per-`nddc` switch (matches the reference
-// `MetisReadThreadMainLoop_HL2:544-558` switch verbatim — no
-// separate DdcMap class).
+// `MetisReadThreadMainLoop_HL2:544-558` switch). Host remux for
+// PureSignal (Thetis HL2 MOX+PS: DDC0+DDC1 → pscc, skip DDC1
+// xrouter) is a state-product overlay — see lyra::ps::ddc_map.
 //
 // Source mirror:
 //   `ChannelMaster/networkproto1.c:422-586`

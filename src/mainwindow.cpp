@@ -59,6 +59,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QShowEvent>
 #include <QDebug>
 #include <QEvent>
 #include <QDir>
@@ -229,7 +230,9 @@ inline bool isChipSummonedPanel(const QString &objectName) {
         || objectName == QLatin1String("voicekeyer")
         || objectName == QLatin1String("tuner")
         || objectName == QLatin1String("freqcal")
-        || objectName == QLatin1String("recorder");
+        || objectName == QLatin1String("recorder")
+        || objectName == QLatin1String("ps")
+        || objectName == QLatin1String("ampview");
 }
 
 // Diagnostic: LYRA_TEST_SIZE=WxH opens the window at exactly that LOGICAL size.
@@ -351,6 +354,21 @@ public:
 private:
     Prefs *prefs_;
 };
+
+int protocolHintForIp(lyra::ipc::HL2Discovery *disc, const QString &ip) {
+    if (ip.isEmpty()) return 0;
+    if (disc) {
+        const auto saved = disc->savedRadio();
+        if (saved.value(QStringLiteral("ip")).toString() == ip)
+            return saved.value(QStringLiteral("protocol"), 1).toInt();
+    }
+    for (const auto &r : lyra::rig::registry::rigs()) {
+        if (r.lastIp == ip)
+            return lyra::rig::capabilitiesFor(r.family).protocol;
+    }
+    return 0;
+}
+
 } // namespace
 
 MainWindow::MainWindow(QObject *discovery, QObject *stream,
@@ -363,7 +381,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
       wdsp_(wdsp), wdspEngine_(wdspEngine), prefs_(prefs), wx_(wx),
       profiles_(profiles) {
     setWindowTitle(QStringLiteral(
-        "Lyra — v" LYRA_VERSION " (C++23 / Qt 6)"));
+        "Lyra — v" LYRA_VERSION " " LYRA_VERSION_NAME " (C++23 / Qt 6)"));
     setObjectName(QStringLiteral("LyraMainWindow"));
     resize(1100, 760);
 
@@ -928,11 +946,14 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
 
     // USB-BCD amp band output — follows the band off the stream's freq.
+    qInfo("[startup] opening USB-BCD (if enabled)");
     usbBcd_ = new UsbBcd(this);
+    qInfo("[startup] USB-BCD ctor finished");
     if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
         connect(st, &lyra::ipc::HL2Stream::rx1FreqChanged, usbBcd_,
                 [this, st]() { usbBcd_->applyForFreq(st->rx1FreqHz()); });
         usbBcd_->applyForFreq(st->rx1FreqHz());   // assert current band now
+        qInfo("[startup] USB-BCD applyForFreq done");
 
         // Band-plan in/out-of-band advisory: on a band-state transition
         // post a status message (gated like old Lyra on the edge-warning
@@ -996,10 +1017,14 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     connect(dragController_, &DockDragController::layoutChanged,
             this, &MainWindow::saveLayout);
 
+    qWarning("[startup] building dock shells (QML deferred until window shown)");
     buildDocks();      // populate docks_ (so the View menu can list them)
+    qWarning("[startup] dock shells ready");
     buildMenus();      // File / View (dock toggles + Lock) / Help
     buildToolbar();
+    qInfo("[startup] restoring layout");
     restoreLayout();   // geometry + dock state + lock state
+    qInfo("[startup] layout restored");
     if (const QSize ts = testWindowSize(); ts.isValid()) {
         // Un-maximize first: restoreLayout() may have set WindowMaximized, and
         // resize() on a maximized window is ignored.
@@ -1175,7 +1200,7 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
         QStringLiteral("Recorder"), recorder_);   // #201 session recorder
     qw->rootContext()->setContextProperty(
         QStringLiteral("Converter"), converter_); // #201 offline MP4 converter
-    qw->setSource(QUrl(QStringLiteral("qrc:/qt/qml/Lyra/src/qml/") + qmlFile));
+    qw->setProperty("lyraQmlFile", qmlFile);
     // Crash-guard tightening: the moment ANY panel swaps its first frame,
     // the RHI / GPU / scene-graph path has provably built + rendered, so
     // drop the graphics "startup pending" sentinel NOW rather than waiting
@@ -1199,6 +1224,23 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
             }
             QObject::disconnect(*conn);
         });
+    }
+    // setSource is deferred until after the native window exists
+    // (loadDeferredQuickSources).  Calling it here hangs the software
+    // scene-graph on some Intel UHD machines — ctor never returns.
+    return qw;
+}
+
+void MainWindow::finishQuickSource(QQuickWidget *qw, const QString &qmlFile) {
+    if (!qw) return;
+    qw->setSource(QUrl(QStringLiteral("qrc:/qt/qml/Lyra/src/qml/") + qmlFile));
+    // First dock QML that builds is proof the chosen RHI is alive.  Clear
+    // the crash-ladder sentinel here (not only on frameSwapped / the 2 s
+    // timer) so a restart while later docks are still loading cannot be
+    // misread as a GPU crash.
+    if (!gfxSentinelCleared_ && qw->status() != QQuickWidget::Error) {
+        gfxSentinelCleared_ = true;
+        QSettings().setValue(QStringLiteral("ui/gfxStartupPending"), false);
     }
     // Diagnostic: if a panel's QML fails to load, the QQuickWidget goes
     // blank — dump the errors so we don't have to guess.
@@ -1255,7 +1297,60 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
                           : qRound(root->property("implicitHeight").toReal());
         if (h > 0) qw->setMinimumHeight(h);
     }
-    return qw;
+}
+
+void MainWindow::loadDeferredQuickSources() {
+    if (!quickSourcesPending_) return;
+    quickSourcesPending_ = false;
+    qWarning("[startup] loading QML docks");
+
+    auto loadDock = [this](const QString &name) {
+        QDockWidget *d = docks_.value(name);
+        if (!d) return;
+        auto *qw = d->findChild<QQuickWidget *>();
+        if (!qw) return;
+        const QString qml = qw->property("lyraQmlFile").toString();
+        if (qml.isEmpty()) return;
+        qWarning("[startup] dock '%s' QML %s ...",
+                 qPrintable(name), qPrintable(qml));
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        finishQuickSource(qw, qml);
+        qw->setProperty("lyraQmlFile", QVariant());
+        qWarning("[startup] dock '%s' QML %s done",
+                 qPrintable(name), qPrintable(qml));
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    };
+
+    // Visible front-panel docks first so the window paints something
+    // before chip-summoned (hidden) panels build their scene graphs.
+    for (const QString &name : dockQmlOrder_) {
+        if (!isChipSummonedPanel(name)) loadDock(name);
+    }
+    for (const QString &name : dockQmlOrder_) {
+        if (isChipSummonedPanel(name)) loadDock(name);
+    }
+    qWarning("[startup] docks ready");
+    docksReadyEmitted_ = true;
+    emit docksReady();
+}
+
+void MainWindow::showEvent(QShowEvent *event) {
+    QMainWindow::showEvent(event);
+    if (quickSourcesPending_)
+        QTimer::singleShot(0, this, &MainWindow::loadDeferredQuickSources);
+    // 1 Hz GUI-thread heartbeat in lyra-log.txt.  If the UI freezes,
+    // copy the log while it is stuck: last `[hb] gui` is when the
+    // event loop last ran; later lines from other threads still flush.
+    static bool hbArmed = false;
+    if (!hbArmed) {
+        hbArmed = true;
+        auto *hb = new QTimer(this);
+        hb->setInterval(1000);
+        connect(hb, &QTimer::timeout, this, [] {
+            qWarning("[hb] gui");
+        });
+        hb->start();
+    }
 }
 
 void MainWindow::captureRecorderSnapshot() {
@@ -1318,6 +1413,7 @@ QDockWidget *MainWindow::addQuickDock(const QString &objectName,
     dock->setObjectName(objectName);   // load-bearing for saveState/restoreState
     dock->setAllowedAreas(Qt::AllDockWidgetAreas);
     dock->setFeatures(kUnlockedFeatures);
+    dockQmlOrder_.append(objectName);
     QWidget *content = makeQuick(qmlFile);
     if (resizable) {
         // Wrap the QML surface so a clearly-visible custom resize handle sits
@@ -1460,6 +1556,7 @@ QWidget *MainWindow::makeDockTitleBar(QDockWidget *dock,
 }
 
 void MainWindow::buildDocks() {
+    qWarning("[startup] building docks");
     // Panadapter — Vulkan scene-graph spectrum (top by default).
     addQuickDock(QStringLiteral("panadapter"), tr("Panadapter"),
                  QStringLiteral("PanadapterPanel.qml"),
@@ -1488,6 +1585,14 @@ void MainWindow::buildDocks() {
     addQuickDock(QStringLiteral("tx"), tr("TX"),
                  QStringLiteral("TxPanel.qml"),
                  QStringLiteral("tx"), Qt::BottomDockWidgetArea);
+    addQuickDock(QStringLiteral("ps"), tr("PureSignal"),
+                 QStringLiteral("PsPanel.qml"),
+                 QStringLiteral("ps"), Qt::BottomDockWidgetArea,
+                 /*resizable=*/true);
+    addQuickDock(QStringLiteral("ampview"), tr("Amp View"),
+                 QStringLiteral("AmpViewPanel.qml"),
+                 QStringLiteral("ampview"), Qt::BottomDockWidgetArea,
+                 /*resizable=*/true);
     // TX Speech (#88) — Noise Gate + Auto-AGC + De-esser, the pre-EQ mic
     // rack stage.  Its OWN dock so it moves / resizes / floats / collapses
     // like every Lyra panel; drag it onto the TX EQ dock to tab the two into
@@ -1601,7 +1706,7 @@ void MainWindow::buildDocks() {
     // remembers what's open + where.  restoreLayout() below overrides this
     // with the operator's saved arrangement when one exists.
     for (const char *nm : {"txspeech", "txeq", "txcombinator", "txplate",
-                           "rxeq"}) {
+                           "rxeq", "ps", "ampview"}) {
         if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
             d->setFloating(true);
             d->hide();
@@ -1680,6 +1785,9 @@ void MainWindow::buildMenus() {
     // View — one show/hide toggle per dock + Lock panels.
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
     for (auto it = docks_.cbegin(); it != docks_.cend(); ++it) {
+        // Amp View is a header chip only — not a View-menu item.
+        if (it.key() == QLatin1String("ampview"))
+            continue;
         viewMenu->addAction(it.value()->toggleViewAction());
     }
     viewMenu->addSeparator();
@@ -1762,72 +1870,38 @@ void MainWindow::buildMenus() {
         box.setWindowTitle(tr("About Lyra"));
         box.setTextFormat(Qt::RichText);
         box.setIcon(QMessageBox::Information);
-        box.setText(
-            tr("<h2 style='margin-bottom:2px'>Lyra "
-               "<span style='color:#00e5ff'>v%1</span></h2>"
-               "<p style='color:#8a9aac;margin-top:0'>"
-               "HPSDR transceivers — native C++23 / Qt 6 rebuild</p>"
-               "<p>A desktop SDR transceiver for HPSDR radios — the "
-               "Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 "
-               "(Protocol 2) — rebuilt in native C++ (Qt Quick + "
-               "Vulkan/RHI) — no Python, no GIL anywhere.</p>"
-               "<p style='color:#8a9aac'><i>Named for Apollo's lyre and "
-               "the constellation Lyra — home of Vega. (See the User "
-               "Guide for the full story.)</i></p>"
-               "<p>Author: <b>Rick Langford (N8SDR)</b><br>"
-               "With <b>Brent Crier (N9BC)</b> and "
-               "<b>Timmy Davis (KC8TYK)</b><br>"
-               "Development assistance: <b>Cursor Grok 4.6</b> "
-               "(SpaceXAI / Cursor)<br>"
-               "Repository: <a href='https://github.com/N8SDR1/Lyra-SDR-cpp'>"
-               "github.com/N8SDR1/Lyra-SDR-cpp</a><br>"
-               "License: <b>GPL v3 or later</b></p>"
-               "<p>Lyra is <b>free</b> and ad-free, built by a fellow ham "
-               "for the community. If it's useful to you, consider buying "
-               "the developer a coffee — 73 de N8SDR. ☕</p>"
-               "<hr style='border-color:#1a2632'>"
-               "<p style='color:#8a9aac;font-size:11px'>"
-               "<b>Inspiration and references</b> — these projects were "
-               "studied for conventions, ballistics, and protocol "
-               "structure while building Lyra.  No source code was "
-               "copied; each was a reference for \"how the standard "
-               "idiom works.\":<br>"
-               "Thetis SDR (openHPSDR) · PowerSDR · HermesLite 2 wiki "
-               "and ak4951v4 gateware · pihpsdr · Quisk · linHPSDR · "
-               "EESDR V3 · Behringer X-Air mixer series · SparkSDR.<br>"
-               "Full credits and reference notes: see the "
-               "<i>Credits and References</i> section in the User Guide.</p>"
-               "<p style='color:#8a9aac;font-size:11px'>"
-               "<b>Licensed components (GPL v3+)</b><br>"
-               "• DSP engine: <b>WDSP</b> by Warren Pratt (NR0V).  Lyra "
-               "links to the WDSP shared library and calls its public "
-               "API; no source modifications.<br>"
-               "• RX CW decoder: faithful source port of <b>fldigi</b>'s "
-               "CW receive chain by Dave Freese (W1HKJ), with adaptive "
-               "speed tracking by Lawrence Glaister (VE7IT).<br>"
-               "• TCI server protocol — Expert Electronics public "
-               "specification (EESDR).  Lyra implements a TCI server "
-               "compatible with the v1.9 / v2.0 spec."
-               "</p>"
-               "<hr style='border-color:#1a2632'>"
-               "<p style='color:#8a9aac;font-size:11px'>"
-               "<b>Disclaimer — use at your own risk.</b>  Lyra is provided "
-               "<b>“as is”</b>, with <b>no warranty</b> of any kind, express "
-               "or implied (see the GPL v3+ for the full terms).  It "
-               "controls a radio transmitter and drives external equipment; "
-               "<b>you, the licensed operator, are solely responsible</b> "
-               "for legal, correct, and safe operation — including staying "
-               "within your licence privileges, band and power limits, and "
-               "RF-exposure rules, and for protecting your amplifier, "
-               "antenna, and other gear.  The authors accept "
-               "<b>no liability</b> for any damage, interference, injury, "
-               "loss, or violation arising from the use, misuse, "
-               "misconfiguration, or malfunction of this software or any "
-               "equipment connected to it.  Amplifier-protection features "
-               "(watts cap, SWR fold, TX timeout, etc.) are aids, "
-               "<b>not guarantees</b> — always verify with a dummy load and "
-               "your own instruments before trusting them on the air."
-               "</p>").arg(ver));
+        const QString starName = QLatin1String(LYRA_VERSION_NAME);
+        // Raw string: MSVC /Zc:preprocessor + Qt tr() will not parse a
+        // multi-line HTML tr() that also has a second % placeholder.
+        const QString aboutHtml = QString::fromUtf8(R"HTML(
+<h2 style='margin-bottom:2px'>Lyra <span style='color:#00e5ff'>v%1</span></h2>
+<p style='color:#e8c477;margin:0;letter-spacing:2px;text-transform:uppercase;font-size:13px'>%2</p>
+<p style='color:#8a9aac;margin-top:8px'>HPSDR transceivers — native C++23 / Qt 6 rebuild</p>
+<p>A desktop SDR transceiver for HPSDR radios — the Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 (Protocol 2) — rebuilt in native C++ (Qt Quick + Vulkan/RHI) — no Python, no GIL anywhere.</p>
+<p style='color:#8a9aac'><i>Named for Apollo's lyre and the constellation Lyra — home of Vega. (See the User Guide for the full story.)</i></p>
+<p>Author: <b>Rick Langford (N8SDR)</b><br>
+With <b>Brent Crier (N9BC)</b> and <b>Timmy Davis (KC8TYK)</b><br>
+Development assistance: <b>Cursor Grok 4.6</b> (SpaceXAI / Cursor)<br>
+Repository: <a href='https://github.com/N8SDR1/Lyra-SDR-cpp'>github.com/N8SDR1/Lyra-SDR-cpp</a><br>
+License: <b>GPL v3 or later</b></p>
+<p>Lyra is <b>free</b> and ad-free, built by a fellow ham for the community. If it's useful to you, consider buying the developer a coffee — 73 de N8SDR. ☕</p>
+<hr style='border-color:#1a2632'>
+<p style='color:#8a9aac;font-size:11px'>
+<b>Inspiration and references</b> — these projects were studied for conventions, ballistics, and protocol structure while building Lyra.  No source code was copied; each was a reference for "how the standard idiom works.":<br>
+Thetis SDR (openHPSDR) · PowerSDR · HermesLite 2 wiki and ak4951v4 gateware · pihpsdr · Quisk · linHPSDR · EESDR V3 · Behringer X-Air mixer series · SparkSDR.<br>
+Full credits and reference notes: see the <i>Credits and References</i> section in the User Guide.</p>
+<p style='color:#8a9aac;font-size:11px'>
+<b>Licensed components (GPL v3+)</b><br>
+• DSP engine: <b>WDSP</b> by Warren Pratt (NR0V).  Lyra links to the WDSP shared library and calls its public API; no source modifications.<br>
+• RX CW decoder: faithful source port of <b>fldigi</b>'s CW receive chain by Dave Freese (W1HKJ), with adaptive speed tracking by Lawrence Glaister (VE7IT).<br>
+• TCI server protocol — Expert Electronics public specification (EESDR).  Lyra implements a TCI server compatible with the v1.9 / v2.0 spec.
+</p>
+<hr style='border-color:#1a2632'>
+<p style='color:#8a9aac;font-size:11px'>
+<b>Disclaimer — use at your own risk.</b>  Lyra is provided <b>“as is”</b>, with <b>no warranty</b> of any kind, express or implied (see the GPL v3+ for the full terms).  It controls a radio transmitter and drives external equipment; <b>you, the licensed operator, are solely responsible</b> for legal, correct, and safe operation — including staying within your licence privileges, band and power limits, and RF-exposure rules, and for protecting your amplifier, antenna, and other gear.  The authors accept <b>no liability</b> for any damage, interference, injury, loss, or violation arising from the use, misuse, misconfiguration, or malfunction of this software or any equipment connected to it.  Amplifier-protection features (watts cap, SWR fold, TX timeout, etc.) are aids, <b>not guarantees</b> — always verify with a dummy load and your own instruments before trusting them on the air.
+</p>
+)HTML").arg(ver).arg(starName);
+        box.setText(aboutHtml);
         QPushButton *donate =
             box.addButton(tr("☕ Donate via PayPal"), QMessageBox::ActionRole);
         box.addButton(QMessageBox::Close);
@@ -2215,6 +2289,7 @@ void MainWindow::buildToolbar() {
                                                 QStringLiteral("rxeq") });
             dspRack_ = dr.first; dspRackChip_ = dr.second;
         }
+        tb->addSeparator();
         // #201 Session recorder — ONE always-visible header chip between RX DSP
         // and Options.  Idle: a "Recorder" launcher chip (click pops the panel
         // out / hides it, same idiom as the DSP chips).  While recording: it
@@ -2263,8 +2338,9 @@ void MainWindow::buildToolbar() {
         auto *optsLabel = new QLabel(tr("Options:"), tb);
         optsLabel->setContentsMargins(8, 0, 4, 0);
         optsLabel->setToolTip(tr("Operating tools — center-tune lock (CTUN), the "
-                                 "Tuner memory, the CW console / decoder, and the "
-                                 "waterfall callsign ID (WF-ID)."));
+                                 "Tuner memory, the CW console / decoder, "
+                                 "waterfall callsign ID (WF-ID), PureSignal, "
+                                 "and Amp View."));
         tb->addWidget(optsLabel);
         // CTUN (#174) — Center-tune lock.  NOT a dock; a state toggle on the
         // stream (lock the panadapter/DDC centre, tune the VFO within the
@@ -2509,6 +2585,23 @@ void MainWindow::buildToolbar() {
             connect(prefs_, &Prefs::bandPlanRegionChanged, wfid, onPlanChanged);
             connect(prefs_, &Prefs::bandPlanCountryChanged, wfid, onPlanChanged);
         }
+        // PureSignal + Amp View sit at the end of Options (not TX DSP).
+        // Stay individual chips even when Options is grouped — they are
+        // not rack members.
+        auto addOptDockChip = [&](const char *nm, const QString &label) {
+            if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
+                QAction *act = d->toggleViewAction();
+                act->setText(label);
+                tb->addAction(act);
+                if (auto *btn = qobject_cast<QToolButton *>(
+                        tb->widgetForAction(act))) {
+                    btn->setObjectName(QStringLiteral("txDspChip"));
+                    btn->setStyleSheet(QString::fromLatin1(kTxDspChipQss));
+                }
+            }
+        };
+        addOptDockChip("ps", tr("PureSignal"));
+        addOptDockChip("ampview", tr("Amp View"));
     }
 
     // #94 External TX Inhibit — prominent always-visible indicator.  Hidden
@@ -2773,17 +2866,34 @@ void MainWindow::onStartStop() {
         st->close();
         return;
     }
-    // Stopped → connect.  Prefer the remembered radio (probe-verified by
-    // beginConnect, NOT opened blind); if none / not there, scan.
+    // Stopped → connect.  Prefer the ACTIVE rig's lastIp (family-matched).
+    // lastRadio is discovery's most recent reply — with Brick2 powered it
+    // is often the Brick, which then got opened as P1 and locked the HL2.
     QString ip;
-    if (auto *disc = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_))
-        ip = disc->savedRadio().value(QStringLiteral("ip")).toString();
+    const auto rp = lyra::rig::registry::rig(
+        lyra::rig::registry::activeRigId());
+    if (!rp.lastIp.isEmpty())
+        ip = rp.lastIp;
+    if (auto *disc = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_)) {
+        if (ip.isEmpty()) {
+            const auto saved = disc->savedRadio();
+            const QString sip =
+                saved.value(QStringLiteral("ip")).toString();
+            const int proto =
+                saved.value(QStringLiteral("protocol"), 1).toInt();
+            const int want =
+                lyra::rig::capabilitiesFor(rp.family).protocol;
+            if (!sip.isEmpty() && (want == 0 || proto == want))
+                ip = sip;
+        }
+    }
     beginConnect(ip);
 }
 
 void MainWindow::beginConnect(const QString &preferIp) {
     auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-    if (!st || st->isRunning()) return;
+    if (!st || st->isRunning() || connectInFlight_) return;
+    connectInFlight_ = true;
     // Arm the "radio never answered" watchdog for this attempt. It's cancelled
     // by updateConnState() the moment either wire path reports running, or by
     // a manual Stop; on timeout it tells the operator the radio wasn't found
@@ -2816,12 +2926,47 @@ void MainWindow::beginConnect(const QString &preferIp) {
             lyra::rig::registry::activeRigId());
         const bool isP2 =
             lyra::rig::capabilitiesFor(rp.family).protocol == 2;
-        if (rp.isValid() && isP2 && !rp.lastIp.isEmpty()) {
-            if (connStatus_)
-                connStatus_->setText(tr("Opening %1…").arg(
-                    rp.label.isEmpty() ? rp.lastIp : rp.label));
-            p2Bridge_->open(rp.lastIp, rp.mac);
-            return;
+        // A P1 open used to stamp radio/lastIp onto whichever rig was
+        // *active* — including a Brick/Saturn profile. Next Start then
+        // sent Protocol 2 at the HL2 (operator: "trying to use the HL2
+        // as a p2 unit"). Never P2-open an address last seen as P1/HL2.
+        bool ipIsP1 = (rp.family == lyra::rig::RadioFamily::Hl2);
+        if (auto *d = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_)) {
+            const auto saved = d->savedRadio();
+            const QString sip = saved.value(QStringLiteral("ip")).toString();
+            const int proto =
+                saved.value(QStringLiteral("protocol"), 1).toInt();
+            const QString board =
+                saved.value(QStringLiteral("boardName")).toString();
+            if (!sip.isEmpty() && sip == rp.lastIp &&
+                (proto == 1 ||
+                 board.contains(QLatin1String("HermesLite"),
+                                Qt::CaseInsensitive))) {
+                ipIsP1 = true;
+                qWarning("[wire] lastRadio %s is P1/HL2 — not opening as P2",
+                         qPrintable(sip));
+            }
+        }
+        if (rp.isValid() && isP2 && !rp.lastIp.isEmpty() && !ipIsP1) {
+            auto *d = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_);
+            const int prefHint = protocolHintForIp(d, preferIp);
+            if (!preferIp.isEmpty() && prefHint == 1) {
+                qWarning("[wire] active rig is P2 but Start IP %s is P1 — "
+                         "not opening Brick as P2",
+                         qPrintable(preferIp));
+            } else {
+                const QString target =
+                    (!preferIp.isEmpty() && prefHint == 2)
+                        ? preferIp : rp.lastIp;
+                if (connStatus_)
+                    connStatus_->setText(tr("Opening %1…").arg(
+                        rp.label.isEmpty() ? target : rp.label));
+                qWarning("[wire] Protocol 2 open %s (%s)",
+                         qPrintable(target), qPrintable(rp.label));
+                p2Bridge_->open(target, rp.mac);
+                connectInFlight_ = false;
+                return;
+            }
         }
     }
     // Leaving Disconnected — show the connect attempt in amber (not the
@@ -2829,41 +2974,22 @@ void MainWindow::beginConnect(const QString &preferIp) {
     if (connStatus_)
         connStatus_->setStyleSheet(
             QStringLiteral("QLabel{color:#f0c040;font-weight:bold;}"));
-    auto *disc = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_);
-    if (!disc) {
-        // No discovery service — best effort: open the saved IP directly.
-        if (!preferIp.isEmpty()) {
-            if (connStatus_) connStatus_->setText(tr("Connecting to %1…").arg(preferIp));
-            st->open(preferIp);
-        } else if (connStatus_) {
-            connStatus_->setText(tr("No saved radio"));
-            disarmConnWatchdog();  // nothing was attempted — no "not found" popup
-        }
+    // Thetis-style: the chosen radio is an IP, not a LAN sweep.
+    // DeskHPSDR mixed P1+P2 discovery on GUI sockets (probe/scan at Start)
+    // is what started the Brick-on / HL2-Start freeze-crash. Scan stays
+    // on Settings → Hardware → Scan only; after that, Start opens the
+    // saved HL2 address and does not keep discovering.
+    QObject::disconnect(probeConn_);
+    if (preferIp.isEmpty()) {
+        if (connStatus_) connStatus_->setText(tr("No saved radio — Scan in Settings"));
+        disarmConnWatchdog();
+        connectInFlight_ = false;
         return;
     }
-    if (preferIp.isEmpty()) { scanAndOpenFirst(); return; }
-    // Probe the remembered IP first (fast unicast, ~1 s).  Open it only on
-    // a reply; on no reply the radio isn't there (DHCP lease changed, moved
-    // subnets, powered off) → scan and self-heal to its real address instead
-    // of opening a dead IP and sitting frozen on "Connecting…".
-    if (connStatus_) connStatus_->setText(tr("Locating %1…").arg(preferIp));
-    QObject::disconnect(probeConn_);
-    probeConn_ = connect(
-        disc, &lyra::ipc::HL2Discovery::probeFinished, this,
-        [this, st, preferIp](bool found, const QString &ip) {
-            if (ip != preferIp) return;           // a different probe
-            QObject::disconnect(probeConn_);
-            if (st->isRunning()) return;          // raced with another open
-            if (found) {
-                if (connStatus_) connStatus_->setText(tr("Connecting to %1…").arg(preferIp));
-                st->open(preferIp);
-            } else {
-                if (connStatus_)
-                    connStatus_->setText(tr("Saved radio not at %1 — scanning…").arg(preferIp));
-                scanAndOpenFirst();
-            }
-        });
-    disc->probe(preferIp, 1.5);
+    if (connStatus_)
+        connStatus_->setText(tr("Connecting to %1…").arg(preferIp));
+    st->open(preferIp);
+    connectInFlight_ = false;
 }
 
 void MainWindow::scanAndOpenFirst() {
@@ -2892,6 +3018,9 @@ void MainWindow::scanAndOpenFirst() {
             // — leave the one-shot armed so a subsequent P1 reply in the
             // same sweep still auto-connects.
             if (protocol != 1) return;
+            if (lyra::rig::registry::familyForBoardName(board) !=
+                lyra::rig::RadioFamily::Hl2)
+                return;
             QObject::disconnect(scanConn_);
             QObject::disconnect(scanDoneConn_);
             *opened = true;
@@ -2916,7 +3045,7 @@ void MainWindow::scanAndOpenFirst() {
                 connStatus_->setText(tr("No radio found"));
             }
         });
-    disc->scan(1.5, 2);
+    disc->scan(1.5, 2, 1);
 }
 
 void MainWindow::armConnWatchdog() {

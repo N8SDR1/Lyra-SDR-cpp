@@ -1269,6 +1269,12 @@ double MeterModel::rxSMeterDbm() const {
     return calibratedSMeterDbm(raw);
 }
 
+double MeterModel::rxSMeterDbmRx2() const {
+    const double raw = wdsp_ ? wdsp_->sMeterDbmRx2() : -200.0;
+    if (raw <= -190.0) return -140.0;
+    return calibratedSMeterDbm(raw);
+}
+
 void MeterModel::computePwr() {
     // PWR — forward TX power in watts.  Reads HL2Stream::fwdPowerCalW
     // (raw ADC → W formula x the operator's per-band trim, so it already

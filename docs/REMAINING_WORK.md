@@ -4,19 +4,24 @@
 > have since shipped (VOX, voice keyer, CW TX, BrickSDR2 Protocol 2 RX+TX,
 > 2-tone, per-band PA including 11m). For the live operator picture use
 > [Feature Status](wiki/Feature-Status.md), [Roadmap](wiki/Roadmap.md), and
-> [KNOWN_ISSUES.md](../KNOWN_ISSUES.md). Tree version is **v0.24.2**.
+> [KNOWN_ISSUES.md](../KNOWN_ISSUES.md). Tree version is **v0.25.0 Sheliak**.
 >
-> **Still actually open (2026-09):** SPLIT pile-up polish (SUB/RX2 is live
-> on BrickSDR2) · PureSignal · VAC2 ·
-> Linux / macOS · ANAN family as first-class P2 radios · other P1 boards
-> that need a tester.
+> **Still actually open (2026-09):** Linux / macOS · ANAN family as
+> first-class P2 radios (7000/8000 locked) · other P1 boards that need a
+> tester. **PureSignal** is live on HL2 coupler-mod and BrickSDR2
+> (dummy-load first). SUB / RX2 + SPLIT are live on HL2 Protocol 1 and
+> BrickSDR2; N2ADR follows RX1 — cross-band SUB is weaker. VAC1 + VAC2
+> cables are live — VAC2 enable/gains/latency store in TX profiles
+> (schema 6).
 
 What's still open as of **v0.7.0** (2026-06-29). The list keeps shrinking —
 the big TX bring-up, the native DSP rack, CW transmit + decoder, Profiles,
 VAC, the panadapter/tuning UI, Spots, the Tuner memory, and the FM transmit
-refinements are all **shipped and on-air-confirmed**. What's left is mostly
-two large arcs (RX2/Split and PureSignal) plus a handful of smaller TX and
-CW follow-ons.
+refinements are all **shipped and on-air-confirmed**. **RX2 / SUB + SPLIT**
+later shipped on HL2 Protocol 1 and BrickSDR2 (same ADC; N2ADR follows RX1).
+What's left from this snapshot is mostly **platform / ANAN family** plus
+smaller TX and CW follow-ons. The #96–#101 list below is historical.
+**PureSignal** later shipped (HL2 coupler + Brick ADC0).
 
 ---
 
@@ -32,10 +37,8 @@ CW follow-ons.
   - Persistence + per-band RX2 freq memory + TCI channel-1 dispatch.
   - Extend RIT/XIT to RX2 (was RX1-only when shipped).
 
-- **PureSignal** (the last big TX-port pillar) — predistortion/calibration:
-  - Prerequisite: TX analyzer port to reference parity (#140 / Stage E.1).
-  - Then the PS calibration + auto-attenuator + coefficient persistence
-    arc (Stage G/H).
+- **PureSignal** — **SHIPPED** (HL2 coupler + Brick ADC0; User Guide).
+  Historical remaining-work notes below kept for archaeology.
 
 ---
 
@@ -70,8 +73,11 @@ CW follow-ons.
 
 ## Audio / routing
 
-- **VAC2** (#103) — second-channel host-audio bridge (e.g. a logger on a
-  device independent of the digital-mode app).
+- **VAC2 profile fields** (#103 V2-4) — **shipped**: `vac2Enabled` /
+  autoDigital / gains / latency / buffer size ride in operator profiles
+  (schema v6). Devices stay Settings-global. Pre-v6 profiles load VAC2
+  off. Remaining VAC2: V2-5 Brent/Timmy enable/disable crash-surface
+  re-bench on both cables.
 
 ## Platform
 

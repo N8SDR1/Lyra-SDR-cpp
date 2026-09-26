@@ -28,12 +28,12 @@ operator-bench-confirmed. `main` == `tx-rebuild` == HEAD `e957f00`
   server claim TX-audio ownership and pull from an empty TCI ring →
   memset 0. `applyTxAudioSource` (main.cpp:644) keeps exactly one of
   {codec mic, tci, vac} armed.
-- **Profile carries the VAC source (DONE).** `vac1Enabled /
-  vac1AutoDigital / vac1RxGainDb / vac1TxGainDb` added to `Profile`
-  (struct + JSON + sameValues + capture/apply); applied BEFORE
-  `setMicSource` so the engine is live when `use_vac_audio` arms. Devices
-  stay GLOBAL station setup. A digital/VAC profile now flips source+enable
-  as a unit; a TCI profile keeps tci.
+- **Profile carries VAC1 + VAC2 (DONE).** Schema 6 stores
+  `vac1Enabled/vac1AutoDigital/vac1RxGainDb/vac1TxGainDb` plus the VAC1
+  latency/size keys, and the matching `vac2*` set. Applied BEFORE
+  `setMicSource` so `micpc` / `micpc2` have a live inbound callback.
+  Devices stay GLOBAL station setup. Pre-v6 profiles omit `vac2*` and
+  keep VAC2 off.
 - **Auto-start-on-launch** Hardware opt-out (default ON) — gates the
   launch auto-connect. Confirmed working.
 - **Docs/help updated** (USER_GUIDE.md): new "Digital modes over VAC"

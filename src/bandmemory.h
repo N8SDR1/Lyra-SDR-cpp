@@ -34,20 +34,32 @@ public:
     // the Band panel buttons use this to return you to where you were.
     Q_INVOKABLE int freqFor(const QString &band) const;
 
+    // Last SUB (RX2) frequency on <band>, or 0 if SUB has never parked there.
+    // Independent of RX1 memory so dual-watch can keep two last-freqs.
+    Q_INVOKABLE int freqForRx2(const QString &band) const;
+
+    // Restore SUB demod for <band> (saved modeRx2, else the band default).
+    // Does NOT touch RX1 mode, LNA, TX drive, or panadapter ranges.
+    Q_INVOKABLE void applyRx2Band(const QString &band);
+
     // Band string for a frequency (Hz): "" / "40m" / "bc_49m" / "cb_11m".
     // Pure static helper — shared (e.g. SpotHole band-param derivation).
     static QString bandNameFor(int hz);
 
 private:
     void onFreqChanged();          // band-edge crossing → restore new band
+    void onRx2FreqChanged();       // remember SUB last-freq; no RX1 restore
     void saveCurrent();            // live-save the current band on a change
+    void saveRx2Mode();            // live-save SUB mode on the current RX2 band
     void applyBand(const QString &band);
     static QString defaultModeFor(const QString &band);   // band-table default mode
 
     Prefs                *prefs_  = nullptr;
     lyra::ipc::HL2Stream *stream_ = nullptr;
     QString               currentBand_;     // "" = none/out-of-band
+    QString               currentBandRx2_;  // SUB's band; independent of RX1
     bool                  applying_ = false; // guard: don't re-save during restore
+    bool                  applyingRx2_ = false;
 };
 
 } // namespace lyra::ui

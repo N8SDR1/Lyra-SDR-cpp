@@ -10,9 +10,17 @@ Quick answers to common questions and fixes. For full detail see the
 
 **What hardware does Lyra support?**
 Hermes Lite 2 and 2+ over HPSDR Protocol 1, and **BrickSDR2** over Protocol 2.
-BrickSDR2 has **SUB / RX2** (second DDC). PureSignal and ANAN family radios
-are still on the roadmap. Dual RX on Hermes Lite 2 Protocol 1 is not this
-release.
+Hermes Lite 2 / 2+ and BrickSDR2 both have **SUB / RX2** (second DDC on
+the same ADC) and **SPLIT** (TX on VFO B, independent of SUB). Colours:
+orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2; **◀ RX2** /
+**RX2 ▶** when SUB is off-span. N2ADR / filter board follows **RX1** —
+cross-band SUB is much weaker. **ANAN-10 / 10E / 100 / 100B / 100D /
+200D** and **G2 / G2-1K** have Protocol 2 profiles; TX is dummy-load until
+that box is on-air validated. Discovery **Hermes** still defaults to
+BrickSDR2 — pick the marketed ANAN model in Settings → Hardware. If an
+older ANAN still answers as Protocol 1, flash P2 firmware when the
+hardware allows — leftover P1 rows are refused (not an HL2). 7000DLE /
+8000 stay locked.
 
 **Is it free? What's the license?**
 Yes — GPL v3+ (compatible with the WDSP DSP engine it uses). See
@@ -53,6 +61,23 @@ you elevate: close leftover `lyra.exe` in Task Manager (or reboot), then start
 normally. Current builds also start if a leftover instance's ping fails
 instead of blocking forever. "Run as administrator" is not the intended way
 to start Lyra.
+
+**Lyra does nothing after an update (no window).**
+From **v0.24.3**, a crash during GPU startup steps down OpenGL → software
+and **turns off 4× MSAA** on that path (4× samples + software hung some
+Intel UHD PCs). From **v0.24.4**, QML docks load **after** the window is
+shown (one panel at a time) so a software/Intel hang at `building docks`
+has a chance to finish. From **v0.24.5**, if you already picked **Vulkan /
+Direct3D / OpenGL** in Settings, that pin is **kept** — a leftover
+incomplete-start latch from an older installer no longer forces software
+over a working GPU. Try:
+1. Start again — the second/third launch is the recovery ladder (only when
+   the backend is still Auto).
+2. If it still never appears: `lyra.exe --safe` from a command prompt
+   (software graphics, no auto-connect).
+3. Then **Settings → Visuals → Graphics backend** — pick Vulkan, OpenGL, or
+   Direct3D, Apply, restart. **Leave safe mode** if the banner is up.
+   You do **not** need Revo or a registry wipe.
 
 **Settings lists my Brick as Hermes / firmware v0.**
 A Brick2 that still reports the Hermes board ID is labelled **Brick** when
@@ -95,7 +120,8 @@ Use a **Virtual Audio Cable** (VAC) as the PC output, or **TCI**. See
 **[User Guide → Digital modes](User-Guide#digital-modes--getting-rx-audio-to-another-program)**.
 **Enable VAC1** starts the engine and RX→PC. Transmit from the cable also
 needs **Settings → TX → Mic source = PC Soundcard (VAC1)** (or **Use VAC1
-as TX source**) plus a VAC **Input** device. **TCI** as mic source is
+as TX source**) plus a VAC **Input** device. **VAC2** is the same pattern
+for RX2 (enable **SUB** so VAC2 has audio). **TCI** as mic source is
 exclusive — Lyra will not also arm VAC TX. If **Auto-enable for digital**
 is on, switch to **DIGU / DIGL**; USB turns that auto path off.
 
@@ -115,13 +141,33 @@ Yes (current versions). Sending CW from the console **or** a paddle/key
 flips the meter to forward power and reds the VFO on‑air. The panadapter
 stays on RX during CW so you still see the keyed carrier.
 
+**No band voltage on IO-board J3 / Xiegu GP100 (M0AWS wiring).**
+There are **two analog paths**. **J3** is gateware **Band Volts** on the
+fan PWM pin (DeskHPSDR *HL2 Band Volts / Dither Bit*, MI0BOT Thetis
+*HL2 Band Volts*). Tick **HL2 Band Volts on J3**, gateware **≥72p5**,
+**Stop then Start**. The **N2ADR / IO board** box is OC → Pico PWM, usually
+**J4 pin 8**, not J3. M0AWS DB9 BAND often follows the Pico analog, so
+enable the N2ADR box and confirm the jumper is the pin your amp actually
+reads. From **v0.24.3** a persisted J3 tick is pushed on every Open
+(previously it could stay off the wire until you flipped the box).
+
 **I'm running an amplifier — anything to set first?**
 Yes — configure **TR‑sequencing** and the **RF‑delay / ATT‑on‑TX**
 protections before keying into an amp. Per-band **PA Gain / Full Output (W)**
 and the optional **watts cap** live on **Settings → PA Gain** (including a
 dedicated **11m** slot). Read
 **[User Guide → external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**
-and **[Settings → PA Gain](User-Guide#settings--pa-gain)**.
+and **[Settings → PA Gain](User-Guide#settings--pa-gain)**. **USB-BCD**
+(Settings → Hardware) drives Yaesu-style band codes to the amp; verify
+the code on each band at low power before full power.
+
+**PureSignal FB stays 0 / never goes green.**
+You need the **coupler mod** (HL2) or Brick feedback path, **attestation**
+ticked (Settings → TX), and **enough RF** — often **more than 2–3 W** on
+a bare HL2 (try ~5–8 W / high drive into a dummy). Arm the **PureSignal**
+dock, then key **2-tone**. FB **teal** = too low, **green** = 129–181,
+**red** = too hot. SUB pauses while MOX+PS is live. See
+**[User Guide → PureSignal](User-Guide#puresignal)**.
 
 **JTDX won't connect over TCI (but MSHV does).**
 Fixed in current versions (the TCI audio handshake now echoes the ack JTDX
@@ -145,6 +191,50 @@ Settings export/import writes a single profile file you can copy. See
 **First launch is stuck "optimizing".**
 That's the one‑time FFT plan‑cache build — let it finish (a few minutes).
 It only happens once (or after **Clear &amp; rebuild**).
+
+---
+
+## Dual receive (SUB / RX2) — HL2 and BrickSDR2
+
+**How do I turn on the second receiver?**
+Press **SUB** on the Tuning panel (it lights **green**). There is **no**
+“enable RX2” checkbox under **Settings → Network**. TCI clients use
+`rx_enable:1` (or the SUB button). Setting an RX2 frequency does **not**
+auto-enable SUB.
+
+**SUB vs SPLIT — which is which?**
+**SUB** is a second *receiver* (its own frequency, mode, ear). **SPLIT**
+moves *transmit* to VFO B. They are independent — both, one, or neither.
+FM **RPT** still replaces SPLIT in FM.
+
+**What do the colours mean?**
+**Orange TUNE A** + **cyan** passband = RX1. **Lime TUNE B** + **green**
+passband / carrier = RX2. Band chips: **red** glow = RX1’s band, **green**
+glow = SUB’s band. Lime **TX** line (red while keyed) is **SPLIT**, not
+RX2. Full map: **[User Guide → Second receiver](User-Guide#second-receiver-sub--rx2--how-it-works)**.
+
+**What are ◀ RX2 and RX2 ▶?**
+Chips on the **left** or **right** edge of the panadapter when SUB is on
+but RX2 is **off the current span**. **Click** to swap VFOs so the
+waterfall (always RX1 IQ) shows that parked frequency; RX2 keeps the band
+you left. **◀ TX** / **TX ▶** are the same idea for SPLIT TX — don’t mix
+them up.
+
+**How do I hop SUB to another band without moving VFO A?**
+**Shift+click** or **right-click** a Ham / BC / 11m chip. Plain **click**
+stays the focused VFO (usually A). GEN / TIME / Mem stay RX1-only.
+
+**Can TCI / SDRLogger+ drive RX2?**
+Yes. `vfo:1,0` / `dds:1` = SUB frequency; `vfo:0,1` = SPLIT VFO B (does
+**not** turn SUB on). Calibrated S-meter: `rx_channel_sensors` **0,0** =
+RX1, **1,0** = RX2 (quiet floor ~−140 dBm if SUB is off). Combo auto-RST
+still uses **RX1** only — see **[SDRLogger+ Combo](SDRLogger-Plus-Combo)**.
+
+**Hermes Lite 2 second receiver?**
+Same **SUB** button as BrickSDR2 (Protocol 1 DDC1). One ADC + N2ADR
+filter follows RX1 — same-band SUB is full strength; another ham band
+on RX2 is much weaker. Status log warns once when the amateur bands
+differ.
 
 ---
 

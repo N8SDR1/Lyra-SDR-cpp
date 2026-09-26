@@ -65,8 +65,10 @@ Status legend used below:
 |---|---|---|
 | Hermes Lite 2 (HL2) | HPSDR Protocol 1 | 🟢 PORT — primary target |
 | Hermes Lite 2 Plus (HL2+) | HPSDR Protocol 1 | 🟢 PORT — operator's daily-driver |
-| Apache Labs ANAN-G2 / G2-1K / 7000DLE / 8000 | HPSDR Protocol 2 | 🟡 LOCKED — v0.4 in old Lyra; structurally additive |
-| Apache Labs ANAN-100 / 200 / 8000 (older) | HPSDR Protocol 1 (nddc=5) | 🟡 LOCKED — sibling to HL2 P1 path |
+| Apache Labs ANAN-G2 / G2-1K | HPSDR Protocol 2 | 🟡 P2 profile live; TX dummy-load arm (not on-air validated) |
+| Apache Labs ANAN-10 / 10E / 100 / 100B / 100D / 200D | HPSDR Protocol 2 | 🟡 Classic Alex HPF (deskHPSDR edges); TX dummy-load arm; pick marketed model in Settings |
+| Apache Labs ANAN-7000DLE / 8000 | HPSDR Protocol 2 | 🟡 LOCKED — OrionMkII BPF / PA not in this pass |
+| Apache Labs ANAN still on Protocol 1 FPGA | HPSDR Protocol 1 | 🟡 LOCKED — refuse HL2 TX path; use P2 firmware if the box can (most capable 10/100/200-class units already have) |
 | **Brick SDR** | HPSDR Protocol 2 (ANAN-class, pending Timmy confirm) | 🟡 LOCKED |
 
 **Operator answer 2026-05-20:** Brick is **ANAN-class** — Timmy
@@ -86,8 +88,9 @@ links WDSP directly into the C++ binary.
 🟢 USB, LSB, AM, FM, CWU, CWL, DSB, SAM, DIGU, DIGL, DRM, SPEC
 
 ### 2.2 Dual RX
-🟢 True dual receiver — RX1 (DDC0) + RX2 (DDC2) independent freq /
-   mode / filter / AGC / NR / etc.
+🟢 True dual receiver — RX1 (DDC0) + RX2 (DDC1 / host ch 2) independent
+   freq / mode / filter / AGC / NR / etc. Same-ADC radios (HL2 P1,
+   BrickSDR2 P2): analog filter follows RX1; cross-band SUB is weaker.
 🟢 Stereo-split audio routing — RX1 hard-left, RX2 hard-right by
    default; balance + per-RX volume + per-RX mute always visible.
 🟢 SUB toggle = primary RX2 enable.
@@ -229,13 +232,11 @@ because you locked it.
 🟡 Per-band TX BW memory.
 
 ### 3.7 PureSignal — IMD pre-distortion linearizer
-🟡 v0.3 scope from old Lyra — port WDSP calcc.c + iqc.c + xbuilder
-   + delay.c.
-🟡 New PSDialog UI modeled on Thetis PSForm.cs.
-🟡 Auto-attenuator state machine (HL2-specific bounds: -28 to +31 dB).
-🟡 Coefficient persistence per band.
-🟡 Operator self-attestation checkbox: "I have the PureSignal
-   hardware mod installed" (HL2 only — ANAN G2 has it stock).
+🟢 Live on HL2 / HL2+ (coupler mod) and BrickSDR2 (ADC0 feedback).
+🟢 Compact PureSignal dock + Amp View (GetPSDisp, Snap / Hold).
+🟢 Auto-att FSM; persist last pad across PTT; FB window 129–181.
+🟢 Operator self-attestation (Settings → TX, default OFF).
+🟢 Dummy-load bring-up; kill-test before antenna.
 
 ### 3.8 PTT / MOX state machine
 🟢 Single-state FSM with sources: SW_MOX, HW_PTT, TUN, CW_KEY, VOX,
@@ -385,7 +386,9 @@ All operator-adjustable in Settings → TX.
    wheel-tune.
 
 ### 5.6 Tuning panel
-🟢 SUB / SPLIT / OFF tri-state mode button (old §15.6, NOT built).
+🟢 Independent **SUB** (HL2 P1 and BrickSDR2 RX2, same ADC) and **SPLIT** (TX on VFO B) —
+   not a tri-state cycle. Gray TX pips, right-click SPLIT per-mode
+   1/5/10 kHz shift, TUNE A/B pan tooltip, middle-click focus swap.
 🟡 RIT toggle + ±9999 Hz offset, 1 Hz click / 10 Hz Shift+click /
    right-click typed entry, ±9999 Hz range. Persists across
    sessions, RX1 only (per-RX deferred). Already shipped in v0.1.1.
@@ -439,8 +442,10 @@ All operator-adjustable in Settings → TX.
 
 ### 7.1 TCI server (Transceiver Control Interface)
 🟢 TCI server advertising `channel_count:2` (RX1 + RX2).
-🟢 `DDS:1` / `VFO:0,1` / `IF:0,1` / `MODULATION:1` route to RX2.
-🟢 Outbound: rx2_freq + mode_changed_rx2 broadcasts as ch1 updates.
+🟢 `vfo:0,1` = SPLIT VFO B; `vfo:1,0` / `dds:1` = RX2 SUB;
+   `rx_enable:1` = SUB (do not auto-enable SUB on RX2 freq set).
+🟢 `rx_channel_sensors:0,0` RX1 S-meter; `:1,0` RX2 (floor if SUB off).
+🟢 Outbound: RX2 freq / mode as channel 1 updates.
 🟢 PTT via TCI (CAT_TCI source on FSM).
 🟢 Spot routing in (SDRLogger+, cluster, RBN, Skimmer).
 🟢 spot_activated outbound.

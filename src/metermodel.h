@@ -308,6 +308,10 @@ public:
     // strength).  Sentinel-safe: returns an S0-region floor when the stream
     // is not running (RXA_S_PK ≈ −200).
     double  rxSMeterDbm() const;
+    // Calibrated RX2 S-meter dBm — same formula as rxSMeterDbm() on
+    // WDSP RX2 RXA_S_PK.  TCI rx_channel_sensors:1,0.  S0-floor when
+    // SUB is off / RX2 DSP not running.
+    double  rxSMeterDbmRx2() const;
 
     // Numeric in-passband SNR (dB) — the SAME value the on-screen SNR readout
     // shows (dispDbm_ − noiseFloorDbm_, floored at 0). Shared over TCI as
@@ -472,8 +476,8 @@ private:
     double normForDbm(double dbm) const;
     // SINGLE source of truth for the RX S-meter calibration:
     // raw RXA_S_PK dBm + operator calDb trim − current LNA gain.  Called by
-    // BOTH computeSMeter() (the on-screen meter) and rxSMeterDbm() (the TCI
-    // export) so the face and the wire can never disagree.
+    // BOTH computeSMeter() (the on-screen meter) and rxSMeterDbm() /
+    // rxSMeterDbmRx2() (TCI export) so the face and the wire can never disagree.
     double calibratedSMeterDbm(double raw) const;
     void   updateScale();              // pick HF/VHF endpoints from the VFO freq
     QString sLabel(double dbm) const;  // standard HF dBm→S-unit table

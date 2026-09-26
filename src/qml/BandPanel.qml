@@ -11,7 +11,7 @@
 // Active-band highlight is set IMPERATIVELY on the rx1FreqChanged signal
 // (Bands.indexForFreq / broadcastIndexForFreq) — never a per-button
 // reactive read of Stream.rx1FreqHz (that proved unreliable here).  Each
-// chip's look derives from `chipActive`, so exactly one lights per row.
+// chip's look derives from `chipActive` (RX1, red) and `chipSub` (SUB, green).
 
 import QtQuick
 import QtQuick.Controls
@@ -31,10 +31,50 @@ Rectangle {
     property int activeBand: -1     // amateur band index containing RX1, or -1
     property int activeBc: -1       // broadcast band index, or -1
     property int activeCb: -1       // CB band index, or -1
+    property int activeBandRx2: -1  // amateur band containing SUB, or -1
+    property int activeBcRx2: -1
+    property int activeCbRx2: -1
     function refreshActive() {
         root.activeBand = Bands.indexForFreq(Stream.rx1FreqHz)
         root.activeBc   = Bands.broadcastIndexForFreq(Stream.rx1FreqHz)
         root.activeCb   = Bands.cbIndexForFreq(Stream.rx1FreqHz)
+        var rx2 = Stream.rx2FreqHz
+        root.activeBandRx2 = Bands.indexForFreq(rx2)
+        root.activeBcRx2   = Bands.broadcastIndexForFreq(rx2)
+        root.activeCbRx2   = Bands.cbIndexForFreq(rx2)
+    }
+
+    // Ham / BC / CB chips: click = focused RX (A, or SUB if TUNE B);
+    // Shift+click or right-click = SUB (turns SUB on, keeps A focus).
+    function tuneRx1(key, defaultHz) {
+        Gen.deactivate()
+        var f = BandMemory.freqFor(key)
+        Stream.setRx1FreqHz(f > 0 ? f : defaultHz)
+    }
+    function tuneSub(key, defaultHz) {
+        var f = BandMemory.freqForRx2(key)
+        Stream.setRx2FreqHz(f > 0 ? f : defaultHz)
+        Stream.setSubEnabled(true)
+        BandMemory.applyRx2Band(key)
+    }
+    function tuneVfoB(key, defaultHz) {
+        var f = BandMemory.freqFor(key)
+        Stream.setVfoBHz(f > 0 ? f : defaultHz)
+    }
+    function goBand(key, defaultHz, forceSub) {
+        if (forceSub) {
+            tuneSub(key, defaultHz)
+            return
+        }
+        if (Stream.focusedRx === 2 && Stream.subEnabled) {
+            tuneSub(key, defaultHz)
+            return
+        }
+        if (Stream.focusedRx === 2 && Stream.splitEnabled) {
+            tuneVfoB(key, defaultHz)
+            return
+        }
+        tuneRx1(key, defaultHz)
     }
     // Live memory-preset list for the Mem recall menu (kept current).
     property var memList: []
@@ -44,6 +84,8 @@ Rectangle {
     Connections {
         target: Stream
         function onRx1FreqChanged() { root.refreshActive() }
+        function onRx2FreqChanged() { root.refreshActive() }
+        function onSubEnabledChanged() { root.refreshActive() }
     }
     Connections {
         target: Memory
@@ -55,6 +97,7 @@ Rectangle {
     component ChipButton : Button {
         id: cb
         property bool chipActive: false
+        property bool chipSub: false     // SUB parked on this band (green)
         property color activeFill:   "#260808"
         property color activeBorder: "#ff3344"
         property color activeText:   "#ffcc88"
@@ -65,10 +108,13 @@ Rectangle {
         background: Rectangle {
             radius: 4
             color: cb.chipActive ? cb.activeFill
-                   : (cb.down ? "#1d2b38" : "#b416202a")
-            border.width: cb.chipActive ? 2 : 1
-            border.color: cb.chipActive ? cb.activeBorder
-                          : (cb.hovered ? "#8fdcff" : "#5ec8ff")
+                   : (cb.chipSub ? "#082610"
+                      : (cb.down ? "#1d2b38" : "#b416202a"))
+            border.width: (cb.chipActive || cb.chipSub) ? 2 : 1
+            border.color: cb.chipActive
+                          ? (cb.chipSub ? "#34c759" : cb.activeBorder)
+                          : (cb.chipSub ? "#34c759"
+                             : (cb.hovered ? "#8fdcff" : "#5ec8ff"))
         }
         contentItem: Text {
             text: cb.text
@@ -76,7 +122,8 @@ Rectangle {
             verticalAlignment: Text.AlignVCenter
             font.pixelSize: 13
             font.bold: true
-            color: cb.chipActive ? cb.activeText : "#5ec8ff"
+            color: cb.chipActive ? cb.activeText
+                   : (cb.chipSub ? "#88ffcc" : "#5ec8ff")
             // Without this the band label paints outside its shrinking chip and
             // the whole row smears together at narrow widths.
             elide: Text.ElideRight
@@ -108,12 +155,32 @@ Rectangle {
                     required property int index
                     text: modelData.name
                     chipActive: index === root.activeBand
-                    // Return to this band's last freq (per-band memory),
-                    // else its default; and leave any active GEN slot.
-                    onClicked: {
-                        Gen.deactivate()
-                        var f = BandMemory.freqFor(modelData.name)
-                        Stream.setRx1FreqHz(f > 0 ? f : modelData.hz)
+                    chipSub: Stream.subEnabled && index === root.activeBandRx2
+                    ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                    ToolTip.text: qsTr("Click: VFO A (or SUB if TUNE B)\n"
+                                     + "Shift+click / right-click: SUB")
+                    onClicked: root.goBand(modelData.name, modelData.hz, false)
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onPressed: (mouse) => {
+                            mouse.accepted = (mouse.button === Qt.RightButton)
+                                    || (mouse.modifiers & Qt.ShiftModifier)
+                        }
+                        onClicked: (mouse) => {
+                            if (mouse.button === Qt.RightButton)
+                                hamSubMenu.popup()
+                            else
+                                root.goBand(modelData.name, modelData.hz, true)
+                        }
+                        Menu {
+                            id: hamSubMenu
+                            MenuItem {
+                                text: qsTr("Tune SUB to %1").arg(modelData.name)
+                                onTriggered: root.goBand(modelData.name,
+                                                         modelData.hz, true)
+                            }
+                        }
                     }
                 }
             }
@@ -138,10 +205,34 @@ Rectangle {
                     visible: Prefs.cbBandEnabled
                     text: modelData.name
                     chipActive: index === root.activeCb
-                    onClicked: {
-                        Gen.deactivate()
-                        var f = BandMemory.freqFor("cb_" + modelData.name)
-                        Stream.setRx1FreqHz(f > 0 ? f : modelData.hz)
+                    chipSub: Stream.subEnabled && index === root.activeCbRx2
+                    ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                    ToolTip.text: qsTr("Click: VFO A (or SUB if TUNE B)\n"
+                                     + "Shift+click / right-click: SUB")
+                    onClicked: root.goBand("cb_" + modelData.name,
+                                           modelData.hz, false)
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onPressed: (mouse) => {
+                            mouse.accepted = (mouse.button === Qt.RightButton)
+                                    || (mouse.modifiers & Qt.ShiftModifier)
+                        }
+                        onClicked: (mouse) => {
+                            if (mouse.button === Qt.RightButton)
+                                cbSubMenu.popup()
+                            else
+                                root.goBand("cb_" + modelData.name,
+                                            modelData.hz, true)
+                        }
+                        Menu {
+                            id: cbSubMenu
+                            MenuItem {
+                                text: qsTr("Tune SUB to %1").arg(modelData.name)
+                                onTriggered: root.goBand("cb_" + modelData.name,
+                                                         modelData.hz, true)
+                            }
+                        }
                     }
                 }
             }
@@ -159,12 +250,34 @@ Rectangle {
                     required property int index
                     text: modelData.name
                     chipActive: index === root.activeBc
-                    // BC bands now recall last freq (per-band memory),
-                    // else the band default; mode follows via BandMemory.
-                    onClicked: {
-                        Gen.deactivate()
-                        var f = BandMemory.freqFor("bc_" + modelData.name)
-                        Stream.setRx1FreqHz(f > 0 ? f : modelData.hz)
+                    chipSub: Stream.subEnabled && index === root.activeBcRx2
+                    ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                    ToolTip.text: qsTr("Click: VFO A (or SUB if TUNE B)\n"
+                                     + "Shift+click / right-click: SUB")
+                    onClicked: root.goBand("bc_" + modelData.name,
+                                           modelData.hz, false)
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onPressed: (mouse) => {
+                            mouse.accepted = (mouse.button === Qt.RightButton)
+                                    || (mouse.modifiers & Qt.ShiftModifier)
+                        }
+                        onClicked: (mouse) => {
+                            if (mouse.button === Qt.RightButton)
+                                bcSubMenu.popup()
+                            else
+                                root.goBand("bc_" + modelData.name,
+                                            modelData.hz, true)
+                        }
+                        Menu {
+                            id: bcSubMenu
+                            MenuItem {
+                                text: qsTr("Tune SUB to %1").arg(modelData.name)
+                                onTriggered: root.goBand("bc_" + modelData.name,
+                                                         modelData.hz, true)
+                            }
+                        }
                     }
                 }
             }
