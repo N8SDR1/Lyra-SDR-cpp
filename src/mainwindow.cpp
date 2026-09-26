@@ -1870,6 +1870,7 @@ void MainWindow::buildMenus() {
         box.setWindowTitle(tr("About Lyra"));
         box.setTextFormat(Qt::RichText);
         box.setIcon(QMessageBox::Information);
+        const QString starName = QLatin1String(LYRA_VERSION_NAME);
         box.setText(
             tr("<h2 style='margin-bottom:2px'>Lyra "
                "<span style='color:#00e5ff'>v%1</span></h2>"
@@ -1937,7 +1938,7 @@ void MainWindow::buildMenus() {
                "(watts cap, SWR fold, TX timeout, etc.) are aids, "
                "<b>not guarantees</b> — always verify with a dummy load and "
                "your own instruments before trusting them on the air."
-               "</p>").arg(ver, QStringLiteral(LYRA_VERSION_NAME));
+               "</p>").arg(ver).arg(starName);
         QPushButton *donate =
             box.addButton(tr("☕ Donate via PayPal"), QMessageBox::ActionRole);
         box.addButton(QMessageBox::Close);
