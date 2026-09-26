@@ -353,6 +353,7 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         0.05, 1.0));
     connect(psFsm_.get(), &lyra::ps::PsFsm::telemetryChanged, this, [this]() {
         emit psFeedbackLevelChanged(psFeedbackLevel());
+        emit psAutoAttDbChanged(psAutoAttDb());
         emit psFsmStateChanged(psFsmState());
         emit psCorrectingChanged(psCorrecting());
         emit psCalCountChanged(psCalCount());
@@ -364,6 +365,7 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         emit psGetPkChanged(psGetPk());
         emit psAmpPlotHeldChanged(psAmpPlotHeld());
         emit psAmpPlotChanged();
+        emit psInfoChanged();
     });
     // #91 — VOX state.  All persisted; VOX itself is default-OFF (no
     // surprise auto-keying on a fresh launch).  Params clamped to the
@@ -2832,6 +2834,13 @@ void HL2Stream::setTxStepAttnDb(int db) {
     if (lyra::wire::prn != nullptr) lyra::wire::set_tx_step_attn_db(clamped);
 }
 
+void HL2Stream::bindPsAttnWriter(std::function<void(int)> fn,
+                                 int minDb, int maxDb, int moxSeed) {
+    if (!psFsm_) return;
+    psFsm_->setAttnRange(minDb, maxDb, moxSeed);
+    psFsm_->setAttnWriter(std::move(fn));
+}
+
 void HL2Stream::setPaEnabled(bool on) {
     // Lands C2 bit 3 (0x08) of slot 10 (frame 0x12) — gateware
     // PA-enable, active-high.  Operator-gated via the Settings checkbox
@@ -3161,8 +3170,16 @@ QVariantList HL2Stream::psAmpCorrY() const {
     return psFsm_ ? psFsm_->ampCorrY() : QVariantList{};
 }
 
+QVariantList HL2Stream::psInfo() const {
+    return psFsm_ ? psFsm_->info() : QVariantList{};
+}
+
 int HL2Stream::psFeedbackLevel() const {
     return psFsm_ ? psFsm_->feedbackLevel() : 0;
+}
+
+int HL2Stream::psAutoAttDb() const {
+    return psFsm_ ? psFsm_->autoAttDb() : 0;
 }
 
 int HL2Stream::psFsmState() const {
@@ -3193,8 +3210,10 @@ void HL2Stream::refreshPsWire() {
     using namespace lyra::ps;
     const bool liveArmed = psAttestation_ && psArmed_;
     const bool mox = lyra::wire::XmitBit != 0;
-    const auto r = ddc_map(mox, liveArmed, subEnabled_.load(),
-                           lyra::rig::RadioFamily::Hl2);
+    const auto fam = p2DrivePath_.load(std::memory_order_relaxed)
+                         ? lyra::rig::RadioFamily::BrickP2
+                         : lyra::rig::RadioFamily::Hl2;
+    const auto r = ddc_map(mox, liveArmed, subEnabled_.load(), fam);
     if (lyra::wire::prn)
         lyra::wire::prn->puresignal_run = r.puresignalRun ? 1 : 0;
     lyra::wire::P1_adc_cntrl = r.adcCntrl1;

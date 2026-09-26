@@ -17,6 +17,9 @@ public:
     explicit PsFsm(QObject *parent = nullptr);
 
     void setAttnWriter(std::function<void(int)> fn);
+    // HL2 TX step-att: min -28 max 31, MOX seed 31 (ATT-on-TX floor).
+    // Brick/Hermes P2 ADC0: min 0 max 31, MOX seed 0 (coupler not muted).
+    void setAttnRange(int minDb, int maxDb, int moxSeed);
     void setFeedbackRateHz(int hz);
 
     void setArmed(bool on);
@@ -27,6 +30,7 @@ public:
     void setPlotHeld(bool on);
     bool plotHeld() const { return plotHeld_; }
 
+    int  autoAttDb() const { return lastAttDb_; }
     int  feedbackLevel() const { return feedbackLevel_; }
     int  fsmState() const { return fsmState_; }
     bool correcting() const { return correcting_; }
@@ -41,6 +45,7 @@ public:
     const QVariantList &ampMagY() const { return ampMagY_; }
     const QVariantList &ampCorrX() const { return ampCorrX_; }
     const QVariantList &ampCorrY() const { return ampCorrY_; }
+    QVariantList info() const;
 
 signals:
     void telemetryChanged();
@@ -53,6 +58,9 @@ private:
 
     QTimer timer_;
     std::function<void(int)> attnWriter_;
+    int  attMinDb_ = -28;
+    int  attMaxDb_ = 31;
+    int  moxSeedAttDb_ = 31;
     int  feedbackRateHz_ = 192000;
     bool armed_ = false;
     bool mox_ = false;
@@ -61,6 +69,8 @@ private:
     int  calCount_ = 0;
     bool correcting_ = false;
     int  lastAttDb_ = 0;
+    int  prevCalCount_ = -1;
+    int  info_[16] = {};
     int  ddc0Dbfs_ = -999;
     int  ddc1Dbfs_ = -999;
     int  feedSpr_ = 0;

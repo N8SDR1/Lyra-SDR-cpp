@@ -232,13 +232,11 @@ because you locked it.
 🟡 Per-band TX BW memory.
 
 ### 3.7 PureSignal — IMD pre-distortion linearizer
-🟡 v0.3 scope from old Lyra — port WDSP calcc.c + iqc.c + xbuilder
-   + delay.c.
-🟡 New PSDialog UI modeled on Thetis PSForm.cs.
-🟡 Auto-attenuator state machine (HL2-specific bounds: -28 to +31 dB).
-🟡 Coefficient persistence per band.
-🟡 Operator self-attestation checkbox: "I have the PureSignal
-   hardware mod installed" (HL2 only — ANAN G2 has it stock).
+🟢 Live on HL2 / HL2+ (coupler mod) and BrickSDR2 (ADC0 feedback).
+🟢 Compact PureSignal dock + Amp View (GetPSDisp, Snap / Hold).
+🟢 Auto-att FSM; persist last pad across PTT; FB window 129–181.
+🟢 Operator self-attestation (Settings → TX, default OFF).
+🟢 Dummy-load bring-up; kill-test before antenna.
 
 ### 3.8 PTT / MOX state machine
 🟢 Single-state FSM with sources: SW_MOX, HW_PTT, TUN, CW_KEY, VOX,

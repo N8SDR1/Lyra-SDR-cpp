@@ -20,12 +20,16 @@ lime **TX** marker (red on key). TCI: `channel_count:2`; `vfo:0,1` is
 SPLIT VFO B; `vfo:1,0` / `dds:1` is SUB. Logger Combo RST still uses
 **RX1**.
 
-### 🗺️ PureSignal — adaptive predistortion
+### ✅ PureSignal — adaptive predistortion
 
-Real-time linearization of the transmit signal using the radio's feedback path,
-for a cleaner, stronger signal with less IMD. Requires the HL2 PureSignal
-hardware mod. (A **2-tone test generator** ships alongside it as the tune-up
-companion.)
+Live on **HL2 / HL2+** (coupler hardware mod) and **BrickSDR2** (Protocol-2
+feedback / ADC0 pad). Compact **PureSignal** dock plus **Amp View** plot
+(Snap / Hold). Feedback glance chip (teal below 129, green 129–181, red
+above). Auto-att **persists across PTT** so SSB does not re-hunt every
+keyup. Attestation in **Settings → TX** (default off). **Dummy load
+first**; do a kill-test before antenna. Keep a kilowatt linear out until
+PS is settled. **2-tone** on the TX panel is the usual tune-up carrier.
+Operator detail: **[User Guide → PureSignal](User-Guide#puresignal)**.
 
 ### ✅ Protocol 2 on BrickSDR2 · 🚧 Classic ANAN P2 dummy-load · 🗺️ 7000/8000
 
@@ -51,7 +55,7 @@ these are real roadmap items, not "maybe someday."
   auto-digital, gains, and latency store in TX profiles (schema 6). Audio
   device names stay global.
 - ✅ **2-tone test generator** — on the TX panel (linearity / dummy-load
-  tune-up); PureSignal still uses it as a companion when PS lands
+  tune-up); PureSignal uses it as the usual tune-up carrier
 - 🗺️ Per-profile independent RX/TX filter lows
 - 🗺️ Continued polish across the DSP, UI, and metering as testers report back
 
@@ -65,7 +69,8 @@ features above and may change shape or timing.
 Run a radio at one location from a Lyra somewhere else, over the internet — a
 purpose-built **Lyra-to-Lyra** link that carries the DSP, compressed audio, and
 spectrum, with the operating position's controls driving the remote radio. This
-is an early idea, not a dated feature: it sits **behind PureSignal**,
+is an early idea, not a dated feature: it sits **behind** the remaining
+platform work (Linux / macOS, 7000/8000),
 and would only ship with **mandatory authentication, encryption,
 and fail-safe transmit** — a dropped or degraded link must never leave the
 transmitter keyed.

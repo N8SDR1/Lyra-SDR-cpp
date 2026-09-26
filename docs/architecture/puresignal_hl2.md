@@ -23,7 +23,7 @@ auto-att + UI.
 | Captured-profile | Bypass Wiener apply on `(mox && ps_armed)` without clearing the operator `applyEnabled_` flag. |
 | sip1 | TX panadapter (`TXASetSipDisplay`). **Not** the calcc feed. |
 | Host `SetTXAiqc*` | **Do not call.** DeskHPSDR never does; WDSP 2.0 dropped the public iqc wrappers. `pscc` drives the engine. |
-| Auto-att writer | **Only** `HL2Stream::setTxStepAttnDb` / `set_tx_step_attn_db`. Recal when `FeedbackLevel > 181` **or** `(FeedbackLevel <= 128 && cur_att > -28)`. Delta `round(20·log10(FB/152.293))`. Range −28…+31. |
+| Auto-att writer | **HL2:** `setTxStepAttnDb` (−28…+31). **Brick/Hermes P2:** ADC0 coupler pad (0…31). Last pad **persists across PTT** (Thetis `ATTOnTX` / DeskHPSDR `ps_tx_att`). Seed is first bind only, not every MOX. Recal only when `info[5]` (cal attempts) **changes** and FB is outside 129–181. Delta `round(20·log10(FB/152.293))`; FB>256 uses a coarse +10/+15 step. Target ~152. FB is coupler ADC counts, not watts. |
 
 `ddc_map(mox, ps_armed, rx2, family)` is the state-product helper. Live HL2
 row: `adcCntrl1=4`, `feedPsccFromDdc0Ddc1`, `pauseSub`, `bypassCapturedProfile`.
@@ -51,8 +51,9 @@ run PureSignal on Brick.
 
 - MAC `02:B2` / `02:B3` → `HERMES_MODE_BRICK`, `filter_board = ALEX`
   (`radio.c` ~2824–2829; `HERMES_MODE_BRICK = 2` in `radio.h`).
-- `PS_TX_FEEDBACK = RECEIVERS` (2), `PS_RX_FEEDBACK = RECEIVERS+1` (3) for
-  every radio (`radio.c` ~1789–1791). Restore path calls `tx_ps_onoff`
+- `PS_TX_FEEDBACK = RECEIVERS` (2), `PS_RX_FEEDBACK = RECEIVERS+1` (3) are
+  **host receiver object indices**, not wire DDC numbers. On Hermes/Brick
+  P2, wire feedback is **DDC0 + DDC1**. Restore path calls `tx_ps_onoff`
   (`radio.c` ~1848–1850). `ps_menu.c` has **no** Brick exclusion.
 - P2 Hermes-class (including Brick2): while `xmit && transmitter->puresignal`,
   **DDC0 and DDC1 frequency words lock to the DUC/TX freq**
@@ -69,9 +70,16 @@ run PureSignal on Brick.
 
 **Thetis fallback policy (locked):**
 
-- Brick2: primary = DeskHPSDR as above. Thetis P2 Hermes/ANAN mux is **second**
-  only if a dummy-load capture on *that* Brick shows DeskHPSDR’s Alex/DDC
-  words do not engage the coupler.
+- Brick2: treat as **Hermes-class P2**, never 7000/8000 / Saturn. Testers
+  (Timmy + others, Ramdor/Ritchie Thetis) confirm: Brick2SDR + **rig type
+  HERMES** + PureSignal works. That is the same wire as DeskHPSDR
+  `HERMES_MODE_BRICK` (DDC0+DDC1, receive-specific sync, TX replica on
+  `n_adc`). Do **not** pick ANAN-7000/8000 in that Thetis — that is a
+  different DDC/ADC map.
+- Brick2 host path: DeskHPSDR + that Thetis **HERMES** config are the
+  same class. Thetis P2 **ANAN** mux is **second** only if a dummy-load
+  capture on *that* Brick shows Hermes-class DDC/Alex words do not
+  engage the coupler.
 - Brick3 (catalog ≈ ANAN-100D / Angelia): read DeskHPSDR `NEW_DEVICE_ANGELIA`
   first (still DDC0+DDC1 at TX freq when PS is on). If DeskHPSDR and Thetis
   **disagree** on ADC/coupler mux, **Thetis wins for the mux**; DeskHPSDR
@@ -79,6 +87,20 @@ run PureSignal on Brick.
 - Do **not** invent a Brick-specific coupler register.
 
 P7 implements the DeskHPSDR P2 bits (gated, default off). First RF stays HL2.
+
+**Host `pscc` on Brick (required — RF alone is not enough):** P1 feeds
+`PsCalcThread` from EP6. P2 IQ never hit that path, so the dock showed
+`in=0` / `FB=0` even with more power than an HL2 can make.
+
+Hermes-class live PS TX (Brick dummy 2026-09-26: 7.7 W, DDC0=DDC1=0 pkt/s
+with two independent streams + ADC0 att 31):
+
+- DDC-specific: **enable DDC0 only**, **sync word [1363]=0x02**, DDC0
+  ADC=0 (coupler), DDC1 ADC=`n_adc` (TX replica — do not clamp to 0),
+  both slots 192 kHz.
+- One combined IQ UDP on 1035: even samples = coupler, odd = TX replica.
+- ADC0 att during PS is the live RX/feedback att, **not** ATT-on-TX 31.
+- DDC2/DDC3 unused. DDC1 is not routed to RX2 audio while keyed.
 
 ## Safety
 

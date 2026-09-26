@@ -85,7 +85,8 @@ Lyra runs fine on the **Recommended** spec — the extra CPU/GPU headroom in
 **Maxed+** isn't about *whether* it runs, it's about running *everything at
 once* without the machine breaking a sweat: the full TX speech-processing rack,
 spots, high-refresh spectrum and waterfall on a big screen, and comfortable
-margin for dual receive plus heavier DSP still on the roadmap (PureSignal).
+margin for dual receive plus **PureSignal** (coupler / ADC0 feedback while
+keyed).
 
 ## Two things that matter on any tier
 

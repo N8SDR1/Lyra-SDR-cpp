@@ -84,11 +84,11 @@ gear — all native, all in front of the WDSP transmitter:
 
 <sub>Screens from the [feature tour](https://n8sdr1.github.io/Lyra-SDR-cpp/). Plus plate reverb, voice keyer, VOX, and save/recall TX profiles — see **[Feature Status](Feature-Status)**.</sub>
 
-## On the roadmap
+## Shipped highlights
 
-🗺️ **PureSignal** adaptive predistortion · 🗺️
-**ANAN-7000DLE / 8000** · 🗺️ **Linux, then macOS** ·
-plus a second virtual-audio channel (VAC2).
+✅ **PureSignal** (HL2 coupler mod / Brick ADC0; dummy load first) · ✅
+**VAC2** · ✅ **SUB / SPLIT** (independent) · 🚧 **ANAN-10…200D** P2 dummy-load · 🗺️
+**ANAN-7000DLE / 8000** · 🗺️ **Linux, then macOS**.
 
 Details, ordering, and status on the **[Roadmap](Roadmap)**.
 

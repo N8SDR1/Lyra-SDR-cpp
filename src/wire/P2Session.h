@@ -81,6 +81,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <vector>
 
 namespace lyra::wire {
 
@@ -164,6 +165,14 @@ public:
     void armSubSecondaryDdcs(quint16 rateKhz, quint32 freqHz);
     void disarmSubSecondaryDdcs();
     bool shouldFeedRx2(int ddc);
+    // True while PS is armed and the safety gate authorises transmit.
+    bool isPureSignalLive() const;
+    // DDC0 coupler + DDC1 TX replica → pscc. Session thread only.
+    // RX: separate UDP streams, pair by sample count. Live PS TX: one
+    // DDC0 UDP with even samples = coupler, odd = TX replica.
+    void ingestPsccIq(int ddc, const double *iq, int nComplex);
+    void ingestPsccInterleaved(const double *iq, int nComplex);
+    void clearPsccIq();
     void setDdcAdc(int ddc, int adc);
     quint32 iqFrameCount() const { return iqFrameCount_; }
     quint32 iqSeqErrors()  const { return iqSeqErrors_;  }
@@ -178,6 +187,9 @@ public:
     void setRxInput(P2RxInput input) { rxInput_ = input; }
     void setHpfBypass(bool on) { hpfBypass_ = on; }
     void setAdcAttenuation(int adc, int db);
+    // Live-PS coupler pad on ADC0 (0..31). Independent of RX ATT so
+    // auto-att can walk FB toward ~152 without slamming ATT-on-TX 31.
+    void setPsFeedbackAttn(int db);
     // Same operator ATT-on-TX toggle as the P1 path (Settings → TX).
     // Overlay is applied at packet-build time; the stored RX attenuation
     // is not mutated. Protection is active only while the safety gate
@@ -407,9 +419,14 @@ private:
     P2RxInput    rxInput_      = P2RxInput::Trx;
     bool         hpfBypass_    = false;
     std::array<quint8, 2> adcAttenuation_{};
+    int          psFeedbackAttnDb_ = 0;
     bool         attOnTxEnabled_ = true;
     int          attOnTxDb_      = 31;
     bool         psArmed_{false};
+    // SUB audio from DDC1 — independent of enableDdc(1) for PS replica.
+    bool         subRx2Wanted_{false};
+    std::vector<double> psccRx_;
+    std::vector<double> psccTx_;
     quint32      ddcSpecificSeq_ = 0;             // DDC-specific (receive_specific)
     quint32      spkrSeq_      = 0;               // speaker stream sequence
     QByteArray   spkrStage_;                      // partial-packet staging

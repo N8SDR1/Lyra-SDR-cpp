@@ -320,6 +320,7 @@ class HL2Stream : public QObject {
                NOTIFY psArmedChanged)
     Q_PROPERTY(int psFeedbackLevel READ psFeedbackLevel
                NOTIFY psFeedbackLevelChanged)
+    Q_PROPERTY(int psAutoAttDb READ psAutoAttDb NOTIFY psAutoAttDbChanged)
     Q_PROPERTY(int psFsmState READ psFsmState NOTIFY psFsmStateChanged)
     Q_PROPERTY(bool psCorrecting READ psCorrecting NOTIFY psCorrectingChanged)
     Q_PROPERTY(int psCalCount READ psCalCount NOTIFY psCalCountChanged)
@@ -336,6 +337,7 @@ class HL2Stream : public QObject {
     Q_PROPERTY(QVariantList psAmpMagY READ psAmpMagY NOTIFY psAmpPlotChanged)
     Q_PROPERTY(QVariantList psAmpCorrX READ psAmpCorrX NOTIFY psAmpPlotChanged)
     Q_PROPERTY(QVariantList psAmpCorrY READ psAmpCorrY NOTIFY psAmpPlotChanged)
+    Q_PROPERTY(QVariantList psInfo READ psInfo NOTIFY psInfoChanged)
     // TX-1 component 6 — SSB modulator I/Q injection.  When TRUE
     // *and* the wire MOX bit is high, the EP2 writer pulls 126
     // complex<float> samples per datagram from the registered TX
@@ -959,6 +961,7 @@ public:
     bool    psAttestation() const { return psAttestation_; }
     bool    psArmed() const { return psArmed_; }
     int     psFeedbackLevel() const;
+    int     psAutoAttDb() const;
     int     psFsmState() const;
     bool    psCorrecting() const;
     int     psCalCount() const;
@@ -973,6 +976,7 @@ public:
     QVariantList psAmpMagY() const;
     QVariantList psAmpCorrX() const;
     QVariantList psAmpCorrY() const;
+    QVariantList psInfo() const;
     // TX-1 component 6 — SSB modulator I/Q injection gate (Q_PROPERTY
     // getter).  See the Q_PROPERTY decl above for the full contract.
     bool    injectTxIq() const { return injectTxIq_.load(std::memory_order_relaxed); }
@@ -1214,6 +1218,9 @@ public slots:
     void setCtuneFilterEdges(int lowHz, int highHz);
     void setTxDriveLevel(int level);
     void setTxStepAttnDb(int db);
+    // HL2: TX step-att. Brick/Hermes P2: ADC0 coupler pad (0..31, seed 0).
+    void bindPsAttnWriter(std::function<void(int)> fn,
+                          int minDb, int maxDb, int moxSeed);
     void setPaEnabled(bool on);
     void setMicBoost(bool on);
     void setBandVoltsOutput(bool on);
@@ -1601,6 +1608,7 @@ signals:
     void psAttestationChanged(bool on);
     void psArmedChanged(bool on);
     void psFeedbackLevelChanged(int level);
+    void psAutoAttDbChanged(int db);
     void psFsmStateChanged(int state);
     void psCorrectingChanged(bool on);
     void psCalCountChanged(int n);
@@ -1612,6 +1620,7 @@ signals:
     void psGetPkChanged(double v);
     void psAmpPlotHeldChanged(bool on);
     void psAmpPlotChanged();
+    void psInfoChanged();
     // P4.b TUN display-honesty — the TX-analyzer NCO−dial offset (Hz)
     // changed.  Wired to WdspEngine::setTxAnalyzerOffsetHz so the panadapter
     // crop renders the TUN carrier at its true RF (the dial) rather than

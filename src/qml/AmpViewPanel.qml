@@ -8,7 +8,7 @@ import QtQuick.Layouts
 Rectangle {
     id: root
     implicitWidth: 560
-    implicitHeight: 420
+    implicitHeight: 448
     color: "#101820"
     border.color: "#2a4a5a"
 
@@ -18,6 +18,35 @@ Rectangle {
     readonly property color cText:  "#cdd9e5"
     readonly property color cMuted: "#8a9aac"
     readonly property color cOn:    "#ff9a3c"
+    readonly property color cFbOk:  "#3ecf6a"
+    readonly property color cFbHot: "#e23d3d"
+    readonly property color cFbLow: "#2ec4d4"
+
+    readonly property var info: Stream.psInfo
+
+    function fbZoneColor() {
+        if (!(Stream.moxActive && Stream.psArmed))
+            return root.cMuted
+        var fb = Number(Stream.psFeedbackLevel)
+        if (fb > 181)
+            return root.cFbHot
+        if (fb >= 129)
+            return root.cFbOk
+        return root.cFbLow
+    }
+
+    function psSlot(i) {
+        var a = root.info
+        if (!a || i < 0 || i >= a.length)
+            return 0
+        return Number(a[i])
+    }
+    function hexChk(v) {
+        var n = Number(v)
+        if (!(n >= 0))
+            n = 0
+        return "0x" + n.toString(16)
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -35,6 +64,28 @@ Rectangle {
                 font.pixelSize: 13
             }
 
+            Rectangle {
+                id: fbChip
+                implicitHeight: 22
+                implicitWidth: fbTxt.implicitWidth + 14
+                radius: 4
+                color: "transparent"
+                border.color: root.fbZoneColor()
+                border.width: Stream.moxActive && Stream.psArmed ? 2 : 1
+                HoverHandler { id: fbHover }
+                Label {
+                    id: fbTxt
+                    anchors.centerIn: parent
+                    text: qsTr("FB %1").arg(Stream.psFeedbackLevel)
+                    color: root.fbZoneColor()
+                    font.bold: Stream.moxActive && Stream.psArmed
+                    font.pixelSize: 12
+                }
+                ToolTip.text: qsTr("Coupler FB. Teal below 129 (low), green 129–181, red above 181 (hot).")
+                ToolTip.delay: 800
+                ToolTip.visible: fbHover.hovered && Prefs.tooltipsEnabled
+            }
+
             Label {
                 Layout.fillWidth: true
                 text: {
@@ -44,16 +95,64 @@ Rectangle {
                     var d1s = Stream.psFeedSpr <= 0 ? "n/a"
                               : (Stream.psDdc1Dbfs <= -999 ? "n/a"
                                  : (Stream.psDdc1Dbfs + " dB"))
-                    return qsTr("FB %1  st %2  cal %3  %4    D0 %5  D1 %6")
-                        .arg(Stream.psFeedbackLevel)
+                    return qsTr("ATT %1 dB  st %2  cal %3  %4    D0 %5  D1 %6")
+                        .arg(Stream.psAutoAttDb)
                         .arg(Stream.psFsmState)
                         .arg(Stream.psCalCount)
                         .arg(Stream.psCorrecting ? qsTr("correcting") : qsTr("idle"))
                         .arg(d0s).arg(d1s)
                 }
-                color: Stream.moxActive && Stream.psArmed ? "#d11515" : root.cMuted
+                color: Stream.moxActive && Stream.psArmed ? root.cText : root.cMuted
                 font.pixelSize: 12
                 elide: Text.ElideRight
+            }
+        }
+
+        Flow {
+            Layout.fillWidth: true
+            spacing: 14
+
+            Label {
+                text: "txrx " + root.psSlot(0)
+                color: root.cMuted
+                font.pixelSize: 11
+                font.family: "Consolas"
+            }
+            Label {
+                text: "mag " + root.psSlot(1)
+                color: root.cMuted
+                font.pixelSize: 11
+                font.family: "Consolas"
+            }
+            Label {
+                text: "phc " + root.psSlot(2)
+                color: root.cMuted
+                font.pixelSize: 11
+                font.family: "Consolas"
+            }
+            Label {
+                text: "phs " + root.psSlot(3)
+                color: root.cMuted
+                font.pixelSize: 11
+                font.family: "Consolas"
+            }
+            Label {
+                text: "sln.chk " + root.hexChk(root.psSlot(6))
+                color: root.psSlot(6) !== 0 ? root.cOn : root.cMuted
+                font.pixelSize: 11
+                font.family: "Consolas"
+            }
+            Label {
+                text: "rxs " + root.psSlot(7)
+                color: root.cMuted
+                font.pixelSize: 11
+                font.family: "Consolas"
+            }
+            Label {
+                text: "dg.cnt " + root.psSlot(13)
+                color: root.psSlot(13) !== 0 ? root.cOn : root.cMuted
+                font.pixelSize: 11
+                font.family: "Consolas"
             }
         }
 

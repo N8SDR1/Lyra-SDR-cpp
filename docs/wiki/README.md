@@ -34,6 +34,11 @@ rm -f "$WK"/README.md            # this file is repo-only, not a wiki page
 cd "$WK" && git add -A && git commit -m "Wiki update" && git push
 ```
 
+The public **GitHub Pages landing**
+(<https://n8sdr1.github.io/Lyra-SDR-cpp/>) lives in the
+`gh-pages` branch of `Lyra-SDR-cpp` (not this tree). After a PureSignal
+release, update that site so the feature list matches README / wiki Home.
+
 > GitHub wikis can't be initialized from the API or a first `git push` — the
 > very first page must be created once in the web UI. After that the
 > `…wiki.git` repo is clonable/pushable as above.

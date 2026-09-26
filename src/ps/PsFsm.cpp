@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 namespace lyra::ps {
@@ -25,8 +26,25 @@ PsFsm::PsFsm(QObject *parent) : QObject(parent) {
     connect(&timer_, &QTimer::timeout, this, &PsFsm::onTick);
 }
 
+QVariantList PsFsm::info() const {
+    QVariantList out;
+    out.reserve(16);
+    for (int v : info_)
+        out.append(v);
+    return out;
+}
+
 void PsFsm::setAttnWriter(std::function<void(int)> fn) {
     attnWriter_ = std::move(fn);
+}
+
+void PsFsm::setAttnRange(int minDb, int maxDb, int moxSeed) {
+    if (maxDb < minDb) return;
+    attMinDb_ = minDb;
+    attMaxDb_ = maxDb;
+    moxSeedAttDb_ = std::clamp(moxSeed, minDb, maxDb);
+    lastAttDb_ = moxSeedAttDb_;
+    prevCalCount_ = -1;
 }
 
 void PsFsm::setFeedbackRateHz(int hz) {
@@ -45,8 +63,14 @@ void PsFsm::setArmed(bool on) {
 
 void PsFsm::setMox(bool on) {
     mox_ = on;
-    if (on)
-        lastAttDb_ = 31;  // ATT-on-TX floor; auto-att writes the same actuator
+    if (on) {
+        // Keep last pad (Thetis ATTOnTX / DeskHPSDR band ps_tx_att). Do not
+        // reseed to 0/31 on every PTT — that dumps FB to 300+ then hunts.
+        prevCalCount_ = calCount_;
+        if (attnWriter_)
+            attnWriter_(lastAttDb_);
+        emit telemetryChanged();
+    }
     if (lyra::wire::SetPSMox)
         lyra::wire::SetPSMox(kTxa, on ? 1 : 0);
 }
@@ -100,6 +124,7 @@ void PsFsm::pushDisarm() {
     ddc1Dbfs_ = -999;
     feedSpr_ = 0;
     maxTx_ = 0.0;
+    std::memset(info_, 0, sizeof(info_));
     ampMagX_.clear();
     ampMagY_.clear();
     ampCorrX_.clear();
@@ -114,6 +139,7 @@ void PsFsm::onTick() {
     if (!armed_ || !lyra::wire::GetPSInfo) return;
     int info[16] = {};
     lyra::wire::GetPSInfo(kTxa, info);
+    std::memcpy(info_, info, sizeof(info_));
     feedbackLevel_ = info[4];
     calCount_ = info[5];
     correcting_ = info[14] != 0;
@@ -128,21 +154,33 @@ void PsFsm::onTick() {
     emit telemetryChanged();
 
     if (!mox_ || !attnWriter_) return;
+    // Thetis only steps auto-att when info[5] (cal attempts) changes — not
+    // on every 250 ms FB sample. SSB voice otherwise walks ATT with the
+    // envelope (300 on peaks, ~0 in pauses).
+    if (calCount_ == prevCalCount_) return;
+    prevCalCount_ = calCount_;
     const int fb = feedbackLevel_;
     const bool need =
-        fb > 181 || (fb <= 128 && lastAttDb_ > -28);
+        fb > 181 || (fb <= 128 && lastAttDb_ > attMinDb_);
     if (!need) return;
     int delta = 0;
-    if (fb > 0) {
+    if (fb > 256) {
+        delta = (attMaxDb_ >= 31 && attMinDb_ >= 0) ? 15 : 10;
+    } else if (fb > 0) {
         delta = static_cast<int>(
             std::lround(20.0 * std::log10(static_cast<double>(fb) / 152.293)));
     }
     int next = lastAttDb_ + delta;
-    if (next < -28) next = -28;
-    if (next > 31) next = 31;
+    if (next < attMinDb_) next = attMinDb_;
+    if (next > attMaxDb_) next = attMaxDb_;
     if (next == lastAttDb_) return;
     lastAttDb_ = next;
     attnWriter_(next);
+    if (lyra::wire::SetPSControl) {
+        lyra::wire::SetPSControl(kTxa, 1, 0, 0, 0);
+        lyra::wire::SetPSControl(kTxa, 0, 0, 1, 0);
+    }
+    emit telemetryChanged();
 }
 
 void PsFsm::pollAmpPlot() {

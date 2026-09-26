@@ -20,7 +20,7 @@ public:
     void feed(int spr, const double *rxDdc0, const double *txDdc1);
 
     // Last poll window: peak |z| on DDC0/DDC1 and complex-sample count
-    // into this feed. n==0 means EP6 did not call feed (mux/pscc path idle).
+    // into this feed. n==0 means no host feed (P1 EP6 or P2 IQ pair idle).
     struct FeedDiag {
         float peakDdc0 = 0.f;
         float peakDdc1 = 0.f;

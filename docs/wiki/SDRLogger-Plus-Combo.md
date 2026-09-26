@@ -23,7 +23,8 @@ matches deskHPSDR / Thetis:
 | `rx_channel_sensors` **1,0** | RX2 S-meter (dBm); ~−140 dBm floor if SUB is off |
 
 Setting an RX2 frequency does **not** auto-enable SUB. Combo **RST / SNR stay
-on RX1** until SDRLogger+ is known to consume a second-channel report.
+on RX1** until SDRLogger+ is known to consume a second-channel report
+(that Combo slice is **held**).
 
 > 🌐 **Get SDRLogger+:** [n8sdr1.github.io/SDRLoggerPlus](https://n8sdr1.github.io/SDRLoggerPlus/)
 > · [Download / source](https://github.com/N8SDR1/SDRLoggerPlus)

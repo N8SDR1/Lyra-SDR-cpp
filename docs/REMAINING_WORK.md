@@ -6,19 +6,22 @@
 > [Feature Status](wiki/Feature-Status.md), [Roadmap](wiki/Roadmap.md), and
 > [KNOWN_ISSUES.md](../KNOWN_ISSUES.md). Tree version is **v0.24.5**.
 >
-> **Still actually open (2026-09):** PureSignal · Linux / macOS ·
-> ANAN family as first-class P2 radios · other P1 boards that need a
-> tester. (SUB / RX2 + SPLIT are live on HL2 Protocol 1 and BrickSDR2;
-> N2ADR follows RX1 — cross-band SUB is weaker. VAC1 + VAC2 cables
-> are live — VAC2 enable/gains/latency store in TX profiles (schema 6).)
+> **Still actually open (2026-09):** Linux / macOS · ANAN family as
+> first-class P2 radios (7000/8000 locked) · other P1 boards that need a
+> tester. **PureSignal** is live on HL2 coupler-mod and BrickSDR2
+> (dummy-load first). SUB / RX2 + SPLIT are live on HL2 Protocol 1 and
+> BrickSDR2; N2ADR follows RX1 — cross-band SUB is weaker. VAC1 + VAC2
+> cables are live — VAC2 enable/gains/latency store in TX profiles
+> (schema 6).
 
 What's still open as of **v0.7.0** (2026-06-29). The list keeps shrinking —
 the big TX bring-up, the native DSP rack, CW transmit + decoder, Profiles,
 VAC, the panadapter/tuning UI, Spots, the Tuner memory, and the FM transmit
 refinements are all **shipped and on-air-confirmed**. **RX2 / SUB + SPLIT**
 later shipped on HL2 Protocol 1 and BrickSDR2 (same ADC; N2ADR follows RX1).
-What's left from this snapshot is mostly **PureSignal** plus smaller TX and
-CW follow-ons. The #96–#101 list below is historical.
+What's left from this snapshot is mostly **platform / ANAN family** plus
+smaller TX and CW follow-ons. The #96–#101 list below is historical.
+**PureSignal** later shipped (HL2 coupler + Brick ADC0).
 
 ---
 
@@ -34,10 +37,8 @@ CW follow-ons. The #96–#101 list below is historical.
   - Persistence + per-band RX2 freq memory + TCI channel-1 dispatch.
   - Extend RIT/XIT to RX2 (was RX1-only when shipped).
 
-- **PureSignal** (the last big TX-port pillar) — predistortion/calibration:
-  - Prerequisite: TX analyzer port to reference parity (#140 / Stage E.1).
-  - Then the PS calibration + auto-attenuator + coefficient persistence
-    arc (Stage G/H).
+- **PureSignal** — **SHIPPED** (HL2 coupler + Brick ADC0; User Guide).
+  Historical remaining-work notes below kept for archaeology.
 
 ---
 

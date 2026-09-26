@@ -44,6 +44,9 @@ not programmers — if you can click a menu, you can use this.
 - [Display panel](#display-panel)
 - [Meter panel](#meter-panel)
 - [TX panel](#tx-panel)
+- [Waterfall ID (TX callsign courtesy ID)](#waterfall-id-tx-callsign-courtesy-id)
+- [PureSignal](#puresignal)
+  - [Amp View](#amp-view)
 - [TX DSP rack (EQ + Speech + Combinator + Plating)](#tx-dsp-rack-eq--speech--combinator--plating)
 - [Voice keyer & recording](#voice-keyer--recording)
 - [Session recorder (RX audio + snapshots + MP4)](#session-recorder-rx-audio--snapshots--mp4)
@@ -342,6 +345,10 @@ rig remembers its own:
 
 You still connect to **one radio at a time**; "rigs" are about keeping each
 radio's configuration in its own drawer so nothing bleeds between them.
+**Start** opens the **active** rig only. If an HL2 and a Brick are both
+on the LAN, pick the rig you want first, then Start — don't try to stream
+two radios in one Lyra window. (A Start crash when two radios were listed
+is fixed in current builds.)
 
 ### The Rig menu
 
@@ -391,8 +398,11 @@ The strip across the top, between the menu bar and the panels:
   (the mic-rack panels — EQ / Speech / Combinator / Plating), **RX DSP:**
   (RX EQ), and **Options:** — **CTUN** (centre-tune lock), **Tuner** (the
   manual-ATU [tuning memory](#tuner-manual-atu-memory)), **CW** / **CW Dec**
-  (the CW console and the RX decoder), and **WF-ID** (arm the waterfall
-  callsign ID). A lit chip means that panel is open, or that toggle is on.
+  (the CW console and the RX decoder), **WF-ID** (arm the waterfall
+  callsign ID), **PureSignal** (the compact PS dock), and **Amp View**
+  (the PS transfer-curve plot). A lit chip means that panel is open, or
+  that toggle is on. **PureSignal** and **Amp View** sit at the **end**
+  of the Options row.
 - **● TCI** — the TCI-server indicator, just after the connection status.
   Green **● TCI: N** when one or more programs (logger, cluster, etc.) are
   connected, showing the client count; amber **● TCI** when the server is
@@ -1772,25 +1782,101 @@ identifying by voice.
 
 ## PureSignal
 
-HL2 / HL2+ with the coupler mod, **dummy load first**. The **PureSignal**
-dock (chip **PS**) and **Settings → TX** attestation checkbox are the
-operator surface.
+PureSignal is **adaptive predistortion**: while you transmit, Lyra
+watches a **coupler sample** of the PA output and trains a correction so
+the on-air signal is cleaner (less IMD). It is **not** a power booster.
 
-- **Attestation** (Settings → TX, default **off**) — check only if this
-  radio has the hardware coupler. Until then the arm switch and the HL2
-  mux (`cntrl1=4`) stay off.
-- **ON** (dock) / **Arm PureSignal** (Settings) — sets `puresignal_run`
-  (frames 11/16 C2 bit 6). The coupler mux runs only while MOX is also
-  on. Dual-RX is paused for that window without changing your saved SUB
-  preference.
-- **2-tone** — reuses the TX dock two-tone generator (keys MOX).
-- **Feedback / correcting / cal** — live `GetPSInfo` readouts.
-- **Reset** — `SetPSControl` restart of the calibrator.
+**Hardware.** Hermes Lite 2 / 2+ needs the **PureSignal coupler mod**
+on that radio. BrickSDR2 uses the radio's Protocol-2 feedback path
+(ADC0 pad). **Do not** turn this on unless that hardware is actually
+installed — without a coupler you get garbage feedback and a worse
+signal.
 
-Auto-att writes the same TX step attenuator as ATT-on-TX. Brick P2
-(`ALEX_PS_BIT`, DDC0+DDC1 lock) is scaffolded and stays off until HL2
-dummy-load PS is proven. See `docs/architecture/puresignal_hl2.md` and
-`docs/architecture/puresignal_hl2_bench.md`.
+**Dummy load first.** Bring PS up into a **dummy load**, not the
+antenna, and **not** a 1 kW linear. You need enough RF for the coupler
+to see (on a bare HL2 that is often **more than 2–3 W** — typically
+closer to **5–8 W** / high drive). Leave the kilowatt amp out until this
+feels boring on the dummy.
+
+**Kill-test (before any antenna).** While keyed with PS armed into the
+dummy, force-kill Lyra (`taskkill /F` on `lyra.exe` / `python` is not
+the app — kill **lyra.exe**). Confirm PA current / wattmeter **drops**
+within a few seconds. That proves the radio will not sit keyed if the
+PC dies.
+
+### Where the controls live
+
+| Surface | What it is |
+|---|---|
+| **Settings → TX** | **Attestation** checkbox (default **off**). Tick only if **this** radio has the coupler. Until then Arm stays inert. |
+| Header **Options → PureSignal** | Opens the compact **PURESIGNAL** dock |
+| Header **Options → Amp View** | Opens the **AMP VIEW** plot (last two chips on the Options row) |
+| TX panel **2-tone** | Two-tone generator that **keys MOX** — the usual PS tune-up carrier |
+
+### Compact PureSignal dock
+
+- **ON / Arm** — arms the calibrator. The coupler path is live only
+  while **MOX is also on**.
+- **SUB** — if Dual-RX was on, Lyra **pauses SUB for the keyed PS
+  window** so DDC0/DDC1 can carry TX + feedback. Your saved SUB
+  preference is **not** flipped off in Settings; SUB comes back when
+  you unkey / disarm.
+- **FB** chip — glance **feedback level** (0–255-class count). Colour
+  while armed **and** keyed:
+  - **Teal** — too low (below 129): raise drive / coupler coupling, or
+    the auto-att is still hunting down.
+  - **Green** — the working window **129–181** (aim near **~152**).
+  - **Red** — too hot (above 181): auto-att should pad down; if it
+    stays red, drop drive.
+  - **Muted** — not armed+keyed (idle).
+- **ATT** chip — the **auto-att pad** Lyra last used (dB). On **HL2**
+  this is the **TX step attenuator** (same writer as ATT-on-TX). On
+  **Brick** this is the **ADC0** receive pad (0–31), **not** the
+  ATT-31 PROT lamp. Lyra **keeps the last pad across PTT** so the next
+  keyup does not re-hunt from zero.
+- **st / cal / correcting / D0 / D1** — engine state, calibration
+  count, “correcting” flag, and the two sample magnitudes (TX vs
+  feedback). **D0/D1 both ~0** with drive up usually means **not
+  enough RF into the coupler**, not a dead UI.
+- **Reset** — restart the calibrator (`SetPSControl`). Use after a
+  stuck state, not as a daily ritual.
+
+Auto-att only **steps** when the engine says a new calibration attempt
+happened **and** FB is outside 129–181. It should **not** slam ATT on
+every keyup.
+
+### Amp View
+
+Same PS engine, bigger picture — modeled on the usual HPSDR AmpView
+plot (live `GetPSDisp` curve).
+
+- The plot **keeps moving** while you transmit (plasma-style trace).
+- **Snap** — captures the peak marker (`GetPk`). It is **not** a
+  retune of SetPk; Lyra's SetPk stays **0.233**. Use Snap to mark
+  where the peaks sat; the plot still runs.
+- **Hold** — **freezes the plot only**. Telemetry chips still update.
+- Extra chips (same GetPSInfo words as the compact dock, plus more):
+  **txrx, mag, phc, phs, sln.chk, rxs, dg.cnt**, plus **FB** (same
+  colour rules) and **ATT**. **sln.chk** / **dg.cnt** go **amber**
+  when non-zero (worth a look, not an automatic panic).
+
+### Typical dummy-load session
+
+1. Settings → TX → tick attestation for **this** radio.
+2. Dummy load, PA on, drive low, then raise until the wattmeter is in
+   the **5–8 W** class on a bare HL2 (Brick often wants similar or a
+   bit more until ADC0 auto-att settles).
+3. Open **PureSignal**, Arm **ON**.
+4. Key **2-tone** (or TUN / MOX + speech). Watch **FB** go teal →
+   green. **ATT** may step a few times, then hold.
+5. Open **Amp View** if you want the curve. Snap / Hold as needed.
+6. Unkey — FB goes idle/muted; **ATT stays** at the last pad.
+7. Next keyup should land **near** the previous FB, not a full hunt.
+8. Kill-test once. Only then think about antenna — still **no**
+   kilowatt linear until you are comfortable.
+
+> **ANAN-7000 / 8000** TX stays locked; do not expect PS there yet.
+> Classic ANAN P2 TX is dummy-load / not on-air validated.
 
 ---
 
@@ -4044,7 +4130,8 @@ With Combo on, four things happen automatically as you work a station:
   on a real signal**, not on the band noise. Turn on the **S-auto**
   control next to the RST-Rcvd field in SDRLogger+; typing a value
   latches it to manual, and working a new call re-arms it. Works on
-  SSB / CW / digital (not SAT). SUB / RX2 is **not** used for Combo RST.
+  SSB / CW / digital (not SAT). SUB / RX2 is **not** used for Combo RST
+  (that slice is **held** — Combo stays on the RX1 meter).
 - **One-click log with `{LOG}`.** Add the **`{LOG}`** action token to a CW
   macro — e.g. `TU 73 {MYCALL} ee {LOG}` — and sending that macro sends
   the sign-off *and* logs the QSO in SDRLogger+ (call, RST, mode and

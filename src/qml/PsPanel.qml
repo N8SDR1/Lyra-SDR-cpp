@@ -21,6 +21,20 @@ Rectangle {
     readonly property color cOn:      "#ff9a3c"
     readonly property color cMox:     "#d11515"
     readonly property color cMoxEdge: "#ff8080"
+    readonly property color cFbOk:    "#3ecf6a"
+    readonly property color cFbHot:   "#e23d3d"
+    readonly property color cFbLow:   "#2ec4d4"
+
+    function fbZoneColor() {
+        if (!(Stream.moxActive && Stream.psArmed))
+            return root.cMuted
+        var fb = Number(Stream.psFeedbackLevel)
+        if (fb > 181)
+            return root.cFbHot
+        if (fb >= 129)
+            return root.cFbOk
+        return root.cFbLow
+    }
 
     RowLayout {
         id: body
@@ -59,7 +73,7 @@ Rectangle {
                 font: onBtn.font
             }
             ToolTip.text: Stream.psAttestation
-                ? qsTr("Arm PureSignal (puresignal_run). Mux cntrl1=4 only while MOX.")
+                ? qsTr("Arm PureSignal. HL2: coupler mux while MOX. Brick: DDC0/DDC1 at TX + Alex PS bit; keyed PS uses one combined IQ stream.")
                 : qsTr("Check Settings → TX: I have the PureSignal hardware coupler.")
             ToolTip.delay: 800
             ToolTip.visible: hovered && Prefs.tooltipsEnabled
@@ -102,6 +116,50 @@ Rectangle {
             ToolTip.visible: hovered && Prefs.tooltipsEnabled
         }
 
+        Rectangle {
+            id: attChip
+            implicitHeight: 26
+            implicitWidth: attTxt.implicitWidth + 16
+            radius: 4
+            color: Stream.moxActive && Stream.psArmed ? "#30200c" : "transparent"
+            border.color: Stream.moxActive && Stream.psArmed ? root.cOn : "#2a3a4a"
+            border.width: Stream.moxActive && Stream.psArmed ? 2 : 1
+            HoverHandler { id: attHover }
+            Label {
+                id: attTxt
+                anchors.centerIn: parent
+                text: qsTr("ATT %1 dB").arg(Stream.psAutoAttDb)
+                color: Stream.moxActive && Stream.psArmed ? root.cOn : root.cMuted
+                font.bold: Stream.moxActive && Stream.psArmed
+                font.pixelSize: 12
+            }
+            ToolTip.text: qsTr("Auto-att while PS is keyed. Brick/Hermes: ADC0 coupler pad 0…31 dB. HL2: TX step-att −28…+31 dB.")
+            ToolTip.delay: 800
+            ToolTip.visible: attHover.hovered && Prefs.tooltipsEnabled
+        }
+
+        Rectangle {
+            id: fbChip
+            implicitHeight: 26
+            implicitWidth: fbTxt.implicitWidth + 16
+            radius: 4
+            color: "transparent"
+            border.color: root.fbZoneColor()
+            border.width: Stream.moxActive && Stream.psArmed ? 2 : 1
+            HoverHandler { id: fbHover }
+            Label {
+                id: fbTxt
+                anchors.centerIn: parent
+                text: qsTr("FB %1").arg(Stream.psFeedbackLevel)
+                color: root.fbZoneColor()
+                font.bold: Stream.moxActive && Stream.psArmed
+                font.pixelSize: 12
+            }
+            ToolTip.text: qsTr("Coupler FB. Teal below 129 (low), green 129–181, red above 181 (hot).")
+            ToolTip.delay: 800
+            ToolTip.visible: fbHover.hovered && Prefs.tooltipsEnabled
+        }
+
         Label {
             Layout.fillWidth: true
             text: {
@@ -111,14 +169,13 @@ Rectangle {
                 var d1s = Stream.psFeedSpr <= 0 ? "n/a"
                           : (Stream.psDdc1Dbfs <= -999 ? "n/a"
                              : (Stream.psDdc1Dbfs + " dB"))
-                return qsTr("FB %1  st %2  cal %3  %4    D0 %5  D1 %6  in %7")
-                    .arg(Stream.psFeedbackLevel)
+                return qsTr("st %1  cal %2  %3    D0 %4  D1 %5  in %6")
                     .arg(Stream.psFsmState)
                     .arg(Stream.psCalCount)
                     .arg(Stream.psCorrecting ? qsTr("correcting") : qsTr("idle"))
                     .arg(d0s).arg(d1s).arg(Stream.psFeedSpr)
             }
-            color: Stream.moxActive && Stream.psArmed ? root.cMox : root.cMuted
+            color: Stream.moxActive && Stream.psArmed ? root.cText : root.cMuted
             font.pixelSize: 12
             elide: Text.ElideRight
         }

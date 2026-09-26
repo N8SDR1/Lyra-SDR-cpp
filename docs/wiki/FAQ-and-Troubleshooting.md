@@ -157,7 +157,18 @@ protections before keying into an amp. Per-band **PA Gain / Full Output (W)**
 and the optional **watts cap** live on **Settings → PA Gain** (including a
 dedicated **11m** slot). Read
 **[User Guide → external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**
-and **[Settings → PA Gain](User-Guide#settings--pa-gain)**.
+and **[Settings → PA Gain](User-Guide#settings--pa-gain)**. **USB-BCD**
+(Settings → Hardware) drives Yaesu-style band codes to the amp; verify
+the code on each band at low power before full power.
+
+**PureSignal FB stays 0 / never goes green.**
+You need the **coupler mod** (HL2) or Brick feedback path, **attestation**
+ticked (Settings → TX), and **enough RF** — often **more than 2–3 W** on
+a bare HL2 (try ~5–8 W / high drive into a dummy). Arm the **PureSignal**
+dock, then key **2-tone**. FB **teal** = too low, **green** = 129–181,
+**red** = too hot. SUB pauses while MOX+PS is live. Keep the kilowatt
+amp out until this is boring on a dummy. See
+**[User Guide → PureSignal](User-Guide#puresignal)**.
 
 **JTDX won't connect over TCI (but MSHV does).**
 Fixed in current versions (the TCI audio handshake now echoes the ack JTDX

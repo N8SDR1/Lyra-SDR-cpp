@@ -4,6 +4,7 @@
 #include "P2Session.h"
 
 #include "P2TxCmaster.h"   // setP2TxCmasterChannelRunning — run the TXA channel with the DUC transport
+#include "ps/PsCalcThread.h"
 
 #include <QtEndian>
 #include <QAbstractSocket>
@@ -14,6 +15,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <vector>
 
 namespace lyra::wire {
 
@@ -303,6 +306,7 @@ void P2Session::disableDdc(int ddc) {
 }
 
 void P2Session::armSubSecondaryDdcs(quint16 rateKhz, quint32 freqHz) {
+    subRx2Wanted_ = true;
     const bool alreadyArmed =
         ddcEnabled_[1] && ddcRateKhz_[1] == rateKhz;
     ddcFreqHz_[1] = freqHz;
@@ -338,6 +342,7 @@ void P2Session::armSubSecondaryDdcs(quint16 rateKhz, quint32 freqHz) {
 }
 
 void P2Session::disarmSubSecondaryDdcs() {
+    subRx2Wanted_ = false;
     subIqLatchDdc_ = -1;
     warnedNoDdc1Iq_ = false;
     ddc1IqOkLogged_ = false;
@@ -350,7 +355,8 @@ void P2Session::disarmSubSecondaryDdcs() {
 }
 
 bool P2Session::shouldFeedRx2(int ddc) {
-    if (!ddcEnabled_[1] || ddc != 1) return false;
+    if (ddc != 1 || !subRx2Wanted_ || !ddcEnabled_[1]) return false;
+    if (isPureSignalLive()) return false;
     if (subIqLatchDdc_ != 1) {
         subIqLatchDdc_ = 1;
         emit logLine(QStringLiteral(
@@ -448,16 +454,17 @@ QByteArray P2Session::buildDdcSpecificPacket() const {
     // rejects the packet otherwise), then per-DDC config at
     // [17 + 6*n]: +0 source (0 = ADC1), +1..2 sample rate in kHz
     // (BE u16, one of 48/96/192/384/768/1536), +5 sample size (24).
-    // Interleave sync words [1363+2p] stay zero.  Disabled DDCs may
-    // leave rate/size zero (unvalidated while off).
+    // Interleave sync [1363+2p] is zero in RX. Live PS TX: pair 0 = 0x02
+    // so DDC1 rides DDC0 on one IQ UDP (enable mask bit 0 only).
     QByteArray pkt(kDdcSpecificLen, char{0});
     pkt[4] = static_cast<char>(profile_ ? profile_->adcCount : 1);
     quint16 mask = 0;
-    // deskHPSDR programs every receiver slot (RECEIVERS=2 on Hermes/Brick)
-    // even when RX2 is off. Only the enable bits gate the stream. Slot 1
-    // left at rate=0 while SUB is later armed is a firmware-miss we hit
-    // on this Brick (DDC1 never emitted). Always fill DDC0+DDC1.
+    // Program DDC0+DDC1 always (Hermes/Brick 2-receiver). Slot 1 left
+    // at rate=0 while SUB is later armed is a firmware-miss we hit on
+    // this Brick (DDC1 never emitted).
     const int fillSlots = 2;
+    const int nAdc = profile_ ? profile_->adcCount : 1;
+    const bool psTx = isPureSignalLive();
     for (int i = 0; i < kNumDdc; ++i) {
         const auto n = static_cast<std::size_t>(i);
         if (ddcEnabled_[n])
@@ -465,18 +472,27 @@ QByteArray P2Session::buildDdcSpecificPacket() const {
         if (i >= fillSlots && !ddcEnabled_[n])
             continue;
         const int off = 17 + 6 * i;
-        // deskHPSDR: n_adc<=1 always assigns ADC 0. A persisted ADC1
-        // index on a 1-ADC Brick leaves DDC1 on a missing converter.
         quint8 adc = ddcAdc_[n];
-        if (!profile_ || profile_->adcCount <= 1)
-            adc = 0;
         quint16 rate = ddcRateKhz_[n];
+        if (psTx) {
+            rate = 192;
+            if (i == 0)
+                adc = 0;
+            else
+                adc = static_cast<quint8>(nAdc);  // TX replica; not ADC0
+        } else if (nAdc <= 1) {
+            adc = 0;
+        }
         if (rate == 0)
             rate = ddcRateKhz_[0] ? ddcRateKhz_[0] : quint16{192};
         pkt[off]     = static_cast<char>(adc);
         pkt[off + 1] = static_cast<char>(rate >> 8);
         pkt[off + 2] = static_cast<char>(rate & 0xFF);
         pkt[off + 5] = char{24};                       // 24-bit samples
+    }
+    if (psTx) {
+        mask = 0x0001;
+        pkt[1363] = 0x02;
     }
     pkt[7] = static_cast<char>(mask & 0xFF);           // LE enable mask
     pkt[8] = static_cast<char>(mask >> 8);
@@ -505,10 +521,11 @@ void P2Session::sendDdcSpecificToRadio(bool logConfig) {
                           static_cast<quint8>(pkt[31]);
     const quint16 rate3 = (static_cast<quint8>(pkt[36]) << 8) |
                           static_cast<quint8>(pkt[37]);
+    const quint8 sync0 = static_cast<quint8>(pkt[1363]);
     emit logLine(
         QStringLiteral(
             "P2: DDC-specific seq=%1 mask=0x%2 adcCount=%3 "
-            "DDC0 adc=%4 %5 kHz DDC1 adc=%6 %7 kHz")
+            "DDC0 adc=%4 %5 kHz DDC1 adc=%6 %7 kHz sync0=0x%8")
             .arg(seq)
             .arg(mask, 4, 16, QLatin1Char('0'))
             .arg(profile_ ? profile_->adcCount : 0)
@@ -516,6 +533,7 @@ void P2Session::sendDdcSpecificToRadio(bool logConfig) {
             .arg(rate0)
             .arg(adc1)
             .arg(rate1)
+            .arg(sync0, 2, 16, QLatin1Char('0'))
         + QStringLiteral(" DDC2 adc=%1 %2 kHz DDC3 adc=%3 %4 kHz DDC1Hz=%5")
               .arg(adc2)
               .arg(rate2)
@@ -610,10 +628,76 @@ void P2Session::setAdcAttenuation(int adc, int db) {
     sendDucSpecificIfOpen();
 }
 
+void P2Session::setPsFeedbackAttn(int db) {
+    psFeedbackAttnDb_ = std::clamp(db, 0, 31);
+    sendDucSpecificIfOpen();
+    if (!open_)
+        return;
+    if (P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit)
+        applyTxControlNow();
+}
+
 void P2Session::setPureSignalArmed(bool on) {
     if (psArmed_ == on) return;
     psArmed_ = on;
+    if (!on)
+        clearPsccIq();
     applyTxControlNow();
+}
+
+bool P2Session::isPureSignalLive() const {
+    return psArmed_ && P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit;
+}
+
+void P2Session::clearPsccIq() {
+    psccRx_.clear();
+    psccTx_.clear();
+}
+
+void P2Session::ingestPsccInterleaved(const double *iq, int nComplex) {
+    if (!iq || nComplex < 2)
+        return;
+    const int pairs = nComplex / 2;
+    if (pairs <= 0)
+        return;
+    std::vector<double> rx(static_cast<std::size_t>(pairs) * 2);
+    std::vector<double> tx(static_cast<std::size_t>(pairs) * 2);
+    for (int i = 0; i < pairs; ++i) {
+        rx[static_cast<std::size_t>(2 * i)]     = iq[4 * i];
+        rx[static_cast<std::size_t>(2 * i) + 1] = iq[4 * i + 1];
+        tx[static_cast<std::size_t>(2 * i)]     = iq[4 * i + 2];
+        tx[static_cast<std::size_t>(2 * i) + 1] = iq[4 * i + 3];
+    }
+    ingestPsccIq(0, rx.data(), pairs);
+    ingestPsccIq(1, tx.data(), pairs);
+}
+
+void P2Session::ingestPsccIq(int ddc, const double *iq, int nComplex) {
+    if (!iq || nComplex <= 0 || (ddc != 0 && ddc != 1))
+        return;
+    if (!isPureSignalLive()) {
+        if (!psccRx_.empty() || !psccTx_.empty())
+            clearPsccIq();
+        return;
+    }
+    auto &dst = (ddc == 0) ? psccRx_ : psccTx_;
+    dst.insert(dst.end(), iq, iq + static_cast<std::size_t>(nComplex) * 2);
+    constexpr std::size_t kCapDoubles = 16384;
+    if (dst.size() > kCapDoubles) {
+        std::size_t drop = dst.size() - kCapDoubles;
+        if (drop % 2u != 0)
+            ++drop;
+        dst.erase(dst.begin(),
+                  dst.begin() + static_cast<std::ptrdiff_t>(drop));
+    }
+    const std::size_t n = std::min(psccRx_.size(), psccTx_.size()) / 2;
+    if (n == 0)
+        return;
+    lyra::ps::PsCalcThread::instance().feed(
+        static_cast<int>(n), psccRx_.data(), psccTx_.data());
+    const auto used = static_cast<std::ptrdiff_t>(n * 2);
+    psccRx_.erase(psccRx_.begin(), psccRx_.begin() + used);
+    psccTx_.erase(psccTx_.begin(), psccTx_.begin() + used);
 }
 
 void P2Session::setAttOnTx(bool enabled, int db) {
@@ -627,6 +711,10 @@ void P2Session::setAttOnTx(bool enabled, int db) {
 }
 
 quint8 P2Session::overlayAdcAttByte(int adcIndex, bool keyedWithPa) const {
+    // Live PS: coupler is ADC0. ATT-on-TX 31 would mute feedback.
+    // Auto-att writes psFeedbackAttnDb_ (starts at 0 = full coupler).
+    if (isPureSignalLive() && adcIndex == 0)
+        return static_cast<quint8>(std::clamp(psFeedbackAttnDb_, 0, 31));
     if (keyedWithPa && attOnTxEnabled_)
         return static_cast<quint8>(std::clamp(attOnTxDb_, 0, 31));
     if (adcIndex < 0 ||
@@ -782,6 +870,7 @@ void P2Session::applyTxControlNow() {
         sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
     }
     sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_, kPortDucConfig);
+    sendDdcSpecificToRadio(psArmed_);
 }
 
 void P2Session::emitTxState(const QString &detail) {
@@ -1163,8 +1252,8 @@ void P2Session::onHpTick() {
             ddc1IqOkLogged_ = true;
             ddc1IqLogLeft_ = 0;
             emit logLine(QStringLiteral(
-                "P2 IQ: SUB flowing DDC1=%1 pkt/s (DDC0=%2; DDC2=%3 DDC3=%4 "
-                "count-only, not RX2)")
+                "P2 IQ: DDC1=%1 pkt/s (DDC0=%2; DDC2=%3 DDC3=%4 "
+                "count-only)")
                 .arg(d1).arg(d0).arg(d2).arg(d3));
         } else if (subArmed && ddc1IqLogLeft_ > 0) {
             --ddc1IqLogLeft_;
