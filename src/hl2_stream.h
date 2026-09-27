@@ -101,6 +101,7 @@
 // #105 CW-3a — host CW keyer (CWX); the full type is pulled in the .cpp.
 namespace lyra::tx { class CwKeyer; }
 namespace lyra::ps { class PsFsm; }
+namespace lyra::ui { class XvtrSlots; }
 
 namespace lyra::ipc {
 
@@ -1222,6 +1223,10 @@ public slots:
     void bindPsAttnWriter(std::function<void(int)> fn,
                           int minDb, int maxDb, int moxSeed);
     void setPaEnabled(bool on);
+    void setXvtrSlots(lyra::ui::XvtrSlots *xvtrSlots);
+    // Display RF → radio IF/DDS (identity when no Xvtr slot matches).
+    int ddsHzForRf(quint32 rfHz) const;
+    void applyPaWire();
     void setMicBoost(bool on);
     void setBandVoltsOutput(bool on);
     // TX-0c-tune — arm/disarm the tune-tone generator.  The EP2 writer
@@ -2129,6 +2134,7 @@ private:
     // main.cpp).  Drives the keyed CW carrier offset + the HW sidetone freq.
     std::atomic<int>     cwPitchHz_{600};
     std::atomic<bool>    paOn_{false};          // 0x12 C2 bit 3 (active-high)
+    lyra::ui::XvtrSlots *xvtr_ = nullptr;
     std::atomic<bool>    micBoost_{false};      // 0x12 C2 bit 0 (+20 dB HW boost)
     std::atomic<bool>    bandVolts_{false};     // 0x00 C3 bit 3 (band-volts enable)
     // TX-0c-tune — operator-armed tune-tone generator.  Atomic so the

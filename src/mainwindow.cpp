@@ -9,6 +9,7 @@
 #include "timesync.h"
 #include "bandmemory.h"
 #include "genslots.h"
+#include "xvtrslots.h"
 #include "time_stations.h"
 #include "memorystore.h"
 #include "eibistore.h"
@@ -589,6 +590,9 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     gen_ = new GenSlots(
         prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
 
+    xvtr_ = new XvtrSlots(
+        qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
+
     // HF time-station TIME cycle (TIME button on the GEN row).
     time_ = new TimeStations(
         prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
@@ -951,8 +955,12 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     qInfo("[startup] USB-BCD ctor finished");
     if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
         connect(st, &lyra::ipc::HL2Stream::rx1FreqChanged, usbBcd_,
-                [this, st]() { usbBcd_->applyForFreq(st->rx1FreqHz()); });
-        usbBcd_->applyForFreq(st->rx1FreqHz());   // assert current band now
+                [this, st]() {
+                    usbBcd_->applyForFreq(
+                        static_cast<quint32>(st->ddsHzForRf(st->rx1FreqHz())));
+                });
+        usbBcd_->applyForFreq(
+            static_cast<quint32>(st->ddsHzForRf(st->rx1FreqHz())));
         qInfo("[startup] USB-BCD applyForFreq done");
 
         // Band-plan in/out-of-band advisory: on a band-state transition
@@ -1164,6 +1172,8 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
         QStringLiteral("BandMemory"), bandMemory_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("Gen"), gen_);
+    qw->rootContext()->setContextProperty(
+        QStringLiteral("Xvtr"), xvtr_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("Time"), time_);
     qw->rootContext()->setContextProperty(

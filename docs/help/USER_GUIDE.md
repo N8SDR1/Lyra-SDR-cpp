@@ -918,7 +918,7 @@ carrier (the Filter Low edge doesn't apply to those modes).
 
 ## Band panel
 
-Quick band switching, in three rows:
+Quick band switching, in four rows:
 
 - **Ham** — the HF/6m amateur bands (**160m … 6m**). Click one and Lyra
   returns the **focused** receiver to **the last frequency you were on in
@@ -938,13 +938,23 @@ Quick band switching, in three rows:
   frequency and mode** and return to it when you click them (band default
   the first time). The active band lights the same way.
 - **Gen** — the GEN1/2/3 general-coverage slots (below).
+- **Xvtr** — four transverter chips (defaults **2m / 70cm / 23cm** plus a
+  spare). The VFO, panadapter, TCI, and memory stay in **RF**; Lyra
+  subtracts the slot LO (+ error) only when writing the radio NCO. Click
+  a chip to tune RX1 to that slot’s last RF. **Shift+click** parks **SUB**
+  on the slot. **Right-click** opens the slot editor (on/off, name, RF
+  low/high, LO, error Hz, Disable PA, RX-only). Disable PA defaults **on**
+  so the Hermes Lite onboard PA stays off while the transverter is in
+  circuit. Filter-board / USB-BCD / OC / PA-gain follow the **IF**, not
+  the displayed RF.
 
 **SUB hops (HL2 / BrickSDR2).** **Shift+click** or **right-click** a Ham / BC /
 11m chip to park **SUB** on that band (turns SUB on if it was off, keeps
 VFO A focused). SUB remembers **its own last frequency and mode** per
 band — independent of RX1. A SUB hop does **not** apply RX1's band
 memory (LNA, TX drive, panadapter range). **GEN / TIME / Mem** stay
-RX1-only (not SUB hops).
+RX1-only (not SUB hops). **Xvtr** Shift+click is a SUB hop; right-click
+opens the slot editor.
 
 **GEN1 / GEN2 / GEN3** (to the right of the band buttons) are
 **general-coverage slots** for listening outside the ham bands —
@@ -1145,7 +1155,9 @@ much sits where it was.
 4. Press **Save**, give the profile a name (e.g. `40m-night`, `20m-ESSB`) in
    the box that pops up. It's now in the picker.
 5. Flip **NR-C** on. The captured noise is subtracted from RX. The panadapter
-   shows the cleaned spectrum too, so you can watch the floor drop.
+   shows the cleaned spectrum too, so you can watch the floor drop. Occupied
+   bins (signals) are left alone, so the RX passband stays brick-wall rather
+   than sloping at the edges.
 6. Fine-tune with the **⚙** button (appears next to NR-C while it's on):
    - **Strength** (1–5×) — how hard to subtract. Higher = more cut.
    - **Floor** (−3 to −30 dB) — the deepest any bin is allowed to drop.

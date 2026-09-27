@@ -328,7 +328,7 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                     const bool psOn = stream_ && stream_->psArmed()
                         && stream_->psAttestation();
                     const quint32 hz = static_cast<quint32>(
-                        stream_ ? corrected_freq(static_cast<int>(
+                        stream_ ? corrected_freq(stream_->ddsHzForRf(
                                       stream_->rx2FreqHz()))
                                 : 0);
                     QMetaObject::invokeMethod(s, [s, khz, subOn, psOn,
@@ -514,13 +514,15 @@ void P2RxBridge::pushDialToSession() {
     if (stream_->ritEnabled())
         rx = static_cast<quint32>(
             std::max<qint64>(0, qint64(rx) + stream_->ritOffsetHz()));
-    const quint32 tx = stream_->txFreqHz();
-    // Match P1's final wire-frequency choke point: calibration applies
-    // after RIT for RX and to the effective TX carrier (VFO B/XIT when
-    // enabled) for the DUC.
+    // Display RF → radio IF (identity when no transverter slot matches),
+    // then the existing calibration choke.
+    rx = static_cast<quint32>(stream_->ddsHzForRf(rx));
+    const quint32 txRf = stream_->txFreqHz();
+    const quint32 txIf = stream_->ddsHzForRf(static_cast<quint32>(
+        std::max(0, stream_->txDdsHzForTune(txRf))));
     rx = static_cast<quint32>(corrected_freq(static_cast<int>(rx)));
     const quint32 correctedTx =
-        static_cast<quint32>(corrected_freq(static_cast<int>(tx)));
+        static_cast<quint32>(corrected_freq(static_cast<int>(txIf)));
     auto *s = session_;
     QMetaObject::invokeMethod(s, [s, rx, correctedTx]() {
         s->setDdcFrequencyHz(0, rx);
@@ -545,7 +547,7 @@ void P2RxBridge::syncRx2Ddc()
     }
     const quint16 khz = rateKhz_;
     const quint32 hz = static_cast<quint32>(
-        corrected_freq(static_cast<int>(stream_->rx2FreqHz())));
+        corrected_freq(stream_->ddsHzForRf(stream_->rx2FreqHz())));
     QMetaObject::invokeMethod(s, [s, khz, hz]() {
         s->armSubSecondaryDdcs(khz, hz);
     });
@@ -682,12 +684,17 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     // only on a truly fresh install → park on 20 m).
     quint32 hz = stream_ ? stream_->rx1FreqHz() : 0;
     if (hz == 0) hz = 14'100'000u;
+    const int rxIf = stream_ ? stream_->ddsHzForRf(hz) : static_cast<int>(hz);
     const quint32 correctedHz =
-        static_cast<quint32>(corrected_freq(static_cast<int>(hz)));
+        static_cast<quint32>(corrected_freq(rxIf));
     quint32 txHz = stream_ ? stream_->txFreqHz() : hz;
     if (txHz == 0) txHz = hz;
+    const int txIf = stream_
+        ? stream_->ddsHzForRf(static_cast<quint32>(
+              std::max(0, stream_->txDdsHzForTune(txHz))))
+        : static_cast<int>(txHz);
     const quint32 correctedTx =
-        static_cast<quint32>(corrected_freq(static_cast<int>(txHz)));
+        static_cast<quint32>(corrected_freq(txIf));
 
     // Rig identity (folded into RigRegistry — was a parallel
     // RadioProfileStore, docs/architecture/p2_identity_reconciliation.md

@@ -59,6 +59,7 @@ class StatusBus;
 class TimeSync;
 class BandMemory;
 class GenSlots;
+class XvtrSlots;
 class TimeStations;
 class MemoryStore;
 class EibiStore;
@@ -393,6 +394,7 @@ private:
     TimeSync                   *timeSync_ = nullptr;  // NTP clock-drift check
     BandMemory                 *bandMemory_ = nullptr;// per-band mode/dB-range memory
     GenSlots                   *gen_ = nullptr;       // GEN1/2/3 general-coverage slots
+    XvtrSlots                  *xvtr_ = nullptr;      // Band-dock transverter slots
     TimeStations               *time_ = nullptr;      // HF time-station TIME cycle
     MemoryStore                *memory_ = nullptr;    // frequency memory bank
     EibiStore                  *eibi_  = nullptr;     // EiBi shortwave overlay
