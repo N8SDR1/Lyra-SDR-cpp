@@ -11,9 +11,11 @@
 //     g = sqrt(max(0, 1 - alpha * Pn[k] / |Y[k]|^2))
 // clamped to [floor, 1] (floor = max attenuation, e.g. -12 dB → 0.25 so
 // noise is gently reduced, not gated — avoids musical-noise artifacts),
-// then temporally smoothed per bin (g = s*gPrev + (1-s)*g) to stop the
-// mask fluttering frame-to-frame.  Phase is preserved (gain scales the
-// complex bin).
+// then mixed toward unity by a posteriori SNR γ = |Y|²/Pn so occupied
+// bins (signals) keep a brick-wall shape instead of Wiener-rounding
+// their skirts into a slope on the panadapter, then temporally smoothed
+// per bin (g = s*gPrev + (1-s)*g) to stop the mask fluttering
+// frame-to-frame.  Phase is preserved (gain scales the complex bin).
 //
 // SAME-COUNT INTERFACE: process(in, n, out) writes exactly n cleaned
 // frames per n input frames.  The WOLA emits a hop at a time, so an
