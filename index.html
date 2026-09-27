@@ -157,14 +157,15 @@
       <img class="logo" src="logo.png" alt="Lyra logo">
       <div class="wordmark">LYRA<span class="accent"> SDR</span></div>
       <p class="tagline">A modern, GPU-accelerated SDR transceiver for HPSDR radios — the Hermes&nbsp;Lite&nbsp;2 / 2+ and the BrickSDR2.</p>
-      <div><span class="badge">v0.25.0 Sheliak · Free &amp; open source · GPL v3</span></div>
+      <div><span class="badge">v0.25.1 Sheliak · Free &amp; open source · GPL v3</span></div>
       <div class="cta">
         <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases">⬇ Download</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki">📖 Docs</a>
         <a class="btn btn-ghost" href="https://discord.gg/BwjsQvjcSc">💬 Join the Discord</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp">★ GitHub</a>
       </div>
-      <p class="platforms">Windows 10 / 11 · Hermes Lite 2 / 2+ &amp; BrickSDR2 · 1600 × 900 display or larger</p>
+      <p class="platforms">Windows 10 / 11 · Hermes Lite 2 / 2+ (Protocol 1) &amp; BrickSDR2 (Protocol 2) · 1600 × 900 display or larger</p>
+      <p class="platforms" style="margin-top:8px;">Protocol 1 Open is Hermes Lite only. Brick or ANAN still on a P1 FPGA is listed in Discover but refused — flash Protocol 2 (Brick FPGA help: Anton / linoobs on Discord).</p>
     </header>
 
     <section class="showcase">
@@ -251,7 +252,7 @@
     <section>
       <h2>What it does</h2>
       <div class="grid">
-        <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on the Hermes&nbsp;Lite&nbsp;2 / 2+ — a complete, native HPSDR console with a real TX chain, not just a receiver.</p></div>
+        <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on the Hermes&nbsp;Lite&nbsp;2 / 2+ (Protocol 1) and BrickSDR2 (Protocol 2). Protocol 1 Open is HL2-only — Brick/ANAN P1 FPGA is refused. See <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Supported-Radios">Supported Radios</a>.</p></div>
         <div class="card"><h3><span class="ico">📊</span> GPU panadapter</h3><p>A Vulkan-accelerated spectrum and waterfall with click-to-tune, centre-tune (CTUN), RIT / XIT, peak hold and eight colour palettes.</p></div>
         <div class="card"><h3><span class="ico">✨</span> PureSignal</h3><p>Adaptive TX predistortion on coupler-mod HL2 / HL2+ and BrickSDR2, with a compact dock and an Amp View plot (Snap / Hold). <a href="#puresignal">See it up close</a>.</p></div>
         <div class="card"><h3><span class="ico">🎚️</span> Studio TX chain</h3><p>8-band parametric EQ, a multiband combinator, tube-plate reverb, speech processing, a voice keyer and VOX — shape your audio like a broadcast desk, saved as recallable profiles.</p></div>
