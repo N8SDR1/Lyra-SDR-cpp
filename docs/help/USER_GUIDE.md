@@ -4670,6 +4670,12 @@ know your card prefers one. (If panels ever fail to draw or crash when you
 drag them, set this to **Direct3D 11** or **Auto** and restart.) This
 setting stays on the machine — it isn't carried in an exported profile.
 
+**Anti-aliasing (MSAA)** on the same page — **Off / 2× / 4× / 8×**, restart
+to apply. **4×** is the default (same look as earlier builds). Use **Off** or
+**2×** on a weak laptop GPU if the panadapter stutters with a browser open;
+**8×** is extra smoothing for a strong card (a 9070 XT class GPU). Safe boot
+(`lyra.exe --safe`) and the software renderer always run with MSAA off.
+
 **Graphics safe mode (automatic).** If Lyra ever crashes *while starting up*
 (a bad GPU driver can do this before the window is even up), the **next**
 launch automatically drops to **OpenGL** so Lyra opens instead of crashing

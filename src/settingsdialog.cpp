@@ -9087,6 +9087,47 @@ QWidget *SettingsDialog::buildVisualsTab() {
 
         form->addRow(tr("Graphics backend"), gbox);
 
+        // MSAA is the same restart-to-apply surface format as the backend
+        // (set in main.cpp before QApplication).  Default 4× matches the
+        // historical hard-wire.  8× is for a strong GPU; --safe / software
+        // still force Off.
+        {
+            auto *mbox = new QWidget(page);
+            auto *mh = new QHBoxLayout(mbox);
+            mh->setContentsMargins(0, 0, 0, 0);
+            mh->setSpacing(8);
+
+            auto *msaa = new QComboBox(mbox);
+            msaa->addItem(tr("Off"), 0);
+            msaa->addItem(QStringLiteral("2×"), 2);
+            msaa->addItem(QStringLiteral("4× (recommended)"), 4);
+            msaa->addItem(QStringLiteral("8×"), 8);
+            int curMsaa = QSettings()
+                .value(QStringLiteral("ui/msaaSamples"), 4).toInt();
+            if (curMsaa != 0 && curMsaa != 2 && curMsaa != 4 && curMsaa != 8)
+                curMsaa = 4;
+            const int midx = std::max(0, msaa->findData(curMsaa));
+            msaa->setCurrentIndex(midx);
+            msaa->setToolTip(tr("Smooths panadapter edges. 4× is the usual "
+                                "choice. 8× needs a strong GPU. Off / 2× "
+                                "help weak laptop graphics. Restart to apply."));
+            auto persistMsaa = [msaa](int i) {
+                QSettings s;
+                s.setValue(QStringLiteral("ui/msaaSamples"),
+                           msaa->itemData(i).toInt());
+            };
+            connect(msaa, &QComboBox::currentIndexChanged, msaa, persistMsaa);
+            connect(msaa, &QComboBox::activated, msaa, persistMsaa);
+            mh->addWidget(msaa);
+
+            auto *mnote = new QLabel(tr("Restart Lyra to apply"), mbox);
+            mnote->setStyleSheet(QStringLiteral("QLabel{color:#8a9aac;}"));
+            mh->addWidget(mnote);
+            mh->addStretch(1);
+
+            form->addRow(tr("Anti-aliasing (MSAA)"), mbox);
+        }
+
         // If a prior startup crash forced graphics safe mode, say so here and
         // point back to this control (the notice at launch does too).
         if (QSettings().value(QStringLiteral("ui/gfxSafeMode"), false).toBool()) {

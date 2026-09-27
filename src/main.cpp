@@ -296,8 +296,9 @@ int main(int argc, char *argv[])
     // the window is up.  gfxSafeBackend names the backend safe mode forced.
     bool    gfxCrashRecovered = false;
     bool    layoutResetThisLaunch = false;
-    bool    skipMsaa = safeBoot;   // 4x MSAA + software rasterizer hangs
+    bool    skipMsaa = safeBoot;   // MSAA + software rasterizer hangs
                                    // Intel UHD / crash-ladder recoveries
+    int     msaaWanted = 4;        // Settings → Visuals (0/2/4/8); default 4×
     QString gfxSafeBackend;
     {
         using RI = QSGRendererInterface;
@@ -419,6 +420,7 @@ int main(int argc, char *argv[])
             || (!envForced && !backendPinned
                 && s.value(QStringLiteral("ui/gfxSafeMode"), false).toBool()))
             skipMsaa = true;
+        msaaWanted = s.value(QStringLiteral("ui/msaaSamples"), 4).toInt();
         if (gfxCrashRecovered)
             qWarning("[gfx] previous startup did not complete — graphics "
                      "safe mode (depth %d -> %s)", safeDepth, qPrintable(be));
@@ -432,14 +434,31 @@ int main(int argc, char *argv[])
     // biggest perceived-quality win and applies to ALL geometry, not
     // just the panadapter.  Must be set on the default surface format
     // BEFORE QGuiApplication so the QML window's swapchain picks it up.
-    // Skip on software / crash-ladder recoveries — 4x samples there is
-    // not free and has hung startup on low-VRAM iGPUs.
+    // Skip on software / crash-ladder recoveries — MSAA there is not
+    // free and has hung startup on low-VRAM iGPUs.  Off / 2× / 4× / 8×
+    // from Settings → Visuals (restart).  LYRA_MSAA=N overrides when
+    // MSAA is allowed (tester hatch).  Unsupported counts fall back to 4.
     {
+        auto clampMsaa = [](int v) {
+            return (v == 0 || v == 2 || v == 4 || v == 8) ? v : 4;
+        };
+        int samples = skipMsaa ? 0 : clampMsaa(msaaWanted);
+        if (!skipMsaa) {
+            const QByteArray envMsaa = qgetenv("LYRA_MSAA");
+            if (!envMsaa.isEmpty()) {
+                bool ok = false;
+                const int ev = QString::fromLatin1(envMsaa).trimmed().toInt(&ok);
+                if (ok)
+                    samples = clampMsaa(ev);
+            }
+        }
         QSurfaceFormat fmt = QSurfaceFormat::defaultFormat();
-        fmt.setSamples(skipMsaa ? 0 : 4);
+        fmt.setSamples(samples);
         QSurfaceFormat::setDefaultFormat(fmt);
         if (skipMsaa)
             qWarning("[gfx] MSAA disabled (software renderer or graphics safe mode)");
+        else
+            qWarning("[gfx] MSAA %dx", samples);
     }
 
     // QQuickWidget + a threaded scene-graph loop can stall the GUI thread
