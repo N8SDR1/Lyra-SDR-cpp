@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.0 Sheliak** — PureSignal + Amp View.
+**v0.25.1 Sheliak** — NR-C mix, Xvtr slots, MSAA picker, P1 Open refuse.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 
@@ -61,8 +61,10 @@ up rewrite using the architecture the project should have started with.
 ## Features
 
 A full receive **and transmit** SDR transceiver for HPSDR radios — the
-Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 (Protocol 2) — native
-C++ end to end.  Lyra transmits every voice mode (SSB / AM / DSB /
+Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 (**Protocol 2 only**) —
+native C++ end to end. A Brick still on Protocol 1 may appear in Discover;
+**Open is refused** (HL2 TX layout). Flash P2; Brick FPGA help: Anton
+(linoobs) on Discord.  Lyra transmits every voice mode (SSB / AM / DSB /
 SAM / FM) plus CW and digital via TCI, and ships a complete native TX audio
 processing rack. Dual receive (**SUB / RX2**) and **SPLIT** pile-up
 (VFO B TX, independent of SUB) are live on **Hermes Lite 2** (Protocol 1)

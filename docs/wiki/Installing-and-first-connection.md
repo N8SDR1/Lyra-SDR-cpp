@@ -3,9 +3,11 @@
 This page gets you from a downloaded installer to hearing your first
 signal. For the full reference, see the **[User Guide](User-Guide)**.
 
-> **You need:** a Hermes Lite 2 / 2+ **or a BrickSDR2** on your network, a
-> Windows 10 (1809+) or 11 PC (64‑bit, a GPU with OpenGL 3.3+), and the two
-> connected to the same LAN (a dedicated NIC‑to‑radio cable works great).
+> **You need:** a Hermes Lite 2 / 2+ **or a BrickSDR2 on Protocol 2** on your
+> network, a Windows 10 (1809+) or 11 PC (64‑bit, a GPU with OpenGL 3.3+), and
+> the two connected to the same LAN (a dedicated NIC‑to‑radio cable works
+> great). A Brick still on **Protocol 1** can appear in Discover and **will
+> not Open** — see [Supported Radios](Supported-Radios).
 
 ---
 
@@ -38,7 +40,9 @@ to rebuild it, **Settings → Radio → FFT optimization → Clear &amp; rebuild
    reports as Hermes stays labelled Brick; firmware is **v10.6**-style, not
    “fw v0”.
 3. **Double‑click a radio** (or select it and click **Open**). The connected
-   radio shows **green and bold**.
+   radio shows **green and bold**. Protocol 1 **Hermes** (not HermesLite) is
+   **refused** — that is a Brick/ANAN still on P1, not an HL2. Flash **P2**
+   (Brick: **Anton (linoobs)** on Discord) and Open the Protocol 2 row.
 4. **Close** the current radio before opening a different one.
 
 > **No "Any Subnet" checkbox needed.** Lyra's discovery is always maximal:

@@ -9,18 +9,19 @@ Quick answers to common questions and fixes. For full detail see the
 ## General
 
 **What hardware does Lyra support?**
-Hermes Lite 2 and 2+ over HPSDR Protocol 1, and **BrickSDR2** over Protocol 2.
-Hermes Lite 2 / 2+ and BrickSDR2 both have **SUB / RX2** (second DDC on
+Hermes Lite 2 and 2+ over HPSDR Protocol 1, and **BrickSDR2 over Protocol 2
+only**. Hermes Lite 2 / 2+ and BrickSDR2 both have **SUB / RX2** (second DDC on
 the same ADC) and **SPLIT** (TX on VFO B, independent of SUB). Colours:
 orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2; **◀ RX2** /
 **RX2 ▶** when SUB is off-span. N2ADR / filter board follows **RX1** —
 cross-band SUB is much weaker. **ANAN-10 / 10E / 100 / 100B / 100D /
 200D** and **G2 / G2-1K** have Protocol 2 profiles; TX is dummy-load until
 that box is on-air validated. Discovery **Hermes** still defaults to
-BrickSDR2 — pick the marketed ANAN model in Settings → Hardware. If an
-older ANAN still answers as Protocol 1, flash P2 firmware when the
-hardware allows — leftover P1 rows are refused (not an HL2). 7000DLE /
-8000 stay locked.
+BrickSDR2 — pick the marketed ANAN model in Settings → Hardware. A Brick or
+classic ANAN still on **Protocol 1** will show up in Discover and is
+**refused on Open** (Lyra’s P1 TX is HL2-shaped). Flash **Protocol 2**; Brick
+FPGA help: **Anton (linoobs)** on Discord. 7000DLE / 8000 stay locked.
+See **[Supported Radios](Supported-Radios)**.
 
 **Is it free? What's the license?**
 Yes — GPL v3+ (compatible with the WDSP DSP engine it uses). See
@@ -79,11 +80,20 @@ over a working GPU. Try:
    Direct3D, Apply, restart. **Leave safe mode** if the banner is up.
    You do **not** need Revo or a registry wipe.
 
+**Open says Protocol 1 ANAN / my Brick is listed but won’t connect.**
+Discovery found a **Protocol 1** Hermes-class reply (typical for a Brick or
+ANAN still on the old FPGA). Lyra **will not attach** that stream: P1 TX
+bytes are for the **Hermes Lite 2**. Forcing it usually means no RF, wrong
+PA/T/R, wrong power, or an unprotected RX while keyed. **Flash Protocol 2**,
+rediscover, Open the **P2** row. Brick flash / image: **Anton (linoobs)** on
+Discord. Detail: **[Supported Radios](Supported-Radios)**.
+
 **Settings lists my Brick as Hermes / firmware v0.**
 A Brick2 that still reports the Hermes board ID is labelled **Brick** when
-Lyra already knows it. Firmware is **v{code/10}.{code%10}** (e.g. code 106
-→ **v10.6**), matching deskHPSDR. Dual RX needs current Brick2 FPGA; flashing
-does not change the Ethernet MAC.
+Lyra already knows it **and it is on Protocol 2**. Firmware is
+**v{code/10}.{code%10}** (e.g. code 106 → **v10.6**). Dual RX needs current
+Brick2 FPGA; flashing does not change the Ethernet MAC. If the row is
+**Protocol 1**, that is the refuse case above — not a label bug.
 
 **It froze / connected to the wrong IP on launch.**
 Fixed in current versions: Lyra probes the remembered IP first and

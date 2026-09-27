@@ -26,6 +26,11 @@ Lyra is a native **Windows** application.
   P2 FPGA — use that). Pick the marketed model in Settings; TX is dummy-load
   until that box is on-air validated. Lyra keeps separate settings for each
   (see *Multiple radios & switching rigs* in the Help guide).
+- **BrickSDR2 is Protocol 2 only.** Discovery may still **list** a Brick (or
+  classic ANAN) on Protocol 1; **Open is refused** — P1 TX in Lyra is the HL2
+  layout, not Brick/Hermes P1. Flash a **P2 FPGA** (Brick help: **Anton
+  (linoobs)** on Discord), then Open the P2 row. Dummy load on first TX after
+  a flash. Full note: Help → User Guide → *Supported radios*.
 
 *(Full detail is in the Help guide under "System requirements". Linux/macOS
 are on the roadmap but do not run today.)*

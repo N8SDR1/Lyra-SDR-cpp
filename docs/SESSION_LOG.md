@@ -4,6 +4,16 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-09-27 — v0.25.1 Sheliak (patch)
+
+- Version bump **0.25.0 → 0.25.1**. Star name stays **Sheliak**.
+- NR-C occupied-bin mix, Xvtr slots, MSAA Off/2×/4×/8×, P1 ANAN/Brick
+  Discover-list / Open-refuse + docs (flash P2; Anton linoobs).
+- Installer `dist/Lyra-Setup-0.25.1.exe`. Tag `v0.25.1`. #14 stays open.
+  Do not merge `main`.
+
+---
+
 ## 2026-09-26 — v0.25.0 Sheliak (PureSignal)
 
 - Version bump **0.24.5 → 0.25.0**. Star name **Sheliak** (β Lyrae);

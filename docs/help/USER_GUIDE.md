@@ -20,9 +20,22 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.1
+
+- **NR-C** leaves occupied bins (signals) at full scale so the RX passband
+  stays brick-wall at the edges.
+- **Xvtr** chips on the Band row — four transverter slots; VFO stays in RF;
+  right-click the slot editor. See [Band panel](#band-panel).
+- **Anti-aliasing (MSAA)** — Settings → Visuals **Off / 2× / 4× / 8×**
+  (restart). See [Graphics backend](#graphics-backend).
+- **Protocol 1 Brick / ANAN** still show in Discover; **Open is refused**.
+  Flash Protocol 2 if you can. See [Supported radios](#supported-radios).
+
 ## Contents
 
+- [What's new in 0.25.1](#whats-new-in-0251)
 - [Start here — Quick Basics](#start-here--quick-basics)
+- [Supported radios](#supported-radios)
 - [Why "Lyra"?](#why-lyra)
 - [System requirements](#system-requirements)
 - [Getting started](#getting-started)
@@ -119,8 +132,13 @@ in the sections that follow.
 
 **Currently supported:** Lyra is a native **Windows** app — Windows 10
 (64-bit, v1809+) or Windows 11, a DirectX 11 / OpenGL 3.3 GPU (built-in
-graphics are fine), and a **wired Ethernet** link to a Hermes Lite 2 / 2+.
-(See [System requirements](#system-requirements) for the full picture.)
+graphics are fine), and a **wired Ethernet** link to a **Hermes Lite 2 / 2+**
+(Protocol 1) or a **BrickSDR2 on Protocol 2**. (See
+[Supported radios](#supported-radios) and
+[System requirements](#system-requirements).)
+
+**Brick on Protocol 1:** Discover may still **list** it; **Open is refused.**
+Flash **P2** (Brick FPGA help: **Anton (linoobs)** on Discord). Details below.
 
 1. **Wire it up 🔌** — connect the radio to your PC with an **Ethernet cable**
    (wired, not Wi-Fi) and power it on.
@@ -136,8 +154,37 @@ graphics are fine), and a **wired Ethernet** link to a Hermes Lite 2 / 2+.
 5. **Talk 🎙️** — see [First voice setup (SSB / AM / FM)](#first-voice-setup-ssb--am--fm).
 
 **If something's off:** no radio found → check the **wired** cable + power;
+**Open says Protocol 1 ANAN** → that row is a Brick/ANAN still on P1 — flash
+P2, then Open the Protocol 2 row (see [Supported radios](#supported-radios));
 no audio → check the **Out** device and **Volume**; can't transmit → see
 [First voice setup](#first-voice-setup-ssb--am--fm).
+
+---
+
+## Supported radios
+
+Lyra **opens** these today:
+
+| Radio | Protocol | Notes |
+|---|---|---|
+| **Hermes Lite 2 / 2+** | Protocol 1 | Full RX + TX. HL2+ adds the on-board mic / headphone jacks. |
+| **BrickSDR2** | **Protocol 2 only** | Full RX + TX, SUB / SPLIT, PureSignal. |
+
+A Brick (or classic ANAN) that still answers **Protocol 1** can show in
+**Discover**. Lyra **will not Open** that row. Protocol 1 TX in Lyra is the
+**Hermes Lite 2** layout (PA, drive, attenuator, C&C, TX I/Q). A Brick on the
+old P1 FPGA answers as generic **Hermes**, not HermesLite — connecting it
+would send the wrong bytes (no RF, wrong T/R / PA, wrong power, RX wide open
+while keyed, or a dirty first burst). We refuse rather than half-drive it.
+
+**What to do:** flash a **Protocol 2 FPGA**, rediscover, Open the **Protocol 2**
+row. For Brick flash / image help, ask **Anton (linoobs)** on Discord. Dummy
+load on the first TX after a flash.
+
+Classic ANAN that can run P2 should do the same, then pick the marketed model
+in **Settings → Hardware**. Leftover P1 rows stay refused. ANAN G2 / 10–200D
+on P2 are dummy-load TX arm until a tester validates RF; 7000DLE / 8000 stay
+locked.
 
 ---
 
@@ -265,8 +312,10 @@ DSP features on the roadmap.
   **Settings → Audio**.
 - **HL2+** — the HL2 base **plus** the AK4951 audio add-in board (and the
   updated HL2+ gateware). Adds on-board audio routing and a microphone
-  input for future transmit. The HL2's own headphone jack is the default,
-  lowest-latency audio path.
+  input. The HL2's own headphone jack is the default, lowest-latency audio
+  path.
+- **BrickSDR2** — Protocol **2** only. See [Supported radios](#supported-radios)
+  if Discover shows a Protocol 1 Hermes row that will not Open.
 
 ### 2. Network
 
@@ -330,9 +379,9 @@ exact build.
 ## Multiple radios & switching rigs
 
 Lyra can manage more than one radio — a Hermes Lite 2 / 2+ on **Protocol 1**
-and a **Protocol-2** radio such as a **BrickSDR2**, **ANAN G2**, or classic
-**ANAN-10 / 100 / 200** series (use the P2 FPGA if the box has one; pick
-the marketed model) — and keep
+and a **Protocol-2** radio such as a **BrickSDR2** (P2 FPGA required),
+**ANAN G2**, or classic **ANAN-10 / 100 / 200** series on P2 (pick the
+marketed model) — and keep
 **separate settings for each**. Every saved radio is a **"rig,"** and each
 rig remembers its own:
 
@@ -3042,6 +3091,11 @@ disconnects, and the status line shows what you're connected to. The
 radios it's obvious which one is live. Lyra remembers the last radio and
 shows it here on launch. (The toolbar **▶ Start / ■ Stop** does the same
 thing.)
+
+**Protocol 1 Hermes (not HermesLite)** is a Brick or classic ANAN still on
+the old FPGA. **Open is refused** — that is not a bug. Flash **Protocol 2**
+and Open the P2 row. Brick FPGA help: **Anton (linoobs)** on Discord. See
+[Supported radios](#supported-radios).
 
 **Multiple radios.** Keep as many radios in the list as you like and switch
 between them: select one (or double-click) → **Open**; to change radios,

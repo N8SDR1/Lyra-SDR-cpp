@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.0 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.25.1 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
@@ -9,13 +9,15 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 ## Radio &amp; connection
 
 - ✅ HPSDR **Protocol 1** discovery (multi-NIC, subnet-directed broadcast) + **Add by IP** for fixed-IP / cross-subnet radios
-- ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator); discovery firmware shown as **v10.6**-style (deskHPSDR-parity), not “fw v0”
-- 🚧 **ANAN-10 / 10E / 100 / 100B / 100D / 200D** Protocol 2 — classic Alex HPF (deskHPSDR); TX dummy-load arm, not on-air validated; pick marketed model in Settings (Hermes discovery still defaults to Brick). Boxes that shipped P1 should use a P2 FPGA when they can.
+- ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator); discovery firmware shown as **v10.6**-style, not “fw v0”. **P1 Brick / P1 ANAN: Discover lists, Open refuses** (HL2 TX layout) — flash P2; Brick FPGA help: Anton (linoobs)
+- 🚧 **ANAN-10 / 10E / 100 / 100B / 100D / 200D** Protocol 2 — classic Alex HPF; TX dummy-load arm, not on-air validated; pick marketed model in Settings (Hermes discovery still defaults to Brick). Boxes that shipped P1 should use a P2 FPGA when they can.
 - ✅ **SUB / RX2 on HL2 and BrickSDR2** — second DDC (same ADC); orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2 overlay; band chips **red** (RX1) vs **green** (SUB); **Shift+click / right-click** hops SUB; off-span **◀ RX2** / **RX2 ▶**; N2ADR follows RX1 (cross-band drop). **SUB and SPLIT are independent** (SUB listening does not force VFO-B TX).
 - ✅ **SPLIT** pile-up — TX on VFO B independent of SUB; gray TX pips; right-click SPLIT 1/5/10 kHz shift; lime TX marker (red on key); **◀ TX** / **TX ▶** when TX is off-span
 - ✅ Multi-radio list, auto-connect to the last radio, installer firewall rules (connect without admin rights)
 - ✅ **Stale-IP** guard (won't freeze trying to reach a radio that moved)
 - ✅ Graphics **crash ladder** (OpenGL → software, MSAA off on software) so a bad GPU driver does not leave Lyra with no window
+- ✅ **MSAA** picker **Off / 2× / 4× / 8×** (Settings → Visuals; default 4×; restart)
+- ✅ **Xvtr** band chips — RF dial, IF NCO, Disable PA default on; Shift+click SUB hop
 - ✅ HL2 **N2ADR / IO board OC** plus optional **Band Volts on J3** (fan PWM / dither bit); two different analog pins
 
 ## Receive (RX)
@@ -23,7 +25,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ Full WDSP receive chain — **USB / LSB / CW / AM / SAM / DSB / FM / DIGU / DIGL / SPEC**
 - ✅ Per-mode filters, AGC (Fast/Med/Slow/Long/Auto), **noise reduction**, noise blanker, **auto-notch (ANF)**, manual notches, all-mode **squelch**
 - ✅ **8-band RX parametric EQ** (draggable curve)
-- ✅ **Captured-noise profile** — grab your band noise and subtract it
+- ✅ **Captured-noise profile** — grab your band noise and subtract it (occupied bins mixed at full scale so the passband stays brick-wall)
 - ✅ **Centre-tune (CTUN)** — drag the marker onto a signal while the LO stays put
 - ✅ **RIT** (receiver incremental tuning)
 - ✅ **Zero-beat markers** — Kenwood-style ± needle to dead-tune a CW / AM / SAM / FM carrier by eye
