@@ -290,8 +290,7 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 [this](int) { pushAttOnTxToSession(); });
         auto pushPs = [this]() {
             if (!session_ || !stream_) return;
-            const bool armed =
-                stream_->psArmed() && stream_->psAttestation();
+            const bool armed = stream_->psLiveArmed();
             const quint16 rate = rateKhz_;
             const bool subOn = stream_->subEnabled();
             auto *s = session_;
@@ -304,6 +303,8 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
             });
         };
         connect(stream_, &lyra::ipc::HL2Stream::psArmedChanged, this,
+                [pushPs](bool) { pushPs(); }, Qt::QueuedConnection);
+        connect(stream_, &lyra::ipc::HL2Stream::psLiveArmedChanged, this,
                 [pushPs](bool) { pushPs(); }, Qt::QueuedConnection);
         connect(stream_, &lyra::ipc::HL2Stream::psAttestationChanged, this,
                 [pushPs](bool) { pushPs(); }, Qt::QueuedConnection);
@@ -536,7 +537,7 @@ void P2RxBridge::syncRx2Ddc()
     if (!open_ || !session_ || !stream_) return;
     auto *s = session_;
     if (!stream_->subEnabled()) {
-        const bool ps = stream_->psArmed() && stream_->psAttestation();
+        const bool ps = stream_->psLiveArmed();
         const quint16 khz = rateKhz_;
         QMetaObject::invokeMethod(s, [s, ps, khz]() {
             s->disarmSubSecondaryDdcs();
@@ -893,7 +894,7 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
             0, 31, 0);
     }
     const bool subOn = st && st->subEnabled();
-    const bool psOn = st && st->psArmed() && st->psAttestation();
+    const bool psOn = st && st->psLiveArmed();
     const quint32 rx2Hz = st ? st->rx2FreqHz() : 0;
     QMetaObject::invokeMethod(s, [s, ip, correctedHz, correctedTx, rate,
                                   bandAnt, p2hw,

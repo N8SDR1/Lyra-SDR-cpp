@@ -414,6 +414,14 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
         emit cwDecodedChar(QString::fromUtf8(s.c_str(),
                                              static_cast<int>(s.size())), 1.0);
     };
+    rttyDecoder_.setSampleRate(cfg_.outRate);
+    rttyDecoder_.setCenterHz(2210.0);
+    rttyDecoder_.setShiftHz(170.0);
+    rttyDecoder_.setBaud(45.45);
+    rttyDecoder_.onText = [this](const std::string& s) {
+        emit rttyDecodedChar(QString::fromUtf8(s.c_str(),
+                                               static_cast<int>(s.size())));
+    };
     cwDecoder_.onWpm = [this](int w) {
         if (cwCaptureOn_.load(std::memory_order_relaxed))
             cwHarvester_->feedWpm(w);
@@ -2436,6 +2444,18 @@ void WdspEngine::setCwDecodeEnabled(bool on)
     emit cwDecodeEnabledChanged();
 }
 
+void WdspEngine::setRttyDecodeEnabled(bool on)
+{
+    if (on == rttyDecodeOn_.load(std::memory_order_relaxed)) {
+        return;
+    }
+    if (on) {
+        rttyDecoder_.reset();
+    }
+    rttyDecodeOn_.store(on, std::memory_order_relaxed);
+    emit rttyDecodeEnabledChanged();
+}
+
 // Phase 3 — lazy-load the local RBN-confirmed call list from AppData (created
 // on first note).  GUI thread only; cheap after the first call.  Runs (and
 // mkpaths the app dir) regardless of the Learn gate, but load() never
@@ -2593,6 +2613,12 @@ void WdspEngine::setMode(const QString &m)
         const bool cwWas = cwModeActive_.load(std::memory_order_relaxed);
         cwModeActive_.store(cwNow, std::memory_order_relaxed);
         if (cwNow && !cwWas) cwDecoder_.reset();
+    }
+    {
+        const bool rttyNow = (m == QLatin1String("DIGU") || m == QLatin1String("DIGL"));
+        const bool rttyWas = rttyModeActive_.load(std::memory_order_relaxed);
+        rttyModeActive_.store(rttyNow, std::memory_order_relaxed);
+        if (rttyNow && !rttyWas) rttyDecoder_.reset();
     }
     // Zero-beat aid runs only in lockable-carrier modes.  Set the atomic on
     // the UI thread alongside mode_; the RX worker resets the estimator on the
@@ -4596,6 +4622,15 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
                 cwHarvestRing_->push(cwHarvestTmp_.data(),
                                      static_cast<int>(cwHarvestTmp_.size()));
         }
+    }
+
+    if (rttyDecodeOn_.load(std::memory_order_relaxed) &&
+        rttyModeActive_.load(std::memory_order_relaxed) && nframes > 0) {
+        if (static_cast<int>(cwMonoBuf_.size()) != nframes)
+            cwMonoBuf_.assign(static_cast<size_t>(nframes), 0.0f);
+        for (int f = 0; f < nframes; ++f)
+            cwMonoBuf_[static_cast<size_t>(f)] = static_cast<float>(audio[2 * f]);
+        rttyDecoder_.process(cwMonoBuf_.data(), nframes);
     }
 
     // #59 RX EQ — shape post-RXA audio BEFORE tees.  Single-RX is

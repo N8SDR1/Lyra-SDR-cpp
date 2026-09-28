@@ -25,7 +25,7 @@ Rectangle {
     readonly property var info: Stream.psInfo
 
     function fbZoneColor() {
-        if (!(Stream.moxActive && Stream.psArmed))
+        if (!(Stream.moxActive && Stream.psLiveArmed))
             return root.cMuted
         var fb = Number(Stream.psFeedbackLevel)
         if (fb > 181)
@@ -71,14 +71,14 @@ Rectangle {
                 radius: 4
                 color: "transparent"
                 border.color: root.fbZoneColor()
-                border.width: Stream.moxActive && Stream.psArmed ? 2 : 1
+                border.width: Stream.moxActive && Stream.psLiveArmed ? 2 : 1
                 HoverHandler { id: fbHover }
                 Label {
                     id: fbTxt
                     anchors.centerIn: parent
                     text: qsTr("FB %1").arg(Stream.psFeedbackLevel)
                     color: root.fbZoneColor()
-                    font.bold: Stream.moxActive && Stream.psArmed
+                    font.bold: Stream.moxActive && Stream.psLiveArmed
                     font.pixelSize: 12
                 }
                 ToolTip.text: qsTr("Coupler FB. Teal below 129 (low), green 129–181, red above 181 (hot).")
@@ -102,7 +102,7 @@ Rectangle {
                         .arg(Stream.psCorrecting ? qsTr("correcting") : qsTr("idle"))
                         .arg(d0s).arg(d1s)
                 }
-                color: Stream.moxActive && Stream.psArmed ? root.cText : root.cMuted
+                color: Stream.moxActive && Stream.psLiveArmed ? root.cText : root.cMuted
                 font.pixelSize: 12
                 elide: Text.ElideRight
             }

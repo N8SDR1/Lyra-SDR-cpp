@@ -1911,6 +1911,7 @@ int main(int argc, char *argv[])
                     if (m == QStringLiteral("SAM"))  return 6;   // TX SAM -> AM
                     if (m == QStringLiteral("DIGU")) return 7;
                     if (m == QStringLiteral("DIGL")) return 9;
+                    if (m == QStringLiteral("DRM"))  return 11;
                     return 1;       // USB default
                 };
                 // #50 native-rack digital gate: bypass the WHOLE mic DSP rack
@@ -1919,7 +1920,9 @@ int main(int argc, char *argv[])
                 // not source — a VAC-as-mic voice op in USB still gets the EQ.
                 auto txModeIsDigital = [](const QString &uiMode) -> bool {
                     const QString m = uiMode.toUpper();
-                    return m == QStringLiteral("DIGU") || m == QStringLiteral("DIGL");
+                    return m == QStringLiteral("DIGU")
+                        || m == QStringLiteral("DIGL")
+                        || m == QStringLiteral("DRM");
                 };
                 // Modes that auto-bypass the whole native mic rack: the digital
                 // data modes (above) PLUS FM — a multiband compressor / plate
@@ -1943,6 +1946,21 @@ int main(int argc, char *argv[])
                     stream->setTxMode(wdspTxModeFor(m0));
                     lyra::wire::SetTxRackBypass(txModeBypassesRack(m0) ? 1 : 0);
                 }
+                // PureSignal lock-out follows the Mode combo (focused RX),
+                // not only RX1/TXA (DIGU/DIGL/DRM/CWL/CWU/FM).
+                auto pushPsDigitalFromUi = [stream, prefs]() {
+                    const bool rx2 = stream->subEnabled() && stream->focusedRx() == 2;
+                    stream->setPsUiMode(rx2 ? prefs->modeRx2() : prefs->mode());
+                };
+                QObject::connect(prefs, &lyra::ui::Prefs::modeChanged,
+                                 stream, pushPsDigitalFromUi);
+                QObject::connect(prefs, &lyra::ui::Prefs::modeRx2Changed,
+                                 stream, pushPsDigitalFromUi);
+                QObject::connect(stream, &lyra::ipc::HL2Stream::focusedRxChanged,
+                                 stream, pushPsDigitalFromUi);
+                QObject::connect(stream, &lyra::ipc::HL2Stream::subEnabledChanged,
+                                 stream, pushPsDigitalFromUi);
+                pushPsDigitalFromUi();
 
                 // Hardening: Prefs.mode -> WdspEngine.mode is normally driven
                 // by the QML Binding on the (persistent) Tuning dock. This C++

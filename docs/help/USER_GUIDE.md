@@ -68,6 +68,7 @@ not programmers — if you can click a menu, you can use this.
   - [Is it legal to record?](#is-it-legal-to-record)
 - [CW operating (paddle, keyboard, TCI)](#cw-operating-paddle-keyboard-tci)
   - [Reading CW — the RX decoder](#reading-cw--the-rx-decoder)
+  - [Reading RTTY — the RX decoder](#reading-rtty--the-rx-decoder)
 - [Tuner (manual ATU memory)](#tuner-manual-atu-memory)
 - [Frequency calibration (WWV / time station)](#frequency-calibration-wwv--time-station)
 - [Profiles (TX/RX chain presets)](#profiles-txrx-chain-presets)
@@ -1876,7 +1877,10 @@ PC dies.
 ### Compact PureSignal dock
 
 - **ON / Arm** — arms the calibrator. The coupler path is live only
-  while **MOX is also on**.
+  while **MOX is also on**. **DIGU / DIGL / DRM / CWL / CWU / FM force
+  Arm off** (data modes, keyed CW, and constant-envelope FM — PS can
+  raise IMD or train on a carrier). Your Arm preference is kept; it
+  comes back when you leave those modes.
 - **SUB** — if Dual-RX was on, Lyra **pauses SUB for the keyed PS
   window** so DDC0/DDC1 can carry TX + feedback. Your saved SUB
   preference is **not** flipped off in Settings; SUB comes back when
@@ -2452,6 +2456,44 @@ copy well on typical signals; reach for the rest only when copy is rough:
 > **Tip.** There's no AFC — tune the signal onto your CW pitch on the
 > panadapter and leave it there; **Tracking** handles fist and speed, and
 > **Bandwidth** gives you the tolerance for small drift.
+
+### Reading RTTY — the RX decoder
+
+Lyra has a built-in **Baudot RTTY** reader, same idea as the CW decoder:
+click the **RTTY** chip on the top toolbar for a floating panel. It copies
+**only in DIGU/DIGL** (use **DIGU** on all HF bands, including 40 and 80).
+Outside those modes the panel notes “switch to DIGU/DIGL to decode.”
+
+The engine is a receive-only port of **fldigi’s** RTTY chain (W1HKJ /
+DL1SMF / OH2BNS gmfsk): dual mark/space mixers, raised-cosine FFT LPF,
+Optimal ATC v3, start/data/stop FSM, US Baudot. There is **no TX
+processing** in this decoder — it only reads the tones already in the
+demod audio. FSK keying of the radio is not this path.
+
+> **Quick copy.** Contest defaults: **45.45 baud / 170 Hz shift / 2210 Hz
+> centre** (mark 2295 / space 2125).
+>
+> 1. Mode **DIGU**, open **RTTY**, turn **Decoding** on.
+> 2. Tune so the two tones sit around **2210 Hz** in the passband.
+> 3. If letters come out as figures (or the other way around), tap
+>    **Reverse**.
+> 4. Double-click a call in the text → **His Call** (same Combo row as CW).
+
+**Knobs.** **Baud** 45.45 / 50 / 75, **Shift** 170 / 425 / 850, **Centre**
+500–3000 Hz, **Reverse**. **SQL** is on by default (threshold **18** on
+fldigi’s **0–100** metric). The cyan **Signal** bar is that metric (mark +
+space vs noise); the amber tick is your threshold — raise it until noise
+stops printing, then drop it just under a real signal. Print is gated the
+same way as fldigi (valid stop bit **and** metric ≥ SQL). Turn SQL off only
+if you want every false start. Font and colour reuse the CW decoder display
+prefs.
+
+**SDRLogger+ Combo.** Grabs fill His Call / Name like CW. With Combo on, a
+macro `{LOG}` in DIGU/DIGL **while RTTY decoding is on** stamps the QSO
+mode as **RTTY**, not DIGU.
+
+TX AFSK (Lyra generating the tones) is a later step; this panel is RX copy
+only.
 
 ---
 
@@ -4163,7 +4205,7 @@ Over an ordinary TCI link it already drives Lyra and shows spots — but
 turning on **Combo** upgrades that one-way link into a two-way
 *collaboration* that runs over the **same TCI socket**: no bridge app, no
 second connection, no extra port. The CW Console, the CW Decoder and the
-logger start acting as one desk.
+logger — and the RTTY decoder — start acting as one desk.
 
 **Engage it** with a single switch:
 
@@ -4179,7 +4221,8 @@ logger start acting as one desk.
 With Combo on, four things happen automatically as you work a station:
 
 - **Call → logger.** Put a call in Lyra's CW Console **His call** — type
-  it, or grab it from the [CW Decoder](#reading-cw--the-rx-decoder) — and
+  it, or grab it from the [CW Decoder](#reading-cw--the-rx-decoder) or
+  [RTTY Decoder](#reading-rtty--the-rx-decoder) — and
   it lands in SDRLogger+'s log entry and fires its callbook (QRZ / HamQTH)
   lookup. You copy the call once, in Lyra, and the logger catches up.
 - **Name → back to `{NAME}`.** After that lookup resolves, SDRLogger+
@@ -4199,7 +4242,9 @@ With Combo on, four things happen automatically as you work a station:
 - **One-click log with `{LOG}`.** Add the **`{LOG}`** action token to a CW
   macro — e.g. `TU 73 {MYCALL} ee {LOG}` — and sending that macro sends
   the sign-off *and* logs the QSO in SDRLogger+ (call, RST, mode and
-  frequency all stamped from the shared state). A macro that is **only**
+  frequency all stamped from the shared state). In **DIGU/DIGL** with the
+  RTTY decoder on, that log stamps mode **RTTY** rather than DIGU. A macro
+  that is **only**
   `{LOG}` is a log-only button that keys nothing. See
   [CW operating](#cw-operating-paddle-keyboard-tci) for how `{LOG}` sits in
   the token palette (it's the **yellow** action chip).

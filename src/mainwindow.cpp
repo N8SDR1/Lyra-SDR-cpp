@@ -228,6 +228,7 @@ inline bool isChipSummonedPanel(const QString &objectName) {
         || objectName == QLatin1String("rxeq")
         || objectName == QLatin1String("cwconsole")
         || objectName == QLatin1String("cwdecoder")
+        || objectName == QLatin1String("rttydecoder")
         || objectName == QLatin1String("voicekeyer")
         || objectName == QLatin1String("tuner")
         || objectName == QLatin1String("freqcal")
@@ -1661,6 +1662,15 @@ void MainWindow::buildDocks() {
         d->setFloating(true);
         d->hide();
     }
+    // RTTY Decoder — DIGU/DIGL Baudot copy, same grab path as CW Dec.
+    addQuickDock(QStringLiteral("rttydecoder"), tr("RTTY Decoder"),
+                 QStringLiteral("RttyDecoderPanel.qml"),
+                 QStringLiteral("rttydecoder"), Qt::BottomDockWidgetArea,
+                 /*resizable=*/true);
+    if (QDockWidget *d = docks_.value(QStringLiteral("rttydecoder"))) {
+        d->setFloating(true);
+        d->hide();
+    }
     // Voice Keyer (#89 Build 1) — floating clip-message panel (labelled clips,
     // ▶ OTA / ▶ Review / F-keys), chip-summoned like the CW console.  Own dock;
     // floats + hidden by default so the front panel stays clean.
@@ -2430,6 +2440,16 @@ void MainWindow::buildToolbar() {
                 btn->setStyleSheet(QString::fromLatin1(kTxDspChipQss));
             }
         }
+        if (QDockWidget *d = docks_.value(QStringLiteral("rttydecoder"))) {
+            QAction *act = d->toggleViewAction();
+            act->setText(tr("RTTY"));
+            tb->addAction(act);
+            if (auto *btn = qobject_cast<QToolButton *>(
+                    tb->widgetForAction(act))) {
+                btn->setObjectName(QStringLiteral("txDspChip"));
+                btn->setStyleSheet(QString::fromLatin1(kTxDspChipQss));
+            }
+        }
         // Voice Keyer launcher (#89 Build 1) — floating clip-message panel.
         if (QDockWidget *d = docks_.value(QStringLiteral("voicekeyer"))) {
             QAction *act = d->toggleViewAction();
@@ -2447,6 +2467,7 @@ void MainWindow::buildToolbar() {
                                     QStringList{ QStringLiteral("tuner"),
                                                  QStringLiteral("cwconsole"),
                                                  QStringLiteral("cwdecoder"),
+                                                 QStringLiteral("rttydecoder"),
                                                  QStringLiteral("voicekeyer") });
             optionsRack_ = orr.first; optionsRackChip_ = orr.second;
         }

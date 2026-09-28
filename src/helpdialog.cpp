@@ -65,6 +65,8 @@ const QHash<QString, QString> &topicHeads() {
          QStringLiteral("CW operating (paddle, keyboard, TCI)")},
         {QStringLiteral("cwdecoder"),
          QStringLiteral("Reading CW — the RX decoder")},
+        {QStringLiteral("rttydecoder"),
+         QStringLiteral("Reading RTTY — the RX decoder")},
         {QStringLiteral("tuner"),     QStringLiteral("Tuner (manual ATU memory)")},
         {QStringLiteral("profiles"),
          QStringLiteral("Profiles (TX/RX chain presets)")},

@@ -3132,6 +3132,7 @@ void HL2Stream::setPsAttestation(bool on) {
         setPsArmed(false);
     else
         refreshPsWire();
+    emit psLiveArmedChanged(psLiveArmed());
 }
 
 void HL2Stream::setPsArmed(bool on) {
@@ -3142,6 +3143,36 @@ void HL2Stream::setPsArmed(bool on) {
     QSettings().setValue(QStringLiteral("tx/psArmed"), on);
     emit psArmedChanged(on);
     refreshPsWire();
+    emit psLiveArmedChanged(psLiveArmed());
+}
+
+bool HL2Stream::psDigitalLockout() const {
+    // WDSP TXA: CWL=3, CWU=4, FM=5, DIGU=7, DIGL=9, DRM=11. Also the
+    // Mode combo on the focused RX (psUiDigital_) — TXA can lag RX2 /
+    // stay USB.
+    if (psUiDigital_.load(std::memory_order_relaxed))
+        return true;
+    const int m = txMode_.load(std::memory_order_relaxed);
+    return m == 3 || m == 4 || m == 5 || m == 7 || m == 9 || m == 11;
+}
+
+void HL2Stream::setPsUiMode(const QString &uiMode) {
+    const QString m = uiMode.toUpper();
+    const bool digital = (m == QLatin1String("DIGU")
+                       || m == QLatin1String("DIGL")
+                       || m == QLatin1String("DRM")
+                       || m == QLatin1String("CWL")
+                       || m == QLatin1String("CWU")
+                       || m == QLatin1String("FM"));
+    const bool was = psUiDigital_.exchange(digital, std::memory_order_relaxed);
+    if (was == digital)
+        return;
+    refreshPsWire();
+    emit psLiveArmedChanged(psLiveArmed());
+}
+
+bool HL2Stream::psLiveArmed() const {
+    return psAttestation_ && psArmed_ && !psDigitalLockout();
 }
 
 void HL2Stream::resetPureSignal() {
@@ -3237,7 +3268,7 @@ int HL2Stream::psFeedSpr() const {
 
 void HL2Stream::refreshPsWire() {
     using namespace lyra::ps;
-    const bool liveArmed = psAttestation_ && psArmed_;
+    const bool liveArmed = psLiveArmed();
     const bool mox = lyra::wire::XmitBit != 0;
     const auto fam = p2DrivePath_.load(std::memory_order_relaxed)
                          ? lyra::rig::RadioFamily::BrickP2
@@ -4739,6 +4770,10 @@ void HL2Stream::setTxMode(int wdspMode) {
     // #107 — re-derive the CTCSS run state on the mode edge: the FM sub-tone
     // runs only in FM (WDSP mode 5) and only when the operator enabled it.
     applyCtcssRun();
+    // PureSignal: drop the coupler/calibrator in DIGU/DIGL/DRM/CWL/CWU/FM;
+    // restore the operator Arm flag (still persisted) when leaving those.
+    refreshPsWire();
+    emit psLiveArmedChanged(psLiveArmed());
     // #170c — re-derive the TX drive byte on the mode edge: the CW watts-cap
     // fold in applyTxPower_ folds the (gateware-bypassed) fixed gain into the
     // coarse byte only in CW, so entering/leaving CW must re-push the byte.

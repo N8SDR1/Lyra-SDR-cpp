@@ -157,3 +157,16 @@ resets the peak-hold. Inline "S-auto" toggle + auto/manual badge by the field.
 Chosen over an in-app rolling-min noise-floor estimate because Lyra's SNR is a
 real DSP measurement and matches what the operator sees on Lyra's meter. Ships
 in the same Lyra rebuild as Stage B.
+
+## 11. Native RTTY uses the same Combo (locked 2026-09-27)
+
+Native RTTY (see `rtty_fldigi_design.md`) is a **second producer of the
+same contact object**, not a second protocol.
+
+- Grab from the RTTY transcript writes `CwMacroModel::hisCall` / `opName`
+  — `lyra_contact` already fires.
+- `{LOG}` from an RTTY send must broadcast `lyra_log` with **mode `RTTY`**,
+  not `DIGU` (`prefs_->mode()` during AFSK would be wrong for ADIF).
+- One Combo master toggle. Do not stream Baudot to SDRLogger+.
+- SL+: confirm `lyra_log` ADIF accepts `RTTY`; copy that says “CW Console
+  only” can be widened when RTTY ships.

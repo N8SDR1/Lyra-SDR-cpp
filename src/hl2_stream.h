@@ -319,6 +319,11 @@ class HL2Stream : public QObject {
                NOTIFY psAttestationChanged)
     Q_PROPERTY(bool psArmed READ psArmed WRITE setPsArmed
                NOTIFY psArmedChanged)
+    // Live coupler/calibrator enable: operator Arm AND-gated with
+    // attestation and not DIGU/DIGL/DRM/CWL/CWU/FM (mode lock-out).
+    Q_PROPERTY(bool psLiveArmed READ psLiveArmed NOTIFY psLiveArmedChanged)
+    Q_PROPERTY(bool psDigitalLockout READ psDigitalLockout
+               NOTIFY psLiveArmedChanged)
     Q_PROPERTY(int psFeedbackLevel READ psFeedbackLevel
                NOTIFY psFeedbackLevelChanged)
     Q_PROPERTY(int psAutoAttDb READ psAutoAttDb NOTIFY psAutoAttDbChanged)
@@ -961,6 +966,8 @@ public:
     bool    twoToneEnabled() const { return twoToneEnabled_.load(std::memory_order_relaxed); }
     bool    psAttestation() const { return psAttestation_; }
     bool    psArmed() const { return psArmed_; }
+    bool    psDigitalLockout() const;
+    bool    psLiveArmed() const;
     int     psFeedbackLevel() const;
     int     psAutoAttDb() const;
     int     psFsmState() const;
@@ -1492,6 +1499,11 @@ public slots:
     // current sideband selection.  No-op if TxControl not registered
     // or if the callback is null.
     void setTxMode(int wdspMode);
+    // DIGU/DIGL/DRM/CWL/CWU/FM lock-out for PureSignal — driven from the
+    // Mode combo (focused RX), not only the TXA integer.  TX can still
+    // sit at USB while the operator is looking at DIGU on RX2; the lamp
+    // and coupler must follow the mode they switched.
+    void setPsUiMode(const QString &uiMode);
 
     // P4.b TUN — TX NCO freq for the current state: the dial when not
     // tuning, dial ∓ kTuneCwPitchHz while tuning (USB −, LSB +) so the
@@ -1612,6 +1624,7 @@ signals:
     void twoToneEnabledChanged(bool on);
     void psAttestationChanged(bool on);
     void psArmedChanged(bool on);
+    void psLiveArmedChanged(bool on);
     void psFeedbackLevelChanged(int level);
     void psAutoAttDbChanged(int db);
     void psFsmStateChanged(int state);
@@ -2129,6 +2142,7 @@ private:
     std::atomic<int>     lastTxBand_{-2};
     std::atomic<int>     txStepAttnDb_{0};      // 0..31 dB; 0x1C C3 (31-db)
     std::atomic<int>     txMode_{1};            // 0=LSB 1=USB; mirror of the WDSP TXA mode, for the TUN DDS-offset sign (txDdsHzForTune)
+    std::atomic<bool>    psUiDigital_{false};   // focused RX DIG/DRM/CW/FM lock-out
     // #105 CW-2 — the single live CW pitch (shared with the RX pitch +
     // marker; fed from WdspEngine::cwPitchHz via setCwPitchHz, wired in
     // main.cpp).  Drives the keyed CW carrier offset + the HW sidetone freq.

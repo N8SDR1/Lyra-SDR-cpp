@@ -72,6 +72,43 @@ demod audio to 8 kHz and is Lyra-native glue around the port.
 
 ---
 
+## fldigi — RTTY receive decoder
+
+Lyra-cpp's RX RTTY decoder is a faithful, receive-only source port of
+the RTTY chain from fldigi (Baudot, Optimal ATC v3, raised-cosine
+FFT LPF).  TX (AFSK tone generation) is not in this port.
+
+### Source
+
+- **Project:** fldigi (Fast Light Digital Modem)
+- **Ported source files:** `src/cw_rtty/rtty.cxx` + `src/include/rtty.h`,
+  `src/filters/fftfilt.cxx::rtty_filter`
+- **Upstream:** https://github.com/w1hkj/fldigi
+- **Project home:** http://www.w1hkj.com/
+
+### Contributors credited
+
+- **Dave Freese (W1HKJ)** — fldigi author and maintainer.
+- **Stefan Fendt (DL1SMF)** — RTTY modem work in fldigi.
+- **Tomi Manninen (OH2BNS)** — gmfsk origin of the RTTY receive chain.
+
+### Original copyright + license
+
+- **Original copyright:** (C) various fldigi contributors (see
+  per-file headers in upstream fldigi source).
+- **License:** GNU General Public License v3 or later.
+
+### Usage in Lyra-cpp
+
+Lyra-cpp's `src/dsp/rtty_fldigi/` (`fldigi_rtty.{h,cpp}`) plus
+`FftFilt::rtty_filter` in `src/dsp/cw_fldigi/` is a C++23 port of
+fldigi's RTTY *receive* chain — dual mixer → raised-cosine FFT LPF →
+Optimal ATC v3 → start/data/stop FSM → Baudot — at fldigi's native
+8000 Hz RTTY sample rate.  The adapter (`src/dsp/RttyDecoder.{h,cpp}`)
+decimates Lyra's 48 kHz demod audio to 8 kHz and is Lyra-native glue.
+
+---
+
 ## openHPSDR Thetis — TX baseline architecture
 
 Lyra-cpp's TX baseline is a C++23 port of the openHPSDR Thetis

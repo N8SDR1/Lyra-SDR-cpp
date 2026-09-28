@@ -1844,10 +1844,11 @@ QWidget *SettingsDialog::buildNetworkTab() {
     auto *combo = new QCheckBox(tr("SDRLogger+ Combo (share CW Console contact)"), grp);
     combo->setChecked(tci_->comboEnabled());
     combo->setToolTip(tr("Two-way link with SDRLogger+ over this TCI connection.\n"
-                         "When on, a callsign grabbed in the CW Decoder / typed in\n"
-                         "the CW Console populates the SDRLogger+ log entry (and its\n"
-                         "callbook lookup fills the {NAME} token back here). A macro\n"
-                         "containing the {LOG} tag logs the QSO in SDRLogger+.\n"
+                         "When on, a callsign grabbed in the CW Decoder or RTTY Decoder\n"
+                         "/ typed in the CW Console populates the SDRLogger+ log entry\n"
+                         "(and its callbook lookup fills the {NAME} token back here).\n"
+                         "A macro containing the {LOG} tag logs the QSO in SDRLogger+.\n"
+                         "In DIGU/DIGL with RTTY decoding on, {LOG} stamps mode RTTY.\n"
                          "SDRLogger+ shows a “Lyra Combo: Linked” indicator while active."));
     connect(combo, &QCheckBox::toggled, tci_,
             [this](bool on) { tci_->setComboEnabled(on); });
@@ -3936,10 +3937,13 @@ QWidget *SettingsDialog::buildHardwareTab() {
 
             auto *psArm = new QCheckBox(tr("Arm PureSignal"), grp);
             psArm->setChecked(stream_->psArmed());
-            psArm->setEnabled(stream_->psAttestation());
+            psArm->setEnabled(stream_->psAttestation()
+                              && !stream_->psDigitalLockout());
             psArm->setToolTip(tr(
                 "Sets puresignal_run (frames 11/16 C2 bit 6). HL2 mux "
-                "cntrl1=4 only while MOX is also on. Requires attestation."));
+                "cntrl1=4 only while MOX is also on. Requires attestation. "
+                "Forced off in DIGU/DIGL/DRM/CWL/CWU/FM; Arm restores when "
+                "you leave those modes."));
             connect(psArm, &QCheckBox::toggled, stream_,
                     &lyra::ipc::HL2Stream::setPsArmed);
             connect(stream_, &lyra::ipc::HL2Stream::psArmedChanged, psArm,
@@ -3947,7 +3951,16 @@ QWidget *SettingsDialog::buildHardwareTab() {
                         if (psArm->isChecked() != on) psArm->setChecked(on);
                     });
             connect(stream_, &lyra::ipc::HL2Stream::psAttestationChanged, psArm,
-                    [psArm](bool att) { psArm->setEnabled(att); });
+                    [this, psArm](bool att) {
+                        psArm->setEnabled(att && stream_
+                                          && !stream_->psDigitalLockout());
+                    });
+            connect(stream_, &lyra::ipc::HL2Stream::psLiveArmedChanged, psArm,
+                    [this, psArm](bool) {
+                        psArm->setEnabled(stream_
+                            && stream_->psAttestation()
+                            && !stream_->psDigitalLockout());
+                    });
             g->addWidget(psArm, 7, 0, 1, 2);
 
             auto *psHelp = new QLabel(grp);
@@ -9021,7 +9034,7 @@ QWidget *SettingsDialog::buildVisualsTab() {
 
     auto *optGrp = new QCheckBox(tr("Group Options panels into one window"), page);
     optGrp->setChecked(prefs_->optionsPanelsGrouped());
-    optGrp->setToolTip(tr("Off: Tuner / CW / CW Dec / Voice Keyer each float "
+    optGrp->setToolTip(tr("Off: Tuner / CW / CW Dec / RTTY / Voice Keyer each float "
                           "from their own chip.  On: one \"Options\" chip opens "
                           "a single window holding them all.  (CTUN, Freq Cal "
                           "and WF-ID always stay on their own chips.)  Applies "

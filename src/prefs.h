@@ -147,6 +147,18 @@ class Prefs : public QObject {
                NOTIFY cwDecodeSquelchOnChanged)
     Q_PROPERTY(double cwDecodeSquelchValue READ cwDecodeSquelchValue WRITE setCwDecodeSquelchValue
                NOTIFY cwDecodeSquelchValueChanged)
+    Q_PROPERTY(int rttyCenterHz READ rttyCenterHz WRITE setRttyCenterHz
+               NOTIFY rttyCenterHzChanged)
+    Q_PROPERTY(int rttyShiftHz READ rttyShiftHz WRITE setRttyShiftHz
+               NOTIFY rttyShiftHzChanged)
+    Q_PROPERTY(double rttyBaud READ rttyBaud WRITE setRttyBaud
+               NOTIFY rttyBaudChanged)
+    Q_PROPERTY(bool rttyReverse READ rttyReverse WRITE setRttyReverse
+               NOTIFY rttyReverseChanged)
+    Q_PROPERTY(bool rttySquelchOn READ rttySquelchOn WRITE setRttySquelchOn
+               NOTIFY rttySquelchOnChanged)
+    Q_PROPERTY(double rttySquelchValue READ rttySquelchValue WRITE setRttySquelchValue
+               NOTIFY rttySquelchValueChanged)
     // Noise-floor reference line on the panadapter (old-Lyra parity):
     // a dashed line at the rolling ~20th-percentile floor + an
     // "NF -NN dBFS" label.  On/off + colour are operator-tunable.
@@ -511,6 +523,18 @@ public:
     void    setCwDecodeSquelchOn(bool on);
     double  cwDecodeSquelchValue() const { return cwDecodeSquelchValue_; }
     void    setCwDecodeSquelchValue(double v);
+    int     rttyCenterHz() const { return rttyCenterHz_; }
+    void    setRttyCenterHz(int hz);
+    int     rttyShiftHz() const { return rttyShiftHz_; }
+    void    setRttyShiftHz(int hz);
+    double  rttyBaud() const { return rttyBaud_; }
+    void    setRttyBaud(double baud);
+    bool    rttyReverse() const { return rttyReverse_; }
+    void    setRttyReverse(bool on);
+    bool    rttySquelchOn() const { return rttySquelchOn_; }
+    void    setRttySquelchOn(bool on);
+    double  rttySquelchValue() const { return rttySquelchValue_; }
+    void    setRttySquelchValue(double v);
     bool peakShowDb() const { return peakShowDb_; }
     void setPeakShowDb(bool v);
     bool noiseFloorEnabled() const { return noiseFloorEnabled_; }
@@ -715,6 +739,12 @@ signals:
     void cwDecodeMatchedFilterChanged();
     void cwDecodeSquelchOnChanged();
     void cwDecodeSquelchValueChanged();
+    void rttyCenterHzChanged();
+    void rttyShiftHzChanged();
+    void rttyBaudChanged();
+    void rttyReverseChanged();
+    void rttySquelchOnChanged();
+    void rttySquelchValueChanged();
     void peakClearRequested();
     void noiseFloorEnabledChanged();
     void noiseFloorColorChanged();
@@ -823,6 +853,12 @@ private:
     bool    cwDecodeMatchedFilter_;
     bool    cwDecodeSquelchOn_;
     double  cwDecodeSquelchValue_;
+    int     rttyCenterHz_     = 2210;
+    int     rttyShiftHz_      = 170;
+    double  rttyBaud_         = 45.45;
+    bool    rttyReverse_      = false;
+    bool    rttySquelchOn_    = true;
+    double  rttySquelchValue_ = 18.0;
     bool    noiseFloorEnabled_;
     QString noiseFloorColor_;
     bool    watermark_;
