@@ -2095,25 +2095,45 @@ int main(int argc, char *argv[])
             // ── Session restore: NR-C + CTUN (tester request 2026-07-03) ──
             // Both RX-only, so — unlike WF-ID, which we force OFF each launch
             // for TX safety — there's no reason not to remember them.
-            //  • Auto-load the operator's chosen noise profile (Settings →
-            //    Noise) so NR-C comes up ready instead of an empty field.
-            //    loadNoiseProfile self-guards the sample rate: a stale-rate
-            //    profile loads nothing and NR-C stays off (recapture hint).
-            //  • Re-engage NR-C only if it was on last time AND the profile
-            //    actually loaded.  Re-engage CTUN if it was on — the stream
-            //    restored rx1FreqHz in its ctor, so it locks at the real dial.
+            //
+            // Sample rate MUST land on the engine before loadNoiseProfile.
+            // Profiles are rate-tagged; a mismatch loads nothing.  Since
+            // v0.24.4, ModeFilterPanel's applyRate() runs only after deferred
+            // QML docks — AFTER this block — so autoload was always racing
+            // the default 192 kHz.  Push Prefs here (idempotent with QML).
             {
-                QSettings s;
-                const QString autoProf =
-                    s.value(QStringLiteral("dsp/noiseAutoLoadProfile")).toString();
-                if (!autoProf.isEmpty()
-                    && wdspEngine->noiseProfiles().contains(autoProf)
-                    && wdspEngine->loadNoiseProfile(autoProf)
-                    && s.value(QStringLiteral("dsp/noiseApplyEnabled"),
-                               false).toBool()) {
-                    wdspEngine->setNoiseApply(true);
+                const int rate = prefs->sampleRate();
+                stream->setSampleRate(rate);
+                wdspEngine->setSampleRate(rate);
+            }
+            //  • Auto-load: Settings → Noise combo, else last saved/loaded
+            //    profile.  NR-C on/off follows dsp/noiseApplyEnabled (off
+            //    at exit stays off).  Rate-guarded.
+            //  • Re-apply after docksReady: deferred AudioPanel ComboBoxes
+            //    used to fire onActivated at bind and wipe apply/FFT.
+            //  • Re-engage CTUN if it was on — the stream restored
+            //    rx1FreqHz in its ctor, so it locks at the real dial.
+            {
+                wdspEngine->restoreLastNoiseProfile();
+                // AudioPanel ComboBoxes fire onActivated at bind and again
+                // shortly after the dock is live.  Re-apply after that, or
+                // NR-C is blank on every restart.
+                auto reNrc = [wdspEngine]() {
+                    QTimer::singleShot(600, wdspEngine, [wdspEngine]() {
+                        wdspEngine->restoreLastNoiseProfile();
+                    });
+                };
+                if (win->docksAreReady()) {
+                    QTimer::singleShot(0, wdspEngine, reNrc);
+                } else {
+                    QObject::connect(win, &lyra::ui::MainWindow::docksReady,
+                                     wdspEngine, reNrc,
+                                     static_cast<Qt::ConnectionType>(
+                                         Qt::QueuedConnection
+                                         | Qt::SingleShotConnection));
                 }
-                if (s.value(QStringLiteral("ui/ctunEnabled"), false).toBool())
+                if (QSettings().value(QStringLiteral("ui/ctunEnabled"), false)
+                        .toBool())
                     stream->setCtuneEnabled(true);
             }
         }

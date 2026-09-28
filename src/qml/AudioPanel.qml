@@ -47,6 +47,10 @@ Rectangle {
     // the SUB click (same lesson as PanadapterPanel). Vol2/MUTE2 must track
     // the signal so RX2 gain is reachable when SUB is on.
     property bool subOn: false
+    // ComboBox onActivated fires at first bind (index −1 → 0).  Ignore
+    // until after this panel has finished loading so FFT/profile picks
+    // cannot wipe a just-restored NR-C profile.
+    property bool nrcCombosLive: false
 
     // Small toggle button matching old Lyra's dsp_btn (orange when on).
     component DspToggle: Button {
@@ -80,6 +84,12 @@ Rectangle {
     }
 
     Component.onCompleted: subOn = Stream.subEnabled
+    Timer {
+        interval: 800
+        running: true
+        repeat: false
+        onTriggered: root.nrcCombosLive = true
+    }
     Connections {
         target: Stream
         function onSubEnabledChanged() { root.subOn = Stream.subEnabled }
@@ -929,7 +939,11 @@ Rectangle {
                 model: ["3 s", "5 s", "10 s"]
                 property var secs: [3.0, 5.0, 10.0]
                 currentIndex: secs.indexOf(WdspEngine.noiseCaptureSeconds)
-                onActivated: (i) => WdspEngine.setNoiseCaptureSeconds(secs[i])
+                onActivated: (i) => {
+                    if (!root.nrcCombosLive)
+                        return
+                    WdspEngine.setNoiseCaptureSeconds(secs[i])
+                }
                 ToolTip.text: qsTr("Capture window length.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 400
             }
@@ -940,7 +954,18 @@ Rectangle {
                 model: ["2048", "4096", "8192"]
                 property var sizes: [2048, 4096, 8192]
                 currentIndex: sizes.indexOf(WdspEngine.noiseFftSize)
-                onActivated: (i) => WdspEngine.setNoiseFftSize(sizes[i])
+                onActivated: (i) => {
+                    if (!root.nrcCombosLive)
+                        return
+                    if (i < 0 || i >= sizes.length)
+                        return
+                    if (sizes[i] === WdspEngine.noiseFftSize)
+                        return
+                    // Bind-time ComboBox fires can land after restore; never
+                    // wipe a just-loaded profile unless the operator picked
+                    // a different FFT size.
+                    WdspEngine.setNoiseFftSize(sizes[i])
+                }
                 ToolTip.text: qsTr("FFT resolution — 8192 resolves wide ESSB noise finest "
                     + "(more latency); 2048 = lowest latency. Changing it clears the "
                     + "current profile (size-specific).")
@@ -950,8 +975,11 @@ Rectangle {
             DspToggle {
                 text: qsTr("NR-C")
                 implicitWidth: 48
+                // Not checkable: onToggled at dock load wrote OFF into
+                // QSettings after autoload had already turned NR-C on.
+                checkable: false
                 checked: WdspEngine.noiseApplyEnabled
-                onToggled: WdspEngine.setNoiseApply(checked)
+                onClicked: WdspEngine.setNoiseApply(!WdspEngine.noiseApplyEnabled)
                 note: qsTr("Apply the captured noise profile to RX audio (IQ-domain "
                     + "spectral subtraction, before WDSP). Capture or load a profile first.")
             }
@@ -1053,7 +1081,12 @@ Rectangle {
                 model: WdspEngine.noiseProfiles
                 displayText: count > 0 ? currentText : qsTr("(no profiles)")
                 onActivated: (i) => {
-                    WdspEngine.loadProfileOrWarn(textAt(i))
+                    if (!root.nrcCombosLive)
+                        return
+                    var n = textAt(i)
+                    if (n === WdspEngine.noiseActiveProfile)
+                        return
+                    WdspEngine.loadProfileOrWarn(n)
                     currentIndex = WdspEngine.noiseProfiles
                                    .indexOf(WdspEngine.noiseActiveProfile)
                 }
@@ -1062,6 +1095,10 @@ Rectangle {
                 Connections {
                     target: WdspEngine
                     function onNoiseProfilesChanged() {
+                        profCombo.currentIndex = WdspEngine.noiseProfiles
+                            .indexOf(WdspEngine.noiseActiveProfile)
+                    }
+                    function onNoiseSettingsChanged() {
                         profCombo.currentIndex = WdspEngine.noiseProfiles
                             .indexOf(WdspEngine.noiseActiveProfile)
                     }

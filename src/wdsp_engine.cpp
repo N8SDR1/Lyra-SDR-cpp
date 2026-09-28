@@ -3905,9 +3905,10 @@ void WdspEngine::setNoiseApply(bool on)
         }
         applyEnabled_.store(on, std::memory_order_relaxed);
     }
-    // Remember the operator's NR-C on/off across restarts (main.cpp restores
-    // it at launch after auto-loading the chosen profile).
-    QSettings().setValue(QStringLiteral("dsp/noiseApplyEnabled"), on);
+    QSettings s;
+    s.setValue(QStringLiteral("dsp/noiseApplyEnabled"), on);
+    if (on && !npActiveName_.isEmpty())
+        s.setValue(QStringLiteral("dsp/noiseLastProfile"), npActiveName_);
     emitLog(on ? QStringLiteral("Noise apply: ON")
                : QStringLiteral("Noise apply: OFF"));
     emit noiseApplyChanged();
@@ -4053,7 +4054,12 @@ bool WdspEngine::saveNoiseProfile(const QString &name)
     if (!slot) { profiles_.push_back(sp); slot = &profiles_.back(); }
     if (!writeProfileFile(*slot)) return false;
     npActiveName_ = nm;
+    QSettings s;
+    s.setValue(QStringLiteral("dsp/noiseLastProfile"), nm);
+    s.setValue(QStringLiteral("dsp/noiseApplyEnabled"), true);
+    noiseProfileValid_.store(false, std::memory_order_relaxed);
     emit noiseProfilesChanged();
+    emit noiseCaptureChanged();
     return true;
 }
 
@@ -4082,10 +4088,37 @@ bool WdspEngine::loadNoiseProfile(const QString &name)
         applyReducerParams();
         reducer_->setProfile(found->power);
         npActiveName_ = name;
+        noiseProfileValid_.store(false, std::memory_order_relaxed);
     }
+    QSettings().setValue(QStringLiteral("dsp/noiseLastProfile"), name);
     emit noiseSettingsChanged();
     emit noiseProfilesChanged();
+    emit noiseCaptureChanged();
     return true;
+}
+
+void WdspEngine::restoreLastNoiseProfile()
+{
+    QSettings s;
+    const QStringList names = noiseProfiles();
+    QString name =
+        s.value(QStringLiteral("dsp/noiseAutoLoadProfile")).toString().trimmed();
+    if (name.isEmpty() || !names.contains(name))
+        name = s.value(QStringLiteral("dsp/noiseLastProfile")).toString().trimmed();
+    if (name.isEmpty() || !names.contains(name)) {
+        emitLog(QStringLiteral("NR-C restore: no saved profile to load"));
+        return;
+    }
+    if (!loadNoiseProfile(name)) {
+        emitLog(QStringLiteral("NR-C restore: '%1' did not load").arg(name));
+        return;
+    }
+    const bool apply =
+        s.value(QStringLiteral("dsp/noiseApplyEnabled"), false).toBool();
+    setNoiseApply(apply);
+    emitLog(QStringLiteral("NR-C restore: loaded '%1' apply %2")
+                .arg(name, apply ? QStringLiteral("ON")
+                                 : QStringLiteral("OFF")));
 }
 
 void WdspEngine::deleteNoiseProfile(const QString &name)

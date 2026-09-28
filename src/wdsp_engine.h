@@ -621,6 +621,9 @@ public:
     // size; refuses (returns false) if its capture RATE differs from the
     // current IQ rate (caller shows a recapture hint).
     Q_INVOKABLE bool loadNoiseProfile(const QString &name);
+    // Settings auto-load name, else last saved/loaded profile.  Apply
+    // follows dsp/noiseApplyEnabled (off at exit stays off).
+    Q_INVOKABLE void restoreLastNoiseProfile();
     Q_INVOKABLE void deleteNoiseProfile(const QString &name);
     // Rename a saved profile (and its file).  False if not found or the
     // new name is empty / already in use.
