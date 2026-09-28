@@ -710,7 +710,9 @@ FM (repeaters); leave RPT alone if you are not on FM.
   / 1 kHz / 5 kHz / 10 kHz** (default **1 kHz**).
 - **Mode** — under the VFO: **LSB, USB, CWL, CWU, DSB, AM, FM, DIGU,
   DIGL**. (Mode lives with the VFO it applies to — moved here from the
-  old Mode + Filter panel.)
+  old Mode + Filter panel.) **PureSignal** only runs in phone/AM-class
+  modes; **DIGU / DIGL / DRM / CWL / CWU / FM** force it off — see
+  [Modes that force PureSignal off](#modes-that-force-puresignal-off).
 - **CW Pitch** — on the centred row beneath the VFO, only in CW modes
   (CWU/CWL): your preferred sidetone / beat-note pitch, **200–1500 Hz**.
   The receive filter centers on this pitch and the tuned-carrier marker
@@ -1874,13 +1876,33 @@ PC dies.
 | Header **Options → Amp View** | Opens the **AMP VIEW** plot (last two chips on the Options row) |
 | TX panel **2-tone** | Two-tone generator that **keys MOX** — the usual PS tune-up carrier |
 
+### Modes that force PureSignal off
+
+The **ON / Arm** chip follows the **focused** Mode combo (the VFO you
+last clicked), not only RX1. SUB on RX2 in DIGU with RX1 still USB
+still turns PS off.
+
+Your **Arm** tick is remembered. Lyra just **holds the calibrator off**
+in the modes below; leave those modes and Arm comes back if it was on.
+
+| Mode | PureSignal |
+|---|---|
+| **USB, LSB** | Available — this is the usual phone / ESSB path |
+| **AM, SAM, DSB** | Available |
+| **DIGU, DIGL, DRM** | **Forced off** — data / AFSK (PS can raise IMD) |
+| **CWL, CWU** | **Forced off** — keyed CW; HL2 also uses CW state bits, not a voice envelope |
+| **FM** | **Forced off** — constant-envelope; nothing for the coupler to linearize |
+
+**FM RPT** is still FM — PS stays off. This list is **not** the same as
+TX-rack auto-bypass: the rack greys out in **DIGU / DIGL / CW**; **FM**
+still uses the mic rack, but PureSignal stays off.
+
 ### Compact PureSignal dock
 
 - **ON / Arm** — arms the calibrator. The coupler path is live only
-  while **MOX is also on**. **DIGU / DIGL / DRM / CWL / CWU / FM force
-  Arm off** (data modes, keyed CW, and constant-envelope FM — PS can
-  raise IMD or train on a carrier). Your Arm preference is kept; it
-  comes back when you leave those modes.
+  while **MOX is also on** and the focused mode is **not** on the
+  lock-out list above. The chip goes **off** in those modes even if
+  Arm is still ticked in Settings.
 - **SUB** — if Dual-RX was on, Lyra **pauses SUB for the keyed PS
   window** so DDC0/DDC1 can carry TX + feedback. Your saved SUB
   preference is **not** flipped off in Settings; SUB comes back when
@@ -1930,7 +1952,8 @@ plot (live `GetPSDisp` curve).
 2. Dummy load, PA on, drive low, then raise until the wattmeter is in
    the **5–8 W** class on a bare HL2 (Brick often wants similar or a
    bit more until ADC0 auto-att settles).
-3. Open **PureSignal**, Arm **ON**.
+3. Stay in **USB / LSB / AM / SAM / DSB**. Open **PureSignal**, Arm **ON**.
+   (FM, CW, and DIG force Arm off — you will not see a live coupler.)
 4. Key **2-tone** (or TUN / MOX + speech). Watch **FB** go teal →
    green. **ATT** may step a few times, then hold.
 5. Open **Amp View** if you want the curve. Snap / Hold as needed.
