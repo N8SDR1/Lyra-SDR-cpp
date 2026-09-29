@@ -1338,7 +1338,7 @@ QWidget *SettingsDialog::buildBandsTab() {
         tr("Use the “Mem” button on the Band (or Tuning) panel to store "
            "and recall. RX BW blank = the mode default. For a REPEATER, "
            "set Offset (TX shift in kHz, e.g. −100 for 10 m, −1000 = −1 MHz "
-           "for 6 m), UL (TX CTCSS Hz), optional DL (RX tone if different "
+           "for 6 m, −7600 for 70 cm), UL (TX CTCSS Hz), optional DL (RX tone if different "
            "from UL), and Burst (1750 for a 1750 Hz tone-burst recipe). "
            "Recall arms SPLIT + UL; DL shows on Tuning only when it differs "
            "from UL. Blank Offset/UL = simplex. Up to %1 presets.")
@@ -2635,6 +2635,25 @@ QWidget *SettingsDialog::buildHardwareTab() {
         });
         g->addWidget(country, 1, 1);
 
+        auto *burst1750Ck = new QCheckBox(
+            tr("Show 1750 Hz tone burst on Tuning (FM)"), grp);
+        burst1750Ck->setChecked(prefs_->fmShow1750Burst());
+        burst1750Ck->setToolTip(tr(
+            "European / IARU Region 1 FM repeaters often open on a short "
+            "1750 Hz burst instead of CTCSS.  Region 2 (US) and Region 3 "
+            "almost always use CTCSS, so this chip stays hidden unless you "
+            "check here.  With no saved choice it follows Region 1 only.  "
+            "The burst is a ~0.5 s chip; TX audio for it is not wired yet."));
+        connect(burst1750Ck, &QCheckBox::clicked, grp, [this](bool on) {
+            prefs_->setFmShow1750Burst(on);
+        });
+        connect(prefs_, &Prefs::fmShow1750BurstChanged, burst1750Ck,
+                [this, burst1750Ck]() {
+            if (burst1750Ck->isChecked() != prefs_->fmShow1750Burst())
+                burst1750Ck->setChecked(prefs_->fmShow1750Burst());
+        });
+        g->addWidget(burst1750Ck, 2, 0, 1, 2);
+
         // Overlay-layer toggles (the panadapter top strip).  Each mirrors
         // a Prefs bool; Region = None hides everything regardless.
         auto addLayer = [this, g](int row, const QString &text,
@@ -2648,7 +2667,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             g->addWidget(ck, row, 0, 1, 2);
             return ck;
         };
-        auto *segCk = addLayer(2, tr("Sub-band segments"),
+        auto *segCk = addLayer(3, tr("Sub-band segments"),
             tr("Coloured CW / digital / SSB / FM sub-band strip."),
             prefs_->bandPlanSegments(),
             [this](bool v){ prefs_->setBandPlanSegments(v); }, grp);
@@ -2656,7 +2675,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (segCk->isChecked() != prefs_->bandPlanSegments())
                 segCk->setChecked(prefs_->bandPlanSegments());
         });
-        auto *landCk = addLayer(3, tr("Digital landmarks (FT8 / FT4 / WSPR / PSK)"),
+        auto *landCk = addLayer(4, tr("Digital landmarks (FT8 / FT4 / WSPR / PSK)"),
             tr("Markers at the common digital-mode calling frequencies. "
                "Click one to tune there."),
             prefs_->bandPlanLandmarks(),
@@ -2665,7 +2684,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (landCk->isChecked() != prefs_->bandPlanLandmarks())
                 landCk->setChecked(prefs_->bandPlanLandmarks());
         });
-        auto *beaconCk = addLayer(4, tr("NCDXF beacon markers"),
+        auto *beaconCk = addLayer(5, tr("NCDXF beacon markers"),
             tr("The 5 NCDXF International Beacon Project frequencies."),
             prefs_->bandPlanBeacons(),
             [this](bool v){ prefs_->setBandPlanBeacons(v); }, grp);
@@ -2673,7 +2692,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (beaconCk->isChecked() != prefs_->bandPlanBeacons())
                 beaconCk->setChecked(prefs_->bandPlanBeacons());
         });
-        auto *edgeCk = addLayer(5, tr("Band-edge warning lines"),
+        auto *edgeCk = addLayer(6, tr("Band-edge warning lines"),
             tr("Red dashed lines at each band's edges."),
             prefs_->bandPlanEdges(),
             [this](bool v){ prefs_->setBandPlanEdges(v); }, grp);
@@ -2681,7 +2700,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (edgeCk->isChecked() != prefs_->bandPlanEdges())
                 edgeCk->setChecked(prefs_->bandPlanEdges());
         });
-        auto *classCk = addLayer(6, tr("License-class edges (US)"),
+        auto *classCk = addLayer(7, tr("License-class edges (US)"),
             tr("Amber markers at the US phone sub-band edges where each "
                "license class (Extra / Advanced / General / Tech) gains "
                "privileges.  US-only; the operator is responsible for "
@@ -2692,7 +2711,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (classCk->isChecked() != prefs_->bandPlanClassEdges())
                 classCk->setChecked(prefs_->bandPlanClassEdges());
         });
-        auto *txWarnCk = addLayer(7, tr("Warn on transmit out of band"),
+        auto *txWarnCk = addLayer(8, tr("Warn on transmit out of band"),
             tr("Posts an advisory at key-down if your transmit signal falls "
                "outside the amateur band for your region.  Checks the whole "
                "occupied bandwidth (mode + TX filter), not just the dial "
@@ -2714,7 +2733,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
 
         // Per-mode segment colours — a swatch button per kind (click to
         // recolour; picking the default clears the override).
-        g->addWidget(new QLabel(tr("Segment colors"), grp), 8, 0);
+        g->addWidget(new QLabel(tr("Segment colors"), grp), 9, 0);
         auto *colorRow = new QWidget(grp);
         auto *ch = new QHBoxLayout(colorRow);
         ch->setContentsMargins(0, 0, 0, 0);
@@ -2750,7 +2769,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
         });
         ch->addWidget(resetColors);
         ch->addStretch(1);
-        g->addWidget(colorRow, 8, 1);
+        g->addWidget(colorRow, 9, 1);
 
         form->addRow(grp);
     }

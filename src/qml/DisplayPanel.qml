@@ -127,10 +127,11 @@ Rectangle {
         LyraComboBox {
             id: stepCombo
             Layout.row: 1; Layout.column: 1
-            Layout.preferredWidth: 84
-            readonly property var steps: [1, 10, 50, 500, 1000, 5000, 10000, 25000, 100000]
+            Layout.preferredWidth: 92
+            readonly property var steps: [
+                1, 10, 50, 500, 1000, 5000, 6250, 8333, 10000, 12500, 25000, 100000]
             model: ["1 Hz", "10 Hz", "50 Hz", "500 Hz", "1 kHz", "5 kHz",
-                    "10 kHz", "25 kHz", "100 kHz"]
+                    "6.25 kHz", "8.33 kHz", "10 kHz", "12.5 kHz", "25 kHz", "100 kHz"]
             currentIndex: Math.max(0, steps.indexOf(Prefs.panScrollStepHz))
             onActivated: Prefs.panScrollStepHz = steps[currentIndex]
             // No hover tooltip — the popup covered the choice list / the

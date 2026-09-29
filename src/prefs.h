@@ -314,6 +314,12 @@ class Prefs : public QObject {
     // Show the 11m / CB band row on the Band panel (Settings → Hardware).
     Q_PROPERTY(bool cbBandEnabled READ cbBandEnabled
                WRITE setCbBandEnabled NOTIFY cbBandEnabledChanged)
+    // Show the FM 1750 Hz tone-burst chip on Tuning.  With no saved
+    // override, follows IARU Region 1 (EU/Africa); Region 2/3 default
+    // hide it (CTCSS is the usual access).  Hardware checkbox writes
+    // an explicit override so a Region 2 station can still show it.
+    Q_PROPERTY(bool fmShow1750Burst READ fmShow1750Burst
+               WRITE setFmShow1750Burst NOTIFY fmShow1750BurstChanged)
     // Optional Mem chip on the Tuning dock (also always on the Band GEN row).
     Q_PROPERTY(bool memoryOnTuning READ memoryOnTuning
                WRITE setMemoryOnTuning NOTIFY memoryOnTuningChanged)
@@ -412,6 +418,12 @@ public:
     // right-click menu.
     Q_INVOKABLE int  splitShiftHz(const QString &mode) const;
     Q_INVOKABLE void setSplitShiftHz(const QString &mode, int hz);
+
+    // VFO click/wheel step (Hz), last value per demod mode.  Default 1 kHz.
+    Q_INVOKABLE int  vfoStepHz(const QString &mode) const;
+    Q_INVOKABLE void setVfoStepHz(const QString &mode, int hz);
+    Q_INVOKABLE int  vfoStepHzRx2(const QString &mode) const;
+    Q_INVOKABLE void setVfoStepHzRx2(const QString &mode, int hz);
 
     // Fire-and-forget "clear the peak-hold buffer" request from the
     // Display panel's Clear button — the panadapter (a different dock)
@@ -627,6 +639,8 @@ public:
     void setBandPlanTxWarn(bool v);
     bool cbBandEnabled() const { return cbBandEnabled_; }
     void setCbBandEnabled(bool v);
+    bool fmShow1750Burst() const;
+    void setFmShow1750Burst(bool v);
     bool memoryOnTuning() const { return memoryOnTuning_; }
     void setMemoryOnTuning(bool v);
     int  panScrollStepHz() const { return panScrollStepHz_; }
@@ -766,6 +780,7 @@ signals:
     void bandPlanTxWarnChanged();
     void bandPlanColorsChanged();
     void cbBandEnabledChanged();
+    void fmShow1750BurstChanged();
     void memoryOnTuningChanged();
     void panScrollStepHzChanged();
     void panRound100Changed();
@@ -894,6 +909,8 @@ private:
     bool    bandPlanTxWarn_    = true;     // TX out-of-band advisory, on
     QHash<QString, QString> bandPlanColors_;   // kind → override hex (sparse)
     bool    cbBandEnabled_ = false;
+    bool    fmShow1750Burst_ = false;
+    bool    fmShow1750BurstExplicit_ = false;
     bool    memoryOnTuning_ = false;
     int     panScrollStepHz_ = 1000;
     bool    panRound100_ = false;
@@ -910,6 +927,8 @@ private:
     QString micSource_   = QStringLiteral("mic1");
     bool    tooltipsEnabled_ = true;   // Settings → Visuals; ui/tooltips_enabled
     QHash<QString, int> splitShiftHz_;
+    QHash<QString, int> vfoStepHz_;
+    QHash<QString, int> vfoStepHzRx2_;
 };
 
 } // namespace lyra::ui
