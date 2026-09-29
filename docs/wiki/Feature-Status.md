@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.1 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.25.2 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))

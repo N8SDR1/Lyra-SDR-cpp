@@ -1811,9 +1811,8 @@ int main(int argc, char *argv[])
                         // processes this tone.
                         if (on) {
                             constexpr double kMaxToneMag = 0.99999;   // Thetis MAX_TONE_MAG
-                            const double pitch = static_cast<double>(
-                                lyra::ipc::HL2Stream::kTuneCwPitchHz);
-                            const double freq = (txf->mode == 1) ? pitch : -pitch;  // USB +, LSB −
+                            const double freq = static_cast<double>(
+                                lyra::ipc::HL2Stream::postGenTuneToneHz(txf->mode));
                             lyra::wire::SetTXAPostGenMode(txch, 0);            // 0 = single tone
                             lyra::wire::SetTXAPostGenToneFreq(txch, freq);
                             lyra::wire::SetTXAPostGenToneMag(txch, kMaxToneMag);
@@ -1837,11 +1836,8 @@ int main(int argc, char *argv[])
                             // this sign the postgen two-tone sat on the upper
                             // side in EVERY mode and never flipped with USB/LSB
                             // (operator bench 2026-09-06).
-                            double s = 1.0;
-                            switch (txf->mode) {
-                                case 0: case 3: case 9: s = -1.0; break; // LSB/CWL/DIGL
-                                default:                s =  1.0; break; // USB/CWU/DIGU
-                            }
+                            const double s =
+                                lyra::ipc::HL2Stream::postGenUsbSideSign(txf->mode);
                             const double f1 = s * static_cast<double>(
                                 lyra::ipc::HL2Stream::kTwoToneFreq1Hz);
                             const double f2 = s * static_cast<double>(

@@ -375,19 +375,20 @@ public:
         return hl2Out_ ? 0 : deviceIndex_ + 1;
     }
     double zoom() const { return zoom_.load(std::memory_order_relaxed); }
+    // Crop zoom used by spanHz() + copySpectrum.  RX: operator zoom.
+    // TX: scaled so sip1 Hz window matches RX (sip1 is 96 kHz; RX IQ
+    // is often 192 kHz — same Zoom number would otherwise jump).
+    double displayZoom() const;
     // Span reported to QML's freq-scale binding.  RX state: rate /
-    // zoom (same as before).  TX state (txOwnsAnalyzer_=true, Task
-    // #44 Phase 2 MOX-edge swap): the WDSP TX sip1 dsp_rate
-    // (txSpanHz_), still divided by zoom.  Span change emitted on
-    // every MOX edge via setTxOwnsAnalyzer().
+    // displayZoom.  TX state: sip1 dsp_rate / displayZoom.  Span
+    // change emitted on every MOX edge via setTxOwnsAnalyzer().
     //
     // inRate read is via inRateAtomic_ (mirror of cfg_.inRate
     // updated under channelMtx_ in setSampleRate) so this getter is
     // race-free against rate-change without taking the lock — per
     // amendment A.6 in the reconciled doc.
     int    spanHz() const {
-        const double z = zoom_.load(std::memory_order_relaxed);
-        const double zClamp = (z > 1.0 ? z : 1.0);
+        const double zClamp = displayZoom();
         if (txOwnsAnalyzer_.load(std::memory_order_acquire)) {
             const int r = txSpanHz_.load(std::memory_order_relaxed);
             return static_cast<int>(r / zClamp);

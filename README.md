@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.1 Sheliak** — NR-C mix, Xvtr slots, MSAA picker, P1 Open refuse.
+**v0.25.2 Sheliak** — NR-C restore, TUNE/2-tone on dial, TX span matches RX.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 

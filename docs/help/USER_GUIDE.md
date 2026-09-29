@@ -20,6 +20,17 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.2
+
+- **NR-C restore** — the last saved profile loads on restart. NR-C itself
+  starts **on** only if it was on when you quit. See [Captured noise
+  profile (NR-C)](#captured-noise-profile-nr-c--lyras-signature-noise-reduction).
+- **TUNE and 2-tone** sit on the **dial** (USB/LSB/DIG). **CW TUNE** is on
+  the RX marker, same as keyed CW. MOX was already correct.
+- **TX span matches RX** — Zoom no longer jumps when you key (sip1 is
+  96 kHz; RX may be 192 kHz). At Zoom 1× / 192 kHz RX, TX cannot show
+  more than 96 kHz.
+
 ## What's new in 0.25.1
 
 - **NR-C** leaves occupied bins (signals) at full scale so the RX passband
@@ -33,6 +44,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.2](#whats-new-in-0252)
 - [What's new in 0.25.1](#whats-new-in-0251)
 - [Start here — Quick Basics](#start-here--quick-basics)
 - [Supported radios](#supported-radios)

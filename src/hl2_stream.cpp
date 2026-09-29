@@ -2968,25 +2968,19 @@ void HL2Stream::setCwPitchHz(int hz) {
 }
 
 int HL2Stream::txDdsHzForTune(quint32 dialHz) const {
-    // P4.b TUN zero-beat — Thetis tx_freq computation gated on chkTUN
-    // (console.cs:32574-32587): while tuning, offset the TX NCO by
-    // ∓cw_pitch (USB −, LSB +) so the ±cw_pitch postgen tone (main.cpp
-    // setTune) cancels to a carrier at the dial.  Not tuning → dial
-    // unchanged.  Same kTuneCwPitchHz both sides → they cancel.
-    if (!tuneEnabled_.load(std::memory_order_relaxed))
-        // #105 CW-2 fix — the keyed CW carrier must land on the marker (the
-        // displayed VFO = DDS + markerOffset), NOT at the DDC centre.  Add the
-        // CW carrier offset (CWU +pitch / CWL −pitch / other 0), using the
-        // live shared CW pitch.  Non-CW → 0 so SSB/AM/FM/DSB are unchanged.
-        return static_cast<int>(dialHz) + cwTxCarrierOffsetHz();
-    // ∓cw_pitch by sideband so the ±cw_pitch postgen tone cancels to a
-    // carrier at the dial.  Double-sideband modes (DSB/FM/AM/SAM) are
-    // centered → no offset; LSB-side {LSB,CWL,DIGL} +pitch; USB-side −pitch.
+    const int dial = static_cast<int>(dialHz);
     const int tm = txMode_.load(std::memory_order_relaxed);
-    const int off = (tm == 2 || tm == 5 || tm == 6 || tm == 10) ? 0
-                  : (tm == 0 || tm == 3 || tm == 9) ? +kTuneCwPitchHz
-                  :                                   -kTuneCwPitchHz;
-    return static_cast<int>(dialHz) + off;
+    if (!tuneEnabled_.load(std::memory_order_relaxed))
+        return dial + cwTxCarrierOffsetHz();
+    // CW TUN: same NCO as keyed CW so the carrier sits on the marker.
+    // SSB-style dial zero-beat would put TUN at the DDC centre, not the RX.
+    if (txModeIsCw(tm))
+        return dial + cwTxCarrierOffsetHz();
+    if (txModeIsDsbFamily(tm))
+        return dial;
+    // USB-side (USB/CWU/DIGU) −pitch; LSB-side (LSB/CWL/DIGL) +pitch.
+    // Pairs with postGenTuneToneHz of the opposite sign → dial zero-beat.
+    return dial + (txModeIsLsbFamily(tm) ? +kTuneCwPitchHz : -kTuneCwPitchHz);
 }
 
 int HL2Stream::txAnalyzerOffsetHz() const {
@@ -3060,13 +3054,13 @@ void HL2Stream::setTuneEnabled(bool on) {
         lyra::wire::set_tx_freq(dds);
         // TUN-zero-beat diagnostic: shows the dial vs the offset TX NCO so
         // the bench log pins where the carrier should land vs where it does.
-        qInfo("[tx] TUN %s: dial=%u txDds(NCO)=%d off=%d mode=%d(USB=1) cw_pitch=%d"
-              "  (gen1 tone = %s%d; net carrier should = dial)",
+        const int tmLog = txMode_.load(std::memory_order_relaxed);
+        const int tone = postGenTuneToneHz(tmLog);
+        qInfo("[tx] TUN %s: dial=%u txDds(NCO)=%d off=%d mode=%d cw_pitch=%d"
+              "  (gen1 tone = %+d Hz)",
               on ? "ON" : "off",
               dial, dds, dds - static_cast<int>(dial),
-              txMode_.load(std::memory_order_relaxed), kTuneCwPitchHz,
-              (txMode_.load(std::memory_order_relaxed) == 1) ? "+" : "-",
-              kTuneCwPitchHz);
+              tmLog, kTuneCwPitchHz, tone);
     }
     emit tuneEnabledChanged(on);
     // TUN while already keyed: a prior watts/SWR fold cut live drive and
@@ -4815,6 +4809,24 @@ void HL2Stream::setTxMode(int wdspMode) {
               "offset=%+d -> TX_NCO=%d (should == marker = dds+offset)",
               clamped, dds, cwPitchHz_.load(std::memory_order_relaxed),
               cwTxCarrierOffsetHz(), nco);
+    }
+    // Re-stamp postgen if TUN / 2-tone is already armed — USB vs DIGU vs
+    // LSB used to keep a stale tone sign until the button was cycled.
+    if (tuneEnabled_.load(std::memory_order_relaxed)) {
+        std::function<void(bool)> tun;
+        {
+            std::lock_guard<std::mutex> lk(txControlMtx_);
+            tun = txControl_.setTune;
+        }
+        if (tun) tun(true);
+    }
+    if (twoToneEnabled_.load(std::memory_order_relaxed)) {
+        std::function<void(bool)> tt;
+        {
+            std::lock_guard<std::mutex> lk(txControlMtx_);
+            tt = txControl_.setTwoTone;
+        }
+        if (tt) tt(true);
     }
 }
 

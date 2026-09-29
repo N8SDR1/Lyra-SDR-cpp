@@ -4,6 +4,18 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-09-28 — v0.25.2 Sheliak (patch)
+
+- Version bump **0.25.1 → 0.25.2**. Star name stays **Sheliak**.
+- NR-C recall (`0ef8fcc`): last profile restores on restart; NR-C starts
+  on only if it was on at exit.
+- TUNE / 2-tone land on the dial (CW TUNE on the RX marker; DIGU/DIGL
+  signs). TX panadapter span matches RX (sip1 96 k vs RX rate).
+- Installer `dist/Lyra-Setup-0.25.2.exe`. Tag `v0.25.2`. #14 stays open.
+  Do not merge `main`. Native RTTY strip stays uncommitted.
+
+---
+
 ## 2026-09-27 — v0.25.1 Sheliak (patch)
 
 - Version bump **0.25.0 → 0.25.1**. Star name stays **Sheliak**.

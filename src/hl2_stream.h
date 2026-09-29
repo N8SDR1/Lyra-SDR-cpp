@@ -824,6 +824,30 @@ public:
     static constexpr int kTuneCwPitchHz = 600;
     static constexpr int kTwoToneFreq1Hz = 700;
     static constexpr int kTwoToneFreq2Hz = 1900;
+
+    // WDSP TXA: 0 LSB, 1 USB, 2 DSB, 3 CWL, 4 CWU, 5 FM, 6 AM, 7 DIGU,
+    // 9 DIGL, 10 SAM.
+    static constexpr bool txModeIsLsbFamily(int tm) {
+        return tm == 0 || tm == 3 || tm == 9;
+    }
+    static constexpr bool txModeIsDsbFamily(int tm) {
+        return tm == 2 || tm == 5 || tm == 6 || tm == 10;
+    }
+    static constexpr bool txModeIsCw(int tm) {
+        return tm == 3 || tm == 4;
+    }
+    // Postgen TUN tone (Hz).  USB-side +pitch + DDS −pitch (LSB inverse)
+    // cancel at the dial.  CW TUN uses the keyed-CW NCO, so tone is 0 Hz
+    // (carrier on the marker, same as MOX).
+    static int postGenTuneToneHz(int tm) {
+        if (txModeIsCw(tm) || txModeIsDsbFamily(tm))
+            return 0;
+        return txModeIsLsbFamily(tm) ? -kTuneCwPitchHz : kTuneCwPitchHz;
+    }
+    // Two-tone audio-tone sign: LSB family −1, else +1 (USB/CWU/DIGU/DSB).
+    static double postGenUsbSideSign(int tm) {
+        return txModeIsLsbFamily(tm) ? -1.0 : 1.0;
+    }
     bool    filterBoardEnabled() const { return filterBoardEnabled_; }
     int     ocBits()             const { return ocPattern_; }
     // #199 Stage 4 — the editable OC table for the Settings "Filters / BCD"
@@ -1505,11 +1529,9 @@ public slots:
     // and coupler must follow the mode they switched.
     void setPsUiMode(const QString &uiMode);
 
-    // P4.b TUN — TX NCO freq for the current state: the dial when not
-    // tuning, dial ∓ kTuneCwPitchHz while tuning (USB −, LSB +) so the
-    // ±kTuneCwPitchHz postgen tone nets to a zero-beat carrier at the
-    // dial.  Mirrors Thetis's tx_freq computation gated on chkTUN
-    // (console.cs:32574-32587).
+    // TX NCO: not tuning → dial + keyed-CW marker offset.  SSB/DIG TUN
+    // → dial ∓ kTuneCwPitchHz (USB-side −, LSB-side +) so postgen
+    // ±kTuneCwPitchHz nets to the dial.  CW TUN → same NCO as keyed CW.
     int txDdsHzForTune(quint32 dialHz) const;
     // #105 CW-2 — VFO − DDS carrier offset for the current TX mode (CWU
     // +pitch / CWL −pitch / other 0), == WdspEngine::cwMarkerOffsetForMode,
