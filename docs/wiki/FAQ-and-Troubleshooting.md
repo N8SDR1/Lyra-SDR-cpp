@@ -203,11 +203,18 @@ That's the one‑time FFT plan‑cache build — let it finish (a few minutes).
 It only happens once (or after **Clear &amp; rebuild**).
 
 **Xvtr VFO stops at 55.999.999 Hz.**
-That was the old eight-digit LED cap. **v0.25.3** uses ten digits so 2 m /
+That was the old eight-digit LED cap. **v0.25.3+** uses ten digits so 2 m /
 70 cm / 23 cm **RF** show on the dial. Slot **RF low/high** were already
 MHz. Band-plan **region does not auto-fill** 144–146 vs 144–148 — set it
 in the Xvtr editor (**right-click** the chip). Full map: **[User Guide →
 Xvtr](User-Guide#xvtr-transverters)**.
+
+**Where did the RTTY decoder go?**
+Lyra does **not** ship an in-radio RTTY modem. Use **Settings → Apps** (or
+the **Apps** header chip) to launch fldigi / MMTTY / etc., with **TCI** or
+**VAC** for audio. **CW** receive decode and CW sending stay in Lyra. See
+**[User Guide → Apps](User-Guide#apps-companion-programs)** and
+**[Reading CW](User-Guide#reading-cw--the-decoder)**.
 
 ---
 

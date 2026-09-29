@@ -64,7 +64,7 @@ Full detail (why Open is refused, what TX would do, Brick flash help) on the **[
 
 ✅ Full **receive** (all modes, the complete WDSP noise/filter toolkit, RX EQ,
 captured-noise reduction, CTUN, RIT) · ✅ Full **transmit** — SSB / AM / SAM /
-DSB / FM / CW plus digital over TCI & VAC · ✅ **SUB / RX2 + SPLIT on HL2 and BrickSDR2** ·
+DSB / FM / CW plus digital over TCI, VAC, and the **Apps** launcher · ✅ **SUB / RX2 + SPLIT on HL2 and BrickSDR2** ·
 ✅ a **native TX audio rack**
 (8-band EQ, multiband Combinator, plate reverb, speech processing, voice
 keyer, VOX, TX profiles) · ✅ **CW** send + on-screen **CW decode** · ✅

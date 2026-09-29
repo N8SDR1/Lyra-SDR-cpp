@@ -18,7 +18,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.25.3
+    VERSION 0.25.4
     DESCRIPTION "Lyra Sheliak — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
@@ -286,10 +286,6 @@ qt_add_executable(lyra
     src/dsp/cw_fldigi/gfft.h
     src/dsp/cw_fldigi/fldigi_cw.h
     src/dsp/cw_fldigi/fldigi_cw.cpp
-    src/dsp/RttyDecoder.h
-    src/dsp/RttyDecoder.cpp
-    src/dsp/rtty_fldigi/fldigi_rtty.h
-    src/dsp/rtty_fldigi/fldigi_rtty.cpp
     src/dsp/FreqCalMeasure.h
     src/dsp/FreqCalMeasure.cpp
     # DeepFist neural CW decoder (second, selectable CW engine)
@@ -543,7 +539,6 @@ qt_add_qml_module(lyra
         src/qml/SpeechPanel.qml
         src/qml/CwConsolePanel.qml
         src/qml/CwDecoderPanel.qml
-        src/qml/RttyDecoderPanel.qml
         src/qml/CalibrationPanel.qml
         src/qml/VoiceKeyerPanel.qml
         src/qml/RecorderPanel.qml
@@ -1089,23 +1084,6 @@ add_executable(test_cw_decoder EXCLUDE_FROM_ALL
 target_include_directories(test_cw_decoder PRIVATE src)
 if(MSVC)
     target_compile_options(test_cw_decoder PRIVATE /utf-8 /Zc:preprocessor)
-endif()
-
-# RTTY decoder unit test (synthetic AFSK → Baudot).  EXCLUDE_FROM_ALL;
-# `cmake --build build --target test_rtty_decoder`.
-add_executable(test_rtty_decoder EXCLUDE_FROM_ALL
-    scratch/test_rtty_decoder.cpp
-    src/dsp/RttyDecoder.h
-    src/dsp/RttyDecoder.cpp
-    src/dsp/rtty_fldigi/fldigi_rtty.h
-    src/dsp/rtty_fldigi/fldigi_rtty.cpp
-    src/dsp/cw_fldigi/gfft.h
-    src/dsp/cw_fldigi/fldigi_cw.h
-    src/dsp/cw_fldigi/fldigi_cw.cpp
-)
-target_include_directories(test_rtty_decoder PRIVATE src)
-if(MSVC)
-    target_compile_options(test_rtty_decoder PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # #49 Stage 1 — TX DSP rack save/load round-trip (the four model states the

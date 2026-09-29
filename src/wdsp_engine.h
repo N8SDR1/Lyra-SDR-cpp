@@ -42,7 +42,6 @@
 
 #include "dsp/MonitorRing.h"   // #90 — TX-monitor SPSC ring (value member)
 #include "dsp/CwDecoder.h"     // #173 CW-5a — RX CW decoder (value member)
-#include "dsp/RttyDecoder.h"   // fldigi RTTY receive (DIGU/DIGL tap)
 #include "dsp/deepfist/NeuralCwDecoder.h" // DeepFist neural CW decoder (2nd engine)
 #include "dsp/CwArbiter.h"          // Auto-engine ownership arbiter (Phase 1)
 #include "dsp/deepfist/ScpLocal.h"  // Phase 3: RBN-confirmed local call list
@@ -194,8 +193,6 @@ class WdspEngine : public QObject {
     // separate CW decoder panel (CW-5b).
     Q_PROPERTY(bool cwDecodeEnabled READ cwDecodeEnabled WRITE setCwDecodeEnabled
                NOTIFY cwDecodeEnabledChanged)
-    Q_PROPERTY(bool rttyDecodeEnabled READ rttyDecodeEnabled WRITE setRttyDecodeEnabled
-               NOTIFY rttyDecodeEnabledChanged)
     // DeepFist — which CW decode engine is active (0=Classic fldigi, 1=Neural)
     // and whether the neural model actually loaded (drives the panel's toggle
     // + "model not found" status).
@@ -720,14 +717,6 @@ public:
     // Live squelch signal metric (SNR 0..100) for the panel bar; polled by QML.
     Q_INVOKABLE double cwDecodeMetric() const { return cwDecoder_.squelchMetric(); }
 
-    bool rttyDecodeEnabled() const { return rttyDecodeOn_.load(std::memory_order_relaxed); }
-    Q_INVOKABLE void setRttyDecodeEnabled(bool on);
-    Q_INVOKABLE void setRttyCenterHz(double hz) { rttyDecoder_.setCenterHz(hz); }
-    Q_INVOKABLE void setRttyShiftHz(double hz)  { rttyDecoder_.setShiftHz(hz); }
-    Q_INVOKABLE void setRttyBaud(double baud)   { rttyDecoder_.setBaud(baud); }
-    Q_INVOKABLE void setRttyReverse(bool on)    { rttyDecoder_.setReverse(on); }
-    Q_INVOKABLE void setRttySquelch(bool on, double value) { rttyDecoder_.setSquelch(on, value); }
-    Q_INVOKABLE double rttyDecodeMetric() const { return rttyDecoder_.squelchMetric(); }
     int  cwRxWpm() const { return cwDecoder_.rxWpm(); }
 
     // DeepFist neural CW decoder — second, selectable engine.  Both engines
@@ -1004,8 +993,6 @@ signals:
     // #173 CW-5a — RX CW decoder outputs (emitted from the audio thread; the
     // CW-5b panel connects with the default queued connection).
     void cwDecodeEnabledChanged();
-    void rttyDecodeEnabledChanged();
-    void rttyDecodedChar(QString ch);
     void cwDecodedChar(QString ch, double confidence);  // decoded unit (conf always 1)
     void cwRxWpmChanged(int wpm);            // fldigi RX speed
     // DeepFist — engine selection changed; neural model availability resolved;
@@ -1521,7 +1508,6 @@ private:
     // cwModeActive_ (set in setMode) gates to CWU/CWL; cwDecodeOn_ is the
     // operator enable.  cwMonoBuf_ holds the de-interleaved mono block.
     lyra::dsp::CwDecoder                 cwDecoder_;
-    lyra::dsp::RttyDecoder               rttyDecoder_;
 
     // DeepFist neural CW decoder — second engine sharing the same tap.
     // cwEngine_: 0 = Classic (fldigi), 1 = Neural (DeepFist), 2 = Auto (arbiter).
@@ -1565,8 +1551,6 @@ private:
     int                                  fcalLastWin_ = -1;
     std::atomic<bool>                    cwDecodeOn_{false};
     std::atomic<bool>                    cwModeActive_{false};
-    std::atomic<bool>                    rttyDecodeOn_{false};
-    std::atomic<bool>                    rttyModeActive_{false};
     std::vector<float>                   cwMonoBuf_;
     bool                  vacMox_ = false;         // #158 DL-4 last MOX (re-applied on rebuild)
     bool                  vacEnvApplied_ = false;

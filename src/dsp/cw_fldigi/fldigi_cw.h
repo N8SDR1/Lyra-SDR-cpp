@@ -72,8 +72,8 @@ public:
     FftFilt(double f, int len);   // low-pass at f (fraction of samplerate)
     ~FftFilt();
     void create_lpf(double f) { create_filter(0.0, f); }
-    // fldigi fftfilt::rtty_filter — raised-cosine matched LPF for RTTY
-    // (fftfilt.cxx).  Replaces the constructor LPF; f is baud/samplerate.
+    // fldigi fftfilt::rtty_filter — Feher raised-cosine LPF (fftfilt.cxx).
+    // CW decoder uses this; f is cutoff as a fraction of sample rate.
     void rtty_filter(double f);
     // Returns 0, or flen/2 samples ready in *out.
     int  run(const cmplx& in, cmplx** out);

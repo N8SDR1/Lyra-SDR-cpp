@@ -59,6 +59,7 @@ these are real roadmap items, not "maybe someday."
   tune-up); PureSignal uses it as the usual tune-up carrier
 - 🗺️ Per-profile independent RX/TX filter lows
 - 🗺️ Continued polish across the DSP, UI, and metering as testers report back
+- ✅ **Companion Apps** — third-party digital / SSTV / logger programs launched from Lyra (native RTTY modem will not return; CW stays in-radio)
 
 ## Exploring — further out 💡
 

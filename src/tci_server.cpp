@@ -456,11 +456,6 @@ void TciServer::onLogQsoRequested() {
     if (call.isEmpty()) return;
     const QString rst  = cwMacros_->rst().trimmed();            // single Lyra RST → sent+rcvd
     QString mode = prefs_ ? prefs_->mode() : QStringLiteral("CW");
-    if (engine_ && engine_->rttyDecodeEnabled()) {
-        const QString m = mode.toUpper();
-        if (m == QLatin1String("DIGU") || m == QLatin1String("DIGL"))
-            mode = QStringLiteral("RTTY");
-    }
     const qint64  carrier = (stream_ ? qint64(stream_->rx1FreqHz()) : 0)
                             + (engine_ ? engine_->markerOffsetHz() : 0);
     // lyra_log:<call>,<rstSent>,<rstRcvd>,<mode>,<freqHz>

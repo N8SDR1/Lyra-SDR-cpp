@@ -4,6 +4,16 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-09-29 — v0.25.4 Sheliak (patch)
+
+- Version bump **0.25.3 → 0.25.4**. Star name stays **Sheliak**.
+- Apps store + header chip; native RTTY decoder stripped (CW send/decode
+  stay). Memory click-to-edit. Xvtr OOB IF clamp removed (0.25.3 ten-digit
+  RF kept).
+- USER_GUIDE / wiki / `docs/releases/v0.25.4.md`.
+- Installer `dist/Lyra-Setup-0.25.4.exe`. Tag `v0.25.4`. #14 stays open.
+  Do not merge `main`.
+
 ## 2026-09-29 — v0.25.3 Sheliak (patch)
 
 - Version bump **0.25.2 → 0.25.3**. Star name stays **Sheliak**.

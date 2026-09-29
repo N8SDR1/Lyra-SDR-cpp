@@ -6,14 +6,15 @@ for the Hermes Lite 2 / 2+ (Protocol 1) and the **BrickSDR2** (Protocol 2)
 expectations so you know what's a real bug versus a feature that simply
 hasn't landed yet. (Pin or link this in Discord.)
 
-Current tree: **v0.25.3 Sheliak**. Always grab the latest from the
+Current tree: **v0.25.4 Sheliak**. Always grab the latest from the
 [Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases).
 
 > **What already works** (so you don't wonder): full RX DSP, and **transmit
 > on every mode** — SSB / AM / DSB / SAM / FM, **CW** (internal iambic keyer,
 > paddle/straight-key on the HL2 KEY jack, keyboard send, a macro bank,
 > external keyer / Winkeyer, and a serial CW-key input), and digital via
-> TCI / virtual audio cable. Plus **VOX**, a native TX audio rack (EQ /
+> TCI / virtual audio cable / the **Apps** launcher (no in-radio RTTY
+> decoder — **CW send and decode stay native**). Plus **VOX**, a native TX audio rack (EQ /
 > speech / combinator / plate), TX profiles, per-band power calibration +
 > an auto-tuning amp watts-cap, waterfall callsign ID, a manual-ATU tuner
 > memory, a **voice keyer** (record phone messages in-app, play them on the

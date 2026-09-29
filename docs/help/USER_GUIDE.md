@@ -20,6 +20,19 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.4
+
+- **Apps** — **Settings → Apps** plus the header **Apps** chip launch named
+  companion programs (WSJT-X, fldigi, SSTV, …). Auto-start is **off** unless
+  you tick it; those launches still wait until after Hardware Startup.
+- **No in-radio RTTY modem** — RTTY / FT8 / SSTV belong in those programs
+  (TCI or VAC). **CW send and CW decode stay in Lyra** (paddle, keyboard,
+  TCI keyer, **CW Dec** chip). DX-cluster **RTTY** labels are unchanged.
+- **Memory** — click a cell in **Settings → Bands → Memory** to edit (no
+  Save button). Repeater Offset / UL / DL / Burst columns as before.
+- Xvtr **out-of-band IF** clamp on the VFO was removed; keep IF inside the
+  radio's native window yourself. Ten-digit RF from 0.25.3 still applies.
+
 ## What's new in 0.25.3
 
 - **Xvtr VFO cap** — the frequency LED used to stop at **55.999.999 Hz**.
@@ -54,6 +67,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.4](#whats-new-in-0254)
 - [What's new in 0.25.3](#whats-new-in-0253)
 - [What's new in 0.25.2](#whats-new-in-0252)
 - [What's new in 0.25.1](#whats-new-in-0251)
@@ -476,7 +490,8 @@ The strip across the top, between the menu bar and the panels:
   callsign ID), **PureSignal** (the compact PS dock), and **Amp View**
   (the PS transfer-curve plot). A lit chip means that panel is open, or
   that toggle is on. **PureSignal** and **Amp View** sit at the **end**
-  of the Options row.
+  of the Options row. **Apps** sits after Amp View — named companion
+  programs (not CW; CW uses **CW** / **CW Dec**).
 - **● TCI** — the TCI-server indicator, just after the connection status.
   Green **● TCI: N** when one or more programs (logger, cluster, etc.) are
   connected, showing the client count; amber **● TCI** when the server is
@@ -1371,7 +1386,9 @@ try one; pick another only if you hit dropouts.
 ### Digital modes — getting RX audio to another program
 
 A digital program (WSJT-X, JTDX, MSHV, FLDigi…) needs to *hear* the
-receiver. Lyra offers **two routes** — pick the one your program supports:
+receiver. Add the program under **[Settings → Apps](#settings--apps)** so
+you can launch it from the header chip. Lyra offers **two audio routes** —
+pick the one your program supports:
 
 - **TCI** — if your program speaks TCI (e.g. **MSHV**, **SDRLogger+**), it
   connects over the network and the RX audio rides that link directly. No
@@ -2435,7 +2452,8 @@ used for SSB.
 
 ### Reading CW — the RX decoder
 
-Lyra has a built-in CW reader. Click the **CW Dec** chip on the top toolbar
+Lyra has a built-in CW reader — this stays in Lyra (it is **not** an Apps
+companion). Click the **CW Dec** chip on the top toolbar
 to pop open the floating **CW Decoder** (it floats and remembers where you
 put it). It reads **only in CWU/CWL** — outside CW the detector controls
 dim and a "switch to CW to decode" note shows.
@@ -4330,10 +4348,11 @@ through. SDRLogger+, N1MM and similar work this way.
 ### Digital modes over TCI (FT8 / FT4 / MSK144 / Q65 / etc.)
 
 Lyra is a fully bidirectional TCI partner for the digital-modes clients
-operators already use — MSHV, JTDX, WSJT-X and similar. The client
-both **receives** Lyra's RX audio over TCI and **sends** its modulator
-audio back over TCI for Lyra to transmit; no VAC, no virtual cables,
-no host-side sound card needed.
+operators already use — MSHV, JTDX, WSJT-X and similar. There is **no**
+in-radio RTTY (or FT8) decoder; run those programs from **Apps**. The
+client both **receives** Lyra's RX audio over TCI and **sends** its
+modulator audio back over TCI for Lyra to transmit; no VAC, no virtual
+cables, no host-side sound card needed.
 
 **One-time setup:**
 
@@ -4681,6 +4700,11 @@ if you also want that one to open after Lyra starts.
 
 These entries stay on this PC — they are not written into an exported
 profile.
+
+RTTY, FT8, SSTV, and other digital programs live here (plus TCI / VAC).
+Lyra does not ship an in-radio RTTY decoder. **CW** paddle / keyboard /
+TCI send and the **CW Dec** reader stay native — do not look for Morse
+decode under Apps.
 
 ---
 
