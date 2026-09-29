@@ -1660,6 +1660,26 @@ Item {
                     } else {   // AM / DSB / SAM — symmetric ±hi
                         minF = carrier - hi; maxF = carrier + hi
                     }
+                    // HF amateur allocations don't cover 2 m / 70 cm / 23 cm.
+                    // An enabled Xvtr slot matching the TX carrier is the
+                    // operator's RF window — skip the HF out-of-band nag.
+                    // Still warn if occupied bandwidth walks off the slot.
+                    var _xvDep = Xvtr.activeSlot + Xvtr.activeSlotRx2
+                    var xv = Xvtr.matchingSlot(carrier)
+                    if (xv >= 0) {
+                        var slo = Xvtr.slotRfLoHz(xv)
+                        var shi = Xvtr.slotRfHiHz(xv)
+                        if (minF >= slo && maxF <= shi)
+                            return { out: false, text: "" }
+                        var xedge = (minF < slo) ? minF : maxF
+                        return { out: true,
+                                 text: "⚠  TX BANDWIDTH OVER THE EDGE\nyour "
+                                       + mode + " signal reaches "
+                                       + (xedge / 1e6).toFixed(3)
+                                       + " MHz — past the "
+                                       + (Xvtr.slotName(xv) || "Xvtr")
+                                       + " slot" }
+                    }
                     var bMin = BandPlan.bandContaining(minF)
                     var bMax = BandPlan.bandContaining(maxF)
                     var reg = BandPlan.region

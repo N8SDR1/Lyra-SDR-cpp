@@ -3,6 +3,7 @@
 // protocol reference.
 
 #include "hl2_stream.h"
+#include "xvtrslots.h"
 
 #include "bands.h"
 // Step 14 Stage 1 — wire-layer includes for the inert wire-up of
@@ -62,6 +63,7 @@
 #include <QSettings>
 #include <Qt>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -90,6 +92,10 @@ double snapCtcssTone(double hz) {
     }
     return best;
 }
+
+// FM 1750 Hz access burst — mixed on the CMaster TX pump (not Qt).
+std::atomic<int> g_fmBurstMix{0};
+std::atomic<double> g_fmBurstPhase{0.0};
 
 // 64-byte HPSDR P1 host→radio control packet.  start=true sends
 // 0xEFFE 0x04 0x01 (start IQ); start=false sends 0xEFFE 0x04 0x00
@@ -682,6 +688,22 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     ctcssToneHz_   = snapCtcssTone(
         QSettings().value(QStringLiteral("tx/ctcssToneHz"),
                           kDefaultCtcssToneHz).toDouble());
+    {
+        const double dl = QSettings().value(QStringLiteral("tx/ctcssDlHz"), 0.0)
+                              .toDouble();
+        ctcssDlHz_ = (dl > 0.5) ? snapCtcssTone(dl) : 0.0;
+    }
+    fmBurstHz_ = (QSettings().value(QStringLiteral("tx/fmBurstHz"), 0).toInt()
+                  == 1750)
+                     ? 1750
+                     : 0;
+    fmBurstTimer_.setSingleShot(true);
+    connect(&fmBurstTimer_, &QTimer::timeout, this, [this]() {
+        g_fmBurstMix.store(0, std::memory_order_release);
+        if (!fmBurstActive_) return;
+        fmBurstActive_ = false;
+        emit fmBurstActiveChanged();
+    });
     fmEmphasisMode_ = std::clamp(
         QSettings().value(QStringLiteral("tx/fmEmphasisMode"), 1).toInt(), 0, 1);
     levelerMaxGainLinear_ = std::clamp(
@@ -1072,6 +1094,7 @@ void HL2Stream::fatalLog(const QString& msg) {
 }
 
 HL2Stream::~HL2Stream() {
+    g_fmBurstMix.store(0, std::memory_order_release);
     close();
 }
 
@@ -1408,12 +1431,14 @@ void HL2Stream::open(const QString &ip) {
     // reference (Console writes prn->rx[] from the control thread) + the
     // shipped AttOnTxPolicy precedent — no lock, no command queue.
     {
-        const int rxHz =
-            static_cast<int>(rx1FreqHz_.load(std::memory_order_relaxed));
-        lyra::wire::set_rx_freq(0, rxHz);   // DDC0 RX1 (case 2/8/9)
-        writeDdc1Hz(rxHz);                  // DDC1: RX1-mirror unless SUB on
+        const quint32 rxRf =
+            rx1FreqHz_.load(std::memory_order_relaxed);
+        lyra::wire::set_rx_freq(0, ddsHzForRf(rxRf));   // DDC0 IF
+        writeDdc1Hz(ddsHzForRf(rxRf));                  // DDC1: RX1-mirror unless SUB on
+        const int txRfTune = txDdsHzForTune(
+            txFreqHz_.load(std::memory_order_relaxed));
         lyra::wire::set_tx_freq(            // TX NCO + DDC2/3 mirror (case 1/5/6)
-            txDdsHzForTune(txFreqHz_.load(std::memory_order_relaxed)));  // #105 CW carrier offset (carrier, not DDS)
+            ddsHzForRf(static_cast<quint32>(txRfTune < 0 ? 0 : txRfTune)));
         lyra::wire::set_rx_step_attn_db(    // LNA gain (case 11 !XmitBit)
             std::clamp(lnaGainDb_.load(std::memory_order_relaxed),
                        kLnaMinDb, kLnaMaxDb) + 12, 0);   // HPSDR P1 +12 bias
@@ -1440,8 +1465,7 @@ void HL2Stream::open(const QString &ip) {
                 static_cast<int>(txDriveLevel_.load(std::memory_order_relaxed)));
             applyTxPower_(seedDrive);   // Stage 3 — seed byte (case 10 C1) + txgain at TX-up
         }
-        lyra::wire::set_pa_on(                   // PA enable (case 10 C2/C3)
-            paOn_.load(std::memory_order_relaxed));
+        applyPaWire();                       // PA enable (case 10 C2/C3)
         lyra::wire::set_tx_step_attn_db(         // TX step-att (case 4/11)
             txStepAttnDb_.load(std::memory_order_relaxed));
         lyra::wire::XmitBit =                    // wire MOX gate (0 = RX at open)
@@ -1950,7 +1974,7 @@ double HL2Stream::fwdPowerCalW() const {
     const double raw = fwdPowerW();
     if (std::isnan(raw)) return raw;
     const int band = lyra::paPowerBandIndexForFreq(
-        static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
+        ddsHzForRf(txFreqHz_.load(std::memory_order_relaxed)));
     const double t = (band >= 0 && band < kNumPaGainBands)
                          ? pwrTrimByBand_[band].load(std::memory_order_relaxed)
                          : 1.0;
@@ -2065,11 +2089,13 @@ void HL2Stream::pushEffectiveTxFreq() {
     txFreqHz_.store(eff, std::memory_order_relaxed);
     if (lyra::wire::prn != nullptr)
         // txDdsHzForTune applies the CW ∓pitch carrier offset (zero-beat).
-        lyra::wire::set_tx_freq(txDdsHzForTune(eff));
+        lyra::wire::set_tx_freq(ddsHzForRf(static_cast<quint32>(
+            std::max(0, txDdsHzForTune(eff)))));
+    applyPaWire();
     // TX power model Stage 3 — the per-band PA Gain (gbb) changes when the
     // TX band changes, so re-apply the power with the new band's gbb.  Only
     // on an actual band change, so a freq dial tick within a band is free.
-    const int newBand = lyra::paPowerBandIndexForFreq(static_cast<int>(eff));
+    const int newBand = lyra::paPowerBandIndexForFreq(ddsHzForRf(eff));
     if (newBand != lastTxBand_.exchange(newBand, std::memory_order_relaxed))
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
     // The TX-analyzer crop offset (NCO − RX centre) changed — refresh the
@@ -2147,14 +2173,14 @@ void HL2Stream::pushEffectiveRxFreq() {
             ctuneCenterHz_.store(center, std::memory_order_relaxed);
             emit ctuneChanged();                       // panadapter re-reads the centre
         }
-        const int ci = static_cast<int>(center);
-        lyra::wire::set_rx_freq(0, ci);  // DDC0 locked
+        const int ci = ddsHzForRf(center);
+        lyra::wire::set_rx_freq(0, ci);  // DDC0 locked (IF)
         writeDdc1Hz(ci);                 // DDC1: independent when SUB on
         const double shift = kCtuneShiftSign
             * static_cast<double>(eff - static_cast<qint64>(center));
         emit rxShiftHzChanged(shift);
     } else {
-        const int hzi = static_cast<int>(eff);
+        const int hzi = ddsHzForRf(eff);
         lyra::wire::set_rx_freq(0, hzi);  // DDC0 (case 2/8/9)
         writeDdc1Hz(hzi);                 // DDC1: RX1-mirror unless SUB on
         // CTUNE off: non-CTUNE path stays byte-identical — no shift emit
@@ -2170,9 +2196,9 @@ void HL2Stream::noteSubFrontEnd() {
         return;
     }
     const int a = lyra::bandIndexForFreq(
-        static_cast<int>(rx1FreqHz_.load(std::memory_order_relaxed)));
+        ddsHzForRf(rx1FreqHz_.load(std::memory_order_relaxed)));
     const int b = lyra::bandIndexForFreq(
-        static_cast<int>(rx2FreqHz_.load(std::memory_order_relaxed)));
+        ddsHzForRf(rx2FreqHz_.load(std::memory_order_relaxed)));
     if (a < 0 || b < 0 || a == b) {
         lastSubWarnBandA_ = -1;
         lastSubWarnBandB_ = -1;
@@ -2266,7 +2292,7 @@ void HL2Stream::setXitOffsetHz(int hz) {
 void HL2Stream::writeDdc1Hz(int ddc0Hz) {
     if (subEnabled_.load(std::memory_order_relaxed)) {
         lyra::wire::set_rx_freq(
-            1, static_cast<int>(rx2FreqHz_.load(std::memory_order_relaxed)));
+            1, ddsHzForRf(rx2FreqHz_.load(std::memory_order_relaxed)));
     } else {
         lyra::wire::set_rx_freq(1, ddc0Hz);
     }
@@ -2419,7 +2445,8 @@ void HL2Stream::setTxFreqHz(quint32 hz) {
             // #105 CW carrier offset — transmit at the carrier (= DDS +
             // markerOffset in CW), not the bare DDS, so the keyed carrier
             // lands on the marker like every other TX NCO push.
-            lyra::wire::set_tx_freq(txDdsHzForTune(hz));
+            lyra::wire::set_tx_freq(ddsHzForRf(static_cast<quint32>(
+                std::max(0, txDdsHzForTune(hz)))));
         emit logLine(QStringLiteral("TX freq -> %1 Hz (%2 MHz)")
                      .arg(hz).arg(hz / 1.0e6, 0, 'f', 6));
     }
@@ -2434,7 +2461,7 @@ double HL2Stream::radioVolumeFor_(int requestedRaw) const {
     // (Thetis comment: "jump in steps of 16 but getting 6").
     const double pct = requestedRaw * 100.0 / 255.0;
     const int band = lyra::paPowerBandIndexForFreq(
-        static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
+        ddsHzForRf(txFreqHz_.load(std::memory_order_relaxed)));
     const double gbb = (band >= 0 && band < kNumPaGainBands)
                            ? paGainByBand_[band].load(std::memory_order_relaxed)
                            : kPaGainDefault;
@@ -2497,7 +2524,7 @@ int HL2Stream::wattsDriveCeilingRaw_() const {
     if (!capActive_()) return 255;
     const double capW = maxOutputW_.load(std::memory_order_relaxed);
     const int band = lyra::paPowerBandIndexForFreq(
-        static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
+        ddsHzForRf(txFreqHz_.load(std::memory_order_relaxed)));
     if (band < 0 || band >= kNumPaGainBands) return 255;
     if (capTunedFor_(band, capW))
         return capCeilRaw_[band].load(std::memory_order_relaxed);
@@ -2520,7 +2547,7 @@ void HL2Stream::tickCapServo_(double fwdW) {
     const double capW = maxOutputW_.load(std::memory_order_relaxed);
     if (capW <= 0.0) return;
     const int band = lyra::paPowerBandIndexForFreq(
-        static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
+        ddsHzForRf(txFreqHz_.load(std::memory_order_relaxed)));
     if (band < 0 || band >= kNumPaGainBands) return;
     const double fullW = fullOutputWByBand_[band].load(std::memory_order_relaxed);
     if (fullW > 0.0 && capW >= fullW) return;        // cap ≥ full → no clamp to learn
@@ -2730,7 +2757,7 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
     const double capW = maxOutputW_.load(std::memory_order_relaxed);
     if (capW > 0.0 && capArmed_.load(std::memory_order_relaxed)) {
         const int cband = lyra::paPowerBandIndexForFreq(
-            static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
+            ddsHzForRf(txFreqHz_.load(std::memory_order_relaxed)));
         newCapStatus = (cband >= 0 && cband < kNumPaGainBands
                         && capTunedFor_(cband, capW)
                         && capServoSettled_[cband].load(std::memory_order_relaxed))
@@ -2764,7 +2791,7 @@ void HL2Stream::setPaGainForBand(int idx, double gain) {
     // Re-apply live if this is the band we're transmitting on, so the
     // operator sees the dummy-load power move as they nudge the number.
     const int cur = lyra::paPowerBandIndexForFreq(
-        static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
+        ddsHzForRf(txFreqHz_.load(std::memory_order_relaxed)));
     if (cur == idx)
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
 }
@@ -2784,7 +2811,7 @@ void HL2Stream::setFullOutputForBand(int idx, double watts) {
         watts);
     // Re-apply if this band is live — the watts ceiling just changed.
     const int cur = lyra::paPowerBandIndexForFreq(
-        static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
+        ddsHzForRf(txFreqHz_.load(std::memory_order_relaxed)));
     if (cur == idx)
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
 }
@@ -2843,7 +2870,7 @@ void HL2Stream::clearCapLearnForBand(int idx) {
                    QStringLiteral("pa_gain/%1/capSettled").arg(b)), false);
     // Re-apply if this band is live so a stale locked ceiling stops biting now.
     const int cur = lyra::paPowerBandIndexForFreq(
-        static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
+        ddsHzForRf(txFreqHz_.load(std::memory_order_relaxed)));
     if (cur == idx)
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
 }
@@ -2925,14 +2952,57 @@ void HL2Stream::setPaEnabled(bool on) {
     // modulated carrier reaches the antenna (~0 W into dummy load).
     const bool prev = paOn_.exchange(on, std::memory_order_relaxed);
     if (prev == on) return;
-    // §5 (TX): ApolloTuner/ApolloFilt globals + prn->tx[0].pa
-    // (compose_case_10 C2 bit3 active-high PA-enable + C3 legacy bit).
-    if (lyra::wire::prn != nullptr) lyra::wire::set_pa_on(on);
+    applyPaWire();
     QSettings().setValue(lyra::rig::scope::rigKey(QStringLiteral("tx/paEnabled")), on);
     emit paEnabledChanged(on);
     safetyLog(QStringLiteral("TX: PA enable -> %1")
               .arg(on ? QStringLiteral("ON  (RF possible on next key)")
                       : QStringLiteral("off (PA bias disarmed)")));
+}
+
+int HL2Stream::ddsHzForRf(quint32 rfHz) const {
+    return xvtr_ ? xvtr_->ddsHz(static_cast<qint64>(rfHz))
+                 : static_cast<int>(rfHz);
+}
+
+int HL2Stream::xvtrMatchingSlot(qint64 rfHz) const {
+    return xvtr_ ? xvtr_->matchingSlot(rfHz) : -1;
+}
+
+int HL2Stream::ocBandIndexForRf(quint32 rfHz) const {
+    if (xvtr_) {
+        const int s = xvtr_->matchingSlot(static_cast<qint64>(rfHz));
+        if (s >= 0) {
+            const qint64 loRf =
+                static_cast<qint64>(xvtr_->slotRfLoHz(s));
+            int bi = lyra::bandIndexForFreq(xvtr_->ddsHz(loRf));
+            if (bi < 0)
+                bi = lyra::bandIndexForFreq(ddsHzForRf(rfHz));
+            if (bi < 0)
+                bi = lyra::bandIndexForFreq(28400000);  // 10 m N2ADR LPF
+            return bi;
+        }
+    }
+    return lyra::bandIndexForFreq(ddsHzForRf(rfHz));
+}
+
+void HL2Stream::setXvtrSlots(lyra::ui::XvtrSlots *xvtrSlots) {
+    xvtr_ = xvtrSlots;
+    if (!xvtr_)
+        return;
+    connect(xvtr_, &lyra::ui::XvtrSlots::slotsChanged, this, [this]() {
+        applyPaWire();
+        pushEffectiveRxFreq();
+        pushEffectiveTxFreq();
+    });
+}
+
+void HL2Stream::applyPaWire() {
+    if (lyra::wire::prn == nullptr)
+        return;
+    const bool overlay =
+        xvtr_ && xvtr_->disablePaForRf(txFreqHz_.load(std::memory_order_relaxed));
+    lyra::wire::set_pa_on(paOn_.load(std::memory_order_relaxed) && !overlay);
 }
 
 void HL2Stream::setMicBoost(bool on) {
@@ -3003,33 +3073,28 @@ void HL2Stream::setCwPitchHz(int hz) {
         p->cw.sidetone_freq = c;
         // Re-push the TX NCO so the keyed CW carrier offset follows the new
         // pitch (the marker moved to the new pitch too — keep the carrier on it).
-        lyra::wire::set_tx_freq(
-            txDdsHzForTune(txFreqHz_.load(std::memory_order_relaxed)));
+        lyra::wire::set_tx_freq(ddsHzForRf(static_cast<quint32>(
+            std::max(0, txDdsHzForTune(
+                txFreqHz_.load(std::memory_order_relaxed))))));
     }
     // The panadapter TX-analyzer crop (NCO − DDS) changed with the pitch.
     emit txAnalyzerOffsetChanged(txAnalyzerOffsetHz());
 }
 
 int HL2Stream::txDdsHzForTune(quint32 dialHz) const {
-    // P4.b TUN zero-beat — Thetis tx_freq computation gated on chkTUN
-    // (console.cs:32574-32587): while tuning, offset the TX NCO by
-    // ∓cw_pitch (USB −, LSB +) so the ±cw_pitch postgen tone (main.cpp
-    // setTune) cancels to a carrier at the dial.  Not tuning → dial
-    // unchanged.  Same kTuneCwPitchHz both sides → they cancel.
-    if (!tuneEnabled_.load(std::memory_order_relaxed))
-        // #105 CW-2 fix — the keyed CW carrier must land on the marker (the
-        // displayed VFO = DDS + markerOffset), NOT at the DDC centre.  Add the
-        // CW carrier offset (CWU +pitch / CWL −pitch / other 0), using the
-        // live shared CW pitch.  Non-CW → 0 so SSB/AM/FM/DSB are unchanged.
-        return static_cast<int>(dialHz) + cwTxCarrierOffsetHz();
-    // ∓cw_pitch by sideband so the ±cw_pitch postgen tone cancels to a
-    // carrier at the dial.  Double-sideband modes (DSB/FM/AM/SAM) are
-    // centered → no offset; LSB-side {LSB,CWL,DIGL} +pitch; USB-side −pitch.
+    const int dial = static_cast<int>(dialHz);
     const int tm = txMode_.load(std::memory_order_relaxed);
-    const int off = (tm == 2 || tm == 5 || tm == 6 || tm == 10) ? 0
-                  : (tm == 0 || tm == 3 || tm == 9) ? +kTuneCwPitchHz
-                  :                                   -kTuneCwPitchHz;
-    return static_cast<int>(dialHz) + off;
+    if (!tuneEnabled_.load(std::memory_order_relaxed))
+        return dial + cwTxCarrierOffsetHz();
+    // CW TUN: same NCO as keyed CW so the carrier sits on the marker.
+    // SSB-style dial zero-beat would put TUN at the DDC centre, not the RX.
+    if (txModeIsCw(tm))
+        return dial + cwTxCarrierOffsetHz();
+    if (txModeIsDsbFamily(tm))
+        return dial;
+    // USB-side (USB/CWU/DIGU) −pitch; LSB-side (LSB/CWL/DIGL) +pitch.
+    // Pairs with postGenTuneToneHz of the opposite sign → dial zero-beat.
+    return dial + (txModeIsLsbFamily(tm) ? +kTuneCwPitchHz : -kTuneCwPitchHz);
 }
 
 int HL2Stream::txAnalyzerOffsetHz() const {
@@ -3098,17 +3163,18 @@ void HL2Stream::setTuneEnabled(bool on) {
     // (the setTune fwd) → net carrier at the dial (Thetis chkTUN order).
     if (lyra::wire::prn != nullptr) {
         const quint32 dial = txFreqHz_.load(std::memory_order_relaxed);
-        const int dds = txDdsHzForTune(dial);
+        const int dds = ddsHzForRf(static_cast<quint32>(
+            std::max(0, txDdsHzForTune(dial))));
         lyra::wire::set_tx_freq(dds);
         // TUN-zero-beat diagnostic: shows the dial vs the offset TX NCO so
         // the bench log pins where the carrier should land vs where it does.
-        qInfo("[tx] TUN %s: dial=%u txDds(NCO)=%d off=%d mode=%d(USB=1) cw_pitch=%d"
-              "  (gen1 tone = %s%d; net carrier should = dial)",
+        const int tmLog = txMode_.load(std::memory_order_relaxed);
+        const int tone = postGenTuneToneHz(tmLog);
+        qInfo("[tx] TUN %s: dial=%u txDds(NCO)=%d off=%d mode=%d cw_pitch=%d"
+              "  (gen1 tone = %+d Hz)",
               on ? "ON" : "off",
               dial, dds, dds - static_cast<int>(dial),
-              txMode_.load(std::memory_order_relaxed), kTuneCwPitchHz,
-              (txMode_.load(std::memory_order_relaxed) == 1) ? "+" : "-",
-              kTuneCwPitchHz);
+              tmLog, kTuneCwPitchHz, tone);
     }
     emit tuneEnabledChanged(on);
     // TUN while already keyed: a prior watts/SWR fold cut live drive and
@@ -3174,6 +3240,7 @@ void HL2Stream::setPsAttestation(bool on) {
         setPsArmed(false);
     else
         refreshPsWire();
+    emit psLiveArmedChanged(psLiveArmed());
 }
 
 void HL2Stream::setPsArmed(bool on) {
@@ -3184,6 +3251,36 @@ void HL2Stream::setPsArmed(bool on) {
     QSettings().setValue(QStringLiteral("tx/psArmed"), on);
     emit psArmedChanged(on);
     refreshPsWire();
+    emit psLiveArmedChanged(psLiveArmed());
+}
+
+bool HL2Stream::psDigitalLockout() const {
+    // WDSP TXA: CWL=3, CWU=4, FM=5, DIGU=7, DIGL=9, DRM=11. Also the
+    // Mode combo on the focused RX (psUiDigital_) — TXA can lag RX2 /
+    // stay USB.
+    if (psUiDigital_.load(std::memory_order_relaxed))
+        return true;
+    const int m = txMode_.load(std::memory_order_relaxed);
+    return m == 3 || m == 4 || m == 5 || m == 7 || m == 9 || m == 11;
+}
+
+void HL2Stream::setPsUiMode(const QString &uiMode) {
+    const QString m = uiMode.toUpper();
+    const bool digital = (m == QLatin1String("DIGU")
+                       || m == QLatin1String("DIGL")
+                       || m == QLatin1String("DRM")
+                       || m == QLatin1String("CWL")
+                       || m == QLatin1String("CWU")
+                       || m == QLatin1String("FM"));
+    const bool was = psUiDigital_.exchange(digital, std::memory_order_relaxed);
+    if (was == digital)
+        return;
+    refreshPsWire();
+    emit psLiveArmedChanged(psLiveArmed());
+}
+
+bool HL2Stream::psLiveArmed() const {
+    return psAttestation_ && psArmed_ && !psDigitalLockout();
 }
 
 void HL2Stream::resetPureSignal() {
@@ -3279,7 +3376,7 @@ int HL2Stream::psFeedSpr() const {
 
 void HL2Stream::refreshPsWire() {
     using namespace lyra::ps;
-    const bool liveArmed = psAttestation_ && psArmed_;
+    const bool liveArmed = psLiveArmed();
     const bool mox = lyra::wire::XmitBit != 0;
     const auto fam = p2DrivePath_.load(std::memory_order_relaxed)
                          ? lyra::rig::RadioFamily::BrickP2
@@ -3642,6 +3739,10 @@ void HL2Stream::requestMox(bool on, PttSource source) {
     // mutual lockout).  Transient; keyup always passes.
     if (on && convertLockout_) {
         safetyLog(QStringLiteral("TX: keying BLOCKED — a recording is converting to MP4"));
+        return;
+    }
+    if (on && xvtr_ && xvtr_->rxOnlyForRf(txFreqHz_.load(std::memory_order_relaxed))) {
+        safetyLog(QStringLiteral("TX: keying BLOCKED — transverter slot is RX-only"));
         return;
     }
     requestedMox_ = on;
@@ -4296,6 +4397,52 @@ void HL2Stream::setCtcssToneHz(double hz) {
     if (fwd) fwd(v);
 }
 
+void HL2Stream::setCtcssDlHz(double hz) {
+    const double v = (hz > 0.5) ? snapCtcssTone(hz) : 0.0;
+    if (v == ctcssDlHz_) return;
+    ctcssDlHz_ = v;
+    QSettings().setValue(QStringLiteral("tx/ctcssDlHz"), v);
+    emit ctcssDlHzChanged(v);
+}
+
+void HL2Stream::setFmBurstHz(int hz) {
+    const int v = (hz == 1750) ? 1750 : 0;
+    if (v == fmBurstHz_) return;
+    fmBurstHz_ = v;
+    QSettings().setValue(QStringLiteral("tx/fmBurstHz"), v);
+    emit fmBurstHzChanged(v);
+}
+
+void HL2Stream::mixFm1750Tx(int nsamples, double* buff) {
+    if (!buff || nsamples <= 0) return;
+    if (g_fmBurstMix.load(std::memory_order_acquire) == 0) return;
+    constexpr double kTwoPi = 6.28318530717958647692;
+    constexpr double kHz = 1750.0;
+    constexpr double kRate = 48000.0;
+    constexpr double kMag = 0.40;
+    const double dph = kTwoPi * kHz / kRate;
+    double ph = g_fmBurstPhase.load(std::memory_order_relaxed);
+    for (int i = 0; i < nsamples; ++i) {
+        double& I = buff[2 * i];
+        I += kMag * std::sin(ph);
+        if (I > 0.98) I = 0.98;
+        else if (I < -0.98) I = -0.98;
+        ph += dph;
+        if (ph >= kTwoPi) ph -= kTwoPi;
+    }
+    g_fmBurstPhase.store(ph, std::memory_order_relaxed);
+}
+
+void HL2Stream::fireFmBurst() {
+    const bool fm = (txMode_.load(std::memory_order_relaxed) == 5);
+    if (!fm) return;
+    g_fmBurstPhase.store(0.0, std::memory_order_relaxed);
+    g_fmBurstMix.store(1, std::memory_order_release);
+    fmBurstActive_ = true;
+    emit fmBurstActiveChanged();
+    fmBurstTimer_.start(500);
+}
+
 // §15.31 — ATT-on-TX enable.  Persists + emits; if currently keyed,
 // re-applies to the wire live so the operator sees the front-end
 // attenuation engage/disengage mid-TX (the FSM otherwise only sets it
@@ -4777,6 +4924,10 @@ void HL2Stream::setTxMode(int wdspMode) {
     // #107 — re-derive the CTCSS run state on the mode edge: the FM sub-tone
     // runs only in FM (WDSP mode 5) and only when the operator enabled it.
     applyCtcssRun();
+    // PureSignal: drop the coupler/calibrator in DIGU/DIGL/DRM/CWL/CWU/FM;
+    // restore the operator Arm flag (still persisted) when leaving those.
+    refreshPsWire();
+    emit psLiveArmedChanged(psLiveArmed());
     // #170c — re-derive the TX drive byte on the mode edge: the CW watts-cap
     // fold in applyTxPower_ folds the (gateware-bypassed) fixed gain into the
     // coarse byte only in CW, so entering/leaving CW must re-push the byte.
@@ -4805,7 +4956,8 @@ void HL2Stream::setTxMode(int wdspMode) {
     // Benign during RX (TX NCO is consumed only while transmitting).
     if (lyra::wire::prn != nullptr) {
         const int dds = static_cast<int>(txFreqHz_.load(std::memory_order_relaxed));
-        const int nco = txDdsHzForTune(dds);
+        const int nco = ddsHzForRf(static_cast<quint32>(
+            std::max(0, txDdsHzForTune(static_cast<quint32>(std::max(0, dds))))));
         lyra::wire::set_tx_freq(nco);
         // Display-honesty: re-tell the panadapter so the TX crop stays on
         // the marker when the offset sign flips with the sideband.
@@ -4817,6 +4969,24 @@ void HL2Stream::setTxMode(int wdspMode) {
               "offset=%+d -> TX_NCO=%d (should == marker = dds+offset)",
               clamped, dds, cwPitchHz_.load(std::memory_order_relaxed),
               cwTxCarrierOffsetHz(), nco);
+    }
+    // Re-stamp postgen if TUN / 2-tone is already armed — USB vs DIGU vs
+    // LSB used to keep a stale tone sign until the button was cycled.
+    if (tuneEnabled_.load(std::memory_order_relaxed)) {
+        std::function<void(bool)> tun;
+        {
+            std::lock_guard<std::mutex> lk(txControlMtx_);
+            tun = txControl_.setTune;
+        }
+        if (tun) tun(true);
+    }
+    if (twoToneEnabled_.load(std::memory_order_relaxed)) {
+        std::function<void(bool)> tt;
+        {
+            std::lock_guard<std::mutex> lk(txControlMtx_);
+            tt = txControl_.setTwoTone;
+        }
+        if (tt) tt(true);
     }
 }
 
@@ -5058,7 +5228,7 @@ void HL2Stream::evalSwrProtect() {
     // Full Output) off a held sample without a second key-down.
     if (fwd >= swrFwdFloorW_) {
         const int cb = lyra::paPowerBandIndexForFreq(
-            static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
+            ddsHzForRf(txFreqHz_.load(std::memory_order_relaxed)));
         if (cb >= 0 && cb < kNumPaGainBands) {
             const double prev = capturedRawW_[cb].load(std::memory_order_relaxed);
             capturedRawW_[cb].store(prev > 0.0 ? prev * 0.7 + fwd * 0.3 : fwd,
@@ -5300,8 +5470,10 @@ void HL2Stream::updateOcPattern(bool transmitting) {
     // still emits 0 and an N2ADR-seeded enabled board is byte-identical.
     quint8 bits = 0;
     if (filterBoardEnabled_) {
-        const int bi = lyra::bandIndexForFreq(
-            static_cast<int>(rx1FreqHz_.load(std::memory_order_relaxed)));
+        const quint32 rf = transmitting
+            ? txFreqHz_.load(std::memory_order_relaxed)
+            : rx1FreqHz_.load(std::memory_order_relaxed);
+        const int bi = ocBandIndexForRf(rf);
         // One analog filter (N2ADR): OC follows RX1.  SUB is a second DDC
         // on the same ADC; cross-band SUB stays behind RX1's LPF/BPF.
         // TX OC band is RX1 today; SPLIT TX still uses this until TX-band

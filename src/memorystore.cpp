@@ -40,6 +40,9 @@ void MemoryStore::load() {
         p.notes = o.value(QStringLiteral("notes")).toString().left(kMaxNotes);
         p.offsetHz    = o.value(QStringLiteral("offsetHz")).toInt();      // 0 if absent
         p.ctcssToneHz = o.value(QStringLiteral("ctcssToneHz")).toDouble();// 0 if absent
+        p.ctcssDlHz   = o.value(QStringLiteral("ctcssDlHz")).toDouble();
+        p.burstHz     = o.value(QStringLiteral("burstHz")).toInt();
+        if (p.burstHz != 1750) p.burstHz = 0;
         if (p.freq > 0 && presets_.size() < kMax) presets_.append(p);
     }
 }
@@ -55,6 +58,8 @@ void MemoryStore::save() const {
         o[QStringLiteral("notes")] = p.notes;
         o[QStringLiteral("offsetHz")]    = p.offsetHz;
         o[QStringLiteral("ctcssToneHz")] = p.ctcssToneHz;
+        o[QStringLiteral("ctcssDlHz")]   = p.ctcssDlHz;
+        o[QStringLiteral("burstHz")]     = p.burstHz;
         arr.append(o);
     }
     QSettings().setValue(QString::fromLatin1(kKey),
@@ -73,6 +78,8 @@ QVariantList MemoryStore::list() const {
         m[QStringLiteral("notes")]  = p.notes;
         m[QStringLiteral("offsetHz")]    = p.offsetHz;
         m[QStringLiteral("ctcssToneHz")] = p.ctcssToneHz;
+        m[QStringLiteral("ctcssDlHz")]   = p.ctcssDlHz;
+        m[QStringLiteral("burstHz")]     = p.burstHz;
         out.append(m);
     }
     return out;
@@ -106,6 +113,8 @@ void MemoryStore::recall(int index) {
         } else {
             stream_->setCtcssEnabled(false);
         }
+        stream_->setCtcssDlHz(p.ctcssDlHz);
+        stream_->setFmBurstHz(p.burstHz);
     }
 }
 
@@ -129,6 +138,8 @@ bool MemoryStore::addCurrent(const QString &name) {
         p.offsetHz = int(qint64(stream_->vfoBHz()) - qint64(stream_->rx1FreqHz()));
     if (stream_->ctcssEnabled())
         p.ctcssToneHz = stream_->ctcssToneHz();
+    p.ctcssDlHz = stream_->ctcssDlHz();
+    p.burstHz   = stream_->fmBurstHz();
     presets_.append(p);
     save();
     emit changed();
@@ -175,14 +186,18 @@ bool MemoryStore::exportCsv(const QString &path) const {
     };
     // Offset_Hz/CTCSS_Hz appended AFTER Notes so old 5-column CSVs still
     // import (the two new fields just default to 0 when absent).
-    ts << "Name,Freq_Hz,Mode,RX_BW_Hz,Notes,Offset_Hz,CTCSS_Hz\n";
+    ts << "Name,Freq_Hz,Mode,RX_BW_Hz,Notes,Offset_Hz,CTCSS_Hz,"
+          "CTCSS_DL_Hz,Burst_Hz\n";
     for (const Preset &p : presets_) {
         ts << esc(p.name) << ',' << p.freq << ',' << p.mode << ','
            << (p.rxBw > 0 ? QString::number(p.rxBw) : QString()) << ','
            << esc(p.notes) << ','
            << p.offsetHz << ','
            << (p.ctcssToneHz > 0.0 ? QString::number(p.ctcssToneHz, 'f', 1)
-                                   : QString()) << '\n';
+                                   : QString()) << ','
+           << (p.ctcssDlHz > 0.0 ? QString::number(p.ctcssDlHz, 'f', 1)
+                                   : QString()) << ','
+           << (p.burstHz == 1750 ? QStringLiteral("1750") : QString()) << '\n';
     }
     return true;
 }
@@ -223,6 +238,13 @@ MemoryStore::ImportResult MemoryStore::importCsv(const QString &path,
         p.notes = (c.size() > 4) ? c[4].trimmed().left(kMaxNotes) : QString();
         p.offsetHz    = (c.size() > 5) ? c[5].trimmed().toInt() : 0;
         p.ctcssToneHz = (c.size() > 6) ? c[6].trimmed().toDouble() : 0.0;
+        p.ctcssDlHz   = (c.size() > 7) ? c[7].trimmed().toDouble() : 0.0;
+        if (c.size() > 8) {
+            const QString b = c[8].trimmed();
+            p.burstHz = (b.contains(QStringLiteral("1750")) || b == QLatin1String("1")
+                         || b.compare(QLatin1String("y"), Qt::CaseInsensitive) == 0)
+                            ? 1750 : 0;
+        }
         incoming.append(p);
     }
     if (replace) presets_.clear();

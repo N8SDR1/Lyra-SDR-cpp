@@ -35,7 +35,8 @@ on RX1** until SDRLogger+ is known to consume a second-channel report
    It's **off by default**, per-machine, and remembered.
 2. Make sure **TCI server running** is on (Combo rides the TCI link), and that
    **SDRLogger+ is connected to Lyra as a TCI client** — point its radio / TCI
-   connection at Lyra's IP and port (the same **50001**).
+   connection at Lyra's IP and port (the same **40001** default unless you
+   changed it).
 3. When the two are linked, SDRLogger+ shows a **`● Lyra Combo`** badge in its
    Log-Entry header — that badge is your confirmation the link is live.
 

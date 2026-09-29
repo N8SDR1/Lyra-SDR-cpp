@@ -157,3 +157,9 @@ resets the peak-hold. Inline "S-auto" toggle + auto/manual badge by the field.
 Chosen over an in-app rolling-min noise-floor estimate because Lyra's SNR is a
 real DSP measurement and matches what the operator sees on Lyra's meter. Ships
 in the same Lyra rebuild as Stage B.
+
+## 11. RTTY is an Apps companion (locked 2026-09-29)
+
+Native in-radio RTTY was dropped. Operators run fldigi / MMTTY / etc. from
+**Settings → Apps** (and TCI / VAC). Combo remains CW-only. DX-cluster
+spot labels may still say RTTY; that is cluster text, not a decoder.

@@ -229,13 +229,17 @@ at startup).
 
 **⚠ PureSignal prerequisites (wire these when PS is built — verify
 Thetis behavior first):**
-1. **Lock PS out in digital modes (DIGU/DIGL/DRM).** Digital apps
-   recommend against PS — on near-constant-envelope digital it can
-   raise IMD. Mirror the `setMode` digital-bypass idiom (RX-EQ #59 /
-   TX-rack / PHROT #109). Also makes the minimum-phase+PS combo
+1. **Lock PS out in DIGU/DIGL/DRM, CWL/CWU, and FM.** SHIPPED — live
+   Arm is operator intent AND-gated with not those modes (`psLiveArmed` /
+   `refreshPsWire`). Digital apps recommend against PS — on
+   near-constant-envelope digital it can raise IMD. CW is a keyed
+   carrier (and on HL2 not the same I/Q PS trains on). FM is
+   constant-envelope so there is no AM trajectory to linearize.
+   Mirror of the `setMode` digital-bypass idiom (RX-EQ #59 / TX-rack /
+   PHROT #109 stays DIG-only). Also makes the minimum-phase+PS combo
    impossible in digital (where Low Latency is the recommended pick).
-2. **Force Linear Phase on the TX path while PS is armed** (Phone/
-   AM/FM, where PS is allowed), restore on PS-off. Minimum-phase
+2. **Force Linear Phase on the TX path while PS is armed** (Phone /
+   AM, where PS is allowed), restore on PS-off. Minimum-phase
    shifts TXA group delay; PS feedback alignment is delay-sensitive.
    ~2-line gate at the single `applyDspFilterTypes()` funnel.
 

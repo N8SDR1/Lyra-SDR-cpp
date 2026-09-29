@@ -60,7 +60,7 @@ switching.
 | Band plan | `band_plan/*`, `bands/*` | **Shared** | Rig-independent |
 | CW decoder, spots, weather | `cw/decode*`, `spots/*`, `wx/*`, `propagation/*` | **Shared** | Rig-independent |
 | TCI / CAT network | `tci/*`, `cat1..3/*`, `serialptt/*` | **Shared default, per-rig override opt-in** (operator call 2026-07-19) | One rig live → no port contention, so shared "just works" for same-apps-on-both. A user who wants a rig bound to a different app/port/CAT-emulation flips a per-rig override (absent key → falls back to shared). SAME mechanism as layout — one override pattern, two category groups. Ship shared-only first; override slots in later with no migration |
-| Graphics backend, gfx safe-mode | `ui/graphicsBackend`, `ui/gfx*` | **Machine-local** | Already backup-excluded |
+| Graphics backend, MSAA, gfx safe-mode | `ui/graphicsBackend`, `ui/msaaSamples`, `ui/gfx*` | **Machine-local** | Already backup-excluded |
 | Companion launch paths | `profileLaunch/*` | **Machine-local** | Already backup-excluded |
 
 > Note: TCI/CAT are **shared** only because one rig is live at a time. If
@@ -90,7 +90,7 @@ rig/<rigId>/
 # flat / shared (unchanged): operator/, band_plan/, cw/decode*, spots/,
 #   wx/, propagation/, tci/, cat*/, serialptt/, serialcwkey/
 # machine-local (unchanged, backup-excluded): ui/graphicsBackend,
-#   ui/gfx*, audio device names, profileLaunch/, layout geometry
+#   ui/msaaSamples, ui/gfx*, audio device names, profileLaunch/, layout geometry
 ```
 
 `rigId` = a stable slug derived from the MAC (e.g. `rig_aabbccddeeff`)

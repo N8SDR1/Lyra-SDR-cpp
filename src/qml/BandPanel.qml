@@ -1,10 +1,10 @@
 // Lyra — Band dock panel.
 //
-// Three rows, matching old Lyra's BandSelectorPanel:
+// Four rows, matching old Lyra's BandSelectorPanel plus transverter chips:
 //   1. AMATEUR  — 160m … 6m amateur bands
 //   2. BC       — shortwave broadcast meter bands (120m … 13m)
-//   3. GEN      — GEN1/2/3 general-coverage slots (TIME + Mem join here
-//                 as those features land)
+//   3. GEN      — GEN1/2/3 general-coverage slots (TIME + Mem join here)
+//   4. XVTR     — transverter slots (RF on the dial; radio IF = RF − LO)
 // All built from the shared C++ band tables (Bands context property),
 // so the lists never drift from the protocol/DSP side.
 //
@@ -492,6 +492,245 @@ Rectangle {
             }
 
             Item { Layout.fillWidth: true }
+        }
+
+        // ── Row 4: transverter slots (RF dial, IF on the radio) ──────
+        RowLayout {
+            spacing: 4
+            RowLabel { text: qsTr("Xvtr") }
+            Repeater {
+                model: 4
+                delegate: ChipButton {
+                    required property int index
+                    text: {
+                        Xvtr.activeSlot
+                        Xvtr.activeSlotRx2
+                        return Xvtr.slotName(index)
+                    }
+                    opacity: {
+                        Xvtr.activeSlot
+                        return Xvtr.slotEnabled(index) ? 1.0 : 0.45
+                    }
+                    chipActive: Xvtr.activeSlot === index
+                    chipSub: Stream.subEnabled && Xvtr.activeSlotRx2 === index
+                    activeFill: "#082026"
+                    activeBorder: "#34d0ff"
+                    activeText: "#b8f0ff"
+                    ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                    ToolTip.text: qsTr("Click: tune RX1 to this transverter\n"
+                                     + "Shift+click: SUB · right-click: edit slot")
+                    onClicked: {
+                        if (!Xvtr.slotEnabled(index)) {
+                            xvtrEditor.openFor(index)
+                            return
+                        }
+                        Gen.deactivate()
+                        Xvtr.tune(index)
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onPressed: (mouse) => {
+                            mouse.accepted = (mouse.button === Qt.RightButton)
+                                    || (mouse.modifiers & Qt.ShiftModifier)
+                        }
+                        onClicked: (mouse) => {
+                            if (mouse.button === Qt.RightButton) {
+                                xvtrEditor.openFor(index)
+                                return
+                            }
+                            if (Xvtr.slotEnabled(index)) {
+                                Gen.deactivate()
+                                Xvtr.tuneSub(index)
+                            }
+                        }
+                    }
+                }
+            }
+            Item { Layout.fillWidth: true }
+        }
+    }
+
+    // Own OS window — a Dialog/Popup.Item is clipped to this dock's
+    // QQuickWidget (same lesson as AudioPanel out/tune popups).
+    // Dark Lyra fields — stock Windows TextField/CheckBox read as a
+    // pasted-in system dialog on this panel.
+    Popup {
+        id: xvtrEditor
+        popupType: Popup.Window
+        modal: true
+        dim: false
+        focus: true
+        width: 360
+        padding: 14
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        x: Math.round((parent.width - width) / 2)
+        y: 12
+        property int idx: 0
+        readonly property color cAccent: "#50d0ff"
+        readonly property color cText:   "#cdd9e5"
+        readonly property color cMuted:  "#8a9aac"
+        readonly property color cField:  "#161e28"
+        readonly property color cBorder: "#2a3a4a"
+        function mhz(field) {
+            var v = parseFloat(field.text)
+            return isNaN(v) ? 0 : v * 1e6
+        }
+        function save() {
+            Xvtr.setSlot(idx, xvtrOn.checked, xvtrName.text,
+                         mhz(xvtrRfLo), mhz(xvtrRfHi), mhz(xvtrLo),
+                         parseFloat(xvtrErr.text) || 0,
+                         xvtrPa.checked, xvtrRx.checked)
+            close()
+        }
+        function openFor(i) {
+            idx = i
+            xvtrOn.checked = Xvtr.slotEnabled(i)
+            xvtrName.text = Xvtr.slotName(i)
+            xvtrRfLo.text = (Xvtr.slotRfLoHz(i) / 1e6).toFixed(6)
+            xvtrRfHi.text = (Xvtr.slotRfHiHz(i) / 1e6).toFixed(6)
+            xvtrLo.text = (Xvtr.slotLoHz(i) / 1e6).toFixed(6)
+            xvtrErr.text = String(Math.round(Xvtr.slotErrorHz(i)))
+            xvtrPa.checked = Xvtr.slotDisablePa(i)
+            xvtrRx.checked = Xvtr.slotRxOnly(i)
+            open()
+        }
+
+        component Field: ColumnLayout {
+            property alias label: lab.text
+            property alias unit: unitLab.text
+            property alias text: fld.text
+            property alias placeholderText: fld.placeholderText
+            property bool mono: true
+            spacing: 3
+            Layout.fillWidth: true
+            RowLayout {
+                spacing: 6
+                Label {
+                    id: lab
+                    color: xvtrEditor.cText
+                    font.pixelSize: 12
+                }
+                Label {
+                    id: unitLab
+                    color: xvtrEditor.cMuted
+                    font.pixelSize: 11
+                    visible: text.length > 0
+                }
+            }
+            TextField {
+                id: fld
+                Layout.fillWidth: true
+                implicitHeight: 26
+                selectByMouse: true
+                color: "#f2f8fc"
+                font.family: parent.mono ? "Consolas" : "Segoe UI"
+                font.pixelSize: 13
+                placeholderTextColor: xvtrEditor.cMuted
+                background: Rectangle {
+                    radius: 4
+                    color: xvtrEditor.cField
+                    border.color: fld.activeFocus ? xvtrEditor.cAccent
+                                                  : xvtrEditor.cBorder
+                }
+            }
+        }
+
+        component Tick: CheckBox {
+            id: cb
+            font.pixelSize: 12
+            implicitHeight: 22
+            indicator: Rectangle {
+                implicitWidth: 16
+                implicitHeight: 16
+                x: cb.leftPadding
+                y: parent.height / 2 - height / 2
+                radius: 3
+                color: xvtrEditor.cField
+                border.color: cb.checked ? xvtrEditor.cAccent : "#3a5a6a"
+                Text {
+                    anchors.centerIn: parent
+                    visible: cb.checked
+                    text: "✓"
+                    color: xvtrEditor.cAccent
+                    font.pixelSize: 11
+                    font.bold: true
+                }
+            }
+            contentItem: Text {
+                text: cb.text
+                color: xvtrEditor.cText
+                font: cb.font
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: cb.indicator.width + 8
+            }
+        }
+
+        component GhostButton: Button {
+            implicitHeight: 26
+            font.pixelSize: 12
+            property bool accent: false
+            background: Rectangle {
+                radius: 4
+                color: parent.down ? "#1a3040"
+                     : parent.hovered ? "#1f4655" : xvtrEditor.cField
+                border.color: parent.accent ? xvtrEditor.cAccent
+                                            : xvtrEditor.cBorder
+            }
+            contentItem: Text {
+                text: parent.text
+                color: "#eaf2f7"
+                font: parent.font
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+
+        background: Rectangle {
+            color: "#0d141b"
+            radius: 8
+            border.color: "#2a4a5a"
+        }
+        contentItem: ColumnLayout {
+            id: xvtrForm
+            spacing: 10
+            Label {
+                text: qsTr("Transverter slot %1").arg(xvtrEditor.idx + 1)
+                color: xvtrEditor.cAccent
+                font.bold: true
+                font.pixelSize: 13
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: qsTr("RF on the dial; radio IF = RF − LO − error.")
+                color: xvtrEditor.cMuted
+                font.pixelSize: 11
+            }
+            Tick { id: xvtrOn; text: qsTr("On") }
+            Field {
+                id: xvtrName
+                label: qsTr("Name")
+                mono: false
+                placeholderText: qsTr("e.g. 2 m")
+            }
+            Field { id: xvtrRfLo; label: qsTr("RF low");  unit: qsTr("MHz") }
+            Field { id: xvtrRfHi; label: qsTr("RF high"); unit: qsTr("MHz") }
+            Field { id: xvtrLo;   label: qsTr("LO");      unit: qsTr("MHz") }
+            Field { id: xvtrErr;  label: qsTr("Error");   unit: qsTr("Hz") }
+            Tick { id: xvtrPa; text: qsTr("Disable radio PA") }
+            Tick { id: xvtrRx; text: qsTr("RX only (block transmit)") }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Item { Layout.fillWidth: true }
+                GhostButton { text: qsTr("Cancel"); onClicked: xvtrEditor.close() }
+                GhostButton {
+                    text: qsTr("OK")
+                    accent: true
+                    onClicked: xvtrEditor.save()
+                }
+            }
         }
     }
 }

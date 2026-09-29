@@ -8,6 +8,7 @@
 
 **Get started**
 - 🚀 [Quick Start](Quick-Start)
+- 📻 [Supported Radios](Supported-Radios) — P1 Brick/ANAN listed, not opened
 - 🎙️ [First Voice Setup](First-Voice-Setup)
 - 🔌 [Installing &amp; First Connection](Installing-and-first-connection)
 

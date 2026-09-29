@@ -7,6 +7,13 @@
 
 namespace lyra::dsp {
 
+namespace {
+// Linear a-posteriori SNR where the mix is halfway to unity (~9 dB).
+// Noise-like bins (γ ≪ knee) keep full Wiener; occupied bins (γ ≫ knee)
+// stay near g = 1 so passband edges stay rectangular.
+constexpr double kSnrPreserveKnee = 8.0;
+} // namespace
+
 NoiseReducer::NoiseReducer(int fftSize) : stft_(fftSize), fftSize_(fftSize) {
     profPower_.assign(static_cast<size_t>(fftSize_), 0.0);
     gPrev_.assign(static_cast<size_t>(fftSize_), 1.0);
@@ -28,6 +35,15 @@ void NoiseReducer::buildGainHook() {
             double g = (powerGain > 0.0) ? std::sqrt(powerGain) : 0.0;
             if (g < floorLin_) g = floorLin_;
             if (g > 1.0)       g = 1.0;
+            // Occupied-bin preserve.  Wiener alone carves the skirts of
+            // real signals (γ only a few dB above the captured floor)
+            // into a gradual roll-off — the panadapter "filter" looks
+            // sloped with NR-C on, rectangular with it off.  Mix g
+            // toward unity as γ grows so noise bins still drop and
+            // occupied bins keep brick-wall edges.
+            const double snr = py / (pn + 1e-20);
+            const double w = snr / (snr + kSnrPreserveKnee);
+            g = g + (1.0 - g) * w;
             // Per-bin temporal smoothing (anti-musical-noise).
             g = smoothing_ * gPrev_[k] + (1.0 - smoothing_) * g;
             gPrev_[k] = g;

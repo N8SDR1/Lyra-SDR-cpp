@@ -40,9 +40,11 @@ constexpr auto kKeyEsdr3    = "tci/emulate_expertsdr3";
 constexpr auto kKeySunSdr   = "tci/emulate_sunsdr2";
 constexpr auto kKeyCwlu     = "tci/cwlu_becomes_cw";
 constexpr auto kKeyCombo    = "tci/combo_sdrloggerplus";   // Lyra↔SDRLogger+ combo link
-// vfo_limits advertised to clients (HL2 receive range, Hz).
+// vfo_limits advertised to clients.  Native HL2 IF is HF/6 m; the
+// dial is RF when an Xvtr slot is active (2 m / 70 cm / 23 cm), so
+// the high bound matches the VFO LED (signed-int Hz ceiling).
 constexpr qint64 kVfoLo = 10000;
-constexpr qint64 kVfoHi = 55000000;
+constexpr qint64 kVfoHi = 2147483647;
 
 double dbToLinear(double db) {
     if (db <= -60.0) return 0.0;
@@ -453,7 +455,7 @@ void TciServer::onLogQsoRequested() {
     const QString call = cwMacros_->hisCall().trimmed().toUpper();
     if (call.isEmpty()) return;
     const QString rst  = cwMacros_->rst().trimmed();            // single Lyra RST → sent+rcvd
-    const QString mode = prefs_ ? prefs_->mode() : QStringLiteral("CW");
+    QString mode = prefs_ ? prefs_->mode() : QStringLiteral("CW");
     const qint64  carrier = (stream_ ? qint64(stream_->rx1FreqHz()) : 0)
                             + (engine_ ? engine_->markerOffsetHz() : 0);
     // lyra_log:<call>,<rstSent>,<rstRcvd>,<mode>,<freqHz>

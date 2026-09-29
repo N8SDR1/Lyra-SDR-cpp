@@ -92,6 +92,31 @@ void FftFilt::create_filter(double f1, double f2) {
     if (scale != 0) for (int i = 0; i < flen_; i++) filter_[i] /= scale;
     pass_ = 1;
 }
+
+void FftFilt::rtty_filter(double f)
+{
+    // fldigi fftfilt.cxx::rtty_filter — Feher raised-cosine, K=1.4.
+    f *= 1.4;
+    for (int i = 0; i < flen2_; ++i) {
+        const double x = (double)i / (double)flen2_;
+        double dht = (x <= 0.0) ? 1.0
+                   : (x > 2.0 * f) ? 0.0
+                   : std::cos((PI * x) / (f * 4.0));
+        dht *= dht;
+        const double sx = 2.0 * (double)i * f;
+        const double sc = (std::fabs(sx) < 1e-10)
+                            ? 1.0
+                            : std::sin(PI * sx) / (PI * sx);
+        dht /= sc;
+        filter_[i] = cmplx(dht * std::cos((double)i * -0.5 * PI),
+                           dht * std::sin((double)i * -0.5 * PI));
+        filter_[(flen_ - i) % flen_] =
+            cmplx(dht * std::cos((double)i * 0.5 * PI),
+                  dht * std::sin((double)i * 0.5 * PI));
+    }
+    pass_ = 1;
+}
+
 int FftFilt::run(const cmplx& in, cmplx** out) {
     timedata_[inptr_++] = in;
     if (inptr_ < flen2_) return 0;

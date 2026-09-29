@@ -115,8 +115,12 @@ constexpr auto kBpClassEdges = "band_plan/class_edges";
 constexpr auto kBpTxWarn   = "band_plan/tx_warn";
 constexpr auto kBpColorPfx = "band_plan/color_";   // + <kind>
 constexpr auto kCbBand     = "bands/cb_enabled";
+constexpr auto kFmShow1750 = "tx/show_fm_1750_burst";
+constexpr auto kMemTuning  = "ui/memory_on_tuning";
 constexpr auto kPanStep    = "panadapter/scroll_step_hz";
 constexpr auto kSplitShift = "tx/splitShiftHz/";   // + MODE
+constexpr auto kVfoStep    = "tune/vfoStepHz/";    // + MODE
+constexpr auto kVfoStepRx2 = "tune/vfoStepHzRx2/"; // + MODE
 constexpr auto kPanRound   = "panadapter/round_100hz";
 constexpr auto kDebugLog   = "debug/logging";
 // Task #36 — Hardware PTT input opt-in (default OFF per §10 Q#1).
@@ -125,6 +129,10 @@ constexpr auto kHwPttEnabled = "tx/hw_ptt_enabled";
 constexpr auto kSpaceBarPttEnabled = "tx/space_bar_ptt_enabled";
 constexpr auto kAutoStartOnLaunch  = "hw/autoStartOnLaunch";
 constexpr auto kProcessPriority    = "hw/processPriority";
+constexpr auto kHidVfoEnabled      = "hw/hidVfoWheelEnabled";
+constexpr auto kHidVfoDeviceId     = "hw/hidVfoDeviceId";
+constexpr auto kHidVfoUnfocused    = "hw/hidVfoListenUnfocused";
+constexpr auto kHidVfoWheelOnly    = "hw/hidVfoWheelOnly";
 constexpr auto kDigitalDriveEnabled = "tx/digitalDriveEnabled";
 constexpr auto kDigitalDrivePct     = "tx/digitalDrivePct";
 constexpr auto kMicSource    = "tx/mic_source";
@@ -315,11 +323,21 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
             bandPlanColors_.insert(it.key(), v.toString());
     }
     cbBandEnabled_ = s.value(kCbBand, false).toBool();
+    fmShow1750BurstExplicit_ = s.contains(kFmShow1750);
+    fmShow1750Burst_ = s.value(kFmShow1750,
+        bandPlanRegion_ == QLatin1String("IARU_R1")).toBool();
+    memoryOnTuning_ = s.value(kMemTuning, false).toBool();
     panScrollStepHz_ = s.value(kPanStep, 1000).toInt();
     for (const QString &m : kModes) {
         const QVariant v = s.value(QString(kSplitShift) + m);
         if (v.isValid())
             splitShiftHz_.insert(m, v.toInt());
+        const QVariant st = s.value(QString(kVfoStep) + m);
+        if (st.isValid() && st.toInt() > 0)
+            vfoStepHz_.insert(m, st.toInt());
+        const QVariant st2 = s.value(QString(kVfoStepRx2) + m);
+        if (st2.isValid() && st2.toInt() > 0)
+            vfoStepHzRx2_.insert(m, st2.toInt());
     }
     panRound100_ = s.value(kPanRound, false).toBool();
     debugLogging_ = s.value(kDebugLog, false).toBool();
@@ -337,6 +355,10 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     processPriority_ = s.value(kProcessPriority, 0).toInt();
     if (processPriority_ < 0 || processPriority_ > 2) processPriority_ = 0;
     lyra::perf::applyProcessPriority(processPriority_);
+    hidVfoWheelEnabled_ = s.value(kHidVfoEnabled, false).toBool();
+    hidVfoDeviceId_     = s.value(kHidVfoDeviceId).toString();
+    hidVfoListenUnfocused_ = s.value(kHidVfoUnfocused, false).toBool();
+    hidVfoWheelOnly_    = s.value(kHidVfoWheelOnly, true).toBool();
     // Digital-mode TX-drive reduction (opt-in, default off; the pct is the
     // fraction of the band's set drive to run in DIGU/DIGL).  The wire-side
     // apply is pushed to HL2Stream by main.cpp on startup + on change.
@@ -1220,6 +1242,8 @@ void Prefs::setBandPlanRegion(const QString &r) {
         bandPlanRegion_ = v;
         QSettings().setValue(kBandRegion, v);
         emit bandPlanRegionChanged();
+        if (!fmShow1750BurstExplicit_)
+            emit fmShow1750BurstChanged();
     }
 }
 
@@ -1314,6 +1338,29 @@ void Prefs::setCbBandEnabled(bool v) {
     }
 }
 
+bool Prefs::fmShow1750Burst() const {
+    if (fmShow1750BurstExplicit_)
+        return fmShow1750Burst_;
+    return bandPlanRegion_ == QLatin1String("IARU_R1");
+}
+
+void Prefs::setFmShow1750Burst(bool v) {
+    const bool was = fmShow1750Burst();
+    fmShow1750BurstExplicit_ = true;
+    fmShow1750Burst_ = v;
+    QSettings().setValue(kFmShow1750, v);
+    if (v != was)
+        emit fmShow1750BurstChanged();
+}
+
+void Prefs::setMemoryOnTuning(bool v) {
+    if (v != memoryOnTuning_) {
+        memoryOnTuning_ = v;
+        QSettings().setValue(kMemTuning, v);
+        emit memoryOnTuningChanged();
+    }
+}
+
 int Prefs::splitShiftHz(const QString &mode) const {
     const QString m = mode.toUpper();
     if (splitShiftHz_.contains(m))
@@ -1331,6 +1378,40 @@ void Prefs::setSplitShiftHz(const QString &mode, int hz) {
         return;
     splitShiftHz_.insert(m, hz);
     QSettings().setValue(QString(kSplitShift) + m, hz);
+}
+
+int Prefs::vfoStepHz(const QString &mode) const {
+    const QString m = mode.toUpper();
+    if (vfoStepHz_.contains(m))
+        return vfoStepHz_.value(m);
+    return 1000;
+}
+
+void Prefs::setVfoStepHz(const QString &mode, int hz) {
+    const QString m = mode.toUpper();
+    if (m.isEmpty() || hz < 1)
+        return;
+    if (vfoStepHz_.contains(m) && vfoStepHz_.value(m) == hz)
+        return;
+    vfoStepHz_.insert(m, hz);
+    QSettings().setValue(QString(kVfoStep) + m, hz);
+}
+
+int Prefs::vfoStepHzRx2(const QString &mode) const {
+    const QString m = mode.toUpper();
+    if (vfoStepHzRx2_.contains(m))
+        return vfoStepHzRx2_.value(m);
+    return 1000;
+}
+
+void Prefs::setVfoStepHzRx2(const QString &mode, int hz) {
+    const QString m = mode.toUpper();
+    if (m.isEmpty() || hz < 1)
+        return;
+    if (vfoStepHzRx2_.contains(m) && vfoStepHzRx2_.value(m) == hz)
+        return;
+    vfoStepHzRx2_.insert(m, hz);
+    QSettings().setValue(QString(kVfoStepRx2) + m, hz);
 }
 
 void Prefs::setPanScrollStepHz(int hz) {
@@ -1396,6 +1477,38 @@ void Prefs::setProcessPriority(int level) {
         QSettings().setValue(kProcessPriority, level);
         lyra::perf::applyProcessPriority(level);   // live-apply, no restart
         emit processPriorityChanged();
+    }
+}
+
+void Prefs::setHidVfoWheelEnabled(bool on) {
+    if (on != hidVfoWheelEnabled_) {
+        hidVfoWheelEnabled_ = on;
+        QSettings().setValue(kHidVfoEnabled, on);
+        emit hidVfoWheelEnabledChanged();
+    }
+}
+
+void Prefs::setHidVfoDeviceId(const QString &id) {
+    if (id != hidVfoDeviceId_) {
+        hidVfoDeviceId_ = id;
+        QSettings().setValue(kHidVfoDeviceId, id);
+        emit hidVfoDeviceIdChanged();
+    }
+}
+
+void Prefs::setHidVfoListenUnfocused(bool on) {
+    if (on != hidVfoListenUnfocused_) {
+        hidVfoListenUnfocused_ = on;
+        QSettings().setValue(kHidVfoUnfocused, on);
+        emit hidVfoListenUnfocusedChanged();
+    }
+}
+
+void Prefs::setHidVfoWheelOnly(bool on) {
+    if (on != hidVfoWheelOnly_) {
+        hidVfoWheelOnly_ = on;
+        QSettings().setValue(kHidVfoWheelOnly, on);
+        emit hidVfoWheelOnlyChanged();
     }
 }
 

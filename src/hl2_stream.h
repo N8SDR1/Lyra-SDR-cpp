@@ -101,6 +101,7 @@
 // #105 CW-3a — host CW keyer (CWX); the full type is pulled in the .cpp.
 namespace lyra::tx { class CwKeyer; }
 namespace lyra::ps { class PsFsm; }
+namespace lyra::ui { class XvtrSlots; }
 
 namespace lyra::ipc {
 
@@ -318,6 +319,11 @@ class HL2Stream : public QObject {
                NOTIFY psAttestationChanged)
     Q_PROPERTY(bool psArmed READ psArmed WRITE setPsArmed
                NOTIFY psArmedChanged)
+    // Live coupler/calibrator enable: operator Arm AND-gated with
+    // attestation and not DIGU/DIGL/DRM/CWL/CWU/FM (mode lock-out).
+    Q_PROPERTY(bool psLiveArmed READ psLiveArmed NOTIFY psLiveArmedChanged)
+    Q_PROPERTY(bool psDigitalLockout READ psDigitalLockout
+               NOTIFY psLiveArmedChanged)
     Q_PROPERTY(int psFeedbackLevel READ psFeedbackLevel
                NOTIFY psFeedbackLevelChanged)
     Q_PROPERTY(int psAutoAttDb READ psAutoAttDb NOTIFY psAutoAttDbChanged)
@@ -608,6 +614,12 @@ class HL2Stream : public QObject {
                WRITE setCtcssEnabled  NOTIFY ctcssEnabledChanged)
     Q_PROPERTY(double ctcssToneHz   READ ctcssToneHz
                WRITE setCtcssToneHz   NOTIFY ctcssToneHzChanged)
+    Q_PROPERTY(double ctcssDlHz     READ ctcssDlHz
+               WRITE setCtcssDlHz     NOTIFY ctcssDlHzChanged)
+    Q_PROPERTY(int    fmBurstHz     READ fmBurstHz
+               WRITE setFmBurstHz     NOTIFY fmBurstHzChanged)
+    Q_PROPERTY(bool   fmBurstActive READ fmBurstActive
+               NOTIFY fmBurstActiveChanged)
     // FM pre-emphasis selector: 0 = Off (flat — true bypass, for digital/data
     // + warm HF), 1 = Comm (the native 6 dB/oct 300–3000 Hz communications
     // curve; voice default).  50/75 µs broadcast curves are a later option.
@@ -818,6 +830,30 @@ public:
     static constexpr int kTuneCwPitchHz = 600;
     static constexpr int kTwoToneFreq1Hz = 700;
     static constexpr int kTwoToneFreq2Hz = 1900;
+
+    // WDSP TXA: 0 LSB, 1 USB, 2 DSB, 3 CWL, 4 CWU, 5 FM, 6 AM, 7 DIGU,
+    // 9 DIGL, 10 SAM.
+    static constexpr bool txModeIsLsbFamily(int tm) {
+        return tm == 0 || tm == 3 || tm == 9;
+    }
+    static constexpr bool txModeIsDsbFamily(int tm) {
+        return tm == 2 || tm == 5 || tm == 6 || tm == 10;
+    }
+    static constexpr bool txModeIsCw(int tm) {
+        return tm == 3 || tm == 4;
+    }
+    // Postgen TUN tone (Hz).  USB-side +pitch + DDS −pitch (LSB inverse)
+    // cancel at the dial.  CW TUN uses the keyed-CW NCO, so tone is 0 Hz
+    // (carrier on the marker, same as MOX).
+    static int postGenTuneToneHz(int tm) {
+        if (txModeIsCw(tm) || txModeIsDsbFamily(tm))
+            return 0;
+        return txModeIsLsbFamily(tm) ? -kTuneCwPitchHz : kTuneCwPitchHz;
+    }
+    // Two-tone audio-tone sign: LSB family −1, else +1 (USB/CWU/DIGU/DSB).
+    static double postGenUsbSideSign(int tm) {
+        return txModeIsLsbFamily(tm) ? -1.0 : 1.0;
+    }
     bool    filterBoardEnabled() const { return filterBoardEnabled_; }
     int     ocBits()             const { return ocPattern_; }
     // #199 Stage 4 — the editable OC table for the Settings "Filters / BCD"
@@ -960,6 +996,8 @@ public:
     bool    twoToneEnabled() const { return twoToneEnabled_.load(std::memory_order_relaxed); }
     bool    psAttestation() const { return psAttestation_; }
     bool    psArmed() const { return psArmed_; }
+    bool    psDigitalLockout() const;
+    bool    psLiveArmed() const;
     int     psFeedbackLevel() const;
     int     psAutoAttDb() const;
     int     psFsmState() const;
@@ -1068,6 +1106,9 @@ public:
     double  fmDeviationHz()         const { return fmDeviationHz_;         }
     bool    ctcssEnabled()          const { return ctcssEnabled_;          }
     double  ctcssToneHz()           const { return ctcssToneHz_;           }
+    double  ctcssDlHz()             const { return ctcssDlHz_;             }
+    int     fmBurstHz()             const { return fmBurstHz_;             }
+    bool    fmBurstActive()         const { return fmBurstActive_;         }
     int     fmEmphasisMode()        const { return fmEmphasisMode_;        }
 
     // Step 3d: register a sink for DDC0 baseband IQ.  Called ONCE per
@@ -1222,6 +1263,17 @@ public slots:
     void bindPsAttnWriter(std::function<void(int)> fn,
                           int minDb, int maxDb, int moxSeed);
     void setPaEnabled(bool on);
+    void setXvtrSlots(lyra::ui::XvtrSlots *xvtrSlots);
+    // Display RF → radio IF/DDS (identity when no Xvtr slot matches).
+    int ddsHzForRf(quint32 rfHz) const;
+    // Enabled Xvtr slot index containing displayed RF, or -1.
+    int xvtrMatchingSlot(qint64 rfHz) const;
+    // N2ADR / OC amateur-band index for filter-board relays. On an Xvtr
+    // slot, freeze to the IF of the slot RF-low (one LPF for the whole
+    // window) so a 2 m QSY that crosses the 10 m IF edge (29.7 MHz) does
+    // not chatter the board. Identity of live IF when no slot matches.
+    int ocBandIndexForRf(quint32 rfHz) const;
+    void applyPaWire();
     void setMicBoost(bool on);
     void setBandVoltsOutput(bool on);
     // TX-0c-tune — arm/disarm the tune-tone generator.  The EP2 writer
@@ -1475,6 +1527,11 @@ public slots:
     void setFmDeviationHz(double hz);   // clamp 1000..6000
     void setCtcssEnabled(bool on);      // mode-gated run via applyCtcssRun()
     void setCtcssToneHz(double hz);     // snapped to the standard tone table
+    void setCtcssDlHz(double hz);       // 0 = same as UL / unused (no RX TSQ yet)
+    void setFmBurstHz(int hz);          // 0 or 1750 — memory recipe only
+    Q_INVOKABLE void fireFmBurst();     // ~500 ms 1750 Hz chip (FM TX mic mix)
+    // CMaster TX pump: mix a 1750 Hz sine into pcm->in after the mic rack.
+    static void mixFm1750Tx(int nsamples, double* buff);
     void setFmEmphasisMode(int mode);   // 0=Off, 1=Comm; forward via TxControl
 
     // TX-1 component 8a-tx-mode — push WDSP TXA mode (0=LSB, 1=USB)
@@ -1487,12 +1544,15 @@ public slots:
     // current sideband selection.  No-op if TxControl not registered
     // or if the callback is null.
     void setTxMode(int wdspMode);
+    // DIGU/DIGL/DRM/CWL/CWU/FM lock-out for PureSignal — driven from the
+    // Mode combo (focused RX), not only the TXA integer.  TX can still
+    // sit at USB while the operator is looking at DIGU on RX2; the lamp
+    // and coupler must follow the mode they switched.
+    void setPsUiMode(const QString &uiMode);
 
-    // P4.b TUN — TX NCO freq for the current state: the dial when not
-    // tuning, dial ∓ kTuneCwPitchHz while tuning (USB −, LSB +) so the
-    // ±kTuneCwPitchHz postgen tone nets to a zero-beat carrier at the
-    // dial.  Mirrors Thetis's tx_freq computation gated on chkTUN
-    // (console.cs:32574-32587).
+    // TX NCO: not tuning → dial + keyed-CW marker offset.  SSB/DIG TUN
+    // → dial ∓ kTuneCwPitchHz (USB-side −, LSB-side +) so postgen
+    // ±kTuneCwPitchHz nets to the dial.  CW TUN → same NCO as keyed CW.
     int txDdsHzForTune(quint32 dialHz) const;
     // #105 CW-2 — VFO − DDS carrier offset for the current TX mode (CWU
     // +pitch / CWL −pitch / other 0), == WdspEngine::cwMarkerOffsetForMode,
@@ -1607,6 +1667,7 @@ signals:
     void twoToneEnabledChanged(bool on);
     void psAttestationChanged(bool on);
     void psArmedChanged(bool on);
+    void psLiveArmedChanged(bool on);
     void psFeedbackLevelChanged(int level);
     void psAutoAttDbChanged(int db);
     void psFsmStateChanged(int state);
@@ -1688,6 +1749,9 @@ signals:
     void fmDeviationHzChanged(double hz);   // #107
     void ctcssEnabledChanged(bool on);      // #107
     void ctcssToneHzChanged(double hz);     // #107
+    void ctcssDlHzChanged(double hz);
+    void fmBurstHzChanged(int hz);
+    void fmBurstActiveChanged();
     // Fires once when the safety timeout actually expires and the FSM
     // auto-clears MOX.  Useful for a status-bar toast / log highlight;
     // the actual MOX-off is driven through requestMox(false) regardless.
@@ -2124,11 +2188,13 @@ private:
     std::atomic<int>     lastTxBand_{-2};
     std::atomic<int>     txStepAttnDb_{0};      // 0..31 dB; 0x1C C3 (31-db)
     std::atomic<int>     txMode_{1};            // 0=LSB 1=USB; mirror of the WDSP TXA mode, for the TUN DDS-offset sign (txDdsHzForTune)
+    std::atomic<bool>    psUiDigital_{false};   // focused RX DIG/DRM/CW/FM lock-out
     // #105 CW-2 — the single live CW pitch (shared with the RX pitch +
     // marker; fed from WdspEngine::cwPitchHz via setCwPitchHz, wired in
     // main.cpp).  Drives the keyed CW carrier offset + the HW sidetone freq.
     std::atomic<int>     cwPitchHz_{600};
     std::atomic<bool>    paOn_{false};          // 0x12 C2 bit 3 (active-high)
+    lyra::ui::XvtrSlots *xvtr_ = nullptr;
     std::atomic<bool>    micBoost_{false};      // 0x12 C2 bit 0 (+20 dB HW boost)
     std::atomic<bool>    bandVolts_{false};     // 0x00 C3 bit 3 (band-volts enable)
     // TX-0c-tune — operator-armed tune-tone generator.  Atomic so the
@@ -2580,6 +2646,10 @@ private:
     double fmDeviationHz_          = kDefaultFmDeviationHz;
     bool   ctcssEnabled_          = false;
     double ctcssToneHz_           = kDefaultCtcssToneHz;
+    double ctcssDlHz_             = 0.0;   // 0 = linked to UL / unused
+    int    fmBurstHz_             = 0;     // 0 or 1750
+    bool   fmBurstActive_         = false;
+    QTimer fmBurstTimer_;
     int    fmEmphasisMode_        = 1;   // 0=Off, 1=Comm (voice default)
 
     // §3.9-5 revert (operator-rejected 2026-06-06): the Lyra-native

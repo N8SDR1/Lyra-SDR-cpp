@@ -2189,6 +2189,24 @@ void WdspEngine::setZoom(double z)
     emit spanChanged();
 }
 
+double WdspEngine::displayZoom() const
+{
+    const double z = zoom_.load(std::memory_order_relaxed);
+    const double zClamp = (z > 1.0 ? z : 1.0);
+    if (!txOwnsAnalyzer_.load(std::memory_order_acquire)) {
+        return zClamp;
+    }
+    const int txR = txSpanHz_.load(std::memory_order_relaxed);
+    const int rxR = inRateAtomic_.load(std::memory_order_relaxed);
+    double zTx = zClamp;
+    if (txR > 0 && rxR > 0) {
+        zTx = zClamp * (static_cast<double>(txR) / static_cast<double>(rxR));
+        if (zTx < 1.0)
+            zTx = 1.0;
+    }
+    return zTx;
+}
+
 void WdspEngine::computePassband(double *lo, double *hi) const
 {
     computePassband(mode_, bw_, lo, hi);
@@ -2710,7 +2728,7 @@ void WdspEngine::cropSpectrum(const float *full, float *dst, int n,
     // offBins = (NCO−dial) in bins, so the gen1 carrier (at −cw_pitch
     // baseband relative to the NCO, i.e. AT the dial on air) lands at the
     // display centre — on the SSB marker — instead of NCO-relative.
-    const double z    = zoom_.load(std::memory_order_relaxed);
+    const double z    = displayZoom();
     const double keep = (z <= 1.0) ? static_cast<double>(kAnPixels)
                                    : static_cast<double>(kAnPixels) / z;
     const double lo    = (kAnPixels - keep) * 0.5 - offBins;
@@ -2767,7 +2785,7 @@ int WdspEngine::copySpectrum(float *dst, int maxN)
     }
     const float *full = specCache_.data();
 
-    const double z = zoom_.load(std::memory_order_relaxed);
+    const double z = displayZoom();
     const double offBins = txAnalyzerOffBins();   // 0 unless TUN active
     const float cal =
         static_cast<float>(rxDisplayCalibrationDb_.load(std::memory_order_relaxed));
@@ -2838,7 +2856,7 @@ int WdspEngine::copyWaterfallSpectrum(float *dst, int maxN)
     }
     const float *full = wfCache_.data();
 
-    const double z = zoom_.load(std::memory_order_relaxed);
+    const double z = displayZoom();
     const double offBins = txAnalyzerOffBins();   // 0 unless TUN active
     if (z <= 1.0 && offBins == 0.0) {
         std::memcpy(dst, full, static_cast<size_t>(n) * sizeof(float));
@@ -3895,9 +3913,10 @@ void WdspEngine::setNoiseApply(bool on)
         }
         applyEnabled_.store(on, std::memory_order_relaxed);
     }
-    // Remember the operator's NR-C on/off across restarts (main.cpp restores
-    // it at launch after auto-loading the chosen profile).
-    QSettings().setValue(QStringLiteral("dsp/noiseApplyEnabled"), on);
+    QSettings s;
+    s.setValue(QStringLiteral("dsp/noiseApplyEnabled"), on);
+    if (on && !npActiveName_.isEmpty())
+        s.setValue(QStringLiteral("dsp/noiseLastProfile"), npActiveName_);
     emitLog(on ? QStringLiteral("Noise apply: ON")
                : QStringLiteral("Noise apply: OFF"));
     emit noiseApplyChanged();
@@ -4043,7 +4062,12 @@ bool WdspEngine::saveNoiseProfile(const QString &name)
     if (!slot) { profiles_.push_back(sp); slot = &profiles_.back(); }
     if (!writeProfileFile(*slot)) return false;
     npActiveName_ = nm;
+    QSettings s;
+    s.setValue(QStringLiteral("dsp/noiseLastProfile"), nm);
+    s.setValue(QStringLiteral("dsp/noiseApplyEnabled"), true);
+    noiseProfileValid_.store(false, std::memory_order_relaxed);
     emit noiseProfilesChanged();
+    emit noiseCaptureChanged();
     return true;
 }
 
@@ -4072,10 +4096,37 @@ bool WdspEngine::loadNoiseProfile(const QString &name)
         applyReducerParams();
         reducer_->setProfile(found->power);
         npActiveName_ = name;
+        noiseProfileValid_.store(false, std::memory_order_relaxed);
     }
+    QSettings().setValue(QStringLiteral("dsp/noiseLastProfile"), name);
     emit noiseSettingsChanged();
     emit noiseProfilesChanged();
+    emit noiseCaptureChanged();
     return true;
+}
+
+void WdspEngine::restoreLastNoiseProfile()
+{
+    QSettings s;
+    const QStringList names = noiseProfiles();
+    QString name =
+        s.value(QStringLiteral("dsp/noiseAutoLoadProfile")).toString().trimmed();
+    if (name.isEmpty() || !names.contains(name))
+        name = s.value(QStringLiteral("dsp/noiseLastProfile")).toString().trimmed();
+    if (name.isEmpty() || !names.contains(name)) {
+        emitLog(QStringLiteral("NR-C restore: no saved profile to load"));
+        return;
+    }
+    if (!loadNoiseProfile(name)) {
+        emitLog(QStringLiteral("NR-C restore: '%1' did not load").arg(name));
+        return;
+    }
+    const bool apply =
+        s.value(QStringLiteral("dsp/noiseApplyEnabled"), false).toBool();
+    setNoiseApply(apply);
+    emitLog(QStringLiteral("NR-C restore: loaded '%1' apply %2")
+                .arg(name, apply ? QStringLiteral("ON")
+                                 : QStringLiteral("OFF")));
 }
 
 void WdspEngine::deleteNoiseProfile(const QString &name)

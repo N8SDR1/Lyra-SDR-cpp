@@ -15,6 +15,7 @@
 #include "wdsp_engine.h"
 #include "mic_source.h"
 #include "mainwindow.h"
+#include "hid_vfo_wheel.h"
 #include "single_instance.h"   // one-instance guard (TCI-port / double-radio collision)
 // TX-rip Phase 1 (Q2): tci_mic_source.h / tx_dsp_worker.h removed —
 // the TX DSP subsystem is being rebuilt from empty files per
@@ -113,6 +114,7 @@ std::atomic<bool> g_shutdown_complete{false};
 #include "profile/ProfileBindings.h"
 #include "profile/ProfileStore.h"
 #include "profile/CompanionLauncher.h"   // startup auto-launch (Settings → Hardware)
+#include "appsstore.h"
 #include "rig/RigRegistry.h"   // multi-rig Stage 2 — rig identity/registry
 #include "rig/RigScope.h"      // multi-rig Stage 3 — seed + snapshot-gated migration
 #include <QSettings>
@@ -297,8 +299,9 @@ int main(int argc, char *argv[])
     // the window is up.  gfxSafeBackend names the backend safe mode forced.
     bool    gfxCrashRecovered = false;
     bool    layoutResetThisLaunch = false;
-    bool    skipMsaa = safeBoot;   // 4x MSAA + software rasterizer hangs
+    bool    skipMsaa = safeBoot;   // MSAA + software rasterizer hangs
                                    // Intel UHD / crash-ladder recoveries
+    int     msaaWanted = 4;        // Settings → Visuals (0/2/4/8); default 4×
     QString gfxSafeBackend;
     {
         using RI = QSGRendererInterface;
@@ -420,6 +423,7 @@ int main(int argc, char *argv[])
             || (!envForced && !backendPinned
                 && s.value(QStringLiteral("ui/gfxSafeMode"), false).toBool()))
             skipMsaa = true;
+        msaaWanted = s.value(QStringLiteral("ui/msaaSamples"), 4).toInt();
         if (gfxCrashRecovered)
             qWarning("[gfx] previous startup did not complete — graphics "
                      "safe mode (depth %d -> %s)", safeDepth, qPrintable(be));
@@ -433,14 +437,31 @@ int main(int argc, char *argv[])
     // biggest perceived-quality win and applies to ALL geometry, not
     // just the panadapter.  Must be set on the default surface format
     // BEFORE QGuiApplication so the QML window's swapchain picks it up.
-    // Skip on software / crash-ladder recoveries — 4x samples there is
-    // not free and has hung startup on low-VRAM iGPUs.
+    // Skip on software / crash-ladder recoveries — MSAA there is not
+    // free and has hung startup on low-VRAM iGPUs.  Off / 2× / 4× / 8×
+    // from Settings → Visuals (restart).  LYRA_MSAA=N overrides when
+    // MSAA is allowed (tester hatch).  Unsupported counts fall back to 4.
     {
+        auto clampMsaa = [](int v) {
+            return (v == 0 || v == 2 || v == 4 || v == 8) ? v : 4;
+        };
+        int samples = skipMsaa ? 0 : clampMsaa(msaaWanted);
+        if (!skipMsaa) {
+            const QByteArray envMsaa = qgetenv("LYRA_MSAA");
+            if (!envMsaa.isEmpty()) {
+                bool ok = false;
+                const int ev = QString::fromLatin1(envMsaa).trimmed().toInt(&ok);
+                if (ok)
+                    samples = clampMsaa(ev);
+            }
+        }
         QSurfaceFormat fmt = QSurfaceFormat::defaultFormat();
-        fmt.setSamples(skipMsaa ? 0 : 4);
+        fmt.setSamples(samples);
         QSurfaceFormat::setDefaultFormat(fmt);
         if (skipMsaa)
             qWarning("[gfx] MSAA disabled (software renderer or graphics safe mode)");
+        else
+            qWarning("[gfx] MSAA %dx", samples);
     }
 
     // QQuickWidget + a threaded scene-graph loop can stall the GUI thread
@@ -603,6 +624,8 @@ int main(int argc, char *argv[])
     // (Speech -> EQ -> Combinator -> Plate).  Same no-op-until-constructed
     // safety; the model defaults the stage OFF so it's inert until enabled.
     lyra::wire::SendpTxPlateProcessor(&lyra::ui::PlateModel::txProcessCb);
+
+    lyra::wire::SendpTxBurstProcessor(&lyra::ipc::HL2Stream::mixFm1750Tx);
 
     // Step 2a: the stream object opens the EP6 RX path to a
     // selected radio on its OWN dedicated OS thread (std::jthread
@@ -1327,10 +1350,12 @@ int main(int argc, char *argv[])
     QObject::connect(prefs, &lyra::ui::Prefs::locationChanged,
                      wx, &lyra::wx::WxService::reloadConfig);
     qInfo("[startup] services ready — building main window");
+    auto *hidVfo = new lyra::ui::HidVfoWheel(&app);
     auto *win = new lyra::ui::MainWindow(discovery, stream, wdsp,
                                          wdspEngine, prefs, wx, profiles);
     winRef = win;   // populate the aboutToQuit teardown handler's reference
     qInfo("[startup] main window constructed");
+    hidVfo->bind(win, prefs, stream, wdspEngine);
     // Single-instance raise channel: a later launch of the same instanceId
     // pings this server (see acquireSingleInstance) instead of starting a
     // second radio; bring the existing window to the front.
@@ -1808,9 +1833,8 @@ int main(int argc, char *argv[])
                         // processes this tone.
                         if (on) {
                             constexpr double kMaxToneMag = 0.99999;   // Thetis MAX_TONE_MAG
-                            const double pitch = static_cast<double>(
-                                lyra::ipc::HL2Stream::kTuneCwPitchHz);
-                            const double freq = (txf->mode == 1) ? pitch : -pitch;  // USB +, LSB −
+                            const double freq = static_cast<double>(
+                                lyra::ipc::HL2Stream::postGenTuneToneHz(txf->mode));
                             lyra::wire::SetTXAPostGenMode(txch, 0);            // 0 = single tone
                             lyra::wire::SetTXAPostGenToneFreq(txch, freq);
                             lyra::wire::SetTXAPostGenToneMag(txch, kMaxToneMag);
@@ -1834,11 +1858,8 @@ int main(int argc, char *argv[])
                             // this sign the postgen two-tone sat on the upper
                             // side in EVERY mode and never flipped with USB/LSB
                             // (operator bench 2026-09-06).
-                            double s = 1.0;
-                            switch (txf->mode) {
-                                case 0: case 3: case 9: s = -1.0; break; // LSB/CWL/DIGL
-                                default:                s =  1.0; break; // USB/CWU/DIGU
-                            }
+                            const double s =
+                                lyra::ipc::HL2Stream::postGenUsbSideSign(txf->mode);
                             const double f1 = s * static_cast<double>(
                                 lyra::ipc::HL2Stream::kTwoToneFreq1Hz);
                             const double f2 = s * static_cast<double>(
@@ -1908,6 +1929,7 @@ int main(int argc, char *argv[])
                     if (m == QStringLiteral("SAM"))  return 6;   // TX SAM -> AM
                     if (m == QStringLiteral("DIGU")) return 7;
                     if (m == QStringLiteral("DIGL")) return 9;
+                    if (m == QStringLiteral("DRM"))  return 11;
                     return 1;       // USB default
                 };
                 // #50 native-rack digital gate: bypass the WHOLE mic DSP rack
@@ -1916,7 +1938,9 @@ int main(int argc, char *argv[])
                 // not source — a VAC-as-mic voice op in USB still gets the EQ.
                 auto txModeIsDigital = [](const QString &uiMode) -> bool {
                     const QString m = uiMode.toUpper();
-                    return m == QStringLiteral("DIGU") || m == QStringLiteral("DIGL");
+                    return m == QStringLiteral("DIGU")
+                        || m == QStringLiteral("DIGL")
+                        || m == QStringLiteral("DRM");
                 };
                 // Modes that auto-bypass the whole native mic rack: the digital
                 // data modes (above) PLUS FM — a multiband compressor / plate
@@ -1940,6 +1964,21 @@ int main(int argc, char *argv[])
                     stream->setTxMode(wdspTxModeFor(m0));
                     lyra::wire::SetTxRackBypass(txModeBypassesRack(m0) ? 1 : 0);
                 }
+                // PureSignal lock-out follows the Mode combo (focused RX),
+                // not only RX1/TXA (DIGU/DIGL/DRM/CWL/CWU/FM).
+                auto pushPsDigitalFromUi = [stream, prefs]() {
+                    const bool rx2 = stream->subEnabled() && stream->focusedRx() == 2;
+                    stream->setPsUiMode(rx2 ? prefs->modeRx2() : prefs->mode());
+                };
+                QObject::connect(prefs, &lyra::ui::Prefs::modeChanged,
+                                 stream, pushPsDigitalFromUi);
+                QObject::connect(prefs, &lyra::ui::Prefs::modeRx2Changed,
+                                 stream, pushPsDigitalFromUi);
+                QObject::connect(stream, &lyra::ipc::HL2Stream::focusedRxChanged,
+                                 stream, pushPsDigitalFromUi);
+                QObject::connect(stream, &lyra::ipc::HL2Stream::subEnabledChanged,
+                                 stream, pushPsDigitalFromUi);
+                pushPsDigitalFromUi();
 
                 // Hardening: Prefs.mode -> WdspEngine.mode is normally driven
                 // by the QML Binding on the (persistent) Tuning dock. This C++
@@ -2074,25 +2113,45 @@ int main(int argc, char *argv[])
             // ── Session restore: NR-C + CTUN (tester request 2026-07-03) ──
             // Both RX-only, so — unlike WF-ID, which we force OFF each launch
             // for TX safety — there's no reason not to remember them.
-            //  • Auto-load the operator's chosen noise profile (Settings →
-            //    Noise) so NR-C comes up ready instead of an empty field.
-            //    loadNoiseProfile self-guards the sample rate: a stale-rate
-            //    profile loads nothing and NR-C stays off (recapture hint).
-            //  • Re-engage NR-C only if it was on last time AND the profile
-            //    actually loaded.  Re-engage CTUN if it was on — the stream
-            //    restored rx1FreqHz in its ctor, so it locks at the real dial.
+            //
+            // Sample rate MUST land on the engine before loadNoiseProfile.
+            // Profiles are rate-tagged; a mismatch loads nothing.  Since
+            // v0.24.4, ModeFilterPanel's applyRate() runs only after deferred
+            // QML docks — AFTER this block — so autoload was always racing
+            // the default 192 kHz.  Push Prefs here (idempotent with QML).
             {
-                QSettings s;
-                const QString autoProf =
-                    s.value(QStringLiteral("dsp/noiseAutoLoadProfile")).toString();
-                if (!autoProf.isEmpty()
-                    && wdspEngine->noiseProfiles().contains(autoProf)
-                    && wdspEngine->loadNoiseProfile(autoProf)
-                    && s.value(QStringLiteral("dsp/noiseApplyEnabled"),
-                               false).toBool()) {
-                    wdspEngine->setNoiseApply(true);
+                const int rate = prefs->sampleRate();
+                stream->setSampleRate(rate);
+                wdspEngine->setSampleRate(rate);
+            }
+            //  • Auto-load: Settings → Noise combo, else last saved/loaded
+            //    profile.  NR-C on/off follows dsp/noiseApplyEnabled (off
+            //    at exit stays off).  Rate-guarded.
+            //  • Re-apply after docksReady: deferred AudioPanel ComboBoxes
+            //    used to fire onActivated at bind and wipe apply/FFT.
+            //  • Re-engage CTUN if it was on — the stream restored
+            //    rx1FreqHz in its ctor, so it locks at the real dial.
+            {
+                wdspEngine->restoreLastNoiseProfile();
+                // AudioPanel ComboBoxes fire onActivated at bind and again
+                // shortly after the dock is live.  Re-apply after that, or
+                // NR-C is blank on every restart.
+                auto reNrc = [wdspEngine]() {
+                    QTimer::singleShot(600, wdspEngine, [wdspEngine]() {
+                        wdspEngine->restoreLastNoiseProfile();
+                    });
+                };
+                if (win->docksAreReady()) {
+                    QTimer::singleShot(0, wdspEngine, reNrc);
+                } else {
+                    QObject::connect(win, &lyra::ui::MainWindow::docksReady,
+                                     wdspEngine, reNrc,
+                                     static_cast<Qt::ConnectionType>(
+                                         Qt::QueuedConnection
+                                         | Qt::SingleShotConnection));
                 }
-                if (s.value(QStringLiteral("ui/ctunEnabled"), false).toBool())
+                if (QSettings().value(QStringLiteral("ui/ctunEnabled"), false)
+                        .toBool())
                     stream->setCtuneEnabled(true);
             }
         }
@@ -2175,6 +2234,14 @@ int main(int argc, char *argv[])
                 sl.args ? s.value(sl.args).toString() : QString();
             QTimer::singleShot(n++ * 1500, &app, [path, args]() {
                 lyra::profile::CompanionLauncher::launchDetached(path, args);
+            });
+        }
+        for (const auto &e : lyra::AppShortcuts::load()) {
+            if (!e.autoStart) continue;
+            if (e.path.trimmed().isEmpty()) continue;
+            const lyra::AppShortcut copy = e;
+            QTimer::singleShot(n++ * 1500, &app, [copy]() {
+                lyra::AppShortcuts::launch(copy);
             });
         }
     });

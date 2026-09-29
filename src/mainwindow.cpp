@@ -9,6 +9,7 @@
 #include "timesync.h"
 #include "bandmemory.h"
 #include "genslots.h"
+#include "xvtrslots.h"
 #include "time_stations.h"
 #include "memorystore.h"
 #include "eibistore.h"
@@ -26,6 +27,7 @@
 #include "tunermemory.h"
 #include "profile/ProfileManager.h"  // complete type for setContextProperty(QObject*)
 #include "profile/CompanionLauncher.h" // #193 launch digital app on explicit profile pick
+#include "appsstore.h"
 #include "eqmodel.h"                  // complete type for new EqModel + context property
 #include "speechmodel.h"              // complete type for new SpeechModel + context property
 #include "combinatormodel.h"          // complete type for new CombinatorModel + context property
@@ -590,6 +592,9 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     gen_ = new GenSlots(
         prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
 
+    xvtr_ = new XvtrSlots(
+        qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
+
     // HF time-station TIME cycle (TIME button on the GEN row).
     time_ = new TimeStations(
         prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
@@ -952,8 +957,12 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     qInfo("[startup] USB-BCD ctor finished");
     if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
         connect(st, &lyra::ipc::HL2Stream::rx1FreqChanged, usbBcd_,
-                [this, st]() { usbBcd_->applyForFreq(st->rx1FreqHz()); });
-        usbBcd_->applyForFreq(st->rx1FreqHz());   // assert current band now
+                [this, st]() {
+                    usbBcd_->applyForFreq(
+                        static_cast<quint32>(st->ddsHzForRf(st->rx1FreqHz())));
+                });
+        usbBcd_->applyForFreq(
+            static_cast<quint32>(st->ddsHzForRf(st->rx1FreqHz())));
         qInfo("[startup] USB-BCD applyForFreq done");
 
         // Band-plan in/out-of-band advisory: on a band-state transition
@@ -967,11 +976,16 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
                 return;
             }
             const double f = double(st->rx1FreqHz());
-            const QString name = bandPlan_->bandContaining(f);
+            const int xv = xvtr_ ? xvtr_->matchingSlot(static_cast<qint64>(st->rx1FreqHz()))
+                                 : -1;
+            const QString name = xv >= 0 ? xvtr_->slotName(xv)
+                                         : bandPlan_->bandContaining(f);
             const int inb = name.isEmpty() ? 0 : 1;
             if (inb == lastBandState_) return;
             lastBandState_ = inb;
-            if (inb)
+            if (inb && xv >= 0)
+                statusBus_->show(tr("Xvtr: %1").arg(name), 2500);
+            else if (inb)
                 statusBus_->show(tr("In band: %1  (%2)")
                                      .arg(name, prefs_->bandPlanRegion()), 2500);
             else
@@ -1165,6 +1179,8 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
         QStringLiteral("BandMemory"), bandMemory_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("Gen"), gen_);
+    qw->rootContext()->setContextProperty(
+        QStringLiteral("Xvtr"), xvtr_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("Time"), time_);
     qw->rootContext()->setContextProperty(
@@ -2542,9 +2558,13 @@ void MainWindow::buildToolbar() {
             // WaterfallIdController; this greys + disarms the chip.
             auto *wfStream = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
             auto inHamBand = [this, wfStream]() {
-                return wfStream && lyra::ui::amateurBandContains(
-                           prefs_->bandPlanRegion(), prefs_->bandPlanCountry(),
-                           static_cast<double>(wfStream->rx1FreqHz()));
+                if (!wfStream) return false;
+                const auto hz = static_cast<qint64>(wfStream->rx1FreqHz());
+                if (xvtr_ && xvtr_->matchingSlot(hz) >= 0)
+                    return true;
+                return lyra::ui::amateurBandContains(
+                    prefs_->bandPlanRegion(), prefs_->bandPlanCountry(),
+                    static_cast<double>(wfStream->rx1FreqHz()));
             };
             auto armable = [isSsbMode, inHamBand]() {
                 return isSsbMode() && inHamBand();
@@ -2603,6 +2623,46 @@ void MainWindow::buildToolbar() {
         };
         addOptDockChip("ps", tr("PureSignal"));
         addOptDockChip("ampview", tr("Amp View"));
+
+        auto *appsBtn = new QToolButton(tb);
+        appsBtn->setObjectName(QStringLiteral("txDspChip"));
+        appsBtn->setText(tr("Apps"));
+        appsBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        appsBtn->setPopupMode(QToolButton::InstantPopup);
+        appsBtn->setStyleSheet(QString::fromLatin1(kTxDspChipQss));
+        appsBtn->setToolTip(tr(
+            "Launch named programs (FLDigi, SSTV, …).\n"
+            "Add them in Settings → Apps. Auto-start is optional and off "
+            "unless you tick it."));
+        auto *appsMenu = new QMenu(appsBtn);
+        appsBtn->setMenu(appsMenu);
+        connect(appsMenu, &QMenu::aboutToShow, this, [this, appsMenu]() {
+            appsMenu->clear();
+            int n = 0;
+            for (const auto &e : lyra::AppShortcuts::load()) {
+                if (e.path.trimmed().isEmpty()) continue;
+                const QString label = lyra::AppShortcuts::displayName(e);
+                if (label.isEmpty()) continue;
+                QAction *a = appsMenu->addAction(label);
+                connect(a, &QAction::triggered, this, [this, e]() {
+                    QString msg;
+                    lyra::AppShortcuts::launch(e, &msg);
+                    if (!msg.isEmpty())
+                        statusBar()->showMessage(msg, 5000);
+                });
+                ++n;
+            }
+            if (n == 0) {
+                QAction *empty = appsMenu->addAction(
+                    tr("No apps yet — add them in Settings → Apps"));
+                empty->setEnabled(false);
+            }
+            appsMenu->addSeparator();
+            appsMenu->addAction(tr("Edit in Settings…"), this, [this]() {
+                openSettingsTopic(QStringLiteral("apps"));
+            });
+        });
+        tb->addWidget(appsBtn);
     }
 
     // #94 External TX Inhibit — prominent always-visible indicator.  Hidden

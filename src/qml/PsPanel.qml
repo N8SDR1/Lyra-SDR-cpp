@@ -25,8 +25,18 @@ Rectangle {
     readonly property color cFbHot:   "#e23d3d"
     readonly property color cFbLow:   "#2ec4d4"
 
+    // Mode combo (focused RX). TXA can still be USB while this reads DIGU.
+    readonly property bool digitalMode: {
+        var rx2 = Stream.subEnabled && Stream.focusedRx === 2
+        var m = String(rx2 ? Prefs.modeRx2 : Prefs.mode).toUpperCase()
+        return m === "DIGU" || m === "DIGL" || m === "DRM"
+            || m === "CWL" || m === "CWU" || m === "FM"
+    }
+    readonly property bool liveOn: Stream.psLiveArmed && !root.digitalMode
+    readonly property bool digitalLock: Stream.psDigitalLockout || root.digitalMode
+
     function fbZoneColor() {
-        if (!(Stream.moxActive && Stream.psArmed))
+        if (!(Stream.moxActive && root.liveOn))
             return root.cMuted
         var fb = Number(Stream.psFeedbackLevel)
         if (fb > 181)
@@ -54,27 +64,29 @@ Rectangle {
             focusPolicy: Qt.NoFocus
             implicitWidth: 56
             implicitHeight: 26
-            text: Stream.psArmed ? qsTr("ON") : qsTr("OFF")
+            text: root.liveOn ? qsTr("ON") : qsTr("OFF")
             font.bold: true
             font.pixelSize: 12
-            enabled: Stream.psAttestation
+            enabled: Stream.psAttestation && !root.digitalLock
             onClicked: Stream.setPsArmed(!Stream.psArmed)
             background: Rectangle {
                 radius: 4
-                color: Stream.psArmed ? "#30200c" : "#161e28"
-                border.color: Stream.psArmed ? root.cOn : "#2a3a4a"
+                color: root.liveOn ? "#30200c" : "#161e28"
+                border.color: root.liveOn ? root.cOn : "#2a3a4a"
                 border.width: 2
             }
             contentItem: Text {
                 text: onBtn.text
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
-                color: Stream.psArmed ? root.cOn : root.cText
+                color: root.liveOn ? root.cOn : root.cText
                 font: onBtn.font
             }
-            ToolTip.text: Stream.psAttestation
+            ToolTip.text: root.digitalLock
+                ? qsTr("PureSignal is off in DIGU / DIGL / DRM / CWL / CWU / FM. Arm restores when you leave those modes.")
+                : (Stream.psAttestation
                 ? qsTr("Arm PureSignal. HL2: coupler mux while MOX. Brick: DDC0/DDC1 at TX + Alex PS bit; keyed PS uses one combined IQ stream.")
-                : qsTr("Check Settings → TX: I have the PureSignal hardware coupler.")
+                : qsTr("Check Settings → TX: I have the PureSignal hardware coupler."))
             ToolTip.delay: 800
             ToolTip.visible: hovered && Prefs.tooltipsEnabled
         }
@@ -87,7 +99,7 @@ Rectangle {
             text: qsTr("2-tone")
             font.bold: true
             font.pixelSize: 12
-            enabled: Stream.psAttestation && Stream.psArmed
+            enabled: Stream.psAttestation && root.liveOn
                      && (!Stream.tuneEnabled || Stream.twoToneEnabled)
             onClicked: {
                 if (!Stream.twoToneEnabled) {
@@ -121,16 +133,16 @@ Rectangle {
             implicitHeight: 26
             implicitWidth: attTxt.implicitWidth + 16
             radius: 4
-            color: Stream.moxActive && Stream.psArmed ? "#30200c" : "transparent"
-            border.color: Stream.moxActive && Stream.psArmed ? root.cOn : "#2a3a4a"
-            border.width: Stream.moxActive && Stream.psArmed ? 2 : 1
+            color: Stream.moxActive && root.liveOn ? "#30200c" : "transparent"
+            border.color: Stream.moxActive && root.liveOn ? root.cOn : "#2a3a4a"
+            border.width: Stream.moxActive && root.liveOn ? 2 : 1
             HoverHandler { id: attHover }
             Label {
                 id: attTxt
                 anchors.centerIn: parent
                 text: qsTr("ATT %1 dB").arg(Stream.psAutoAttDb)
-                color: Stream.moxActive && Stream.psArmed ? root.cOn : root.cMuted
-                font.bold: Stream.moxActive && Stream.psArmed
+                color: Stream.moxActive && root.liveOn ? root.cOn : root.cMuted
+                font.bold: Stream.moxActive && root.liveOn
                 font.pixelSize: 12
             }
             ToolTip.text: qsTr("Auto-att while PS is keyed. Brick/Hermes: ADC0 coupler pad 0…31 dB. HL2: TX step-att −28…+31 dB.")
@@ -145,14 +157,14 @@ Rectangle {
             radius: 4
             color: "transparent"
             border.color: root.fbZoneColor()
-            border.width: Stream.moxActive && Stream.psArmed ? 2 : 1
+            border.width: Stream.moxActive && root.liveOn ? 2 : 1
             HoverHandler { id: fbHover }
             Label {
                 id: fbTxt
                 anchors.centerIn: parent
                 text: qsTr("FB %1").arg(Stream.psFeedbackLevel)
                 color: root.fbZoneColor()
-                font.bold: Stream.moxActive && Stream.psArmed
+                font.bold: Stream.moxActive && root.liveOn
                 font.pixelSize: 12
             }
             ToolTip.text: qsTr("Coupler FB. Teal below 129 (low), green 129–181, red above 181 (hot).")
@@ -175,7 +187,7 @@ Rectangle {
                     .arg(Stream.psCorrecting ? qsTr("correcting") : qsTr("idle"))
                     .arg(d0s).arg(d1s).arg(Stream.psFeedSpr)
             }
-            color: Stream.moxActive && Stream.psArmed ? root.cText : root.cMuted
+            color: Stream.moxActive && root.liveOn ? root.cText : root.cMuted
             font.pixelSize: 12
             elide: Text.ElideRight
         }
@@ -187,7 +199,7 @@ Rectangle {
             implicitHeight: 26
             text: qsTr("Reset")
             font.pixelSize: 12
-            enabled: Stream.psAttestation && Stream.psArmed
+            enabled: Stream.psAttestation && root.liveOn
             onClicked: Stream.resetPureSignal()
             background: Rectangle {
                 radius: 4

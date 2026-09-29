@@ -4,6 +4,59 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-09-29 — v0.25.5 Sheliak (patch)
+
+- Version bump **0.25.4 → 0.25.5**. Star name stays **Sheliak**.
+- HID USB mouse-wheel encoder (Settings → Hardware → Navigation). FM 1750
+  Hz mixed into TX audio while keyed. Extra tune steps, 70 cm 7.6 MHz
+  offset, Region-1 1750 chip, RX EQ title.
+- USER_GUIDE / wiki / `docs/releases/v0.25.5.md`.
+- Installer `dist/Lyra-Setup-0.25.5.exe`. Tag `v0.25.5`. #14 stays open.
+  Do not merge `main`.
+
+## 2026-09-29 — v0.25.4 Sheliak (patch)
+
+- Version bump **0.25.3 → 0.25.4**. Star name stays **Sheliak**.
+- Apps store + header chip; native RTTY decoder stripped (CW send/decode
+  stay). Memory click-to-edit. Xvtr OOB IF clamp removed (0.25.3 ten-digit
+  RF kept).
+- USER_GUIDE / wiki / `docs/releases/v0.25.4.md`.
+- Installer `dist/Lyra-Setup-0.25.4.exe`. Tag `v0.25.4`. #14 stays open.
+  Do not merge `main`.
+
+## 2026-09-29 — v0.25.3 Sheliak (patch)
+
+- Version bump **0.25.2 → 0.25.3**. Star name stays **Sheliak**.
+- Xvtr VFO LED ten digits (~2.147 GHz); TCI `vfo_limits` match. Fixes
+  the 55.999.999 Hz display cap (Volker). Region does not rewrite slots.
+- USER_GUIDE **Xvtr (transverters)** + wiki FAQ / Feature-Status.
+- Installer `dist/Lyra-Setup-0.25.3.exe`. Tag `v0.25.3`. #14 stays open.
+  Do not merge `main`. Native RTTY strip stays uncommitted.
+
+---
+
+## 2026-09-28 — v0.25.2 Sheliak (patch)
+
+- Version bump **0.25.1 → 0.25.2**. Star name stays **Sheliak**.
+- NR-C recall (`0ef8fcc`): last profile restores on restart; NR-C starts
+  on only if it was on at exit.
+- TUNE / 2-tone land on the dial (CW TUNE on the RX marker; DIGU/DIGL
+  signs). TX panadapter span matches RX (sip1 96 k vs RX rate).
+- Installer `dist/Lyra-Setup-0.25.2.exe`. Tag `v0.25.2`. #14 stays open.
+  Do not merge `main`. Native RTTY strip stays uncommitted.
+
+---
+
+## 2026-09-27 — v0.25.1 Sheliak (patch)
+
+- Version bump **0.25.0 → 0.25.1**. Star name stays **Sheliak**.
+- NR-C occupied-bin mix, Xvtr slots, MSAA Off/2×/4×/8×, P1 ANAN/Brick
+  Discover-list / Open-refuse + docs (flash P2; Anton linoobs).
+- Installer `dist/Lyra-Setup-0.25.1.exe`. Tag `v0.25.1`. #14 stays open.
+  Do not merge `main`.
+
+---
+
 ## 2026-09-26 — v0.25.0 Sheliak (PureSignal)
 
 - Version bump **0.24.5 → 0.25.0**. Star name **Sheliak** (β Lyrae);

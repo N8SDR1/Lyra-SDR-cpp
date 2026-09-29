@@ -108,9 +108,11 @@ void WaterfallIdController::fireOnce() {
     // check is region-aware (Settings → Hardware band plan).  Hard guard on
     // the live RX1 freq so NO tune source (panadapter/TCI spot/keypad/memory/
     // band) can ever fire an ID out of band, even if the chip is armed.
-    if (!lyra::ui::amateurBandContains(prefs_->bandPlanRegion(),
-                                       prefs_->bandPlanCountry(),
-                                       static_cast<double>(stream_->rx1FreqHz())))
+    const auto rxHz = static_cast<qint64>(stream_->rx1FreqHz());
+    if (stream_->xvtrMatchingSlot(rxHz) < 0
+        && !lyra::ui::amateurBandContains(prefs_->bandPlanRegion(),
+                                          prefs_->bandPlanCountry(),
+                                          static_cast<double>(rxHz)))
         return;
     if (stream_->moxActive()) return;       // defer while the operator is keyed
     const QString call = prefs_->callsign().trimmed();

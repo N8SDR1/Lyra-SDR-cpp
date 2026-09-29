@@ -23,7 +23,7 @@ const QColor kAmberDim {60, 40, 15};      // unlit-segment ghost
 const QColor kSelect  {0, 229, 255};      // cyan selected-digit
 const QColor kFaint   {185, 202, 220};    // unit labels (MHz/kHz/Hz) — bright + readable
 
-int placeStep(int idx) {   // 10^idx, idx in [0, 8]
+int placeStep(int idx) {   // 10^idx, idx in [0, 9]
     int s = 1;
     for (int i = 0; i < idx; ++i) s *= 10;
     return s;
@@ -78,23 +78,30 @@ int FreqDisplay::parseFreqInput(const QString &text) const {
         digits.remove(QLatin1Char(',')).remove(QLatin1Char('.'));
         bool ok = false;
         const qlonglong v = digits.toLongLong(&ok);
-        return ok ? static_cast<int>(v) : -1;
+        if (!ok) return -1;
+        return static_cast<int>(std::clamp(v, qlonglong(0),
+                                           qlonglong(FreqDisplay::kMaxHz)));
     }
     // Single separator = decimal point (MHz); comma is the Euro decimal.
     s.replace(QLatin1Char(','), QLatin1Char('.'));
     if (s.contains(QLatin1Char('.'))) {
         bool ok = false;
         const double mhz = s.toDouble(&ok);
-        return ok ? static_cast<int>(qRound64(mhz * 1.0e6)) : -1;
+        if (!ok) return -1;
+        const qlonglong hz = qRound64(mhz * 1.0e6);
+        return static_cast<int>(std::clamp(hz, qlonglong(0),
+                                           qlonglong(FreqDisplay::kMaxHz)));
     }
     bool ok = false;
     const qlonglong n = s.toLongLong(&ok);
     if (!ok) {
         return -1;
     }
-    if (n < 100)        return static_cast<int>(n * 1'000'000);   // MHz
-    if (n < 100'000)    return static_cast<int>(n * 1'000);       // kHz
-    return static_cast<int>(n);                                   // Hz
+    qlonglong hz = n;
+    if (n < 100)        hz = n * 1'000'000;   // MHz
+    else if (n < 100'000) hz = n * 1'000;     // kHz
+    return static_cast<int>(std::clamp(hz, qlonglong(0),
+                                       qlonglong(FreqDisplay::kMaxHz)));
 }
 
 void FreqDisplay::paint(QPainter *p) {
@@ -152,14 +159,14 @@ void FreqDisplay::paint(QPainter *p) {
         }
 
         x += digitW;
-        if (i == 2 || i == 5) {                  // MHz.kHz.Hz separators
+        if (i == 3 || i == 6) {                  // MMMM.kkk.hhh separators
             p->setPen(QPen(kAmber, 1));
             p->drawText(QPointF(x, baseY), QStringLiteral("."));
             x += dotW;
         }
     }
 
-    // Group unit labels (MHz / kHz / Hz).
+    // Group unit labels (MHz / kHz / Hz).  MHz group is four digits.
     QFont unitFont;
     unitFont.setFamilies({QStringLiteral("Consolas")});
     unitFont.setPixelSize(std::max(11, static_cast<int>(h * 0.19)));
@@ -170,13 +177,14 @@ void FreqDisplay::paint(QPainter *p) {
     const qreal xs = (w - totalW) / 2.0;
     const qreal groupStarts[3] = {
         xs,
-        xs + 3 * digitW + dotW,
-        xs + 6 * digitW + 2 * dotW,
+        xs + 4 * digitW + dotW,
+        xs + 7 * digitW + 2 * dotW,
     };
+    const qreal groupWidths[3] = {4 * digitW, 3 * digitW, 3 * digitW};
     const char *labels[3] = {"MHz", "kHz", "Hz"};
     p->setPen(QPen(kFaint, 1));
     for (int g = 0; g < 3; ++g) {
-        const qreal center = groupStarts[g] + (3 * digitW) / 2.0;
+        const qreal center = groupStarts[g] + groupWidths[g] / 2.0;
         const QString lab = QString::fromLatin1(labels[g]);
         const qreal tw = ufm.horizontalAdvance(lab);
         p->drawText(QPointF(center - tw / 2.0, unitY), lab);

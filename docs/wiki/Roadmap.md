@@ -33,12 +33,14 @@ Operator detail: **[User Guide → PureSignal](User-Guide#puresignal)**.
 ### ✅ Protocol 2 on BrickSDR2 · 🚧 Classic ANAN P2 dummy-load · 🗺️ 7000/8000
 
 HPSDR **Protocol 2** is live on the **BrickSDR2** (RX + TX, including radio
-mic → modulator, analog drive, watts-cap, ATT-on-TX). **ANAN-10 / 10E / 100 /
-100B / 100D / 200D** now have classic-Alex P2 profiles (deskHPSDR HPF edges);
-TX stays dummy-load until a tester validates RF. Boxes that shipped as
-Protocol 1 should run the **P2 FPGA** when they can — Lyra will not grow a
-separate P1 ANAN TX driver. **G2 / G2-1K** already had Saturn profiles.
-**7000DLE / 8000** (OrionMkII BPF) stay locked.
+mic → modulator, analog drive, watts-cap, ATT-on-TX). A Brick that still
+answers **Protocol 1** is **discovered but not opened** — P1 TX in Lyra is
+HL2-only. Flash **P2** (Anton / linoobs for Brick images). **ANAN-10 / 10E /
+100 / 100B / 100D / 200D** have classic-Alex P2 profiles; TX stays dummy-load
+until a tester validates RF. Boxes that shipped as Protocol 1 should run the
+**P2 FPGA** when they can — Lyra will not grow a separate P1 ANAN TX driver.
+**G2 / G2-1K** already had Saturn profiles. **7000DLE / 8000** (OrionMkII BPF)
+stay locked.
 
 ## Platforms
 
@@ -57,6 +59,7 @@ these are real roadmap items, not "maybe someday."
   tune-up); PureSignal uses it as the usual tune-up carrier
 - 🗺️ Per-profile independent RX/TX filter lows
 - 🗺️ Continued polish across the DSP, UI, and metering as testers report back
+- ✅ **Companion Apps** — third-party digital / SSTV / logger programs launched from Lyra (native RTTY modem will not return; CW stays in-radio)
 
 ## Exploring — further out 💡
 

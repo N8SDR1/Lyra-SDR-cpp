@@ -314,6 +314,15 @@ class Prefs : public QObject {
     // Show the 11m / CB band row on the Band panel (Settings → Hardware).
     Q_PROPERTY(bool cbBandEnabled READ cbBandEnabled
                WRITE setCbBandEnabled NOTIFY cbBandEnabledChanged)
+    // Show the FM 1750 Hz tone-burst chip on Tuning.  With no saved
+    // override, follows IARU Region 1 (EU/Africa); Region 2/3 default
+    // hide it (CTCSS is the usual access).  Hardware checkbox writes
+    // an explicit override so a Region 2 station can still show it.
+    Q_PROPERTY(bool fmShow1750Burst READ fmShow1750Burst
+               WRITE setFmShow1750Burst NOTIFY fmShow1750BurstChanged)
+    // Optional Mem chip on the Tuning dock (also always on the Band GEN row).
+    Q_PROPERTY(bool memoryOnTuning READ memoryOnTuning
+               WRITE setMemoryOnTuning NOTIFY memoryOnTuningChanged)
     // Panadapter mouse-wheel "Panafall" scroll step (Hz) — distinct from
     // the fine VFO step on the Tuning panel; this skims across a band.
     Q_PROPERTY(int panScrollStepHz READ panScrollStepHz
@@ -360,6 +369,18 @@ class Prefs : public QObject {
     // startup + on change.  Persisted: hw/processPriority.
     Q_PROPERTY(int processPriority READ processPriority
                WRITE setProcessPriority NOTIFY processPriorityChanged)
+    // USB encoder that shows up as a HID mouse.  Wheel ticks the focused
+    // VFO by the Tuning-panel Step.  Off until a device is chosen.
+    // Persisted: hw/hidVfoWheelEnabled, hw/hidVfoDeviceId,
+    // hw/hidVfoListenUnfocused, hw/hidVfoWheelOnly.
+    Q_PROPERTY(bool hidVfoWheelEnabled READ hidVfoWheelEnabled
+               WRITE setHidVfoWheelEnabled NOTIFY hidVfoWheelEnabledChanged)
+    Q_PROPERTY(QString hidVfoDeviceId READ hidVfoDeviceId
+               WRITE setHidVfoDeviceId NOTIFY hidVfoDeviceIdChanged)
+    Q_PROPERTY(bool hidVfoListenUnfocused READ hidVfoListenUnfocused
+               WRITE setHidVfoListenUnfocused NOTIFY hidVfoListenUnfocusedChanged)
+    Q_PROPERTY(bool hidVfoWheelOnly READ hidVfoWheelOnly
+               WRITE setHidVfoWheelOnly NOTIFY hidVfoWheelOnlyChanged)
     // Reduce TX drive in the digital data modes (DIGU/DIGL).  Opt-in
     // (digitalDriveEnabled, default OFF).  digitalDrivePct is the fraction
     // of the band's set drive to transmit at while in DIGU/DIGL (10..100,
@@ -409,6 +430,12 @@ public:
     // right-click menu.
     Q_INVOKABLE int  splitShiftHz(const QString &mode) const;
     Q_INVOKABLE void setSplitShiftHz(const QString &mode, int hz);
+
+    // VFO click/wheel step (Hz), last value per demod mode.  Default 1 kHz.
+    Q_INVOKABLE int  vfoStepHz(const QString &mode) const;
+    Q_INVOKABLE void setVfoStepHz(const QString &mode, int hz);
+    Q_INVOKABLE int  vfoStepHzRx2(const QString &mode) const;
+    Q_INVOKABLE void setVfoStepHzRx2(const QString &mode, int hz);
 
     // Fire-and-forget "clear the peak-hold buffer" request from the
     // Display panel's Clear button — the panadapter (a different dock)
@@ -624,6 +651,10 @@ public:
     void setBandPlanTxWarn(bool v);
     bool cbBandEnabled() const { return cbBandEnabled_; }
     void setCbBandEnabled(bool v);
+    bool fmShow1750Burst() const;
+    void setFmShow1750Burst(bool v);
+    bool memoryOnTuning() const { return memoryOnTuning_; }
+    void setMemoryOnTuning(bool v);
     int  panScrollStepHz() const { return panScrollStepHz_; }
     void setPanScrollStepHz(int hz);
     bool panRound100() const { return panRound100_; }
@@ -647,6 +678,14 @@ public:
     void setAutoStartOnLaunch(bool on);
     int  processPriority() const { return processPriority_; }
     void setProcessPriority(int level);
+    bool hidVfoWheelEnabled() const { return hidVfoWheelEnabled_; }
+    void setHidVfoWheelEnabled(bool on);
+    QString hidVfoDeviceId() const { return hidVfoDeviceId_; }
+    void    setHidVfoDeviceId(const QString &id);
+    bool hidVfoListenUnfocused() const { return hidVfoListenUnfocused_; }
+    void setHidVfoListenUnfocused(bool on);
+    bool hidVfoWheelOnly() const { return hidVfoWheelOnly_; }
+    void setHidVfoWheelOnly(bool on);
     bool digitalDriveEnabled() const { return digitalDriveEnabled_; }
     void setDigitalDriveEnabled(bool on);
     int  digitalDrivePct() const { return digitalDrivePct_; }
@@ -761,6 +800,8 @@ signals:
     void bandPlanTxWarnChanged();
     void bandPlanColorsChanged();
     void cbBandEnabledChanged();
+    void fmShow1750BurstChanged();
+    void memoryOnTuningChanged();
     void panScrollStepHzChanged();
     void panRound100Changed();
     void debugLoggingChanged();
@@ -768,6 +809,10 @@ signals:
     void spaceBarPttEnabledChanged();
     void autoStartOnLaunchChanged();
     void processPriorityChanged();
+    void hidVfoWheelEnabledChanged();
+    void hidVfoDeviceIdChanged();
+    void hidVfoListenUnfocusedChanged();
+    void hidVfoWheelOnlyChanged();
     void digitalDriveEnabledChanged();
     void digitalDrivePctChanged();
     void micSourceChanged();
@@ -851,6 +896,10 @@ private:
     int     crosshairStyle_ = 0;
     bool    zeroBeatMarkers_ = false;
     int     processPriority_ = 0;   // 0 Normal / 1 Above Normal / 2 High
+    bool    hidVfoWheelEnabled_ = false;
+    QString hidVfoDeviceId_;
+    bool    hidVfoListenUnfocused_ = false;
+    bool    hidVfoWheelOnly_ = true;
     bool    digitalDriveEnabled_ = false;
     int     digitalDrivePct_ = 100;   // 10..100 % of set drive in DIGU/DIGL
     bool    dspPanelsGrouped_ = false;
@@ -888,6 +937,9 @@ private:
     bool    bandPlanTxWarn_    = true;     // TX out-of-band advisory, on
     QHash<QString, QString> bandPlanColors_;   // kind → override hex (sparse)
     bool    cbBandEnabled_ = false;
+    bool    fmShow1750Burst_ = false;
+    bool    fmShow1750BurstExplicit_ = false;
+    bool    memoryOnTuning_ = false;
     int     panScrollStepHz_ = 1000;
     bool    panRound100_ = false;
     bool    debugLogging_ = false;
@@ -903,6 +955,8 @@ private:
     QString micSource_   = QStringLiteral("mic1");
     bool    tooltipsEnabled_ = true;   // Settings → Visuals; ui/tooltips_enabled
     QHash<QString, int> splitShiftHz_;
+    QHash<QString, int> vfoStepHz_;
+    QHash<QString, int> vfoStepHzRx2_;
 };
 
 } // namespace lyra::ui

@@ -18,7 +18,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.25.0
+    VERSION 0.25.5
     DESCRIPTION "Lyra Sheliak — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
@@ -136,6 +136,7 @@ qt_add_executable(lyra
     src/platform/thread_priority.h
     src/platform/thread_priority.cpp
     src/platform/app_activity.h
+    src/hid_vfo_wheel.cpp
     # Multi-rig Stage 1 — per-family capability descriptor (inert
     # scaffolding; see docs/architecture/multi_rig_design.md).
     src/rig/RadioCapabilities.h
@@ -440,6 +441,8 @@ qt_add_executable(lyra
     src/profile/ProfileManager.cpp
     src/profile/CompanionLauncher.h
     src/profile/CompanionLauncher.cpp
+    src/appsstore.h
+    src/appsstore.cpp
     src/profileui.h
     src/profileui.cpp
     # #158 DL-5 — src/ivac_audio.{h,cpp} (the Qt two-stream device layer)
@@ -499,6 +502,9 @@ qt_add_executable(lyra
     src/backup.cpp
     src/genslots.h
     src/genslots.cpp
+    src/xvtr_math.h
+    src/xvtrslots.h
+    src/xvtrslots.cpp
     src/time_stations.h
     src/time_stations.cpp
     src/memorystore.h
@@ -687,7 +693,7 @@ if(WIN32)
     #           system-wide UDP RX counters at stream start/close
     #           so we can tell whether EP6 seq-error drops happen
     #           in the kernel UDP buffer or upstream (NIC ring).
-    target_link_libraries(lyra PRIVATE ws2_32 winmm iphlpapi)
+    target_link_libraries(lyra PRIVATE ws2_32 winmm iphlpapi user32)
 endif()
 
 # macOS counterpart of the Windows wire-path libraries above.
@@ -1059,6 +1065,16 @@ target_include_directories(test_oc_control PRIVATE src)
 target_link_libraries(test_oc_control PRIVATE Qt6::Core)
 if(MSVC)
     target_compile_options(test_oc_control PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# Transverter RF→IF math (header-only).  EXCLUDE_FROM_ALL; no HL2Stream.
+add_executable(test_xvtrslots EXCLUDE_FROM_ALL
+    scratch/test_xvtrslots.cpp
+)
+target_include_directories(test_xvtrslots PRIVATE src)
+set_target_properties(test_xvtrslots PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+if(MSVC)
+    target_compile_options(test_xvtrslots PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # #158 Stage 1 — IVAC direct-port engine unit test (verbatim

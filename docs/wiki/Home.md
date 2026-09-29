@@ -44,12 +44,13 @@ wired Ethernet link to the radio.
 |---|---|
 | **Hermes Lite 2** | ✅ Supported (Protocol 1) |
 | **Hermes Lite 2+ (AK4951)** | ✅ Supported (Protocol 1) |
-| **BrickSDR2** | ✅ Supported (Protocol 2) |
+| **BrickSDR2** | ✅ Supported (**Protocol 2**). A P1 discovery row is listed but **not opened**. |
 | **ANAN-10 / 10E / 100 / 100B / 100D / 200D** (P2) | 🚧 Dummy-load TX arm (classic Alex; pick model in Settings) |
 | ANAN-G2 / G2-1K | 🚧 Dummy-load TX arm (Saturn BPF) |
 | ANAN-7000DLE / 8000 | 🗺️ Locked (OrionMkII BPF not in this pass) |
+| Brick / classic ANAN still on **Protocol 1** FPGA | ❌ Refused — HL2 TX layout would be wrong. Flash **P2**. |
 
-Full detail on the **[Supported Radios](Supported-Radios)** page.
+Full detail (why Open is refused, what TX would do, Brick flash help) on the **[Supported Radios](Supported-Radios)** page.
 
 ## Operating system
 
@@ -63,7 +64,7 @@ Full detail on the **[Supported Radios](Supported-Radios)** page.
 
 ✅ Full **receive** (all modes, the complete WDSP noise/filter toolkit, RX EQ,
 captured-noise reduction, CTUN, RIT) · ✅ Full **transmit** — SSB / AM / SAM /
-DSB / FM / CW plus digital over TCI & VAC · ✅ **SUB / RX2 + SPLIT on HL2 and BrickSDR2** ·
+DSB / FM / CW plus digital over TCI, VAC, and the **Apps** launcher · ✅ **SUB / RX2 + SPLIT on HL2 and BrickSDR2** ·
 ✅ a **native TX audio rack**
 (8-band EQ, multiband Combinator, plate reverb, speech processing, voice
 keyer, VOX, TX profiles) · ✅ **CW** send + on-screen **CW decode** · ✅

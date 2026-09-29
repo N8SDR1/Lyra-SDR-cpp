@@ -5,9 +5,9 @@ render on the GPU, so graphics capability matters a little more here than in a
 typical desktop app — but Lyra runs comfortably on modest hardware, and
 **built-in / integrated graphics are fine**.
 
-> **Operating system:** Windows 10 (64-bit, **v1809 / build 17763** or newer)
-> or Windows 11. **32-bit Windows is not supported.** Linux and macOS are on
-> the [Roadmap](Roadmap) for a future version.
+> **Radios:** Hermes Lite 2 / 2+ (Protocol 1) or **BrickSDR2 on Protocol 2**.
+> A Brick still on Protocol 1 may list in Discover and **will not Open** —
+> see [Supported Radios](Supported-Radios).
 
 ## The three tiers
 
