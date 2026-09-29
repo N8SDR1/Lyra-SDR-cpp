@@ -187,6 +187,31 @@ void PsFsm::pollAmpPlot() {
     using namespace lyra::wire;
     if (!GetPSDisp || plotHeld_) return;
 
+    // WDSP generation guard.  TAPR WDSP 2.00 exports GetPSDisp but ships
+    // PS 3.0 (NURBS), which does not allocate the display state the
+    // Thetis-era WDSP 1.x this code targets does.  Calling it then
+    // null-derefs *inside* the library: EXC_BAD_ACCESS at GetPSDisp+276 on
+    // the main thread, reached from this 250 ms tick, roughly 100 ms after
+    // the HL2 stream opens.  The pointer null-check above cannot catch it --
+    // the symbol resolves fine, it is the engine's internal state that is
+    // absent.
+    //
+    // psccF is present in WDSP 1.x (calcc.c) and was removed in 2.00, so its
+    // absence identifies the incompatible engine at run time.  Deliberately
+    // NOT #ifdef'd on a platform: a build that links a 1.x WDSP keeps the
+    // Amp View plot, and this file stays one code path for Windows, which
+    // bundles a 1.x-derived DLL and is unaffected.
+    if (!psccF) {
+        static bool warnedNoPsDisp = false;
+        if (!warnedNoPsDisp) {
+            warnedNoPsDisp = true;
+            qWarning("[ps] Amp View plot disabled: loaded WDSP exports no "
+                     "psccF (PS 3.0 / WDSP 2.00); GetPSDisp has no display "
+                     "state on this engine");
+        }
+        return;
+    }
+
     constexpr int kInts = 16;
     constexpr int kSpi  = 256;
     constexpr int kN    = kInts * kSpi;

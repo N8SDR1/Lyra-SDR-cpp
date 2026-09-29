@@ -1325,10 +1325,21 @@ void HL2Stream::open(const QString &ip) {
         dest.sin_port   = htons(kRadioPort);
         ::inet_pton(AF_INET, ip.toLatin1().constData(), &dest.sin_addr);
         const QByteArray startPkt = buildControlPacket(true);
+        // Connected-socket send: see send_packet() in wire/MetisFrame.cpp.
+        // sendto() with an explicit `dest` returns EISCONN (56) on macOS/BSD
+        // once open() has connect()ed this socket -- `dest` is that same
+        // peer, so send() is the identical datagram.
+#if defined(_WIN32)
         const int sent = ::sendto(static_cast<SOCKET>(socket_),
                                   startPkt.constData(), startPkt.size(), 0,
                                   reinterpret_cast<sockaddr*>(&dest),
                                   sizeof(dest));
+#else
+        (void) dest;
+        const int sent = static_cast<int>(
+            ::send(static_cast<SOCKET>(socket_),
+                   startPkt.constData(), startPkt.size(), 0));
+#endif
         if (sent != startPkt.size()) {
             const int wsaErr = ::WSAGetLastError();
             onFatalError(QStringLiteral("START: %1").arg(winsockError(wsaErr)));
@@ -1673,9 +1684,16 @@ void HL2Stream::close() {
                     targetIp_.toLatin1().constData(),
                     &dest.sin_addr);
         const QByteArray stopPkt = buildControlPacket(false);
+        // Connected-socket send -- see the START path above.
+#if defined(_WIN32)
         ::sendto(static_cast<SOCKET>(socket_),
                  stopPkt.constData(), stopPkt.size(), 0,
                  reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
+#else
+        (void) dest;
+        ::send(static_cast<SOCKET>(socket_),
+               stopPkt.constData(), stopPkt.size(), 0);
+#endif
         ::closesocket(static_cast<SOCKET>(socket_));
         socket_ = kInvalidSocket;
     }

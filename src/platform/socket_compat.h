@@ -56,6 +56,20 @@ using SOCKET = int;
 #  define WSAEADDRINUSE   EADDRINUSE
 #endif
 
+// shutdown() "how" constants.  Winsock spells them SD_*; POSIX spells the
+// same three values SHUT_*.  hl2_stream.cpp::close() calls
+// ::shutdown(sock, SD_BOTH) to unblock a thread parked in EP6 recv before
+// joining it, so the names have to resolve on POSIX too.
+#ifndef SD_RECEIVE
+#  define SD_RECEIVE  SHUT_RD
+#endif
+#ifndef SD_SEND
+#  define SD_SEND     SHUT_WR
+#endif
+#ifndef SD_BOTH
+#  define SD_BOTH     SHUT_RDWR
+#endif
+
 inline int closesocket(SOCKET s) { return ::close(s); }
 
 inline int ioctlsocket(SOCKET s, long command, unsigned long *argument)
