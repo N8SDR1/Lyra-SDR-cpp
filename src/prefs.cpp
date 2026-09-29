@@ -129,6 +129,10 @@ constexpr auto kHwPttEnabled = "tx/hw_ptt_enabled";
 constexpr auto kSpaceBarPttEnabled = "tx/space_bar_ptt_enabled";
 constexpr auto kAutoStartOnLaunch  = "hw/autoStartOnLaunch";
 constexpr auto kProcessPriority    = "hw/processPriority";
+constexpr auto kHidVfoEnabled      = "hw/hidVfoWheelEnabled";
+constexpr auto kHidVfoDeviceId     = "hw/hidVfoDeviceId";
+constexpr auto kHidVfoUnfocused    = "hw/hidVfoListenUnfocused";
+constexpr auto kHidVfoWheelOnly    = "hw/hidVfoWheelOnly";
 constexpr auto kDigitalDriveEnabled = "tx/digitalDriveEnabled";
 constexpr auto kDigitalDrivePct     = "tx/digitalDrivePct";
 constexpr auto kMicSource    = "tx/mic_source";
@@ -351,6 +355,10 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     processPriority_ = s.value(kProcessPriority, 0).toInt();
     if (processPriority_ < 0 || processPriority_ > 2) processPriority_ = 0;
     lyra::perf::applyProcessPriority(processPriority_);
+    hidVfoWheelEnabled_ = s.value(kHidVfoEnabled, false).toBool();
+    hidVfoDeviceId_     = s.value(kHidVfoDeviceId).toString();
+    hidVfoListenUnfocused_ = s.value(kHidVfoUnfocused, false).toBool();
+    hidVfoWheelOnly_    = s.value(kHidVfoWheelOnly, true).toBool();
     // Digital-mode TX-drive reduction (opt-in, default off; the pct is the
     // fraction of the band's set drive to run in DIGU/DIGL).  The wire-side
     // apply is pushed to HL2Stream by main.cpp on startup + on change.
@@ -1469,6 +1477,38 @@ void Prefs::setProcessPriority(int level) {
         QSettings().setValue(kProcessPriority, level);
         lyra::perf::applyProcessPriority(level);   // live-apply, no restart
         emit processPriorityChanged();
+    }
+}
+
+void Prefs::setHidVfoWheelEnabled(bool on) {
+    if (on != hidVfoWheelEnabled_) {
+        hidVfoWheelEnabled_ = on;
+        QSettings().setValue(kHidVfoEnabled, on);
+        emit hidVfoWheelEnabledChanged();
+    }
+}
+
+void Prefs::setHidVfoDeviceId(const QString &id) {
+    if (id != hidVfoDeviceId_) {
+        hidVfoDeviceId_ = id;
+        QSettings().setValue(kHidVfoDeviceId, id);
+        emit hidVfoDeviceIdChanged();
+    }
+}
+
+void Prefs::setHidVfoListenUnfocused(bool on) {
+    if (on != hidVfoListenUnfocused_) {
+        hidVfoListenUnfocused_ = on;
+        QSettings().setValue(kHidVfoUnfocused, on);
+        emit hidVfoListenUnfocusedChanged();
+    }
+}
+
+void Prefs::setHidVfoWheelOnly(bool on) {
+    if (on != hidVfoWheelOnly_) {
+        hidVfoWheelOnly_ = on;
+        QSettings().setValue(kHidVfoWheelOnly, on);
+        emit hidVfoWheelOnlyChanged();
     }
 }
 

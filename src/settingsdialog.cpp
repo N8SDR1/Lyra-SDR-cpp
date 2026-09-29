@@ -11,6 +11,7 @@
 #include "palettes.h"
 #include "prefs.h"
 #include "win_perf.h"   // Performance group — network-throttle read/set
+#include "hid_vfo_wheel.h"
 #include "time_stations.h"
 #include "logdialog.h"
 
@@ -2643,7 +2644,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             "1750 Hz burst instead of CTCSS.  Region 2 (US) and Region 3 "
             "almost always use CTCSS, so this chip stays hidden unless you "
             "check here.  With no saved choice it follows Region 1 only.  "
-            "The burst is a ~0.5 s chip; TX audio for it is not wired yet."));
+            "The burst is a ~0.5 s 1750 Hz tone on FM TX audio while keyed."));
         connect(burst1750Ck, &QCheckBox::clicked, grp, [this](bool on) {
             prefs_->setFmShow1750Burst(on);
         });
@@ -2803,6 +2804,127 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 memTune->setChecked(prefs_->memoryOnTuning());
         });
         v->addWidget(memTune);
+        form->addRow(grp);
+    }
+
+    // --- Navigation (HID mouse-wheel VFO) ---
+    {
+        auto *grp = new QGroupBox(tr("Navigation"), page);
+        auto *v = new QVBoxLayout(grp);
+        auto *en = new QCheckBox(
+            tr("USB encoder / HID mouse wheel tunes the VFO"), grp);
+        en->setChecked(prefs_->hidVfoWheelEnabled());
+        en->setToolTip(tr(
+            "For a USB knob that Windows treats as a mouse. "
+            "Each notch moves the focused VFO by the Tuning-panel Step "
+            "(not the panadapter scroll step)."));
+        connect(en, &QCheckBox::toggled, grp,
+                [this](bool on) { prefs_->setHidVfoWheelEnabled(on); });
+        connect(prefs_, &Prefs::hidVfoWheelEnabledChanged, en, [this, en]() {
+            if (en->isChecked() != prefs_->hidVfoWheelEnabled())
+                en->setChecked(prefs_->hidVfoWheelEnabled());
+        });
+        v->addWidget(en);
+
+        auto *devRow = new QHBoxLayout;
+        auto *combo = new QComboBox(grp);
+        combo->setMinimumWidth(280);
+        combo->setToolTip(tr("Pick the encoder. Your real mouse stays a mouse."));
+        auto fillCombo = [this, combo]() {
+            combo->blockSignals(true);
+            combo->clear();
+            combo->addItem(tr("Select HID mouse…"), QString());
+            const auto mice = HidVfoWheel::enumerateMice();
+            const QString saved = prefs_->hidVfoDeviceId();
+            int sel = 0;
+            bool found = saved.isEmpty();
+            for (const auto &m : mice) {
+                combo->addItem(m.label, m.id);
+                if (!saved.isEmpty()
+                    && HidVfoWheel::idsEquivalent(saved, m.id)) {
+                    sel = combo->count() - 1;
+                    found = true;
+                }
+            }
+            if (!found && !saved.isEmpty()) {
+                combo->addItem(tr("(unplugged) %1").arg(saved), saved);
+                sel = combo->count() - 1;
+            }
+            combo->setCurrentIndex(sel);
+            combo->blockSignals(false);
+        };
+        fillCombo();
+        connect(combo, &QComboBox::currentIndexChanged, grp,
+                [this, combo](int) {
+            prefs_->setHidVfoDeviceId(
+                combo->currentData().toString());
+        });
+        auto *refresh = new QPushButton(tr("Refresh"), grp);
+        refresh->setToolTip(tr("Re-scan attached HID mice."));
+        connect(refresh, &QPushButton::clicked, grp, fillCombo);
+        devRow->addWidget(combo, 1);
+        devRow->addWidget(refresh);
+        v->addLayout(devRow);
+
+        auto *testRow = new QHBoxLayout;
+        auto *testHint = new QLabel(
+            tr("Wheel test — turn the selected encoder:"), grp);
+        auto *flash = new QLabel(tr("  "), grp);
+        flash->setMinimumWidth(48);
+        flash->setMinimumHeight(18);
+        flash->setAlignment(Qt::AlignCenter);
+        flash->setStyleSheet(
+            QStringLiteral("background:#3a3a3a; color:#ccc; border:1px solid #666;"));
+        flash->setText(tr("idle"));
+        testRow->addWidget(testHint);
+        testRow->addWidget(flash);
+        testRow->addStretch(1);
+        v->addLayout(testRow);
+        if (auto *hid = HidVfoWheel::instance()) {
+            connect(hid, &HidVfoWheel::wheelHeard, flash, [flash]() {
+                flash->setText(tr("tick"));
+                flash->setStyleSheet(
+                    QStringLiteral(
+                        "background:#c0392b; color:white; border:1px solid #922;"));
+                QTimer::singleShot(180, flash, [flash]() {
+                    flash->setText(tr("idle"));
+                    flash->setStyleSheet(
+                        QStringLiteral(
+                            "background:#3a3a3a; color:#ccc; border:1px solid #666;"));
+                });
+            });
+        }
+
+        auto *unf = new QCheckBox(
+            tr("Listen when Lyra is not focused"), grp);
+        unf->setChecked(prefs_->hidVfoListenUnfocused());
+        unf->setToolTip(tr(
+            "Keep receiving this encoder while another window is in front. "
+            "Only that HID device; your desktop mouse is unaffected."));
+        connect(unf, &QCheckBox::toggled, grp,
+                [this](bool on) { prefs_->setHidVfoListenUnfocused(on); });
+        connect(prefs_, &Prefs::hidVfoListenUnfocusedChanged, unf,
+                [this, unf]() {
+            if (unf->isChecked() != prefs_->hidVfoListenUnfocused())
+                unf->setChecked(prefs_->hidVfoListenUnfocused());
+        });
+        v->addWidget(unf);
+
+        auto *only = new QCheckBox(
+            tr("Wheel only adjusts VFO"), grp);
+        only->setChecked(prefs_->hidVfoWheelOnly());
+        only->setToolTip(tr(
+            "Swallow the follow-on mouse-wheel event so this encoder "
+            "does not also scroll the panadapter when the pointer is over it."));
+        connect(only, &QCheckBox::toggled, grp,
+                [this](bool on) { prefs_->setHidVfoWheelOnly(on); });
+        connect(prefs_, &Prefs::hidVfoWheelOnlyChanged, only,
+                [this, only]() {
+            if (only->isChecked() != prefs_->hidVfoWheelOnly())
+                only->setChecked(prefs_->hidVfoWheelOnly());
+        });
+        v->addWidget(only);
+
         form->addRow(grp);
     }
 

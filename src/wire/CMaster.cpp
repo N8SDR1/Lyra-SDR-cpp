@@ -469,6 +469,8 @@ void xcmaster (int stream)
 			if (pcm->TxPlateProcess)
 				(*pcm->TxPlateProcess)(pcm->xcm_insize[stream], pcm->in[stream]);
 		}
+		if (pcm->TxBurstProcess)
+			(*pcm->TxBurstProcess)(pcm->xcm_insize[stream], pcm->in[stream]);
 		// #90 TX-monitor tap — capture the post-rack mic (== the fexchange0
 			// input, "what you sound like") for the operator monitor.  Sits
 			// OUTSIDE the rack-bypass gate so digital/CW are captured too (just
@@ -593,6 +595,12 @@ PORT
 void SendpTxPlateProcessor (void (*Process)(int nsamples, double* buff))
 {
 	pcm->TxPlateProcess = Process;
+}
+
+PORT
+void SendpTxBurstProcessor (void (*Process)(int nsamples, double* buff))
+{
+	pcm->TxBurstProcess = Process;
 }
 
 // #50 — gate the whole native TX rack on/off (digital-mode bypass).

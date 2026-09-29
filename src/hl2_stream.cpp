@@ -49,6 +49,7 @@
 #include <QSettings>
 #include <Qt>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -77,6 +78,10 @@ double snapCtcssTone(double hz) {
     }
     return best;
 }
+
+// FM 1750 Hz access burst — mixed on the CMaster TX pump (not Qt).
+std::atomic<int> g_fmBurstMix{0};
+std::atomic<double> g_fmBurstPhase{0.0};
 
 // 64-byte HPSDR P1 host→radio control packet.  start=true sends
 // 0xEFFE 0x04 0x01 (start IQ); start=false sends 0xEFFE 0x04 0x00
@@ -641,6 +646,7 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
                      : 0;
     fmBurstTimer_.setSingleShot(true);
     connect(&fmBurstTimer_, &QTimer::timeout, this, [this]() {
+        g_fmBurstMix.store(0, std::memory_order_release);
         if (!fmBurstActive_) return;
         fmBurstActive_ = false;
         emit fmBurstActiveChanged();
@@ -1035,6 +1041,7 @@ void HL2Stream::fatalLog(const QString& msg) {
 }
 
 HL2Stream::~HL2Stream() {
+    g_fmBurstMix.store(0, std::memory_order_release);
     close();
 }
 
@@ -4335,9 +4342,31 @@ void HL2Stream::setFmBurstHz(int hz) {
     emit fmBurstHzChanged(v);
 }
 
+void HL2Stream::mixFm1750Tx(int nsamples, double* buff) {
+    if (!buff || nsamples <= 0) return;
+    if (g_fmBurstMix.load(std::memory_order_acquire) == 0) return;
+    constexpr double kTwoPi = 6.28318530717958647692;
+    constexpr double kHz = 1750.0;
+    constexpr double kRate = 48000.0;
+    constexpr double kMag = 0.40;
+    const double dph = kTwoPi * kHz / kRate;
+    double ph = g_fmBurstPhase.load(std::memory_order_relaxed);
+    for (int i = 0; i < nsamples; ++i) {
+        double& I = buff[2 * i];
+        I += kMag * std::sin(ph);
+        if (I > 0.98) I = 0.98;
+        else if (I < -0.98) I = -0.98;
+        ph += dph;
+        if (ph >= kTwoPi) ph -= kTwoPi;
+    }
+    g_fmBurstPhase.store(ph, std::memory_order_relaxed);
+}
+
 void HL2Stream::fireFmBurst() {
     const bool fm = (txMode_.load(std::memory_order_relaxed) == 5);
     if (!fm) return;
+    g_fmBurstPhase.store(0.0, std::memory_order_relaxed);
+    g_fmBurstMix.store(1, std::memory_order_release);
     fmBurstActive_ = true;
     emit fmBurstActiveChanged();
     fmBurstTimer_.start(500);

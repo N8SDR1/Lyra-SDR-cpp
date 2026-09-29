@@ -369,6 +369,18 @@ class Prefs : public QObject {
     // startup + on change.  Persisted: hw/processPriority.
     Q_PROPERTY(int processPriority READ processPriority
                WRITE setProcessPriority NOTIFY processPriorityChanged)
+    // USB encoder that shows up as a HID mouse.  Wheel ticks the focused
+    // VFO by the Tuning-panel Step.  Off until a device is chosen.
+    // Persisted: hw/hidVfoWheelEnabled, hw/hidVfoDeviceId,
+    // hw/hidVfoListenUnfocused, hw/hidVfoWheelOnly.
+    Q_PROPERTY(bool hidVfoWheelEnabled READ hidVfoWheelEnabled
+               WRITE setHidVfoWheelEnabled NOTIFY hidVfoWheelEnabledChanged)
+    Q_PROPERTY(QString hidVfoDeviceId READ hidVfoDeviceId
+               WRITE setHidVfoDeviceId NOTIFY hidVfoDeviceIdChanged)
+    Q_PROPERTY(bool hidVfoListenUnfocused READ hidVfoListenUnfocused
+               WRITE setHidVfoListenUnfocused NOTIFY hidVfoListenUnfocusedChanged)
+    Q_PROPERTY(bool hidVfoWheelOnly READ hidVfoWheelOnly
+               WRITE setHidVfoWheelOnly NOTIFY hidVfoWheelOnlyChanged)
     // Reduce TX drive in the digital data modes (DIGU/DIGL).  Opt-in
     // (digitalDriveEnabled, default OFF).  digitalDrivePct is the fraction
     // of the band's set drive to transmit at while in DIGU/DIGL (10..100,
@@ -666,6 +678,14 @@ public:
     void setAutoStartOnLaunch(bool on);
     int  processPriority() const { return processPriority_; }
     void setProcessPriority(int level);
+    bool hidVfoWheelEnabled() const { return hidVfoWheelEnabled_; }
+    void setHidVfoWheelEnabled(bool on);
+    QString hidVfoDeviceId() const { return hidVfoDeviceId_; }
+    void    setHidVfoDeviceId(const QString &id);
+    bool hidVfoListenUnfocused() const { return hidVfoListenUnfocused_; }
+    void setHidVfoListenUnfocused(bool on);
+    bool hidVfoWheelOnly() const { return hidVfoWheelOnly_; }
+    void setHidVfoWheelOnly(bool on);
     bool digitalDriveEnabled() const { return digitalDriveEnabled_; }
     void setDigitalDriveEnabled(bool on);
     int  digitalDrivePct() const { return digitalDrivePct_; }
@@ -789,6 +809,10 @@ signals:
     void spaceBarPttEnabledChanged();
     void autoStartOnLaunchChanged();
     void processPriorityChanged();
+    void hidVfoWheelEnabledChanged();
+    void hidVfoDeviceIdChanged();
+    void hidVfoListenUnfocusedChanged();
+    void hidVfoWheelOnlyChanged();
     void digitalDriveEnabledChanged();
     void digitalDrivePctChanged();
     void micSourceChanged();
@@ -872,6 +896,10 @@ private:
     int     crosshairStyle_ = 0;
     bool    zeroBeatMarkers_ = false;
     int     processPriority_ = 0;   // 0 Normal / 1 Above Normal / 2 High
+    bool    hidVfoWheelEnabled_ = false;
+    QString hidVfoDeviceId_;
+    bool    hidVfoListenUnfocused_ = false;
+    bool    hidVfoWheelOnly_ = true;
     bool    digitalDriveEnabled_ = false;
     int     digitalDrivePct_ = 100;   // 10..100 % of set drive in DIGU/DIGL
     bool    dspPanelsGrouped_ = false;

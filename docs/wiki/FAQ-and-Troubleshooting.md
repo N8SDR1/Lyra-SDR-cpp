@@ -23,6 +23,14 @@ classic ANAN still on **Protocol 1** will show up in Discover and is
 FPGA help: **Anton (linoobs)** on Discord. 7000DLE / 8000 stay locked.
 See **[Supported Radios](Supported-Radios)**.
 
+**Does Lyra support MIDI controllers?**
+Not inside the radio. A USB knob that Windows treats as a **mouse wheel**
+goes on **Settings → Hardware → Navigation**. A real MIDI surface needs a
+**MIDI→TCI sidecar** you install yourself, then **Settings → Apps → Browse**
+to that `.exe`, with TCI on (default port **40001**). Skip RIT/XIT and
+mixer maps until Lyra's TCI grows those. Details: in-app **Help → MIDI
+controllers (sidecar)**.
+
 **Is it free? What's the license?**
 Yes — GPL v3+ (compatible with the WDSP DSP engine it uses). See
 [NOTICE](https://github.com/N8SDR1/Lyra-SDR-cpp/blob/main/NOTICE.md).

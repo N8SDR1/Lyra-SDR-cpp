@@ -1529,7 +1529,9 @@ public slots:
     void setCtcssToneHz(double hz);     // snapped to the standard tone table
     void setCtcssDlHz(double hz);       // 0 = same as UL / unused (no RX TSQ yet)
     void setFmBurstHz(int hz);          // 0 or 1750 — memory recipe only
-    Q_INVOKABLE void fireFmBurst();     // ~500 ms 1750 Hz chip (UI; TX audio later)
+    Q_INVOKABLE void fireFmBurst();     // ~500 ms 1750 Hz chip (FM TX mic mix)
+    // CMaster TX pump: mix a 1750 Hz sine into pcm->in after the mic rack.
+    static void mixFm1750Tx(int nsamples, double* buff);
     void setFmEmphasisMode(int mode);   // 0=Off, 1=Comm; forward via TxControl
 
     // TX-1 component 8a-tx-mode — push WDSP TXA mode (0=LSB, 1=USB)

@@ -79,6 +79,8 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **Backup &amp; Restore** — export config, dated snapshots (survive reinstall), selective restore
 - ✅ Solar / propagation panel, weather alerts
 - ✅ **Apps** — named shortcuts for third-party programs (fldigi, WSJT-X, SSTV, …); auto-start after Hardware Startup (default off)
+- ✅ **USB encoder (HID wheel)** — Settings → Hardware → Navigation (Windows); tunes the focused VFO by the Tuning **Step**
+- ✅ **MIDI via TCI sidecar** — not native MIDI; Browse an operator-installed MIDI→TCI program under Settings → Apps (default TCI port **40001**)
 
 ## Not yet — see the Roadmap 🗺️
 

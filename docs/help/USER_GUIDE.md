@@ -33,6 +33,17 @@ not programmers — if you can click a menu, you can use this.
 - Xvtr **out-of-band IF** clamp on the VFO was removed; keep IF inside the
   radio's native window yourself. Ten-digit RF from 0.25.3 still applies.
 
+## What's new since 0.25.4 (this tree)
+
+- **USB encoder** — **Settings → Hardware → Navigation**: a HID mouse-wheel
+  knob (the usual 1-knob USB encoder) tunes the focused VFO by the Tuning
+  **Step**. Windows only. See
+  [Navigation (USB encoder / HID wheel)](#navigation-usb-encoder--hid-wheel).
+- **MIDI** is **not** native. Run a **MIDI→TCI sidecar** from
+  [Settings → Apps](#settings--apps) (Browse to the `.exe`, point it at
+  Lyra's TCI port). See
+  [MIDI controllers (sidecar)](#midi-controllers-sidecar).
+
 ## What's new in 0.25.3
 
 - **Xvtr VFO cap** — the frequency LED used to stop at **55.999.999 Hz**.
@@ -119,6 +130,7 @@ not programmers — if you can click a menu, you can use this.
 - [Settings → Hardware](#settings--hardware)
   - [Operator / Station](#operator--station)
   - [Band plan (Region)](#band-plan-region)
+  - [Navigation (USB encoder / HID wheel)](#navigation-usb-encoder--hid-wheel)
   - [Diagnostics (debug log)](#diagnostics-debug-log)
   - [Getting help / reporting a bug](#getting-help--reporting-a-bug)
   - [Radio](#radio)
@@ -142,6 +154,7 @@ not programmers — if you can click a menu, you can use this.
   - [Digital modes over VAC](#digital-modes-over-vac-virtual-audio-cable)
   - [DX-cluster spots](#dx-cluster-spots)
 - [Settings → Apps](#settings--apps)
+  - [MIDI controllers (sidecar)](#midi-controllers-sidecar)
 - [Settings → Visuals](#settings--visuals)
   - [Trace color](#trace-color)
   - [Spectrum fill](#spectrum-fill)
@@ -811,10 +824,11 @@ front-end (FM repeaters are the common split case):
   70 cm 7.6 MHz (all shift down). VFO B = VFO A ± offset, split armed.
   As you tune VFO A, VFO B **tracks** the offset (duplex). **CTCSS** is a
   lit button → enable it and pick **UL** (TX encode). A **DL** combo
-  appears only when a memory used a different RX tone.   **1750** is a
-  momentary chip for a ~0.5 s burst window (recipe also stores in Memory).
-  It is shown by default only for **IARU Region 1**; Region 2/3 hide it
-  (CTCSS is the usual access). Toggle it under **Settings → Hardware →
+  appears only when a memory used a different RX tone. Hold FM
+  **MOX / PTT**, then tap **1750**: a 1750 Hz tone is mixed into TX audio
+  for ~0.5 s (the chip lights for that window). Memory Burst=1750 stores
+  the recipe. Shown by default only for **IARU Region 1**; Region 2/3 hide
+  it (CTCSS is the usual access). Toggle it under **Settings → Hardware →
   Band plan → Show 1750 Hz tone burst**.
 
 On the panadapter (centred on your RX, VFO A) the **RX** carrier is a
@@ -3304,6 +3318,29 @@ you touch between QSOs.
 The external filter board (OC) and the USB-BCD amp band-code output now
 live on their own tab — see [Settings → Filters / BCD](#settings--filters--bcd).
 
+### Navigation (USB encoder / HID wheel)
+
+Windows only. For a USB knob that shows up as a **HID mouse** (the same
+class as Setup → Navigation Raw Input in other HPSDR apps). This is **not**
+MIDI — a MIDI surface uses a [sidecar](#midi-controllers-sidecar).
+
+- **USB encoder / HID mouse wheel tunes the VFO** — master enable (off
+  until you pick a device).
+- Device list — every attached HID mouse. Pick the knob, not your
+  pointing mouse. **Refresh** re-scans if you plugged it in after opening
+  Settings.
+- **Wheel test** — the idle box flashes red on each notch from the
+  *selected* device even if the master enable is still off, so you can
+  identify the right row first.
+- **Listen when Lyra is not focused** — keep the encoder live while you
+  work in a logger. Only that HID device; the desktop mouse is unchanged.
+- **Wheel only adjusts VFO** (default on) — the encoder does not also
+  scroll the panadapter.
+
+Each notch moves the **focused** VFO by the Tuning-panel **Step** (CW
+carrier convention matches the LED). It does **not** use the panadapter
+scroll step.
+
 ### Diagnostics (debug log)
 
 Lyra runs without a console window, so if something misbehaves there's no
@@ -4235,8 +4272,9 @@ Lyra runs a TCI **server**; the other program connects to it as a client.
 - **Bind address** — which network interface to listen on. Leave blank /
   `0.0.0.0` to accept connections from any interface (e.g. another PC on
   your LAN); use `127.0.0.1` to allow only programs on this same PC.
-- **Port** — the TCI listening port (default **50001**, the Expert
-  default). Match this in your logger's TCI settings.
+- **Port** — the TCI listening port (Lyra default **40001**, same as
+  ExpertSDR3). Older Expert gear and some logger templates still use
+  **50001** — match whatever is in this box, not a guess.
 - **Rate limit** — minimum gap between repeated broadcasts of the same
   value, to avoid flooding a client during fast tuning.
 - **Send full state to clients on connect** — push the current
@@ -4296,7 +4334,8 @@ logger start acting as one desk.
    that's remembered.
 2. Make sure **TCI server running** is on (Combo rides the TCI link), and
    that **SDRLogger+ is connected to Lyra as a TCI client** (point its
-   radio/TCI connection at Lyra's IP + port, the same **50001** above).
+   radio/TCI connection at Lyra's IP + port, the same **40001** default
+   above unless you changed it).
 3. When the two are linked, SDRLogger+ shows a **`● Lyra Combo`** badge in
    its Log-Entry header — that badge is your confirmation the link is live.
 
@@ -4366,15 +4405,15 @@ cables, no host-side sound card needed.
 **One-time setup:**
 
 1. **Settings → Network (TCI)** — make sure the server is running and
-   the port matches what your digital-modes client expects (default
-   **50001**).
+   the port matches what your digital-modes client expects (Lyra default
+   **40001**).
 2. **Settings → TX → Mic + ALC → Mic source** — pick **TCI**. This
    routes the digital-mode client's audio into Lyra's TX chain in
    place of the hand-mic. (The client can also auto-select TCI by
    sending a `TRX:0,true,tci` command — supported, but having the
    picker on TCI means manual TUNE buttons in the client also work.)
 3. In the client (MSHV / WSJT-X / JTDX) configure: TCI server
-   `127.0.0.1:50001`, sample rate **48 kHz**, block size **2048**,
+   `127.0.0.1:40001`, sample rate **48 kHz**, block size **2048**,
    buffering **50 ms**. Most clients set these defaults out of the box;
    just confirm.
 
@@ -4715,6 +4754,41 @@ Lyra does not ship an in-radio RTTY decoder. **CW** paddle / keyboard /
 TCI send and the **CW Dec** reader stay native — do not look for Morse
 decode under Apps.
 
+### MIDI controllers (sidecar)
+
+Lyra has **no native MIDI stack**. A USB encoder that looks like a **mouse
+wheel** is [Navigation](#navigation-usb-encoder--hid-wheel). Everything
+else — Mackie, Launchpad, MIDI fighter, a dedicated SDR MIDI surface —
+talks to Lyra the same way a logger does: **TCI**.
+
+**What you run** is a small **MIDI→TCI sidecar** (a separate program).
+Lyra does **not** ship one, and **Settings → Apps** does **not** offer a
+one-click download. You install the sidecar yourself, then add it here
+like FLDigi: a **name**, **Browse** to the `.exe`, optional arguments,
+**Launch** or **Auto-start** if you want it after Hardware Startup.
+
+**Wire it once:**
+
+1. **Settings → Network** — **TCI server running** on, port **40001**
+   unless you changed it. Bind `127.0.0.1` if the sidecar lives on this PC.
+2. Point the sidecar at **`127.0.0.1`** and that **same port**.
+3. Map knobs in the sidecar to TCI commands Lyra actually implements:
+   **VFO / DDS**, **mode**, **filter**, **volume / mute**, **SPLIT**,
+   **MOX / TUNE**, **RX enable (SUB)**. Skip **RIT / XIT** and mixer /
+   balance maps for now — Lyra's TCI server does not apply those yet
+   (RIT enable is refused; offsets are ignored).
+4. Put the sidecar on **Settings → Apps** if you want it on the header
+   **Apps** chip.
+
+A well-known open-source sidecar is **midi2tci** (Go, **MIT**): the
+original is [ftl/midi2tci](https://github.com/ftl/midi2tci) (JSON config,
+`--trace`). Later Windows-installer builds exist as community forks;
+Lyra does not promote a download URL from inside the app.
+
+**Lyra does not yet ship a branded midi2tci.** A MIT fork under the Lyra
+org is allowed if copyright notices stay in the source — that is a
+separate project, not this radio binary.
+
 ---
 
 ## Settings → Visuals
@@ -5008,7 +5082,9 @@ the GPL-licensed components it depends on:
   specification from **Expert Electronics** (EESDR). Lyra
   implements a TCI server compatible with the v1.9 / v2.0 spec so
   external logging / cluster / digital-modes software (SDRLogger+,
-  any TCI-aware client) can drive Lyra.
+  any TCI-aware client) can drive Lyra. Optional **MIDI→TCI** programs
+  (e.g. midi2tci, MIT) are **not** bundled; see
+  [MIDI controllers (sidecar)](#midi-controllers-sidecar).
 - **WDSP FFTW** (Fastest Fourier Transform in the West) — GPL.
   Used by WDSP internally; bundled as `libfftw3-3.dll` /
   `libfftw3f-3.dll`. Lyra's first-launch FFTW WISDOM build optimises

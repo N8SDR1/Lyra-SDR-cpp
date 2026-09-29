@@ -1245,9 +1245,9 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("1750 Hz tone burst (~0.5 s). Lights while the "
-                    + "burst window is open. TX audio for the burst is not wired "
-                    + "yet — use Memory Burst=1750 to store the recipe.")
+                ToolTip.text: qsTr("1750 Hz tone burst (~0.5 s). Hold FM transmit "
+                    + "(MOX / PTT), then tap. The chip lights while the tone is "
+                    + "mixed into TX audio. Memory Burst=1750 stores the recipe.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
 

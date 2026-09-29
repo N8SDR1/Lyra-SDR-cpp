@@ -15,6 +15,7 @@
 #include "wdsp_engine.h"
 #include "mic_source.h"
 #include "mainwindow.h"
+#include "hid_vfo_wheel.h"
 #include "single_instance.h"   // one-instance guard (TCI-port / double-radio collision)
 // TX-rip Phase 1 (Q2): tci_mic_source.h / tx_dsp_worker.h removed —
 // the TX DSP subsystem is being rebuilt from empty files per
@@ -607,6 +608,8 @@ int main(int argc, char *argv[])
     // (Speech -> EQ -> Combinator -> Plate).  Same no-op-until-constructed
     // safety; the model defaults the stage OFF so it's inert until enabled.
     lyra::wire::SendpTxPlateProcessor(&lyra::ui::PlateModel::txProcessCb);
+
+    lyra::wire::SendpTxBurstProcessor(&lyra::ipc::HL2Stream::mixFm1750Tx);
 
     // Step 2a: the stream object opens the EP6 RX path to a
     // selected radio on its OWN dedicated OS thread (std::jthread
@@ -1331,10 +1334,12 @@ int main(int argc, char *argv[])
     QObject::connect(prefs, &lyra::ui::Prefs::locationChanged,
                      wx, &lyra::wx::WxService::reloadConfig);
     qInfo("[startup] services ready — building main window");
+    auto *hidVfo = new lyra::ui::HidVfoWheel(&app);
     auto *win = new lyra::ui::MainWindow(discovery, stream, wdsp,
                                          wdspEngine, prefs, wx, profiles);
     winRef = win;   // populate the aboutToQuit teardown handler's reference
     qInfo("[startup] main window constructed");
+    hidVfo->bind(win, prefs, stream, wdspEngine);
     // Single-instance raise channel: a later launch of the same instanceId
     // pings this server (see acquireSingleInstance) instead of starting a
     // second radio; bring the existing window to the front.

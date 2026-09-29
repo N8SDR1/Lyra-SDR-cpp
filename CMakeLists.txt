@@ -92,6 +92,7 @@ qt_add_executable(lyra
     src/mic_source.h
     src/mic_source.cpp
     src/win_perf.cpp
+    src/hid_vfo_wheel.cpp
     # Multi-rig Stage 1 — per-family capability descriptor (inert
     # scaffolding; see docs/architecture/multi_rig_design.md).
     src/rig/RadioCapabilities.h
@@ -648,7 +649,7 @@ if(WIN32)
     #           system-wide UDP RX counters at stream start/close
     #           so we can tell whether EP6 seq-error drops happen
     #           in the kernel UDP buffer or upstream (NIC ring).
-    target_link_libraries(lyra PRIVATE ws2_32 winmm iphlpapi)
+    target_link_libraries(lyra PRIVATE ws2_32 winmm iphlpapi user32)
 endif()
 
 # Step 3a: bundle the WDSP DSP engine DLLs (`wdsp.dll` +
