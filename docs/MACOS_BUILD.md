@@ -36,6 +36,11 @@ and verifies the exports Lyra requires are present.
 
 Set `WDSP_ARCH="arm64 x86_64"` for a universal build.
 
+Re-run the script whenever `third_party/wdsp_posix/include/` changes — the
+shim is compiled into `libwdsp.dylib`, so a Lyra rebuild alone does not pick
+it up. (The shim maps WDSP's MMCSS "Pro Audio" calls onto
+`QOS_CLASS_USER_INTERACTIVE` for its DSP threads.)
+
 ## 3. Build the app
 
 ```bash

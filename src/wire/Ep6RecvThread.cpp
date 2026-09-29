@@ -378,11 +378,12 @@ void Ep6RecvThread::set_mic_record_tap(Ep6MicRecordTap tap) {
 // init is done; only then does the wait loop start.
 
 void Ep6RecvThread::run_loop() {
-#if defined(_WIN32)
     // MMCSS Pro Audio class — best-effort.  Reference:
     // `AvSetMmThreadCharacteristicsW(L"Pro Audio", &mmcss_task);`
     // followed by `AvSetMmThreadPriority(hTask,
     // AVRT_PRIORITY_HIGH);` at `networkproto1.c:243-244`.
+    // On macOS src/platform/win32_compat.h maps this onto
+    // QOS_CLASS_USER_INTERACTIVE for this thread.
     DWORD  mmcss_task   = 0;
     HANDLE mmcss_handle = AvSetMmThreadCharacteristicsW(L"Pro Audio",
                                                         &mmcss_task);
@@ -390,7 +391,6 @@ void Ep6RecvThread::run_loop() {
         // AVRT_PRIORITY_HIGH = 2.  Matches reference verbatim.
         AvSetMmThreadPriority(mmcss_handle, AVRT_PRIORITY_HIGH);
     }
-#endif
 
     // ---- Spawn-side handshake release (reference :249) ----
     //

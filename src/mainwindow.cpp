@@ -51,6 +51,7 @@
 #include "wire/Ep6RecvThread.h"       // #89 B1 — ep6Thread().set_tx_clip_source(...)
 #include "wire/P2RxBridge.h"          // Saturn / ANAN G2 Protocol 2 RX path
 #include "hardware/ActiveFrontEndModel.h"
+#include "platform/app_activity.h"     // hold off App Nap / idle sleep while streaming
 #include "settingsdialog.h"
 #include "dockdragcontroller.h"
 #include "panelrack.h"
@@ -3091,6 +3092,7 @@ void MainWindow::updateConnState() {
     // The button reflects EITHER wire path — a live P2 session is
     // just as "running" as a live P1 stream (see onStartStop).
     const bool anyRunning = running || p2Running;
+    lyra::platform::setStreamingActivity(anyRunning);
     if (startStopAction_) {
         startStopAction_->setText(anyRunning ? tr("■  Stop")
                                              : tr("▶  Start"));

@@ -12,6 +12,12 @@
 // the kernel "this thread needs `computation` ns of CPU within every
 // `period` ns" and schedules it ahead of ordinary timeshare threads.
 //
+// NOT CURRENTLY WIRED: no thread calls this yet.  The MMCSS stand-ins in
+// win32_compat.h (and WDSP's shim) raise the ported threads to
+// QOS_CLASS_USER_INTERACTIVE instead, which carries no period/computation
+// contract for variable-length DSP work to overrun.  This helper is kept
+// for the wire threads should profiling show QoS alone misses cadence.
+//
 // Call promoteCurrentThreadToRealTime() from inside the thread itself,
 // once, after it starts.  Failure is non-fatal and reported by the return
 // value: the thread keeps running at normal priority, which degrades

@@ -33,6 +33,7 @@
 
 #include <dispatch/dispatch.h>
 #include <pthread.h>
+#include <pthread/qos.h>
 #include <atomic>
 #include <cerrno>
 #include <cstdint>
@@ -378,12 +379,19 @@ inline void _endthread() { pthread_exit(nullptr); }
 #endif
 
 // --------------------------------------------- thread priority (MMCSS)
-// MMCSS has no POSIX equivalent.  These succeed without doing anything;
-// real-time scheduling for the threads that actually determine whether
-// Lyra holds its HL2 wire cadence is applied explicitly through
-// src/platform/thread_priority.h, which uses Mach time-constraint
-// policy.  Pretending to set priority here would imply a guarantee this
-// header cannot deliver.
+// MMCSS has no macOS equivalent.  Every ported call site runs the same
+// Thetis pattern on its OWN thread: AvSetMmThreadCharacteristics("Pro
+// Audio"), falling back to SetThreadPriority(GetCurrentThread(), HIGHEST)
+// when that returns null.  Both map onto QOS_CLASS_USER_INTERACTIVE for
+// the calling thread: the scheduler then strongly prefers P-cores and
+// runs the thread at high priority, without the fixed period/computation
+// contract of Mach time-constraint policy (which WDSP-sized DSP work per
+// buffer would overrun).  macOS cannot set another thread's QoS, so a
+// SetThreadPriority on a foreign handle stays a no-op.
+//
+// The "task handle" returned to callers is an opaque marker.  Callers only
+// ever hand it back to AvSetMmThreadPriority / AvRevertMmThreadCharacteristics
+// — never to CloseHandle or WaitForSingleObject, which would misread it.
 #define THREAD_PRIORITY_IDLE          (-15)
 #define THREAD_PRIORITY_LOWEST        (-2)
 #define THREAD_PRIORITY_BELOW_NORMAL  (-1)
@@ -401,24 +409,36 @@ enum AVRT_PRIORITY {
 
 inline HANDLE GetCurrentThread() { return reinterpret_cast<HANDLE>(pthread_self()); }
 
+namespace lyra_detail {
+inline char mmcss_task_marker;
+
+inline BOOL set_current_thread_qos(qos_class_t qos)
+{
+    return pthread_set_qos_class_self_np(qos, 0) == 0 ? TRUE : FALSE;
+}
+}  // namespace lyra_detail
+
 inline BOOL SetThreadPriority(HANDLE thread, int priority)
 {
-    (void)thread; (void)priority;
-    return TRUE;
+    if (priority < THREAD_PRIORITY_HIGHEST) return TRUE;
+    if (!pthread_equal(reinterpret_cast<pthread_t>(thread), pthread_self()))
+        return TRUE;
+    return lyra_detail::set_current_thread_qos(QOS_CLASS_USER_INTERACTIVE);
 }
 
 inline HANDLE AvSetMmThreadCharacteristics(const char *task, DWORD *task_index)
 {
     (void)task;
     if (task_index) *task_index = 0;
-    return nullptr;
+    if (!lyra_detail::set_current_thread_qos(QOS_CLASS_USER_INTERACTIVE))
+        return nullptr;
+    return &lyra_detail::mmcss_task_marker;
 }
 
 inline HANDLE AvSetMmThreadCharacteristicsW(const wchar_t *task, DWORD *task_index)
 {
     (void)task;
-    if (task_index) *task_index = 0;
-    return nullptr;
+    return AvSetMmThreadCharacteristics(nullptr, task_index);
 }
 
 inline BOOL AvSetMmThreadPriority(HANDLE task, AVRT_PRIORITY priority)
@@ -427,7 +447,11 @@ inline BOOL AvSetMmThreadPriority(HANDLE task, AVRT_PRIORITY priority)
     return TRUE;
 }
 
-inline BOOL AvRevertMmThreadCharacteristics(HANDLE task) { (void)task; return TRUE; }
+inline BOOL AvRevertMmThreadCharacteristics(HANDLE task)
+{
+    if (!task) return TRUE;
+    return lyra_detail::set_current_thread_qos(QOS_CLASS_DEFAULT);
+}
 
 // ------------------------------------------------------------- timing
 // Win32 Sleep() takes milliseconds.  usleep() is interrupted by signals,

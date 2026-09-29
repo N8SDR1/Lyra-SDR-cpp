@@ -27,6 +27,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 
+# macOS: src/platform/app_activity_mac.mm talks to NSProcessInfo.
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
+
 # Qt 6 — bring in only the modules Step 1 needs.  More land later
 # (Multimedia for audio output, Quick3D for the panadapter, etc.).
 # Widgets + QuickWidgets: the app shell is a QMainWindow + QDockWidget
@@ -130,6 +135,7 @@ qt_add_executable(lyra
     src/platform/dynamic_library.cpp
     src/platform/thread_priority.h
     src/platform/thread_priority.cpp
+    src/platform/app_activity.h
     # Multi-rig Stage 1 — per-family capability descriptor (inert
     # scaffolding; see docs/architecture/multi_rig_design.md).
     src/rig/RadioCapabilities.h
@@ -689,8 +695,12 @@ endif()
 #   * The Win32 synchronisation primitives the ported ChannelMaster code
 #     calls are mapped onto GCD dispatch semaphores (CoreFoundation) by
 #     src/platform/win32_compat.h.
-#   * MMCSS has no equivalent; src/platform/thread_priority.cpp uses the
-#     Mach time-constraint scheduler instead, which needs no extra lib.
+#   * MMCSS has no equivalent; the win32_compat.h and WDSP-shim stand-ins
+#     raise the calling thread to QOS_CLASS_USER_INTERACTIVE instead
+#     (libSystem — nothing to link).  src/platform/thread_priority.cpp's
+#     Mach time-constraint helper is not wired to any thread yet.
+#   * App Nap / idle sleep are held off while a radio streams by
+#     src/platform/app_activity_mac.mm (NSProcessInfo, Foundation).
 #   * PortAudio's macOS host API is CoreAudio.
 if(APPLE)
     # The verbatim-ported ChannelMaster sources carry MSVC's
@@ -700,11 +710,15 @@ if(APPLE)
     # so enable clang's __declspec support instead.
     target_compile_options(lyra PRIVATE -fdeclspec)
 
+    target_sources(lyra PRIVATE src/platform/app_activity_mac.mm)
+
+    find_library(FOUNDATION_LIBRARY      Foundation     REQUIRED)
     find_library(CORE_FOUNDATION_LIBRARY CoreFoundation REQUIRED)
     find_library(CORE_AUDIO_LIBRARY      CoreAudio      REQUIRED)
     find_library(AUDIO_TOOLBOX_LIBRARY   AudioToolbox   REQUIRED)
     find_library(AUDIO_UNIT_LIBRARY      AudioUnit      REQUIRED)
     target_link_libraries(lyra PRIVATE
+        ${FOUNDATION_LIBRARY}
         ${CORE_FOUNDATION_LIBRARY}
         ${CORE_AUDIO_LIBRARY}
         ${AUDIO_TOOLBOX_LIBRARY}
@@ -1255,4 +1269,23 @@ target_link_libraries(test_profile_rack PRIVATE Qt6::Core)
 set_target_properties(test_profile_rack PROPERTIES AUTOMOC ON)
 if(MSVC)
     target_compile_options(test_profile_rack PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# macOS thread-priority shims — the MMCSS stand-ins in
+# src/platform/win32_compat.h (Lyra's wire threads) and
+# third_party/wdsp_posix/include (WDSP's DSP threads) must raise the calling
+# thread to QOS_CLASS_USER_INTERACTIVE.  Qt-free; EXCLUDE_FROM_ALL.
+# Build + run:  cmake --build build --target test_thread_qos test_wdsp_posix_qos
+if(APPLE)
+    add_executable(test_thread_qos EXCLUDE_FROM_ALL
+        scratch/test_thread_qos.cpp
+    )
+    target_include_directories(test_thread_qos PRIVATE src)
+
+    enable_language(C)
+    add_executable(test_wdsp_posix_qos EXCLUDE_FROM_ALL
+        scratch/test_wdsp_posix_qos.c
+    )
+    target_include_directories(test_wdsp_posix_qos PRIVATE
+        third_party/wdsp_posix/include)
 endif()

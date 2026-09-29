@@ -37,6 +37,7 @@
 
 #include <dispatch/dispatch.h>
 #include <pthread.h>
+#include <pthread/qos.h>
 #include <stdint.h>
 #include <stdio.h>   // must precede the dprintf rename below
 #include <stdlib.h>
@@ -269,10 +270,11 @@ static inline BOOL QueueUserWorkItem(LPTHREAD_START_ROUTINE function,
 static inline void   Sleep(DWORD milliseconds) { usleep((useconds_t)milliseconds * 1000); }
 static inline HANDLE GetCurrentThread(void)    { return (HANDLE)pthread_self(); }
 
-// WDSP calls this on its own worker threads.  Lyra sets real-time
-// scheduling on the threads that actually matter (the EP2/EP6 wire
-// threads) via src/platform/thread_priority.h, so this is a no-op rather
-// than a partial and misleading implementation.
+// WDSP raises its DSP worker threads with the Thetis pattern (see avrt.h):
+// on macOS "high priority" means QOS_CLASS_USER_INTERACTIVE for the calling
+// thread — the scheduler strongly prefers P-cores and runs it at high
+// priority.  macOS cannot set another thread's QoS, so a SetThreadPriority
+// on a foreign handle (or below HIGHEST) is a no-op.
 #define THREAD_PRIORITY_IDLE          (-15)
 #define THREAD_PRIORITY_LOWEST        (-2)
 #define THREAD_PRIORITY_BELOW_NORMAL  (-1)
@@ -281,10 +283,16 @@ static inline HANDLE GetCurrentThread(void)    { return (HANDLE)pthread_self(); 
 #define THREAD_PRIORITY_HIGHEST       2
 #define THREAD_PRIORITY_TIME_CRITICAL 15
 
+static inline BOOL lyra_set_current_thread_qos(qos_class_t qos)
+{
+    return pthread_set_qos_class_self_np(qos, 0) == 0 ? TRUE : FALSE;
+}
+
 static inline BOOL SetThreadPriority(HANDLE thread, int priority)
 {
-    (void)thread; (void)priority;
-    return TRUE;
+    if (priority < THREAD_PRIORITY_HIGHEST) return TRUE;
+    if (!pthread_equal((pthread_t)thread, pthread_self())) return TRUE;
+    return lyra_set_current_thread_qos(QOS_CLASS_USER_INTERACTIVE);
 }
 
 static inline void *_aligned_malloc(size_t size, size_t alignment)
