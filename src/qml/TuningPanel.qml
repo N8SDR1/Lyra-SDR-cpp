@@ -50,6 +50,8 @@ Rectangle {
     property int vfoBHz: 0
     // RX2 DDS (SUB).  Same QQuickWidget mirror pattern as A / VFO B.
     property int rx2Hz: 0
+    property var memList: []
+    function refreshMem() { root.memList = Memory.list() }
     Component.onCompleted: {
         centerHz = Stream.rx1FreqHz
         vfoBHz = Stream.vfoBHz
@@ -57,6 +59,7 @@ Rectangle {
         // Seed the RPT dir/offset combo from the restored split (so it
         // reflects a persisted repeater), else the current band's default.
         if (Stream.splitEnabled) syncRptFromState(); else applyBandDefault()
+        refreshMem()
     }
     Connections {
         target: Stream
@@ -77,6 +80,10 @@ Rectangle {
         }
         // Recall / manual SPLIT toggle: re-derive the RPT offset from state.
         function onSplitEnabledChanged() { root.syncRptFromState() }
+    }
+    Connections {
+        target: Memory
+        function onChanged() { root.refreshMem() }
     }
 
     // Mode picker moved here from the Filters dock — keep the engine in
@@ -196,6 +203,10 @@ Rectangle {
                                      "DSB", "AM", "SAM", "FM", "DIGU", "DIGL"]
     readonly property bool cwMode: Prefs.mode === "CWU" || Prefs.mode === "CWL"
     readonly property bool fmMode: Prefs.mode === "FM"
+    // DL combo only when a memory (or Settings) set a different RX tone.
+    readonly property bool fmDlCtcssShown: fmMode && Stream.ctcssEnabled
+        && Stream.ctcssDlHz > 0.5
+        && Math.abs(Stream.ctcssDlHz - Stream.ctcssToneHz) > 0.2
 
     // RPT (FM repeater) — ad-hoc duplex layered on SPLIT + CTCSS, front-
     // facing in FM only.  Dir + offset are UI state; applying writes the
@@ -890,6 +901,100 @@ Rectangle {
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
 
+            Button {
+                id: memBtn
+                visible: Prefs.memoryOnTuning
+                implicitHeight: 26
+                implicitWidth: 52
+                text: qsTr("Mem")
+                font.bold: true
+                font.pixelSize: 12
+                background: Rectangle {
+                    radius: 4
+                    color: "#161e28"
+                    border.width: 2
+                    border.color: "#2a3a4a"
+                }
+                contentItem: Text {
+                    text: memBtn.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: "#cdd9e5"
+                    font: memBtn.font
+                    elide: Text.ElideRight
+                    clip: true
+                }
+                onClicked: memRecallMenu.popup()
+                ToolTip.text: qsTr("Memory bank — left-click recall, right-click save or manage. Same list as Band → Mem.")
+                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
+                Menu {
+                    id: memRecallMenu
+                    Repeater {
+                        model: root.memList
+                        delegate: MenuItem {
+                            required property var modelData
+                            required property int index
+                            text: (modelData.name.length > 0
+                                   ? modelData.name : modelData.freqMHz)
+                                  + "   " + modelData.freqMHz + " " + modelData.mode
+                            onTriggered: { Gen.deactivate(); Memory.recall(index) }
+                        }
+                    }
+                    MenuItem {
+                        text: qsTr("(no presets — right-click to save)")
+                        enabled: false
+                        visible: root.memList.length === 0
+                    }
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.RightButton
+                    onClicked: memManageMenu.popup()
+                    Menu {
+                        id: memManageMenu
+                        MenuItem {
+                            text: qsTr("Save current…")
+                            onTriggered: {
+                                memNameDialog.suggested = Memory.currentAutoName()
+                                memNameDialog.open()
+                            }
+                        }
+                        MenuItem {
+                            text: qsTr("Manage presets…")
+                            onTriggered: Help.openSettings("memory")
+                        }
+                    }
+                }
+                Dialog {
+                    id: memNameDialog
+                    title: qsTr("Save memory")
+                    modal: true
+                    parent: Overlay.overlay
+                    anchors.centerIn: Overlay.overlay
+                    width: 340
+                    standardButtons: Dialog.Ok | Dialog.Cancel
+                    property string suggested: ""
+                    onAboutToShow: {
+                        nameField.text = memNameDialog.suggested
+                        nameField.selectAll()
+                        nameField.forceActiveFocus()
+                    }
+                    onAccepted: Memory.addCurrent(nameField.text)
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 8
+                        Label {
+                            text: qsTr("Name (optional)")
+                            color: "#cdd9e5"
+                        }
+                        TextField {
+                            id: nameField
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+            }
+
             // ── FM front group: Deviation (always) + RPT → Dir/Offset/CTCSS ──
             Label {
                 text: qsTr("Dev"); color: "#cccccc"; font.bold: true
@@ -1006,7 +1111,7 @@ Rectangle {
             // tone combo, two-way with Settings → TX → FM.  Orange when on.
             Button {
                 id: ctcssBtn
-                visible: root.fmMode && Stream.splitEnabled
+                visible: root.fmMode
                 checkable: true
                 implicitHeight: 26; implicitWidth: 62
                 checked: Stream.ctcssEnabled
@@ -1028,22 +1133,71 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("Send a CTCSS sub-audible access tone — required "
-                    + "by tone-protected repeaters.  Pick the tone at right.")
+                ToolTip.text: qsTr("Send a CTCSS sub-audible access tone (uplink). "
+                    + "Pick UL at right. A different downlink (RX) tone is stored "
+                    + "in Memory and appears as DL only when it differs from UL.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
             Label {
-                text: qsTr("Tone"); color: "#cccccc"; font.bold: true
-                visible: root.fmMode && Stream.splitEnabled && ctcssBtn.checked
+                text: qsTr("UL"); color: "#cccccc"; font.bold: true
+                visible: root.fmMode && ctcssBtn.checked
             }
             LyraComboBox {
                 id: ctcssToneCombo
-                visible: root.fmMode && Stream.splitEnabled && ctcssBtn.checked
+                visible: root.fmMode && ctcssBtn.checked
                 Layout.preferredWidth: 78
                 model: root.ctcssTones.map(function(t) { return t.toFixed(1) })
                 currentIndex: root.nearestCtcssIndex(Stream.ctcssToneHz)
                 onActivated: Stream.setCtcssToneHz(root.ctcssTones[currentIndex])
-                ToolTip.text: qsTr("CTCSS access tone (Hz)")
+                ToolTip.text: qsTr("Uplink CTCSS (TX encode, Hz)")
+                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
+            }
+            Label {
+                text: qsTr("DL"); color: "#cccccc"; font.bold: true
+                visible: root.fmDlCtcssShown
+            }
+            LyraComboBox {
+                id: ctcssDlCombo
+                visible: root.fmDlCtcssShown
+                Layout.preferredWidth: 78
+                model: root.ctcssTones.map(function(t) { return t.toFixed(1) })
+                currentIndex: root.nearestCtcssIndex(Stream.ctcssDlHz)
+                onActivated: {
+                    var hz = root.ctcssTones[currentIndex]
+                    if (Math.abs(hz - Stream.ctcssToneHz) < 0.2)
+                        Stream.setCtcssDlHz(0)
+                    else
+                        Stream.setCtcssDlHz(hz)
+                }
+                ToolTip.text: qsTr("Downlink CTCSS (RX tone recipe). Decode is not "
+                    + "wired yet — this is stored with Memory so it is not lost.")
+                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
+            }
+            Button {
+                id: burst1750Btn
+                visible: root.fmMode
+                implicitHeight: 26; implicitWidth: 52
+                text: qsTr("1750")
+                font.bold: true; font.pixelSize: 12
+                onClicked: Stream.fireFmBurst()
+                background: Rectangle {
+                    radius: 4
+                    color: Stream.fmBurstActive ? "#3a2a14" : "#161e28"
+                    border.width: 2
+                    border.color: Stream.fmBurstActive ? "#ff9a3c" : "#2a3a4a"
+                }
+                contentItem: Text {
+                    text: burst1750Btn.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: Stream.fmBurstActive ? "#ff9a3c" : "#cdd9e5"
+                    font: burst1750Btn.font
+                    elide: Text.ElideRight
+                    clip: true
+                }
+                ToolTip.text: qsTr("1750 Hz tone burst (~0.5 s). Lights while the "
+                    + "burst window is open. TX audio for the burst is not wired "
+                    + "yet — use Memory Burst=1750 to store the recipe.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
 

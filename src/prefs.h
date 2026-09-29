@@ -147,18 +147,6 @@ class Prefs : public QObject {
                NOTIFY cwDecodeSquelchOnChanged)
     Q_PROPERTY(double cwDecodeSquelchValue READ cwDecodeSquelchValue WRITE setCwDecodeSquelchValue
                NOTIFY cwDecodeSquelchValueChanged)
-    Q_PROPERTY(int rttyCenterHz READ rttyCenterHz WRITE setRttyCenterHz
-               NOTIFY rttyCenterHzChanged)
-    Q_PROPERTY(int rttyShiftHz READ rttyShiftHz WRITE setRttyShiftHz
-               NOTIFY rttyShiftHzChanged)
-    Q_PROPERTY(double rttyBaud READ rttyBaud WRITE setRttyBaud
-               NOTIFY rttyBaudChanged)
-    Q_PROPERTY(bool rttyReverse READ rttyReverse WRITE setRttyReverse
-               NOTIFY rttyReverseChanged)
-    Q_PROPERTY(bool rttySquelchOn READ rttySquelchOn WRITE setRttySquelchOn
-               NOTIFY rttySquelchOnChanged)
-    Q_PROPERTY(double rttySquelchValue READ rttySquelchValue WRITE setRttySquelchValue
-               NOTIFY rttySquelchValueChanged)
     // Noise-floor reference line on the panadapter (old-Lyra parity):
     // a dashed line at the rolling ~20th-percentile floor + an
     // "NF -NN dBFS" label.  On/off + colour are operator-tunable.
@@ -326,6 +314,9 @@ class Prefs : public QObject {
     // Show the 11m / CB band row on the Band panel (Settings → Hardware).
     Q_PROPERTY(bool cbBandEnabled READ cbBandEnabled
                WRITE setCbBandEnabled NOTIFY cbBandEnabledChanged)
+    // Optional Mem chip on the Tuning dock (also always on the Band GEN row).
+    Q_PROPERTY(bool memoryOnTuning READ memoryOnTuning
+               WRITE setMemoryOnTuning NOTIFY memoryOnTuningChanged)
     // Panadapter mouse-wheel "Panafall" scroll step (Hz) — distinct from
     // the fine VFO step on the Tuning panel; this skims across a band.
     Q_PROPERTY(int panScrollStepHz READ panScrollStepHz
@@ -523,18 +514,6 @@ public:
     void    setCwDecodeSquelchOn(bool on);
     double  cwDecodeSquelchValue() const { return cwDecodeSquelchValue_; }
     void    setCwDecodeSquelchValue(double v);
-    int     rttyCenterHz() const { return rttyCenterHz_; }
-    void    setRttyCenterHz(int hz);
-    int     rttyShiftHz() const { return rttyShiftHz_; }
-    void    setRttyShiftHz(int hz);
-    double  rttyBaud() const { return rttyBaud_; }
-    void    setRttyBaud(double baud);
-    bool    rttyReverse() const { return rttyReverse_; }
-    void    setRttyReverse(bool on);
-    bool    rttySquelchOn() const { return rttySquelchOn_; }
-    void    setRttySquelchOn(bool on);
-    double  rttySquelchValue() const { return rttySquelchValue_; }
-    void    setRttySquelchValue(double v);
     bool peakShowDb() const { return peakShowDb_; }
     void setPeakShowDb(bool v);
     bool noiseFloorEnabled() const { return noiseFloorEnabled_; }
@@ -648,6 +627,8 @@ public:
     void setBandPlanTxWarn(bool v);
     bool cbBandEnabled() const { return cbBandEnabled_; }
     void setCbBandEnabled(bool v);
+    bool memoryOnTuning() const { return memoryOnTuning_; }
+    void setMemoryOnTuning(bool v);
     int  panScrollStepHz() const { return panScrollStepHz_; }
     void setPanScrollStepHz(int hz);
     bool panRound100() const { return panRound100_; }
@@ -739,12 +720,6 @@ signals:
     void cwDecodeMatchedFilterChanged();
     void cwDecodeSquelchOnChanged();
     void cwDecodeSquelchValueChanged();
-    void rttyCenterHzChanged();
-    void rttyShiftHzChanged();
-    void rttyBaudChanged();
-    void rttyReverseChanged();
-    void rttySquelchOnChanged();
-    void rttySquelchValueChanged();
     void peakClearRequested();
     void noiseFloorEnabledChanged();
     void noiseFloorColorChanged();
@@ -791,6 +766,7 @@ signals:
     void bandPlanTxWarnChanged();
     void bandPlanColorsChanged();
     void cbBandEnabledChanged();
+    void memoryOnTuningChanged();
     void panScrollStepHzChanged();
     void panRound100Changed();
     void debugLoggingChanged();
@@ -853,12 +829,6 @@ private:
     bool    cwDecodeMatchedFilter_;
     bool    cwDecodeSquelchOn_;
     double  cwDecodeSquelchValue_;
-    int     rttyCenterHz_     = 2210;
-    int     rttyShiftHz_      = 170;
-    double  rttyBaud_         = 45.45;
-    bool    rttyReverse_      = false;
-    bool    rttySquelchOn_    = true;
-    double  rttySquelchValue_ = 18.0;
     bool    noiseFloorEnabled_;
     QString noiseFloorColor_;
     bool    watermark_;
@@ -924,6 +894,7 @@ private:
     bool    bandPlanTxWarn_    = true;     // TX out-of-band advisory, on
     QHash<QString, QString> bandPlanColors_;   // kind → override hex (sparse)
     bool    cbBandEnabled_ = false;
+    bool    memoryOnTuning_ = false;
     int     panScrollStepHz_ = 1000;
     bool    panRound100_ = false;
     bool    debugLogging_ = false;

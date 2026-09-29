@@ -2,7 +2,7 @@
 //
 // The optional grouped-panel mode (Settings → Visuals → Panel layout) houses a
 // whole set of tool panels — the DSP set (TX Speech / TX EQ / TX Combinator /
-// TX Plating / RX EQ) or the Options set (Tuner / CW / CW Dec / RTTY /
+// TX Plating / RX EQ) or the Options set (Tuner / CW / CW Dec /
 // Voice Keyer) —
 // inside ONE window instead of each floating individually from its own header
 // chip.  A rack is a nested QMainWindow dock-host: members are tiled, resizable

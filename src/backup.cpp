@@ -132,6 +132,8 @@ bool isMachineSpecificKey(const QString &k) {
     if (k == QStringLiteral("radio/lastIp"))       return true;
     if (k.startsWith(QStringLiteral("lastRadio/"))) return true;
     if (k.startsWith(QStringLiteral("profileLaunch/"))) return true;
+    if (k.startsWith(QStringLiteral("autostart/")))     return true;
+    if (k.startsWith(QStringLiteral("apps/")))          return true;
     return false;
 }
 

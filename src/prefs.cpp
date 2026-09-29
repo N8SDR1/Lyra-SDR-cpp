@@ -61,12 +61,6 @@ constexpr auto kCwDecTrack  = "cw/decodeTracking";
 constexpr auto kCwDecMfilt  = "cw/decodeMatchedFilter";
 constexpr auto kCwDecSqlOn  = "cw/decodeSquelchOn";
 constexpr auto kCwDecSqlVal = "cw/decodeSquelchValue";
-constexpr auto kRttyCenter  = "rtty/centerHz";
-constexpr auto kRttyShift   = "rtty/shiftHz";
-constexpr auto kRttyBaud    = "rtty/baud";
-constexpr auto kRttyRev     = "rtty/reverse";
-constexpr auto kRttySqlOn   = "rtty/thresholdOn";
-constexpr auto kRttySqlVal  = "rtty/threshold";
 constexpr auto kPkShow  = "panadapter/peakShowDb";
 constexpr auto kNfEn    = "panadapter/noiseFloorEnabled";
 constexpr auto kNfColor = "panadapter/noiseFloorColor";
@@ -121,6 +115,7 @@ constexpr auto kBpClassEdges = "band_plan/class_edges";
 constexpr auto kBpTxWarn   = "band_plan/tx_warn";
 constexpr auto kBpColorPfx = "band_plan/color_";   // + <kind>
 constexpr auto kCbBand     = "bands/cb_enabled";
+constexpr auto kMemTuning  = "ui/memory_on_tuning";
 constexpr auto kPanStep    = "panadapter/scroll_step_hz";
 constexpr auto kSplitShift = "tx/splitShiftHz/";   // + MODE
 constexpr auto kPanRound   = "panadapter/round_100hz";
@@ -233,12 +228,6 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     cwDecodeMatchedFilter_ = s.value(kCwDecMfilt, false).toBool();
     cwDecodeSquelchOn_     = s.value(kCwDecSqlOn, false).toBool();
     cwDecodeSquelchValue_  = std::clamp(s.value(kCwDecSqlVal, 5.0).toDouble(), 0.0, 100.0);
-    rttyCenterHz_     = std::clamp(s.value(kRttyCenter, 2210).toInt(), 200, 3500);
-    rttyShiftHz_      = std::clamp(s.value(kRttyShift, 170).toInt(), 23, 850);
-    rttyBaud_         = std::clamp(s.value(kRttyBaud, 45.45).toDouble(), 20.0, 300.0);
-    rttyReverse_      = s.value(kRttyRev, false).toBool();
-    rttySquelchOn_    = s.value(kRttySqlOn, true).toBool();
-    rttySquelchValue_ = std::clamp(s.value(kRttySqlVal, 18.0).toDouble(), 0.0, 100.0);
     peakShowDb_    = s.value(kPkShow, false).toBool();
     noiseFloorEnabled_ = s.value(kNfEn, true).toBool();
     noiseFloorColor_   = s.value(kNfColor, QStringLiteral("#78c88c")).toString();
@@ -327,6 +316,7 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
             bandPlanColors_.insert(it.key(), v.toString());
     }
     cbBandEnabled_ = s.value(kCbBand, false).toBool();
+    memoryOnTuning_ = s.value(kMemTuning, false).toBool();
     panScrollStepHz_ = s.value(kPanStep, 1000).toInt();
     for (const QString &m : kModes) {
         const QVariant v = s.value(QString(kSplitShift) + m);
@@ -700,58 +690,6 @@ void Prefs::setCwDecodeSquelchValue(double v) {
         cwDecodeSquelchValue_ = v;
         QSettings().setValue(kCwDecSqlVal, v);
         emit cwDecodeSquelchValueChanged();
-    }
-}
-
-void Prefs::setRttyCenterHz(int hz) {
-    hz = std::clamp(hz, 200, 3500);
-    if (hz != rttyCenterHz_) {
-        rttyCenterHz_ = hz;
-        QSettings().setValue(kRttyCenter, hz);
-        emit rttyCenterHzChanged();
-    }
-}
-
-void Prefs::setRttyShiftHz(int hz) {
-    hz = std::clamp(hz, 23, 850);
-    if (hz != rttyShiftHz_) {
-        rttyShiftHz_ = hz;
-        QSettings().setValue(kRttyShift, hz);
-        emit rttyShiftHzChanged();
-    }
-}
-
-void Prefs::setRttyBaud(double baud) {
-    baud = std::clamp(baud, 20.0, 300.0);
-    if (baud != rttyBaud_) {
-        rttyBaud_ = baud;
-        QSettings().setValue(kRttyBaud, baud);
-        emit rttyBaudChanged();
-    }
-}
-
-void Prefs::setRttyReverse(bool on) {
-    if (on != rttyReverse_) {
-        rttyReverse_ = on;
-        QSettings().setValue(kRttyRev, on);
-        emit rttyReverseChanged();
-    }
-}
-
-void Prefs::setRttySquelchOn(bool on) {
-    if (on != rttySquelchOn_) {
-        rttySquelchOn_ = on;
-        QSettings().setValue(kRttySqlOn, on);
-        emit rttySquelchOnChanged();
-    }
-}
-
-void Prefs::setRttySquelchValue(double v) {
-    v = std::clamp(v, 0.0, 100.0);
-    if (v != rttySquelchValue_) {
-        rttySquelchValue_ = v;
-        QSettings().setValue(kRttySqlVal, v);
-        emit rttySquelchValueChanged();
     }
 }
 
@@ -1375,6 +1313,14 @@ void Prefs::setCbBandEnabled(bool v) {
         cbBandEnabled_ = v;
         QSettings().setValue(kCbBand, v);
         emit cbBandEnabledChanged();
+    }
+}
+
+void Prefs::setMemoryOnTuning(bool v) {
+    if (v != memoryOnTuning_) {
+        memoryOnTuning_ = v;
+        QSettings().setValue(kMemTuning, v);
+        emit memoryOnTuningChanged();
     }
 }
 

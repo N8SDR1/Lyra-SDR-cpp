@@ -48,7 +48,7 @@ public:
     int ddsHz(qint64 rfHz) const;
     bool disablePaForRf(quint32 rfHz) const;
     bool rxOnlyForRf(quint32 rfHz) const;
-    int  matchingSlot(qint64 rfHz) const;
+    Q_INVOKABLE int matchingSlot(qint64 rfHz) const;
 
 signals:
     void slotsChanged();

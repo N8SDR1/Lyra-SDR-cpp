@@ -88,7 +88,8 @@ private:
     QWidget *buildWeatherTab();  // weather-alert sources + thresholds + keys
     QWidget *buildBandsTab();    // Memory bank (+ Time Stations / SW DB later)
     QWidget *buildNetworkTab();  // TCI server (logger / cluster integration)
-    QWidget *buildCatSerialTab();// serial PTT input + Kenwood CAT (COM-port)
+    QWidget *buildCatSerialTab(); // serial PTT + Kenwood CAT (COM-port)
+    QWidget *buildAppsTab();     // named 3rd-party apps + header Apps chip
     QWidget *buildMeterTab();    // S-meter calibration trim
     QWidget *buildCalibrationTab(); // WWV/time-station frequency calibration
     QWidget *buildTunerTab();    // manual-ATU memory editor + match window

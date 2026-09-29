@@ -333,7 +333,7 @@ noted as a possible future Lyra RX feature.
 ### 11.1 Handshake (`sendInit`, tci_server.cpp ~923-981) — present vs gap
 Advertises: `protocol Lyra,1.9` · `device HermesLite2` · `receive_only false`
 · `trx_count 1` · `channel_count 1` (+legacy `channels_count`) · `vfo_limits
-10000,55000000` · `if_limits ±rate/2` · `modulations_list
+10000,2147483647` (RF dial / Xvtr; not native-HL2 IF) · `if_limits ±rate/2` · `modulations_list
 USB,LSB,CWU,CWL,AM,SAM,DSB,FM,DIGU,DIGL(,CW)` · audio-stream params · `ready`.
 **Gaps:** advertises **1.9** though it speaks v2.0 binary streams (consider
 2.0); **no CW params echoed** at connect (`cw_macros_speed`/`_delay`/

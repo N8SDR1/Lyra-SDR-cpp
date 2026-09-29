@@ -630,6 +630,21 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     ctcssToneHz_   = snapCtcssTone(
         QSettings().value(QStringLiteral("tx/ctcssToneHz"),
                           kDefaultCtcssToneHz).toDouble());
+    {
+        const double dl = QSettings().value(QStringLiteral("tx/ctcssDlHz"), 0.0)
+                              .toDouble();
+        ctcssDlHz_ = (dl > 0.5) ? snapCtcssTone(dl) : 0.0;
+    }
+    fmBurstHz_ = (QSettings().value(QStringLiteral("tx/fmBurstHz"), 0).toInt()
+                  == 1750)
+                     ? 1750
+                     : 0;
+    fmBurstTimer_.setSingleShot(true);
+    connect(&fmBurstTimer_, &QTimer::timeout, this, [this]() {
+        if (!fmBurstActive_) return;
+        fmBurstActive_ = false;
+        emit fmBurstActiveChanged();
+    });
     fmEmphasisMode_ = std::clamp(
         QSettings().value(QStringLiteral("tx/fmEmphasisMode"), 1).toInt(), 0, 1);
     levelerMaxGainLinear_ = std::clamp(
@@ -2872,6 +2887,27 @@ int HL2Stream::ddsHzForRf(quint32 rfHz) const {
                  : static_cast<int>(rfHz);
 }
 
+int HL2Stream::xvtrMatchingSlot(qint64 rfHz) const {
+    return xvtr_ ? xvtr_->matchingSlot(rfHz) : -1;
+}
+
+int HL2Stream::ocBandIndexForRf(quint32 rfHz) const {
+    if (xvtr_) {
+        const int s = xvtr_->matchingSlot(static_cast<qint64>(rfHz));
+        if (s >= 0) {
+            const qint64 loRf =
+                static_cast<qint64>(xvtr_->slotRfLoHz(s));
+            int bi = lyra::bandIndexForFreq(xvtr_->ddsHz(loRf));
+            if (bi < 0)
+                bi = lyra::bandIndexForFreq(ddsHzForRf(rfHz));
+            if (bi < 0)
+                bi = lyra::bandIndexForFreq(28400000);  // 10 m N2ADR LPF
+            return bi;
+        }
+    }
+    return lyra::bandIndexForFreq(ddsHzForRf(rfHz));
+}
+
 void HL2Stream::setXvtrSlots(lyra::ui::XvtrSlots *xvtrSlots) {
     xvtr_ = xvtrSlots;
     if (!xvtr_)
@@ -4283,6 +4319,30 @@ void HL2Stream::setCtcssToneHz(double hz) {
     if (fwd) fwd(v);
 }
 
+void HL2Stream::setCtcssDlHz(double hz) {
+    const double v = (hz > 0.5) ? snapCtcssTone(hz) : 0.0;
+    if (v == ctcssDlHz_) return;
+    ctcssDlHz_ = v;
+    QSettings().setValue(QStringLiteral("tx/ctcssDlHz"), v);
+    emit ctcssDlHzChanged(v);
+}
+
+void HL2Stream::setFmBurstHz(int hz) {
+    const int v = (hz == 1750) ? 1750 : 0;
+    if (v == fmBurstHz_) return;
+    fmBurstHz_ = v;
+    QSettings().setValue(QStringLiteral("tx/fmBurstHz"), v);
+    emit fmBurstHzChanged(v);
+}
+
+void HL2Stream::fireFmBurst() {
+    const bool fm = (txMode_.load(std::memory_order_relaxed) == 5);
+    if (!fm) return;
+    fmBurstActive_ = true;
+    emit fmBurstActiveChanged();
+    fmBurstTimer_.start(500);
+}
+
 // §15.31 — ATT-on-TX enable.  Persists + emits; if currently keyed,
 // re-applies to the wire live so the operator sees the front-end
 // attenuation engage/disengage mid-TX (the FSM otherwise only sets it
@@ -5313,7 +5373,7 @@ void HL2Stream::updateOcPattern(bool transmitting) {
         const quint32 rf = transmitting
             ? txFreqHz_.load(std::memory_order_relaxed)
             : rx1FreqHz_.load(std::memory_order_relaxed);
-        const int bi = lyra::bandIndexForFreq(ddsHzForRf(rf));
+        const int bi = ocBandIndexForRf(rf);
         // One analog filter (N2ADR): OC follows RX1.  SUB is a second DDC
         // on the same ADC; cross-band SUB stays behind RX1's LPF/BPF.
         // TX OC band is RX1 today; SPLIT TX still uses this until TX-band

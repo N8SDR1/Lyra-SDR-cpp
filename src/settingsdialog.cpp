@@ -19,6 +19,7 @@
 #include "wdsp_engine.h"
 #include "wxservice.h"
 
+#include "appsstore.h"
 #include "backup.h"
 #include "rig/RigScope.h"       // multi-rig Stage 3 — per-rig key routing (cal/)
 #include "rig/RigRegistry.h"    // multi-rig — discovery→rig auto-create/remove
@@ -32,6 +33,7 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QProgressBar>
+#include <QStatusBar>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -393,6 +395,7 @@ SettingsDialog::SettingsDialog(Prefs *prefs, lyra::ipc::HL2Stream *stream,
     if (serialPtt_) {
         tabs_->addTab(wrapScroll(buildCatSerialTab()), tr("CAT / Serial"));
     }
+    tabs_->addTab(wrapScroll(buildAppsTab()), tr("Apps"));
 
     // --- Set-once utility / cosmetic (rarely revisited) ---
     if (profiles_) {
@@ -1160,13 +1163,31 @@ QWidget *SettingsDialog::buildBandsTab() {
     auto *mem = new QWidget(sub);
     auto *v = new QVBoxLayout(mem);
 
-    auto *table = new QTableWidget(0, 7, mem);
+    auto *how = new QLabel(
+        tr("Click a cell to type — there is no Save button. The change is "
+           "kept when you press Enter or click another cell. F2 also opens "
+           "the highlighted cell."), mem);
+    how->setWordWrap(true);
+    how->setStyleSheet(QStringLiteral(
+        "color:#d8e6f0; font-weight:600; padding: 4px 0 2px 0;"));
+    v->addWidget(how);
+
+    auto *table = new QTableWidget(0, 9, mem);
     table->setHorizontalHeaderLabels(
         {tr("Name"), tr("Freq (MHz)"), tr("Mode"), tr("RX BW (Hz)"),
-         tr("Offset (kHz)"), tr("CTCSS (Hz)"), tr("Notes")});
+         tr("Offset (kHz)"), tr("UL (Hz)"), tr("DL (Hz)"),
+         tr("Burst"), tr("Notes")});
     table->horizontalHeader()->setStretchLastSection(true);
-    table->verticalHeader()->setVisible(false);
+    table->verticalHeader()->setVisible(true);
+    table->verticalHeader()->setDefaultSectionSize(24);
+    table->setAlternatingRowColors(true);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    // First click opens the cell (not double-click). Spreadsheet-style so
+    // the list does not look read-only.
+    table->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    table->setToolTip(tr("Click a cell to edit. Changes are stored when you "
+                         "leave the cell."));
 
     auto refreshing = std::make_shared<bool>(false);
     auto refresh = [this, table, refreshing]() {
@@ -1188,15 +1209,32 @@ QWidget *SettingsDialog::buildBandsTab() {
             table->setItem(i, 5, new QTableWidgetItem(
                 p.ctcssToneHz > 0.0 ? QString::number(p.ctcssToneHz, 'f', 1)
                                     : QString()));
-            table->setItem(i, 6, new QTableWidgetItem(p.notes));
+            table->setItem(i, 6, new QTableWidgetItem(
+                p.ctcssDlHz > 0.0 ? QString::number(p.ctcssDlHz, 'f', 1)
+                                  : QString()));
+            table->setItem(i, 7, new QTableWidgetItem(
+                p.burstHz == 1750 ? QStringLiteral("1750") : QString()));
+            table->setItem(i, 8, new QTableWidgetItem(p.notes));
+            for (int c = 0; c < 9; ++c) {
+                if (QTableWidgetItem *it = table->item(i, c)) {
+                    it->setToolTip(tr("Click to edit — stored when you leave "
+                                      "the cell."));
+                }
+            }
         }
         *refreshing = false;
     };
     refresh();
-    connect(memory_, &MemoryStore::changed, table, refresh);
+    connect(memory_, &MemoryStore::changed, table, [refresh, refreshing]() {
+        // Skip rebuilds that our own itemChanged just caused — rewriting
+        // the table mid-edit closes the editor (can't type in Settings).
+        if (*refreshing) return;
+        refresh();
+    });
     connect(table, &QTableWidget::itemChanged, table,
             [this, table, refreshing](QTableWidgetItem *) {
         if (*refreshing) return;
+        *refreshing = true;
         const int r = table->currentRow() >= 0 ? table->currentRow() : 0;
         Q_UNUSED(r);
         // Rebuild every row from the table on any edit (simple + robust).
@@ -1213,9 +1251,20 @@ QWidget *SettingsDialog::buildBandsTab() {
                 ? int(qRound(table->item(i, 4)->text().toDouble() * 1000.0)) : 0;
             p.ctcssToneHz = table->item(i, 5)
                 ? table->item(i, 5)->text().toDouble() : 0.0;
-            p.notes = table->item(i, 6) ? table->item(i, 6)->text() : QString();
+            p.ctcssDlHz = table->item(i, 6)
+                ? table->item(i, 6)->text().toDouble() : 0.0;
+            {
+                const QString b = table->item(i, 7)
+                    ? table->item(i, 7)->text().trimmed() : QString();
+                p.burstHz = (b.contains(QStringLiteral("1750"))
+                             || b == QLatin1String("1")
+                             || b.compare(QLatin1String("y"), Qt::CaseInsensitive) == 0)
+                                ? 1750 : 0;
+            }
+            p.notes = table->item(i, 8) ? table->item(i, 8)->text() : QString();
             if (p.freq > 0) memory_->setPreset(i, p);
         }
+        *refreshing = false;
     });
     v->addWidget(table);
 
@@ -1225,6 +1274,17 @@ QWidget *SettingsDialog::buildBandsTab() {
         if (!memory_->addCurrent(QString()))
             QMessageBox::information(this, tr("Memory"),
                 tr("The memory bank is full (%1 presets).").arg(MemoryStore::kMax));
+    });
+    auto *editBtn = new QPushButton(tr("Edit cell"), mem);
+    editBtn->setToolTip(tr("Open the highlighted cell for typing (same as F2)."));
+    connect(editBtn, &QPushButton::clicked, mem, [table]() {
+        if (QTableWidgetItem *it = table->currentItem())
+            table->editItem(it);
+        else if (table->rowCount() > 0) {
+            table->setCurrentCell(0, 0);
+            if (QTableWidgetItem *it = table->currentItem())
+                table->editItem(it);
+        }
     });
     auto *delBtn = new QPushButton(tr("Delete"), mem);
     connect(delBtn, &QPushButton::clicked, mem, [this, table]() {
@@ -1266,6 +1326,7 @@ QWidget *SettingsDialog::buildBandsTab() {
                                  tr("Could not write the file."));
     });
     btnRow->addWidget(addBtn);
+    btnRow->addWidget(editBtn);
     btnRow->addWidget(delBtn);
     btnRow->addWidget(clrBtn);
     btnRow->addStretch(1);
@@ -1274,12 +1335,13 @@ QWidget *SettingsDialog::buildBandsTab() {
     v->addLayout(btnRow);
 
     auto *hint = new QLabel(
-        tr("Edit cells directly. Use the “Mem” button on the Band panel to "
-           "store the current frequency and recall presets. RX BW blank = "
-           "the mode default. For a REPEATER, set Offset (the TX shift in "
-           "kHz, e.g. −100 for 10 m, −1000 = −1 MHz for 6 m) and CTCSS "
-           "(access tone in Hz); recall arms SPLIT to the input + sends the "
-           "tone. Blank Offset/CTCSS = simplex. Up to %1 presets.")
+        tr("Use the “Mem” button on the Band (or Tuning) panel to store "
+           "and recall. RX BW blank = the mode default. For a REPEATER, "
+           "set Offset (TX shift in kHz, e.g. −100 for 10 m, −1000 = −1 MHz "
+           "for 6 m), UL (TX CTCSS Hz), optional DL (RX tone if different "
+           "from UL), and Burst (1750 for a 1750 Hz tone-burst recipe). "
+           "Recall arms SPLIT + UL; DL shows on Tuning only when it differs "
+           "from UL. Blank Offset/UL = simplex. Up to %1 presets.")
             .arg(MemoryStore::kMax), mem);
     hint->setWordWrap(true);
     hint->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
@@ -1844,11 +1906,10 @@ QWidget *SettingsDialog::buildNetworkTab() {
     auto *combo = new QCheckBox(tr("SDRLogger+ Combo (share CW Console contact)"), grp);
     combo->setChecked(tci_->comboEnabled());
     combo->setToolTip(tr("Two-way link with SDRLogger+ over this TCI connection.\n"
-                         "When on, a callsign grabbed in the CW Decoder or RTTY Decoder\n"
+                         "When on, a callsign grabbed in the CW Decoder\n"
                          "/ typed in the CW Console populates the SDRLogger+ log entry\n"
                          "(and its callbook lookup fills the {NAME} token back here).\n"
                          "A macro containing the {LOG} tag logs the QSO in SDRLogger+.\n"
-                         "In DIGU/DIGL with RTTY decoding on, {LOG} stamps mode RTTY.\n"
                          "SDRLogger+ shows a “Lyra Combo: Linked” indicator while active."));
     connect(combo, &QCheckBox::toggled, tci_,
             [this](bool on) { tci_->setComboEnabled(on); });
@@ -2637,9 +2698,13 @@ QWidget *SettingsDialog::buildHardwareTab() {
                "occupied bandwidth (mode + TX filter), not just the dial "
                "frequency — so a wide signal that reaches past the band edge "
                "warns even when the carrier is in band; VFO B is used when "
-               "split.  Advisory only — it never inhibits transmit.  "
-               "Independent of the band-edge lines above so decluttering the "
-               "display can't disable the transmit-safety warning."),
+               "split.  While an Xvtr slot matches the TX frequency, the "
+               "HF amateur table is skipped (2 m / 70 cm / 23 cm are not "
+               "in that table); Lyra still warns if the occupied bandwidth "
+               "walks off the slot's RF low/high.  Advisory only — it never "
+               "inhibits transmit.  Independent of the band-edge lines above "
+               "so decluttering the display can't disable the transmit-safety "
+               "warning."),
             prefs_->bandPlanTxWarn(),
             [this](bool v){ prefs_->setBandPlanTxWarn(v); }, grp);
         connect(prefs_, &Prefs::bandPlanTxWarnChanged, txWarnCk, [this, txWarnCk]() {
@@ -2706,6 +2771,19 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 cb->setChecked(prefs_->cbBandEnabled());
         });
         v->addWidget(cb);
+        auto *memTune = new QCheckBox(
+            tr("Show memory recall on the Tuning panel"), grp);
+        memTune->setChecked(prefs_->memoryOnTuning());
+        memTune->setToolTip(tr("Adds a Mem chip next to SUB on the Tuning "
+                               "dock. The Band panel Mem chip stays."));
+        connect(memTune, &QCheckBox::toggled, grp,
+                [this](bool on) { prefs_->setMemoryOnTuning(on); });
+        connect(prefs_, &Prefs::memoryOnTuningChanged, memTune,
+                [this, memTune]() {
+            if (memTune->isChecked() != prefs_->memoryOnTuning())
+                memTune->setChecked(prefs_->memoryOnTuning());
+        });
+        v->addWidget(memTune);
         form->addRow(grp);
     }
 
@@ -8058,6 +8136,7 @@ bool SettingsDialog::selectTopic(const QString &topic) {
         {QStringLiteral("tuner"),      QStringLiteral("Tuner")},
         {QStringLiteral("recorder"),   QStringLiteral("Recording")},
         {QStringLiteral("profiles"),   QStringLiteral("Profiles")},
+        {QStringLiteral("apps"),       QStringLiteral("Apps")},
         {QStringLiteral("meter"),      QStringLiteral("Meter")},
         {QStringLiteral("band"),       QStringLiteral("Bands")},
         {QStringLiteral("memory"),     QStringLiteral("Bands")},
@@ -9034,7 +9113,7 @@ QWidget *SettingsDialog::buildVisualsTab() {
 
     auto *optGrp = new QCheckBox(tr("Group Options panels into one window"), page);
     optGrp->setChecked(prefs_->optionsPanelsGrouped());
-    optGrp->setToolTip(tr("Off: Tuner / CW / CW Dec / RTTY / Voice Keyer each float "
+    optGrp->setToolTip(tr("Off: Tuner / CW / CW Dec / Voice Keyer each float "
                           "from their own chip.  On: one \"Options\" chip opens "
                           "a single window holding them all.  (CTUN, Freq Cal "
                           "and WF-ID always stay on their own chips.)  Applies "
@@ -10020,6 +10099,121 @@ QWidget *SettingsDialog::buildWeatherTab() {
         rightVb->addStretch(1);   // push right column groups to the top
     }
 
+    outer->addStretch(1);
+    return page;
+}
+
+QWidget *SettingsDialog::buildAppsTab() {
+    auto *page = new QWidget(this);
+    auto *outer = new QVBoxLayout(page);
+
+    auto *intro = new QLabel(
+        tr("Name the programs you use alongside Lyra (FLDigi, Open-SSTV, "
+           "WSJT-X, …). They appear on the header <b>Apps</b> chip — click "
+           "the name to launch. Hardware → Startup (SDRLogger+ and the two "
+           "path slots) is unchanged and still fires at boot. Tick "
+           "<b>Auto-start with Lyra</b> only if you also want that named "
+           "app to open a few seconds after Lyra starts."), page);
+    intro->setWordWrap(true);
+    intro->setTextFormat(Qt::RichText);
+    outer->addWidget(intro);
+
+    struct Row {
+        QLineEdit *name = nullptr;
+        QLineEdit *path = nullptr;
+        QLineEdit *args = nullptr;
+        QCheckBox *autoStart = nullptr;
+    };
+    auto rows = std::make_shared<QVector<Row>>();
+    auto persist = [rows]() {
+        QVector<lyra::AppShortcut> list;
+        list.reserve(lyra::AppShortcuts::kMax);
+        for (const Row &r : *rows) {
+            lyra::AppShortcut e;
+            e.name      = r.name->text().trimmed();
+            e.path      = r.path->text().trimmed();
+            e.args      = r.args->text();
+            e.autoStart = r.autoStart->isChecked();
+            list.append(e);
+        }
+        lyra::AppShortcuts::save(list);
+    };
+
+    const auto saved = lyra::AppShortcuts::load();
+    auto *grid = new QGridLayout();
+    grid->setHorizontalSpacing(8);
+    grid->setVerticalSpacing(6);
+    int r = 0;
+    grid->addWidget(new QLabel(tr("Name")), r, 0);
+    grid->addWidget(new QLabel(tr("Program")), r, 1);
+    grid->addWidget(new QLabel(tr("")), r, 2);
+    grid->addWidget(new QLabel(tr("Args")), r, 3);
+    grid->addWidget(new QLabel(tr("Auto-start")), r, 4);
+    grid->addWidget(new QLabel(tr("")), r, 5);
+    ++r;
+
+    for (int i = 0; i < lyra::AppShortcuts::kMax; ++i) {
+        const lyra::AppShortcut e =
+            i < saved.size() ? saved[i] : lyra::AppShortcut{};
+        auto *name = new QLineEdit(e.name, page);
+        name->setPlaceholderText(tr("e.g. FLDigi"));
+        name->setMinimumWidth(110);
+        auto *path = new QLineEdit(e.path, page);
+        path->setPlaceholderText(tr("Browse to the .exe"));
+        auto *browse = new QPushButton(tr("Browse…"), page);
+        auto *args = new QLineEdit(e.args, page);
+        args->setPlaceholderText(tr("optional"));
+        args->setMinimumWidth(80);
+        auto *autoStart = new QCheckBox(page);
+        autoStart->setChecked(e.autoStart);
+        autoStart->setToolTip(
+            tr("If ticked, this app also starts a few seconds after Lyra "
+               "opens (same delay as Hardware → Startup). Default off."));
+        auto *launch = new QPushButton(tr("Launch"), page);
+        launch->setToolTip(tr("Start this program now (skipped if already running)."));
+
+        grid->addWidget(name, r, 0);
+        grid->addWidget(path, r, 1);
+        grid->addWidget(browse, r, 2);
+        grid->addWidget(args, r, 3);
+        grid->addWidget(autoStart, r, 4, Qt::AlignCenter);
+        grid->addWidget(launch, r, 5);
+        grid->setColumnStretch(1, 1);
+        ++r;
+
+        rows->append(Row{name, path, args, autoStart});
+
+        connect(name, &QLineEdit::editingFinished, this, persist);
+        connect(path, &QLineEdit::editingFinished, this, persist);
+        connect(args, &QLineEdit::editingFinished, this, persist);
+        connect(autoStart, &QCheckBox::toggled, this, persist);
+        connect(browse, &QPushButton::clicked, this, [this, path, persist]() {
+            const QString start = path->text().trimmed().isEmpty()
+                ? QString()
+                : QFileInfo(path->text()).absolutePath();
+            const QString f = QFileDialog::getOpenFileName(
+                this, tr("Choose program"), start,
+                tr("Programs (*.exe *.bat *.cmd);;All files (*.*)"));
+            if (f.isEmpty()) return;
+            path->setText(QDir::toNativeSeparators(f));
+            persist();
+        });
+        connect(launch, &QPushButton::clicked, this,
+                [this, name, path, args, autoStart]() {
+                    lyra::AppShortcut e;
+                    e.name = name->text();
+                    e.path = path->text();
+                    e.args = args->text();
+                    e.autoStart = autoStart->isChecked();
+                    QString msg;
+                    lyra::AppShortcuts::launch(e, &msg);
+                    if (msg.isEmpty()) return;
+                    if (auto *mw = qobject_cast<MainWindow *>(parentWidget()))
+                        mw->statusBar()->showMessage(msg, 5000);
+                });
+    }
+
+    outer->addLayout(grid);
     outer->addStretch(1);
     return page;
 }

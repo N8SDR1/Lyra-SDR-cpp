@@ -57,12 +57,16 @@ public:
     static bool launchDetached(const QString &command,
                                const QString &args = QString());
 
+    // True if a process whose image basename matches `command` is already
+    // running on this PC.  Used by the Apps chip / named-app list so a
+    // second click does not spawn another copy.
+    static bool isRunning(const QString &command);
+
 signals:
     void statusMessage(const QString &msg);
 
 private:
     static QString keyOf(const QString &profile, const char *leaf);
-    static bool    isRunning(const QString &command);   // by exe basename
     bool           startApp(const QString &command, const QString &args);
 
     QTimer  pending_;          // single-shot delay; last pick wins

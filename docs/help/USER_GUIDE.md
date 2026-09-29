@@ -127,6 +127,7 @@ not programmers — if you can click a menu, you can use this.
   - [Digital modes over TCI](#digital-modes-over-tci-ft8--ft4--msk144--q65--etc)
   - [Digital modes over VAC](#digital-modes-over-vac-virtual-audio-cable)
   - [DX-cluster spots](#dx-cluster-spots)
+- [Settings → Apps](#settings--apps)
 - [Settings → Visuals](#settings--visuals)
   - [Trace color](#trace-color)
   - [Spectrum fill](#spectrum-fill)
@@ -787,8 +788,10 @@ front-end (FM repeaters are the common split case):
 - **RPT** — the FM split toggle. Turn it on, then pick **Offset** direction
   (**−** / **+**) and amount (100 kHz / 500 kHz / 600 kHz / 1 MHz / 5 MHz)
   → VFO B = VFO A ± offset, split armed. As you tune VFO A, VFO B **tracks**
-  the offset (duplex). **CTCSS** is a lit button → enable it and pick the
-  **Tone** for tone-protected repeaters.
+  the offset (duplex). **CTCSS** is a lit button → enable it and pick **UL**
+  (TX encode). A **DL** combo appears only when a memory used a different
+  RX tone. **1750** is a momentary chip for a ~0.5 s burst window (recipe
+  also stores in Memory).
 
 On the panadapter (centred on your RX, VFO A) the **RX** carrier is a
 solid orange line at centre and the **TX (VFO B)** freq is a solid
@@ -1039,8 +1042,11 @@ display cap, not the slot editor. ~2.147 GHz is the signed-int ceiling
 **Slot editor (right-click a chip).** On/off, name, **RF** low/high
 (MHz), LO (MHz), error (Hz), Disable PA, RX-only. Disable PA defaults
 **on** so the Hermes Lite onboard PA stays off with a transverter in
-circuit. Filter-board / USB-BCD / OC / PA-gain follow the **IF**, not
-the displayed RF.
+circuit. PA-gain and USB-BCD follow **displayed RF**. The N2ADR / OC
+filter map uses the **IF of that slot’s RF-low** (not the live IF as
+you QSY). Otherwise a 2 m hop such as 145.675 ↔ 145.775 with a 116 MHz
+LO would cross the 10 m amateur edge at **29.7 MHz IF** and chatter the
+HL2 filter-board relays. USB-BCD does not do that (it keys on RF).
 
 **IF window.** The HL2 ADC/NCO is HF (~DC–30.72 MHz). Example: RF
 144–146 MHz with LO 116 MHz → IF 28–30 MHz (inside). RF **148** MHz at
@@ -1052,6 +1058,11 @@ IARU R3 / none) does **not** rewrite Xvtr slots. Factory defaults are US-style
 (2 m 144–148). IARU R1 2 m is often 144–146 — type that in the editor.
 
 **SUB.** **Shift+click** an Xvtr chip parks **SUB** on that slot.
+
+**Out-of-band TX banner.** The HF amateur table does not include VHF/UHF,
+so Lyra does **not** flash “transmitting out of band” merely because you
+are on an enabled Xvtr slot. It still warns if your occupied bandwidth
+walks past that slot’s **RF low / RF high**.
 
 **GEN1 / GEN2 / GEN3** (to the right of the band buttons) are
 **general-coverage slots** for listening outside the ham bands —
@@ -1078,23 +1089,29 @@ checking propagation or setting your clock by ear:
 
 **Mem — frequency memory bank.** At the end of the GEN row, the **Mem**
 button holds up to **20 saved frequencies**, each remembering its name,
-frequency, mode, and (optionally) RX filter bandwidth:
+frequency, mode, and (optionally) RX filter bandwidth. Optionally put
+the same chip on the **Tuning** dock: **Settings → Bands → Band panel →
+Show memory recall on the Tuning panel**.
 
 - **Left-click Mem** to open the recall list — pick a preset and Lyra
   tunes straight to it (mode first, then frequency).
 - **Right-click Mem** to **Save current frequency** (the VFO is stored with
   an auto-name like "14.074 USB") or open **Manage presets…**.
-- Full editing lives in **Settings → Bands → Memory**: a table where you
-  can rename, retype the frequency/mode/bandwidth, add notes, delete, clear
-  all, and **import/export CSV** (columns: Name, Freq_Hz, Mode, RX_BW_Hz,
-  Notes, Offset_Hz, CTCSS_Hz) to back up or share your list.
-- **Repeaters:** set **Offset** (the TX shift in kHz — e.g. −100 for 10 m,
-  −1000 = −1 MHz for 6 m) and **CTCSS** (access tone in Hz) on a row, store
-  the **output** frequency in Freq, and Mode = FM. Recall it and Lyra tunes
-  to the output, **arms SPLIT** to the input (output + offset), and sends
-  the tone — one click onto the repeater. Blank Offset/CTCSS = a simplex
-  preset (recall clears any split + tone). "Store current" while you're set
-  up on a repeater captures its offset + tone too.
+- Full editing lives in **Settings → Bands → Memory**: **click a cell**
+  to type (or **Edit cell** / F2). There is no Save button — leave the
+  cell or press Enter to keep the change. You can rename, retype the
+  frequency/mode/bandwidth, add notes, delete, clear all, and
+  **import/export CSV** (columns: Name, Freq_Hz, Mode, RX_BW_Hz,
+  Notes, Offset_Hz, CTCSS_Hz, CTCSS_DL_Hz, Burst_Hz) to back up or share
+  your list. Older 7-column CSVs still import.
+- **Repeaters:** set **Offset** (TX shift in kHz — e.g. −100 for 10 m,
+  −1000 = −1 MHz for 6 m), **UL** (TX CTCSS Hz), optional **DL** (RX
+  tone if different from UL), and **Burst** (`1750` for a 1750 Hz burst
+  recipe). Store the **output** frequency in Freq, Mode = FM. Recall
+  tunes the output, **arms SPLIT** to the input, and sets UL. **DL**
+  appears on Tuning only when it differs from UL (RX decode is stored,
+  not yet squelched). Blank Offset/UL = simplex (recall clears split +
+  tone). "Store current" captures offset, UL, DL, and Burst.
 
 Pick the **mode** under the VFO (Tuning panel) and the **filter width**
 in the **Filters** panel.
@@ -2776,7 +2793,9 @@ have companion programs open automatically a few seconds after Lyra starts
 These are **per-PC** settings, kept on your machine and never written into
 an exported profile. Launches are fire-and-forget — closing Lyra never
 closes the apps; close them yourself. (This is separate from the per-profile
-**Companion app** above, which fires only when you *select* that profile.)
+**Companion app** above, which fires only when you *select* that profile,
+and from **Settings → Apps**, which is the named list behind the header
+**Apps** chip.)
 
 ---
 
@@ -3107,6 +3126,10 @@ Lyra shows a large, pulsing warning banner across the panadapter:
 - If you enable the **11 m / CB band** and tune within it, the banner stays
   silent there — you're deliberately on a non-amateur band, so Lyra doesn't
   nag you about the amateur allocations.
+- On an enabled **Xvtr** slot (2 m / 70 cm / 23 cm, …) the HF amateur table
+  is skipped — that table never listed VHF/UHF, so it used to false-alarm
+  on every transverter key-up. The banner still fires if your signal walks
+  past the slot’s RF low/high.
 
 > The band plan is **advisory only** — the HL2 is unlocked and Lyra will
 > transmit anywhere you tune; **nothing here inhibits transmit**. Sub-band
@@ -3778,7 +3801,7 @@ only bite when you key FM. All persist across sessions.
 |---|---|---|
 | **Deviation** | 5.0 kHz | Peak FM deviation. The spin box flags the two standard presets — **5.0 kHz — Wide (US)** and **2.5 kHz — Narrow (US/EU)** — and reads plain `kHz` at any other value. Too much deviation splatters into adjacent channels; too little sounds weak and quiet. Changing it also re-sizes the RX filter and the TX occupied-width readout to match (see below). |
 | **Pre-emphasis** | Comm | The treble-boost curve applied before the modulator. **Comm** is the standard 6 dB/oct (300–3000 Hz) communications curve every FM rig and repeater expects — leave it here for **voice**. **Off** is flat (no boost) — use it for **FM data** (packet, 1200/9600 baud, VARA FM), where the treble tilt would distort the data tones, or for a deliberately flat/warm sound. (A true *Off* is a Lyra edge — most rigs force pre-emphasis on.) |
-| **CTCSS sub-tone** | Off | Transmit a sub-audible **CTCSS** tone to open a tone-protected FM repeater. Tick **enable** and pick your repeater's tone from the standard list (67.0–254.1 Hz). Leave it off for simplex. |
+| **CTCSS sub-tone** | Off | Transmit a sub-audible **UL** CTCSS tone to open a tone-protected FM repeater. On the Tuning dock, **CTCSS** is available in FM even without RPT. Enable it and pick **UL** (67.0–254.1 Hz). Leave it off for simplex. **DL** (a different RX tone) lives mainly in **Settings → Bands → Memory** and only shows on Tuning when DL ≠ UL. RX CTCSS decode is not wired yet. **1750** is a ~0.5 s burst chip (TX audio for the burst is not wired yet; store `1750` in Memory Burst). |
 
 > **Why pre-emphasis exists:** FM brings high audio frequencies out of the
 > receiver noisier than low ones. Every FM radio boosts the highs on
@@ -3816,10 +3839,12 @@ When in doubt, match what the repeater or local band plan specifies — running
 wide into a narrow channel splatters your neighbours; running narrow where
 everyone else is wide makes you sound quiet and distant.
 
-CTCSS is a *transmit* sub-tone only (Lyra sends the access tone; it doesn't
-decode incoming tones). If you can hear a repeater but can't bring it up,
-the tone is the usual culprit — set it to the repeater's published CTCSS /
-"PL" frequency.
+CTCSS **UL** is a *transmit* sub-tone (Lyra encodes it). **DL** is stored
+for the repeater recipe; RX tone squelch is not decoded yet. If you can
+hear a repeater but can't bring it up, UL is the usual culprit — set it
+to the published CTCSS / "PL" frequency. Use **1750** (or Memory Burst)
+for older European relais that want a burst instead of (or as well as)
+CTCSS.
 
 > **HL2 FM is 10 m / 6 m.** On a bare Hermes Lite 2/2+ (no transverter),
 > FM lives on 29.5–29.7 MHz (10 m) and the 6 m FM segment. CTCSS only
@@ -4635,6 +4660,27 @@ The app can then read and set **VFO frequency** and **mode**, and key TX
 > turnaround is **Settings → TX → TR Sequencing** (RF delay etc.) — safe to
 > shorten into a dummy load / barefoot; mind the hot-switch note if a linear
 > is in line.
+
+---
+
+## Settings → Apps
+
+**Settings → Apps** (between **CAT / Serial** and **Profiles**) is the named
+list of programs you run *with* Lyra — FLDigi, Open-SSTV, WSJT-X, and so on.
+They show up on the header **Apps** chip (after Amp View): click a name to
+launch it. A second click does nothing if that program is already running.
+
+Each row has a **name**, a **Browse** path to the `.exe`, optional arguments,
+an **Auto-start with Lyra** tick (default **off**), and **Launch** to try it
+now.
+
+Hardware → [Startup](#auto-starting-apps-at-launch) (SDRLogger+ plus two
+generic path slots) still runs at boot and is **not** replaced by this list.
+Use Apps when you want a named chip menu; tick Auto-start on an Apps row only
+if you also want that one to open after Lyra starts.
+
+These entries stay on this PC — they are not written into an exported
+profile.
 
 ---
 

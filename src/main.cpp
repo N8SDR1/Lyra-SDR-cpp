@@ -112,6 +112,7 @@ std::atomic<bool> g_shutdown_complete{false};
 #include "profile/ProfileBindings.h"
 #include "profile/ProfileStore.h"
 #include "profile/CompanionLauncher.h"   // startup auto-launch (Settings → Hardware)
+#include "appsstore.h"
 #include "rig/RigRegistry.h"   // multi-rig Stage 2 — rig identity/registry
 #include "rig/RigScope.h"      // multi-rig Stage 3 — seed + snapshot-gated migration
 #include <QSettings>
@@ -2212,6 +2213,14 @@ int main(int argc, char *argv[])
                 sl.args ? s.value(sl.args).toString() : QString();
             QTimer::singleShot(n++ * 1500, &app, [path, args]() {
                 lyra::profile::CompanionLauncher::launchDetached(path, args);
+            });
+        }
+        for (const auto &e : lyra::AppShortcuts::load()) {
+            if (!e.autoStart) continue;
+            if (e.path.trimmed().isEmpty()) continue;
+            const lyra::AppShortcut copy = e;
+            QTimer::singleShot(n++ * 1500, &app, [copy]() {
+                lyra::AppShortcuts::launch(copy);
             });
         }
     });

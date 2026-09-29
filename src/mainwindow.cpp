@@ -27,6 +27,7 @@
 #include "tunermemory.h"
 #include "profile/ProfileManager.h"  // complete type for setContextProperty(QObject*)
 #include "profile/CompanionLauncher.h" // #193 launch digital app on explicit profile pick
+#include "appsstore.h"
 #include "eqmodel.h"                  // complete type for new EqModel + context property
 #include "speechmodel.h"              // complete type for new SpeechModel + context property
 #include "combinatormodel.h"          // complete type for new CombinatorModel + context property
@@ -228,7 +229,6 @@ inline bool isChipSummonedPanel(const QString &objectName) {
         || objectName == QLatin1String("rxeq")
         || objectName == QLatin1String("cwconsole")
         || objectName == QLatin1String("cwdecoder")
-        || objectName == QLatin1String("rttydecoder")
         || objectName == QLatin1String("voicekeyer")
         || objectName == QLatin1String("tuner")
         || objectName == QLatin1String("freqcal")
@@ -975,11 +975,16 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
                 return;
             }
             const double f = double(st->rx1FreqHz());
-            const QString name = bandPlan_->bandContaining(f);
+            const int xv = xvtr_ ? xvtr_->matchingSlot(static_cast<qint64>(st->rx1FreqHz()))
+                                 : -1;
+            const QString name = xv >= 0 ? xvtr_->slotName(xv)
+                                         : bandPlan_->bandContaining(f);
             const int inb = name.isEmpty() ? 0 : 1;
             if (inb == lastBandState_) return;
             lastBandState_ = inb;
-            if (inb)
+            if (inb && xv >= 0)
+                statusBus_->show(tr("Xvtr: %1").arg(name), 2500);
+            else if (inb)
                 statusBus_->show(tr("In band: %1  (%2)")
                                      .arg(name, prefs_->bandPlanRegion()), 2500);
             else
@@ -1659,15 +1664,6 @@ void MainWindow::buildDocks() {
                  QStringLiteral("cwdecoder"), Qt::BottomDockWidgetArea,
                  /*resizable=*/true);
     if (QDockWidget *d = docks_.value(QStringLiteral("cwdecoder"))) {
-        d->setFloating(true);
-        d->hide();
-    }
-    // RTTY Decoder — DIGU/DIGL Baudot copy, same grab path as CW Dec.
-    addQuickDock(QStringLiteral("rttydecoder"), tr("RTTY Decoder"),
-                 QStringLiteral("RttyDecoderPanel.qml"),
-                 QStringLiteral("rttydecoder"), Qt::BottomDockWidgetArea,
-                 /*resizable=*/true);
-    if (QDockWidget *d = docks_.value(QStringLiteral("rttydecoder"))) {
         d->setFloating(true);
         d->hide();
     }
@@ -2440,16 +2436,6 @@ void MainWindow::buildToolbar() {
                 btn->setStyleSheet(QString::fromLatin1(kTxDspChipQss));
             }
         }
-        if (QDockWidget *d = docks_.value(QStringLiteral("rttydecoder"))) {
-            QAction *act = d->toggleViewAction();
-            act->setText(tr("RTTY"));
-            tb->addAction(act);
-            if (auto *btn = qobject_cast<QToolButton *>(
-                    tb->widgetForAction(act))) {
-                btn->setObjectName(QStringLiteral("txDspChip"));
-                btn->setStyleSheet(QString::fromLatin1(kTxDspChipQss));
-            }
-        }
         // Voice Keyer launcher (#89 Build 1) — floating clip-message panel.
         if (QDockWidget *d = docks_.value(QStringLiteral("voicekeyer"))) {
             QAction *act = d->toggleViewAction();
@@ -2467,7 +2453,6 @@ void MainWindow::buildToolbar() {
                                     QStringList{ QStringLiteral("tuner"),
                                                  QStringLiteral("cwconsole"),
                                                  QStringLiteral("cwdecoder"),
-                                                 QStringLiteral("rttydecoder"),
                                                  QStringLiteral("voicekeyer") });
             optionsRack_ = orr.first; optionsRackChip_ = orr.second;
         }
@@ -2560,9 +2545,13 @@ void MainWindow::buildToolbar() {
             // WaterfallIdController; this greys + disarms the chip.
             auto *wfStream = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
             auto inHamBand = [this, wfStream]() {
-                return wfStream && lyra::ui::amateurBandContains(
-                           prefs_->bandPlanRegion(), prefs_->bandPlanCountry(),
-                           static_cast<double>(wfStream->rx1FreqHz()));
+                if (!wfStream) return false;
+                const auto hz = static_cast<qint64>(wfStream->rx1FreqHz());
+                if (xvtr_ && xvtr_->matchingSlot(hz) >= 0)
+                    return true;
+                return lyra::ui::amateurBandContains(
+                    prefs_->bandPlanRegion(), prefs_->bandPlanCountry(),
+                    static_cast<double>(wfStream->rx1FreqHz()));
             };
             auto armable = [isSsbMode, inHamBand]() {
                 return isSsbMode() && inHamBand();
@@ -2621,6 +2610,46 @@ void MainWindow::buildToolbar() {
         };
         addOptDockChip("ps", tr("PureSignal"));
         addOptDockChip("ampview", tr("Amp View"));
+
+        auto *appsBtn = new QToolButton(tb);
+        appsBtn->setObjectName(QStringLiteral("txDspChip"));
+        appsBtn->setText(tr("Apps"));
+        appsBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        appsBtn->setPopupMode(QToolButton::InstantPopup);
+        appsBtn->setStyleSheet(QString::fromLatin1(kTxDspChipQss));
+        appsBtn->setToolTip(tr(
+            "Launch named programs (FLDigi, SSTV, …).\n"
+            "Add them in Settings → Apps. Auto-start is optional and off "
+            "unless you tick it."));
+        auto *appsMenu = new QMenu(appsBtn);
+        appsBtn->setMenu(appsMenu);
+        connect(appsMenu, &QMenu::aboutToShow, this, [this, appsMenu]() {
+            appsMenu->clear();
+            int n = 0;
+            for (const auto &e : lyra::AppShortcuts::load()) {
+                if (e.path.trimmed().isEmpty()) continue;
+                const QString label = lyra::AppShortcuts::displayName(e);
+                if (label.isEmpty()) continue;
+                QAction *a = appsMenu->addAction(label);
+                connect(a, &QAction::triggered, this, [this, e]() {
+                    QString msg;
+                    lyra::AppShortcuts::launch(e, &msg);
+                    if (!msg.isEmpty())
+                        statusBar()->showMessage(msg, 5000);
+                });
+                ++n;
+            }
+            if (n == 0) {
+                QAction *empty = appsMenu->addAction(
+                    tr("No apps yet — add them in Settings → Apps"));
+                empty->setEnabled(false);
+            }
+            appsMenu->addSeparator();
+            appsMenu->addAction(tr("Edit in Settings…"), this, [this]() {
+                openSettingsTopic(QStringLiteral("apps"));
+            });
+        });
+        tb->addWidget(appsBtn);
     }
 
     // #94 External TX Inhibit — prominent always-visible indicator.  Hidden

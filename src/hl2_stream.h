@@ -614,6 +614,12 @@ class HL2Stream : public QObject {
                WRITE setCtcssEnabled  NOTIFY ctcssEnabledChanged)
     Q_PROPERTY(double ctcssToneHz   READ ctcssToneHz
                WRITE setCtcssToneHz   NOTIFY ctcssToneHzChanged)
+    Q_PROPERTY(double ctcssDlHz     READ ctcssDlHz
+               WRITE setCtcssDlHz     NOTIFY ctcssDlHzChanged)
+    Q_PROPERTY(int    fmBurstHz     READ fmBurstHz
+               WRITE setFmBurstHz     NOTIFY fmBurstHzChanged)
+    Q_PROPERTY(bool   fmBurstActive READ fmBurstActive
+               NOTIFY fmBurstActiveChanged)
     // FM pre-emphasis selector: 0 = Off (flat — true bypass, for digital/data
     // + warm HF), 1 = Comm (the native 6 dB/oct 300–3000 Hz communications
     // curve; voice default).  50/75 µs broadcast curves are a later option.
@@ -1100,6 +1106,9 @@ public:
     double  fmDeviationHz()         const { return fmDeviationHz_;         }
     bool    ctcssEnabled()          const { return ctcssEnabled_;          }
     double  ctcssToneHz()           const { return ctcssToneHz_;           }
+    double  ctcssDlHz()             const { return ctcssDlHz_;             }
+    int     fmBurstHz()             const { return fmBurstHz_;             }
+    bool    fmBurstActive()         const { return fmBurstActive_;         }
     int     fmEmphasisMode()        const { return fmEmphasisMode_;        }
 
     // Step 3d: register a sink for DDC0 baseband IQ.  Called ONCE per
@@ -1257,6 +1266,13 @@ public slots:
     void setXvtrSlots(lyra::ui::XvtrSlots *xvtrSlots);
     // Display RF → radio IF/DDS (identity when no Xvtr slot matches).
     int ddsHzForRf(quint32 rfHz) const;
+    // Enabled Xvtr slot index containing displayed RF, or -1.
+    int xvtrMatchingSlot(qint64 rfHz) const;
+    // N2ADR / OC amateur-band index for filter-board relays. On an Xvtr
+    // slot, freeze to the IF of the slot RF-low (one LPF for the whole
+    // window) so a 2 m QSY that crosses the 10 m IF edge (29.7 MHz) does
+    // not chatter the board. Identity of live IF when no slot matches.
+    int ocBandIndexForRf(quint32 rfHz) const;
     void applyPaWire();
     void setMicBoost(bool on);
     void setBandVoltsOutput(bool on);
@@ -1511,6 +1527,9 @@ public slots:
     void setFmDeviationHz(double hz);   // clamp 1000..6000
     void setCtcssEnabled(bool on);      // mode-gated run via applyCtcssRun()
     void setCtcssToneHz(double hz);     // snapped to the standard tone table
+    void setCtcssDlHz(double hz);       // 0 = same as UL / unused (no RX TSQ yet)
+    void setFmBurstHz(int hz);          // 0 or 1750 — memory recipe only
+    Q_INVOKABLE void fireFmBurst();     // ~500 ms 1750 Hz chip (UI; TX audio later)
     void setFmEmphasisMode(int mode);   // 0=Off, 1=Comm; forward via TxControl
 
     // TX-1 component 8a-tx-mode — push WDSP TXA mode (0=LSB, 1=USB)
@@ -1728,6 +1747,9 @@ signals:
     void fmDeviationHzChanged(double hz);   // #107
     void ctcssEnabledChanged(bool on);      // #107
     void ctcssToneHzChanged(double hz);     // #107
+    void ctcssDlHzChanged(double hz);
+    void fmBurstHzChanged(int hz);
+    void fmBurstActiveChanged();
     // Fires once when the safety timeout actually expires and the FSM
     // auto-clears MOX.  Useful for a status-bar toast / log highlight;
     // the actual MOX-off is driven through requestMox(false) regardless.
@@ -2622,6 +2644,10 @@ private:
     double fmDeviationHz_          = kDefaultFmDeviationHz;
     bool   ctcssEnabled_          = false;
     double ctcssToneHz_           = kDefaultCtcssToneHz;
+    double ctcssDlHz_             = 0.0;   // 0 = linked to UL / unused
+    int    fmBurstHz_             = 0;     // 0 or 1750
+    bool   fmBurstActive_         = false;
+    QTimer fmBurstTimer_;
     int    fmEmphasisMode_        = 1;   // 0=Off, 1=Comm (voice default)
 
     // §3.9-5 revert (operator-rejected 2026-06-06): the Lyra-native
