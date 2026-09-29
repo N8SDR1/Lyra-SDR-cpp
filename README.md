@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.2 Sheliak** — NR-C restore, TUNE/2-tone on dial, TX span matches RX.
+**v0.25.3 Sheliak** — Xvtr VFO shows 2 m / 70 cm / 23 cm RF (not 55.999.999 Hz).
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 

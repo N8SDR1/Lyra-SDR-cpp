@@ -202,6 +202,13 @@ Settings export/import writes a single profile file you can copy. See
 That's the one‑time FFT plan‑cache build — let it finish (a few minutes).
 It only happens once (or after **Clear &amp; rebuild**).
 
+**Xvtr VFO stops at 55.999.999 Hz.**
+That was the old eight-digit LED cap. **v0.25.3** uses ten digits so 2 m /
+70 cm / 23 cm **RF** show on the dial. Slot **RF low/high** were already
+MHz. Band-plan **region does not auto-fill** 144–146 vs 144–148 — set it
+in the Xvtr editor (**right-click** the chip). Full map: **[User Guide →
+Xvtr](User-Guide#xvtr-transverters)**.
+
 ---
 
 ## Dual receive (SUB / RX2) — HL2 and BrickSDR2

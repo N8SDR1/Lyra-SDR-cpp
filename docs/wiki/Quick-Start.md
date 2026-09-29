@@ -72,7 +72,7 @@ Everything lives in the in-app **Help** guide (open it from the **Help** menu,
 or the cyan **?** on any panel) and in the [User Guide](User-Guide):
 
 - 🎙️ [First Voice Setup](First-Voice-Setup) — your first phone contact, step by step
-- 📖 [User Guide](User-Guide) — the panadapter, tuning, filters, bands, audio, TX rack, CW, profiles…
+- 📖 [User Guide](User-Guide) — the panadapter, tuning, filters, bands (including **Xvtr**), audio, TX rack, CW, profiles…
 - ✅ [Feature Status](Feature-Status) — everything Lyra can do today
 
 Welcome aboard, and 73.

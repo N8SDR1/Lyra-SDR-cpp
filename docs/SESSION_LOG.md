@@ -4,6 +4,17 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-09-29 — v0.25.3 Sheliak (patch)
+
+- Version bump **0.25.2 → 0.25.3**. Star name stays **Sheliak**.
+- Xvtr VFO LED ten digits (~2.147 GHz); TCI `vfo_limits` match. Fixes
+  the 55.999.999 Hz display cap (Volker). Region does not rewrite slots.
+- USER_GUIDE **Xvtr (transverters)** + wiki FAQ / Feature-Status.
+- Installer `dist/Lyra-Setup-0.25.3.exe`. Tag `v0.25.3`. #14 stays open.
+  Do not merge `main`. Native RTTY strip stays uncommitted.
+
+---
+
 ## 2026-09-28 — v0.25.2 Sheliak (patch)
 
 - Version bump **0.25.1 → 0.25.2**. Star name stays **Sheliak**.

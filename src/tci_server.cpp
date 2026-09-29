@@ -40,9 +40,11 @@ constexpr auto kKeyEsdr3    = "tci/emulate_expertsdr3";
 constexpr auto kKeySunSdr   = "tci/emulate_sunsdr2";
 constexpr auto kKeyCwlu     = "tci/cwlu_becomes_cw";
 constexpr auto kKeyCombo    = "tci/combo_sdrloggerplus";   // Lyra↔SDRLogger+ combo link
-// vfo_limits advertised to clients (HL2 receive range, Hz).
+// vfo_limits advertised to clients.  Native HL2 IF is HF/6 m; the
+// dial is RF when an Xvtr slot is active (2 m / 70 cm / 23 cm), so
+// the high bound matches the VFO LED (signed-int Hz ceiling).
 constexpr qint64 kVfoLo = 10000;
-constexpr qint64 kVfoHi = 55000000;
+constexpr qint64 kVfoHi = 2147483647;
 
 double dbToLinear(double db) {
     if (db <= -60.0) return 0.0;

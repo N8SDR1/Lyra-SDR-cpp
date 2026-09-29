@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.2 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.25.3 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
@@ -17,7 +17,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **Stale-IP** guard (won't freeze trying to reach a radio that moved)
 - ✅ Graphics **crash ladder** (OpenGL → software, MSAA off on software) so a bad GPU driver does not leave Lyra with no window
 - ✅ **MSAA** picker **Off / 2× / 4× / 8×** (Settings → Visuals; default 4×; restart)
-- ✅ **Xvtr** band chips — RF dial, IF NCO, Disable PA default on; Shift+click SUB hop
+- ✅ **Xvtr** band chips — RF dial (ten-digit LED, ~2.147 GHz), IF NCO, Disable PA default on; Shift+click SUB hop; right-click slot editor. Band-plan **region does not rewrite** slot MHz — set RF low/high/LO for your allocation. See User Guide **Band panel**.
 - ✅ HL2 **N2ADR / IO board OC** plus optional **Band Volts on J3** (fan PWM / dither bit); two different analog pins
 
 ## Receive (RX)

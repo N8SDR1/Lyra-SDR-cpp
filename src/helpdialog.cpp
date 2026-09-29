@@ -44,6 +44,7 @@ const QHash<QString, QString> &topicHeads() {
         {QStringLiteral("display"),   QStringLiteral("Display panel")},
         {QStringLiteral("meter"),     QStringLiteral("Meter panel")},
         {QStringLiteral("band"),      QStringLiteral("Band panel")},
+        {QStringLiteral("xvtr"),      QStringLiteral("Xvtr (transverters)")},
         {QStringLiteral("propagation"),
          QStringLiteral("Solar / Propagation panel")},
         // TX front panel + the TX DSP-rack docks (each jumps to its own

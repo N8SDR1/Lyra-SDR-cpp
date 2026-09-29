@@ -20,6 +20,16 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.3
+
+- **Xvtr VFO cap** — the frequency LED used to stop at **55.999.999 Hz**.
+  It now has **ten digits** so 2 m / 70 cm / 23 cm **RF** can sit on the
+  dial (signed-int ceiling ~2.147 GHz). TCI `vfo_limits` match. See
+  [Xvtr (transverters)](#xvtr-transverters).
+- Slot **RF low/high/LO** were already MHz in the editor — that was not
+  the 55 MHz stop. **Settings → Hardware region** does **not** rewrite
+  Xvtr slots; set 144–146 vs 144–148 yourself.
+
 ## What's new in 0.25.2
 
 - **NR-C restore** — the last saved profile loads on restart. NR-C itself
@@ -44,6 +54,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.3](#whats-new-in-0253)
 - [What's new in 0.25.2](#whats-new-in-0252)
 - [What's new in 0.25.1](#whats-new-in-0251)
 - [Start here — Quick Basics](#start-here--quick-basics)
@@ -62,6 +73,7 @@ not programmers — if you can click a menu, you can use this.
 - [Second receiver (SUB / RX2) — how it works](#second-receiver-sub--rx2--how-it-works)
 - [Filters panel](#filters-panel)
 - [Band panel](#band-panel)
+  - [Xvtr (transverters)](#xvtr-transverters)
 - [Audio panel](#audio-panel)
 - [Setting up audio output](#setting-up-audio-output)
 - [Setting up your mic input](#setting-up-your-mic-input)
@@ -80,7 +92,6 @@ not programmers — if you can click a menu, you can use this.
   - [Is it legal to record?](#is-it-legal-to-record)
 - [CW operating (paddle, keyboard, TCI)](#cw-operating-paddle-keyboard-tci)
   - [Reading CW — the RX decoder](#reading-cw--the-rx-decoder)
-  - [Reading RTTY — the RX decoder](#reading-rtty--the-rx-decoder)
 - [Tuner (manual ATU memory)](#tuner-manual-atu-memory)
 - [Frequency calibration (WWV / time station)](#frequency-calibration-wwv--time-station)
 - [Profiles (TX/RX chain presets)](#profiles-txrx-chain-presets)
@@ -1003,14 +1014,8 @@ Quick band switching, in four rows:
   the first time). The active band lights the same way.
 - **Gen** — the GEN1/2/3 general-coverage slots (below).
 - **Xvtr** — four transverter chips (defaults **2m / 70cm / 23cm** plus a
-  spare). The VFO, panadapter, TCI, and memory stay in **RF**; Lyra
-  subtracts the slot LO (+ error) only when writing the radio NCO. Click
-  a chip to tune RX1 to that slot’s last RF. **Shift+click** parks **SUB**
-  on the slot. **Right-click** opens the slot editor (on/off, name, RF
-  low/high, LO, error Hz, Disable PA, RX-only). Disable PA defaults **on**
-  so the Hermes Lite onboard PA stays off while the transverter is in
-  circuit. Filter-board / USB-BCD / OC / PA-gain follow the **IF**, not
-  the displayed RF.
+  spare). Click a chip to tune RX1 to that slot’s last RF. Full detail:
+  [Xvtr (transverters)](#xvtr-transverters).
 
 **SUB hops (HL2 / BrickSDR2).** **Shift+click** or **right-click** a Ham / BC /
 11m chip to park **SUB** on that band (turns SUB on if it was off, keeps
@@ -1019,6 +1024,34 @@ band — independent of RX1. A SUB hop does **not** apply RX1's band
 memory (LNA, TX drive, panadapter range). **GEN / TIME / Mem** stay
 RX1-only (not SUB hops). **Xvtr** Shift+click is a SUB hop; right-click
 opens the slot editor.
+
+### Xvtr (transverters)
+
+Use the **Xvtr** row when an external transverter sits in front of the
+radio. Lyra shows **RF** on the VFO LED, panadapter, TCI, and memories.
+The radio NCO still runs at **IF** = RF − LO − error (Hz).
+
+**VFO LED.** Ten digits, **MMMM.kkk.hhh**, so 144 MHz / 432 MHz /
+1296 MHz fit. The old eight-digit ceiling (**55.999.999 Hz**) was the
+display cap, not the slot editor. ~2.147 GHz is the signed-int ceiling
+(13 cm / 2.3 GHz is above that).
+
+**Slot editor (right-click a chip).** On/off, name, **RF** low/high
+(MHz), LO (MHz), error (Hz), Disable PA, RX-only. Disable PA defaults
+**on** so the Hermes Lite onboard PA stays off with a transverter in
+circuit. Filter-board / USB-BCD / OC / PA-gain follow the **IF**, not
+the displayed RF.
+
+**IF window.** The HL2 ADC/NCO is HF (~DC–30.72 MHz). Example: RF
+144–146 MHz with LO 116 MHz → IF 28–30 MHz (inside). RF **148** MHz at
+the same LO → IF **32** MHz (outside that window). Tighten RF high or
+raise LO so IF stays in the radio’s native range.
+
+**Region.** **Settings → Hardware** band-plan region (US / IARU R1 /
+IARU R3 / none) does **not** rewrite Xvtr slots. Factory defaults are US-style
+(2 m 144–148). IARU R1 2 m is often 144–146 — type that in the editor.
+
+**SUB.** **Shift+click** an Xvtr chip parks **SUB** on that slot.
 
 **GEN1 / GEN2 / GEN3** (to the right of the band buttons) are
 **general-coverage slots** for listening outside the ham bands —
@@ -2491,44 +2524,6 @@ copy well on typical signals; reach for the rest only when copy is rough:
 > **Tip.** There's no AFC — tune the signal onto your CW pitch on the
 > panadapter and leave it there; **Tracking** handles fist and speed, and
 > **Bandwidth** gives you the tolerance for small drift.
-
-### Reading RTTY — the RX decoder
-
-Lyra has a built-in **Baudot RTTY** reader, same idea as the CW decoder:
-click the **RTTY** chip on the top toolbar for a floating panel. It copies
-**only in DIGU/DIGL** (use **DIGU** on all HF bands, including 40 and 80).
-Outside those modes the panel notes “switch to DIGU/DIGL to decode.”
-
-The engine is a receive-only port of **fldigi’s** RTTY chain (W1HKJ /
-DL1SMF / OH2BNS gmfsk): dual mark/space mixers, raised-cosine FFT LPF,
-Optimal ATC v3, start/data/stop FSM, US Baudot. There is **no TX
-processing** in this decoder — it only reads the tones already in the
-demod audio. FSK keying of the radio is not this path.
-
-> **Quick copy.** Contest defaults: **45.45 baud / 170 Hz shift / 2210 Hz
-> centre** (mark 2295 / space 2125).
->
-> 1. Mode **DIGU**, open **RTTY**, turn **Decoding** on.
-> 2. Tune so the two tones sit around **2210 Hz** in the passband.
-> 3. If letters come out as figures (or the other way around), tap
->    **Reverse**.
-> 4. Double-click a call in the text → **His Call** (same Combo row as CW).
-
-**Knobs.** **Baud** 45.45 / 50 / 75, **Shift** 170 / 425 / 850, **Centre**
-500–3000 Hz, **Reverse**. **SQL** is on by default (threshold **18** on
-fldigi’s **0–100** metric). The cyan **Signal** bar is that metric (mark +
-space vs noise); the amber tick is your threshold — raise it until noise
-stops printing, then drop it just under a real signal. Print is gated the
-same way as fldigi (valid stop bit **and** metric ≥ SQL). Turn SQL off only
-if you want every false start. Font and colour reuse the CW decoder display
-prefs.
-
-**SDRLogger+ Combo.** Grabs fill His Call / Name like CW. With Combo on, a
-macro `{LOG}` in DIGU/DIGL **while RTTY decoding is on** stamps the QSO
-mode as **RTTY**, not DIGU.
-
-TX AFSK (Lyra generating the tones) is a later step; this panel is RX copy
-only.
 
 ---
 
@@ -4240,7 +4235,7 @@ Over an ordinary TCI link it already drives Lyra and shows spots — but
 turning on **Combo** upgrades that one-way link into a two-way
 *collaboration* that runs over the **same TCI socket**: no bridge app, no
 second connection, no extra port. The CW Console, the CW Decoder and the
-logger — and the RTTY decoder — start acting as one desk.
+logger start acting as one desk.
 
 **Engage it** with a single switch:
 
@@ -4256,8 +4251,7 @@ logger — and the RTTY decoder — start acting as one desk.
 With Combo on, four things happen automatically as you work a station:
 
 - **Call → logger.** Put a call in Lyra's CW Console **His call** — type
-  it, or grab it from the [CW Decoder](#reading-cw--the-rx-decoder) or
-  [RTTY Decoder](#reading-rtty--the-rx-decoder) — and
+  it, or grab it from the [CW Decoder](#reading-cw--the-rx-decoder) — and
   it lands in SDRLogger+'s log entry and fires its callbook (QRZ / HamQTH)
   lookup. You copy the call once, in Lyra, and the logger catches up.
 - **Name → back to `{NAME}`.** After that lookup resolves, SDRLogger+
@@ -4277,8 +4271,7 @@ With Combo on, four things happen automatically as you work a station:
 - **One-click log with `{LOG}`.** Add the **`{LOG}`** action token to a CW
   macro — e.g. `TU 73 {MYCALL} ee {LOG}` — and sending that macro sends
   the sign-off *and* logs the QSO in SDRLogger+ (call, RST, mode and
-  frequency all stamped from the shared state). In **DIGU/DIGL** with the
-  RTTY decoder on, that log stamps mode **RTTY** rather than DIGU. A macro
+  frequency all stamped from the shared state). A macro
   that is **only**
   `{LOG}` is a log-only button that keys nothing. See
   [CW operating](#cw-operating-paddle-keyboard-tci) for how `{LOG}` sits in
