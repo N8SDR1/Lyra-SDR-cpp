@@ -4,6 +4,16 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-09-29 — v0.25.5 Sheliak (patch)
+
+- Version bump **0.25.4 → 0.25.5**. Star name stays **Sheliak**.
+- HID USB mouse-wheel encoder (Settings → Hardware → Navigation). FM 1750
+  Hz mixed into TX audio while keyed. Extra tune steps, 70 cm 7.6 MHz
+  offset, Region-1 1750 chip, RX EQ title.
+- USER_GUIDE / wiki / `docs/releases/v0.25.5.md`.
+- Installer `dist/Lyra-Setup-0.25.5.exe`. Tag `v0.25.5`. #14 stays open.
+  Do not merge `main`.
+
 ## 2026-09-29 — v0.25.4 Sheliak (patch)
 
 - Version bump **0.25.3 → 0.25.4**. Star name stays **Sheliak**.

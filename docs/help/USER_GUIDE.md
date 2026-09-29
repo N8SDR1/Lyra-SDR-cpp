@@ -20,6 +20,23 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.5
+
+- **USB encoder** — **Settings → Hardware → Navigation**: a HID mouse-wheel
+  knob (the usual 1-knob USB encoder) tunes the focused VFO by the Tuning
+  **Step**. Windows only. See
+  [Navigation (USB encoder / HID wheel)](#navigation-usb-encoder--hid-wheel).
+- **FM 1750 Hz burst** — hold MOX / PTT, tap **1750**: ~0.5 s of 1750 Hz is
+  mixed into FM TX audio. Chip is shown for **IARU Region 1** (Hardware
+  override for other regions). See [Tuning panel](#tuning-panel).
+- Extra VFO **Step** values **6.25 / 8.33 / 12.5 kHz**. FM **RPT** offset
+  can be typed in kHz; **7.6 MHz** preset for 70 cm (−7600 kHz typical).
+- RX EQ dock title no longer shows as TX EQ.
+- **MIDI** is **not** native. Run a **MIDI→TCI sidecar** from
+  [Settings → Apps](#settings--apps) (Browse to the `.exe`, point it at
+  Lyra's TCI port **40001**). See
+  [MIDI controllers (sidecar)](#midi-controllers-sidecar).
+
 ## What's new in 0.25.4
 
 - **Apps** — **Settings → Apps** plus the header **Apps** chip launch named
@@ -32,17 +49,6 @@ not programmers — if you can click a menu, you can use this.
   Save button). Repeater Offset / UL / DL / Burst columns as before.
 - Xvtr **out-of-band IF** clamp on the VFO was removed; keep IF inside the
   radio's native window yourself. Ten-digit RF from 0.25.3 still applies.
-
-## What's new since 0.25.4 (this tree)
-
-- **USB encoder** — **Settings → Hardware → Navigation**: a HID mouse-wheel
-  knob (the usual 1-knob USB encoder) tunes the focused VFO by the Tuning
-  **Step**. Windows only. See
-  [Navigation (USB encoder / HID wheel)](#navigation-usb-encoder--hid-wheel).
-- **MIDI** is **not** native. Run a **MIDI→TCI sidecar** from
-  [Settings → Apps](#settings--apps) (Browse to the `.exe`, point it at
-  Lyra's TCI port). See
-  [MIDI controllers (sidecar)](#midi-controllers-sidecar).
 
 ## What's new in 0.25.3
 
@@ -78,6 +84,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.5](#whats-new-in-0255)
 - [What's new in 0.25.4](#whats-new-in-0254)
 - [What's new in 0.25.3](#whats-new-in-0253)
 - [What's new in 0.25.2](#whats-new-in-0252)

@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.4 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.25.5 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
@@ -33,7 +33,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 
 ## Transmit (TX)
 
-- ✅ **SSB** (USB / LSB), **AM** (proper carrier + both sidebands), **SAM**, **DSB** (suppressed carrier), **FM** (deviation / pre-emphasis / CTCSS)
+- ✅ **SSB** (USB / LSB), **AM** (proper carrier + both sidebands), **SAM**, **DSB** (suppressed carrier), **FM** (deviation / pre-emphasis / CTCSS / Region-1 **1750 Hz** TX burst while keyed)
 - ✅ **CW** — internal iambic keyer (paddle / straight key), keyboard send, **CWX**, contest **macro bank** ({CALL}/{RST}/{NAME}…), QSK / semi / manual break-in, adjustable sidetone
 - ✅ **Digital** via **TCI** and **VAC1 / VAC2** — WSJT-X / MSHV / JTDX / FLDigi / VarAC, or a logger on a second cable. VAC **Enable** is RX; **Mic source = VAC1 or VAC2** is TX. VAC2 carries **RX2** (turn **SUB** on). TCI audio and VAC TX are mutually exclusive.
 - ✅ TX power / drive, separate **tune drive**, AM carrier level, mic gain + **20 dB mic boost**; Protocol 2 uses analog drive (HP [345]) plus per-band **PA Gain / Full Output / CAP**, including a dedicated **11m** slot
