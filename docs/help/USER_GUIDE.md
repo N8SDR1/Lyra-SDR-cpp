@@ -26,8 +26,9 @@ not programmers — if you can click a menu, you can use this.
   knob (the usual 1-knob USB encoder) tunes the focused VFO by the Tuning
   **Step**. Windows only. See
   [Navigation (USB encoder / HID wheel)](#navigation-usb-encoder--hid-wheel).
-- **FM 1750 Hz burst** — hold MOX / PTT, tap **1750**: ~0.5 s of 1750 Hz is
-  mixed into FM TX audio. Chip is shown for **IARU Region 1** (Hardware
+- **FM 1750 Hz burst** — hold MOX / PTT, tap **1750**. Default length is
+  **2 s** (was 0.5 s). Pick **0.5 / 2 / 3 / 4 s** under **Settings →
+  Hardware → Band plan**. Chip is shown for **IARU Region 1** (Hardware
   override for other regions). See [Tuning panel](#tuning-panel).
 - Extra VFO **Step** values **6.25 / 8.33 / 12.5 kHz**. FM **RPT** offset
   can be typed in kHz; **7.6 MHz** preset for 70 cm (−7600 kHz typical).
@@ -815,28 +816,30 @@ band, a pile-up offset). The action row beneath the VFOs has:
   on this copies full RX2 state; with SUB off it is frequency (VFO B
   shadow).
 
-**In FM**, the raw SPLIT button is replaced by a friendlier repeater
-front-end (FM repeaters are the common split case):
+**In FM**, **Dev / Emph / RPT / Offset / CTCSS / 1750** stay on the **same
+action row** as SPLIT / SUB / Mem (fields are compact so a second row is
+not needed):
 
-- **Dev** — FM deviation, right there in the row (same control as
-  Settings → TX → FM). Changing it auto-sizes the RX bandwidth to the
-  matching FM channel width (±2.5 kHz → 12 kHz, ±5 kHz → 16 kHz).
+- **Dev** — FM deviation (same control as Settings → TX → FM). Changing it
+  auto-sizes the RX bandwidth to the matching FM channel width
+  (±2.5 kHz → 12 kHz, ±5 kHz → 16 kHz).
 - **Emph** — FM pre-emphasis, **Comm** (6 dB/oct voice) / **Off** (flat,
   for data). Same control as Settings → TX → FM; leave it on Comm for voice.
 - **RPT** — the FM split toggle. Turn it on, then pick **Offset** direction
-  (**−** / **+**) and the shift in **kHz** (type any value, or pick a
-  preset: 100 kHz / 500 kHz / 600 kHz / 1 MHz / 5 MHz / **7.6 MHz**).
+  (**−** / **+**) and the shift in **one** field (type kHz / MHz, or pick
+  100 kHz / 500 kHz / 600 kHz / 1 MHz / 5 MHz / **7.6 MHz**).
   **70 cm** IARU Region 1 repeaters are typically **−7600 kHz**. Band
   defaults when you first arm RPT: 10 m 100 kHz, 2 m 600 kHz, 6 m 1 MHz,
   70 cm 7.6 MHz (all shift down). VFO B = VFO A ± offset, split armed.
   As you tune VFO A, VFO B **tracks** the offset (duplex). **CTCSS** is a
-  lit button → enable it and pick **UL** (TX encode). A **DL** combo
-  appears only when a memory used a different RX tone. Hold FM
+  lit button → enable it and pick **UL** (TX encode) and **DL** (RX recipe).
+  Either combo may be **—** (no tone). Hold FM
   **MOX / PTT**, then tap **1750**: a 1750 Hz tone is mixed into TX audio
-  for ~0.5 s (the chip lights for that window). Memory Burst=1750 stores
+  for the duration set in **Settings → Hardware → Band plan** (default
+  **2 s**; the chip lights for that window). Memory Burst=1750 stores
   the recipe. Shown by default only for **IARU Region 1**; Region 2/3 hide
-  it (CTCSS is the usual access). Toggle it under **Settings → Hardware →
-  Band plan → Show 1750 Hz tone burst**.
+  it (CTCSS is the usual access). Toggle visibility under **Settings →
+  Hardware → Band plan → Show 1750 Hz tone burst**.
 
 On the panadapter (centred on your RX, VFO A) the **RX** carrier is a
 solid orange line at centre and the **TX (VFO B)** freq is a solid
@@ -1154,9 +1157,11 @@ Show memory recall on the Tuning panel**.
   tone if different from UL), and **Burst** (`1750` for a 1750 Hz burst
   recipe). Store the **output** frequency in Freq, Mode = FM. Recall
   tunes the output, **arms SPLIT** to the input, and sets UL. **DL**
-  appears on Tuning only when it differs from UL (RX decode is stored,
-  not yet squelched). Blank Offset/UL = simplex (recall clears split +
-  tone). "Store current" captures offset, UL, DL, and Burst.
+  appears on Tuning whenever CTCSS is on (pick **—** if unused; RX decode is
+  stored, not yet squelched). Blank Offset/UL/DL = simplex (recall clears split +
+  tone). "Store current" captures offset, UL, DL, and Burst. The **Mem**
+  recall list and the Settings table both **scroll** when you have more
+  than a handful of presets.
 
 Pick the **mode** under the VFO (Tuning panel) and the **filter width**
 in the **Filters** panel.
@@ -3872,7 +3877,7 @@ only bite when you key FM. All persist across sessions.
 |---|---|---|
 | **Deviation** | 5.0 kHz | Peak FM deviation. The spin box flags the two standard presets — **5.0 kHz — Wide (US)** and **2.5 kHz — Narrow (US/EU)** — and reads plain `kHz` at any other value. Too much deviation splatters into adjacent channels; too little sounds weak and quiet. Changing it also re-sizes the RX filter and the TX occupied-width readout to match (see below). |
 | **Pre-emphasis** | Comm | The treble-boost curve applied before the modulator. **Comm** is the standard 6 dB/oct (300–3000 Hz) communications curve every FM rig and repeater expects — leave it here for **voice**. **Off** is flat (no boost) — use it for **FM data** (packet, 1200/9600 baud, VARA FM), where the treble tilt would distort the data tones, or for a deliberately flat/warm sound. (A true *Off* is a Lyra edge — most rigs force pre-emphasis on.) |
-| **CTCSS sub-tone** | Off | Transmit a sub-audible **UL** CTCSS tone to open a tone-protected FM repeater. On the Tuning dock, **CTCSS** is available in FM even without RPT. Enable it and pick **UL** (67.0–254.1 Hz). Leave it off for simplex. **DL** (a different RX tone) lives mainly in **Settings → Bands → Memory** and only shows on Tuning when DL ≠ UL. RX CTCSS decode is not wired yet. **1750** (Region 1 burst chip) is hidden unless **Settings → Hardware → Band plan → Show 1750 Hz tone burst** is on. |
+| **CTCSS sub-tone** | Off | Transmit a sub-audible **UL** CTCSS tone to open a tone-protected FM repeater. On the Tuning dock, **CTCSS** is available in FM even without RPT. Enable it and pick **UL** and **DL** (67.0–254.1 Hz, or **—** for none). Leave CTCSS off for simplex. RX CTCSS decode is not wired yet. **1750** (Region 1 burst chip) is hidden unless **Settings → Hardware → Band plan → Show 1750 Hz tone burst** is on; burst length is 0.5 / 2 / 3 / 4 s next to that checkbox (default 2 s). |
 
 > **Why pre-emphasis exists:** FM brings high audio frequencies out of the
 > receiver noisier than low ones. Every FM radio boosts the highs on
@@ -3888,11 +3893,12 @@ compressor / reverb into FM's pre-emphasis just over-drives into "mush", so
 FM audio is shaped only by its band-limit and the pre-emphasis curve above.
 Nothing to switch off by hand.
 
-**Quick access on the Tuning panel.** In FM the Tuning panel's front row
-mirrors these controls — a **Dev** spin box and an **Emph** (Comm / Off)
-chip sit right next to the **RPT** repeater button, two-way-synced with
-Settings → TX → FM. And **choosing a Deviation auto-sizes the RX bandwidth**
-to the matching FM channel width (±2.5 kHz → 12 kHz, ±5 kHz → 16 kHz); the
+**Quick access on the Tuning panel.** In FM the same action row as
+SPLIT / SUB / Mem / RIT shows **Dev**, **Emph** (Comm / Off), **RPT**, a
+single **Offset** field (preset or type kHz), **CTCSS** with **UL** /
+**DL** (either may be **—**), and **1750**.
+Choosing a Deviation auto-sizes the RX bandwidth to the matching FM
+channel width (±2.5 kHz → 12 kHz, ±5 kHz → 16 kHz); the
 TX bandwidth in FM is always shown as the auto-derived occupied width
 (`2 × (deviation + 3 kHz)`), so you never set a TX filter by hand in FM.
 You can still override the RX bandwidth in the Filters panel afterward.
