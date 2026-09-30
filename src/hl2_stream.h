@@ -1189,12 +1189,12 @@ public slots:
     // (atomic).  Ignores 48 k (EP2 cadence, like old Lyra).
     void setSampleRate(int hz);
 
-    // Enable/disable N2ADR / IO-board OC (filters + analog J3 band
-    // voltage via I2C 0x20).  When on, the per-band OC pattern is driven
-    // on frame-0 C2 and re-applied on every band change; when off, C2 OC
-    // pins are cleared (0).  Default ON (Thetis/Quisk-parity).  Persisted
-    // to QSettings (hw/filterBoard).  Thread-safe (atomic C2; readout on
-    // the main thread).
+    // Enable/disable N2ADR / IO-board (OC filters on I2C 0x20 + Pico
+    // analog via I2C 0x1D TX-Hz writes).  Protocol 1 / HL2 / HL2+ only.
+    // When on, per-band OC is driven on frame-0 C2 and the Pico gets
+    // TX RF Hz for stock n2adr_basic PWM on J4 pin 8.  When off, OC is
+    // cleared and Pico writes stop.  Default ON.  Persisted as
+    // hw/filterBoard.  Gateware analog on J3 is Band Volts, not this.
     void setFilterBoardEnabled(bool on);
 
     // ---- TX-state C&C registers (TX-0b foundation) -----------------
@@ -1877,6 +1877,10 @@ private:
     // on, else VFO A (rx1).  The SINGLE TX-freq writer for split paths so
     // PureSignal's feedback DDCs (which read tx[0].frequency) follow it.
     void pushEffectiveTxFreq();
+    // HL2 / HL2+ P1 only: enqueue five I2C writes to Pico 0x1D (TX RF Hz,
+    // BYTE0 last) when the N2ADR/IO-board checkbox is on.  Skipped on
+    // Protocol 2 (Brick / ANAN).  force=true resends after enable / P1 return.
+    void pushIoboardTxFreq(bool force = false);
     // Writes the RX DDC NCOs from rx1FreqHz_ + (ritEnabled ? ritOffsetHz : 0)
     // — the single RX-NCO writer, mirror of pushEffectiveTxFreq.  Called by
     // setRx1FreqHz (every dial gesture) and the RIT setters.
@@ -2191,6 +2195,8 @@ private:
     // Last TX band applyTxPower_ ran for — so a freq dial tick only
     // re-applies the power when the band (gbb) actually changed.
     std::atomic<int>     lastTxBand_{-2};
+    // Last Pico 0x1D TX-Hz enqueue (RF, not DDS).  ~0 = never sent / force.
+    std::atomic<quint64> lastIoboardTxHz_{~quint64{0}};
     std::atomic<int>     txStepAttnDb_{0};      // 0..31 dB; 0x1C C3 (31-db)
     std::atomic<int>     txMode_{1};            // 0=LSB 1=USB; mirror of the WDSP TXA mode, for the TUN DDS-offset sign (txDdsHzForTune)
     std::atomic<bool>    psUiDigital_{false};   // focused RX DIG/DRM/CW/FM lock-out

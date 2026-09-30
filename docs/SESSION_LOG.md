@@ -4,6 +4,14 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-09-30 — v0.25.6 Sheliak (patch)
+
+- Version bump **0.25.5 → 0.25.6**. Star name stays **Sheliak**.
+- HL2 / HL2+ N2ADR analog band-follow writes TX frequency so IO-board analog
+  voltage tracks the band. Closes GitHub **#14**.
+- USER_GUIDE / wiki / `docs/releases/v0.25.6.md`.
+- Installer `dist/Lyra-Setup-0.25.6.exe`. Tag `v0.25.6`. Do not merge `main`.
+
 ## 2026-09-29 — v0.25.5 Sheliak (patch)
 
 - Version bump **0.25.4 → 0.25.5**. Star name stays **Sheliak**.

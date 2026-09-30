@@ -159,15 +159,14 @@ Yes (current versions). Sending CW from the console **or** a paddle/key
 flips the meter to forward power and reds the VFO on‑air. The panadapter
 stays on RX during CW so you still see the keyed carrier.
 
-**No band voltage on IO-board J3 / Xiegu GP100 (M0AWS wiring).**
-There are **two analog paths**. **J3** is gateware **Band Volts** on the
-fan PWM pin (DeskHPSDR *HL2 Band Volts / Dither Bit*, MI0BOT Thetis
-*HL2 Band Volts*). Tick **HL2 Band Volts on J3**, gateware **≥72p5**,
-**Stop then Start**. The **N2ADR / IO board** box is OC → Pico PWM, usually
-**J4 pin 8**, not J3. M0AWS DB9 BAND often follows the Pico analog, so
-enable the N2ADR box and confirm the jumper is the pin your amp actually
-reads. From **v0.24.3** a persisted J3 tick is pushed on every Open
-(previously it could stay off the wire until you flipped the box).
+**No analog band voltage for GP100 / GPA100 / M0AWS DB9.**
+Stock Pico PWM is **J4 pin 8**, not J3. Tick **Enable N2ADR / IO board**
+(Filters / BCD; default on) and **Start** the radio. Lyra writes TX Hz
+over I2C **0x1D** — same as Thetis/Quisk/SparkSDR; there is **no extra
+I2C/PWM checkbox**. OC bits (I2C **0x20**) only switch the LPF. **Leave
+HL2 Band Volts on J3 off** unless the amp is actually jumpered to the
+**fan header**. 0 V on J3 with that box off is expected when J3 is GND.
+Protocol 2 Brick/ANAN do not use the Pico 0x1D path.
 
 **I'm running an amplifier — anything to set first?**
 Yes — configure **TR‑sequencing** and the **RF‑delay / ATT‑on‑TX**

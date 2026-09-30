@@ -4542,15 +4542,15 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
             tr("Enable N2ADR / IO board (filters + Pico analog, not J3)"));
         fb->setChecked(stream_->filterBoardEnabled());
         fb->setToolTip(tr(
+            "HL2 / HL2+ only. Protocol 2 (Brick SDR, ANAN) ignores Pico analog.\n\n"
             "DeskHPSDR: HL2 filter_board = N2ADR, OC on every frame.\n"
-            "Thetis/Quisk send the same OC bits with no extra checkbox.\n\n"
-            "Drives J16 open-collectors. Gateware relays them over I2C "
-            "(addr 0x20) for N2ADR LPFs. A Pico (M0AWS / KP4RX) can turn "
-            "those bits into analog PWM — stock N2ADR firmware is J4 pin 8, "
-            "not J3.\n\n"
+            "Thetis/Quisk send OC (filters) plus I2C TX frequency to the Pico.\n\n"
+            "J16 open-collectors: gateware I2C 0x20 = N2ADR LPF relays.\n"
+            "Stock n2adr_basic analog on J4 pin 8: host I2C 0x1D TX Hz "
+            "(not OC bits, not J3).\n\n"
             "IO-board J3 is the fan-PWM header. Analog on J3 uses the Band "
             "Volts checkbox below (DeskHPSDR dither / MI0BOT HL2 Band Volts).\n\n"
-            "Off = OC pins idle (harmless with no board)."));
+            "Off = OC idle and Pico analog not updated (harmless with no board)."));
         connect(fb, &QCheckBox::toggled, stream_,
                 &lyra::ipc::HL2Stream::setFilterBoardEnabled);
         connect(stream_, &lyra::ipc::HL2Stream::filterBoardChanged, fb,
@@ -4696,16 +4696,17 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         // block; stock ak4951 without fan leaves the pin low.
         {
             auto *bvBox = section(
-                tr("IO-board J3 analog (fan PWM / Band Volts)"));
+                tr("J3 fan header only — not Pico / J4 analog"));
             auto *bvv = new QVBoxLayout(bvBox);
 
             auto *note = new QLabel(tr(
-                "If your amp/tuner takes analog band voltage from IO-board "
-                "J3 (the fan header), use this checkbox — same wire bit as "
-                "DeskHPSDR’s “HL2 Band Volts / Dither Bit” and MI0BOT "
-                "Thetis “HL2 Band Volts”. Leave it off if J3 is a cooling "
-                "fan. N2ADR filters still use the OC enable above; stock "
-                "Pico analog PWM is J4 pin 8."));
+                "Leave this off for a stock N2ADR Pico, M0AWS DB9, or "
+                "GP100/GPA100 on J4 pin 8. That analog is the N2ADR "
+                "checkbox above (I2C 0x1D TX Hz) — same as Thetis/Quisk, "
+                "no extra box.\n\n"
+                "Tick this only if the amp is jumpered to IO-board J3 "
+                "(GPIO04_Fan). Then J3 becomes gateware Band Volts instead "
+                "of a cooling fan (DeskHPSDR / MI0BOT “HL2 Band Volts”)."));
             note->setWordWrap(true);
             note->setStyleSheet(QStringLiteral("color:#e0b060;"));  // amber caution
             bvv->addWidget(note);

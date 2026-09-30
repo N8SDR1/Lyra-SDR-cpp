@@ -1387,6 +1387,8 @@ void HL2Stream::open(const QString &ip) {
             txFreqHz_.load(std::memory_order_relaxed));
         lyra::wire::set_tx_freq(            // TX NCO + DDC2/3 mirror (case 1/5/6)
             ddsHzForRf(static_cast<quint32>(txRfTune < 0 ? 0 : txRfTune)));
+        lastIoboardTxHz_.store(~quint64{0}, std::memory_order_relaxed);
+        pushIoboardTxFreq(true);
         lyra::wire::set_rx_step_attn_db(    // LNA gain (case 11 !XmitBit)
             std::clamp(lnaGainDb_.load(std::memory_order_relaxed),
                        kLnaMinDb, kLnaMaxDb) + 12, 0);   // HPSDR P1 +12 bias
@@ -2042,6 +2044,7 @@ void HL2Stream::pushEffectiveTxFreq() {
     // The TX-analyzer crop offset (NCO − RX centre) changed — refresh the
     // panadapter so the TX signal paints at the new VFO-B position.
     emit txAnalyzerOffsetChanged(txAnalyzerOffsetHz());
+    pushIoboardTxFreq();
 }
 
 // #174 CTUNE — sign of the WDSP RX demod shift.  CONFIRMED +1 correct by the
@@ -2388,6 +2391,7 @@ void HL2Stream::setTxFreqHz(quint32 hz) {
             // lands on the marker like every other TX NCO push.
             lyra::wire::set_tx_freq(ddsHzForRf(static_cast<quint32>(
                 std::max(0, txDdsHzForTune(hz)))));
+        pushIoboardTxFreq();
         emit logLine(QStringLiteral("TX freq -> %1 Hz (%2 MHz)")
                      .arg(hz).arg(hz / 1.0e6, 0, 'f', 6));
     }
@@ -2712,8 +2716,24 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
 }
 
 void HL2Stream::setP2DrivePath(bool on) {
-    p2DrivePath_.store(on, std::memory_order_relaxed);
+    const bool was = p2DrivePath_.exchange(on, std::memory_order_relaxed);
     applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+    if (was && !on) {
+        lastIoboardTxHz_.store(~quint64{0}, std::memory_order_relaxed);
+        pushIoboardTxFreq(true);
+    }
+}
+
+void HL2Stream::pushIoboardTxFreq(bool force) {
+    if (p2DrivePath_.load(std::memory_order_relaxed))
+        return;
+    if (!filterBoardEnabled_)
+        return;
+    const quint64 hz = txFreqHz_.load(std::memory_order_relaxed);
+    if (!force && hz == lastIoboardTxHz_.load(std::memory_order_relaxed))
+        return;
+    if (lyra::wire::enqueue_hl2_ioboard_tx_freq(hz))
+        lastIoboardTxHz_.store(hz, std::memory_order_relaxed);
 }
 
 double HL2Stream::paGainForBand(int idx) const {
@@ -5402,6 +5422,10 @@ void HL2Stream::setFilterBoardEnabled(bool on) {
     oc_.setEnabled(on);
     QSettings().setValue(QStringLiteral("hw/filterBoard"), on);
     updateOcPattern();
+    if (on) {
+        lastIoboardTxHz_.store(~quint64{0}, std::memory_order_relaxed);
+        pushIoboardTxFreq(true);
+    }
     noteSubFrontEnd();
     emit filterBoardChanged(on);
     emit logLine(QStringLiteral("Filter board %1")

@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.5 Sheliak** — HID USB encoder VFO; FM 1750 Hz TX mix; extra tune steps and 70 cm offset. Apps launcher from 0.25.4.
+**v0.25.6 Sheliak** — HL2 analog band-follow for N2ADR/IO board tracks TX frequency. HID USB encoder and FM 1750 from 0.25.5.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 

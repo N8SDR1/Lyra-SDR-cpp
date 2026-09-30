@@ -18,7 +18,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.25.5
+    VERSION 0.25.6
     DESCRIPTION "Lyra Sheliak — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
@@ -896,6 +896,16 @@ target_include_directories(test_oc_control PRIVATE src)
 target_link_libraries(test_oc_control PRIVATE Qt6::Core)
 if(MSVC)
     target_compile_options(test_oc_control PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# HL2IOBoard Pico TX-Hz pack (I2C 0x1D BYTE4..BYTE0).  EXCLUDE_FROM_ALL.
+add_executable(test_hl2_ioboard_i2c EXCLUDE_FROM_ALL
+    scratch/test_hl2_ioboard_i2c.cpp
+)
+target_link_libraries(test_hl2_ioboard_i2c PRIVATE Qt6::Core)
+set_target_properties(test_hl2_ioboard_i2c PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+if(MSVC)
+    target_compile_options(test_hl2_ioboard_i2c PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # Transverter RF→IF math (header-only).  EXCLUDE_FROM_ALL; no HL2Stream.

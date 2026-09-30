@@ -20,6 +20,14 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.6
+
+- **HL2 analog band-follow** — with **Enable N2ADR / IO board** on (the
+  default), stock IO-board analog voltage now tracks **TX frequency** the
+  same way Thetis / Quisk / SparkSDR do. Start the radio after enabling it.
+  Protocol 2 Brick/ANAN is unchanged. See
+  [Settings → Filters / BCD](#settings--filters--bcd).
+
 ## What's new in 0.25.5
 
 - **USB encoder** — **Settings → Hardware → Navigation**: a HID mouse-wheel
@@ -85,6 +93,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.6](#whats-new-in-0256)
 - [What's new in 0.25.5](#whats-new-in-0255)
 - [What's new in 0.25.4](#whats-new-in-0254)
 - [What's new in 0.25.3](#whats-new-in-0253)
@@ -3451,13 +3460,15 @@ To make a report actionable, please include:
 ## Settings → Filters / BCD
 
 Everything that makes an **external band-following accessory follow your
-tuning** lives here. There are **two analog-voltage paths** on an HL2
-with an N2ADR / IO board — they are not the same pin:
+tuning** lives here. On an **HL2 / HL2+** there are **two analog-voltage
+paths** plus OC filters — they are not the same pin. Protocol 2 radios
+(Brick SDR, ANAN) do not use the Pico I2C analog path.
 
 | Path | Pin | How Lyra turns it on | Same as |
 |------|-----|----------------------|---------|
 | Gateware Band Volts | **J3** (fan PWM / GPIO04_Fan) | **HL2 Band Volts on J3** checkbox | DeskHPSDR RX → *HL2 Band Volts / Dither Bit*; MI0BOT Thetis *HL2 Band Volts* |
-| OC → I2C → Pico PWM | stock firmware **J4 pin 8** | **Enable N2ADR / IO board** (default on) | DeskHPSDR `filter_board = N2ADR`; Thetis/Quisk OC with no extra box |
+| Pico analog (stock `n2adr_basic`) | **J4 pin 8** | **Enable N2ADR / IO board** (default on) — Lyra writes TX Hz over I2C **0x1D** | Thetis / Quisk / SparkSDR (same Pico TX-freq writes; OC is filters only) |
+| N2ADR LPF relays | J16 → I2C **0x20** | same checkbox | DeskHPSDR `filter_board = N2ADR` |
 
 USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no board.
 
@@ -3467,13 +3478,14 @@ The HL2's **J16 open-collector (OC) pins** drive an external band-pass
 filter board (N2ADR or compatible) so its filters follow the band
 you're on — front-end protection against strong out-of-band signals (a
 nearby AM broadcaster, say). Gateware relays those bits over I2C
-(addr 0x20). Pico firmware can PWM analog from the same bits; **stock
-N2ADR analog is J4 pin 8**, not J3.
+(addr **0x20**). Stock Jim Ahlstrom Pico firmware (`n2adr_basic`) PWM
+on **J4 pin 8** follows **TX frequency** written over I2C **0x1D** — not
+the OC bits. Analog on **J3** is the separate Band Volts checkbox.
 
 - **Enable N2ADR / IO board (filters + Pico analog, not J3)** —
-  turns OC band-switching on (default, matching DeskHPSDR). Off = the
-  OC pins drive nothing (harmless with no board). Analog on **J3** is
-  the Band Volts checkbox further down.
+  turns OC band-switching on **and** Pico TX-Hz writes (HL2 / HL2+ only;
+  default on). Off = OC idle and no Pico analog updates. Harmless with
+  no board. **J3** analog is Band Volts, further down.
 - **Live pins** (top-right) — the seven cells light to show which J16
   pins are being driven **right now**, on the wire. They follow the band
   as you tune and flip to the transmit pattern while you're keyed.
@@ -3531,12 +3543,15 @@ option to borrow the adjacent band's filter:
 (If the FTDI driver, `ftd2xx.dll`, isn't installed, this section says so
 instead — install the FTDI D2XX driver to use USB-BCD.)
 
-### Band Volts on J3 (fan PWM)
+### Band Volts on J3 (fan PWM) — leave off for Pico / J4
 
-If your amp or tuner (Xiegu GP100, HardRock-50 in analog-voltage mode,
-etc.) is jumpered to **IO-board J3**, that header is the fan PWM, not
-the Pico analog output. Tick **HL2 Band Volts on J3 / fan-PWM pin
-(dither bit)**. That is Protocol-1 C0=0x00 C3 bit 3 — the same bit
+**Do not tick this** for stock Pico analog, M0AWS DB9 BAND, or a
+GP100/GPA100 on **J4 pin 8**. That path is **Enable N2ADR / IO board**
+(I2C **0x1D**) — no extra Hardware box, matching Thetis/Quisk.
+
+Use this checkbox **only** if the amp is jumpered to **IO-board J3**
+(the fan header / GPIO04_Fan). Tick **HL2 Band Volts on J3 / fan-PWM
+pin (dither bit)**. That is Protocol-1 C0=0x00 C3 bit 3 — the same bit
 DeskHPSDR and MI0BOT Thetis use. Off (default) leaves J3 as a cooling
 fan.
 
