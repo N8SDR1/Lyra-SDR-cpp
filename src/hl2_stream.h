@@ -618,6 +618,8 @@ class HL2Stream : public QObject {
                WRITE setCtcssDlHz     NOTIFY ctcssDlHzChanged)
     Q_PROPERTY(int    fmBurstHz     READ fmBurstHz
                WRITE setFmBurstHz     NOTIFY fmBurstHzChanged)
+    Q_PROPERTY(int    fmBurstMs     READ fmBurstMs
+               WRITE setFmBurstMs     NOTIFY fmBurstMsChanged)
     Q_PROPERTY(bool   fmBurstActive READ fmBurstActive
                NOTIFY fmBurstActiveChanged)
     // FM pre-emphasis selector: 0 = Off (flat — true bypass, for digital/data
@@ -1108,6 +1110,7 @@ public:
     double  ctcssToneHz()           const { return ctcssToneHz_;           }
     double  ctcssDlHz()             const { return ctcssDlHz_;             }
     int     fmBurstHz()             const { return fmBurstHz_;             }
+    int     fmBurstMs()             const { return fmBurstMs_;             }
     bool    fmBurstActive()         const { return fmBurstActive_;         }
     int     fmEmphasisMode()        const { return fmEmphasisMode_;        }
 
@@ -1529,7 +1532,8 @@ public slots:
     void setCtcssToneHz(double hz);     // snapped to the standard tone table
     void setCtcssDlHz(double hz);       // 0 = same as UL / unused (no RX TSQ yet)
     void setFmBurstHz(int hz);          // 0 or 1750 — memory recipe only
-    Q_INVOKABLE void fireFmBurst();     // ~500 ms 1750 Hz chip (FM TX mic mix)
+    void setFmBurstMs(int ms);          // 500 / 2000 / 3000 / 4000
+    Q_INVOKABLE void fireFmBurst();     // 1750 Hz chip (FM TX mic mix)
     // CMaster TX pump: mix a 1750 Hz sine into pcm->in after the mic rack.
     static void mixFm1750Tx(int nsamples, double* buff);
     void setFmEmphasisMode(int mode);   // 0=Off, 1=Comm; forward via TxControl
@@ -1751,6 +1755,7 @@ signals:
     void ctcssToneHzChanged(double hz);     // #107
     void ctcssDlHzChanged(double hz);
     void fmBurstHzChanged(int hz);
+    void fmBurstMsChanged(int ms);
     void fmBurstActiveChanged();
     // Fires once when the safety timeout actually expires and the FSM
     // auto-clears MOX.  Useful for a status-bar toast / log highlight;
@@ -2648,6 +2653,7 @@ private:
     double ctcssToneHz_           = kDefaultCtcssToneHz;
     double ctcssDlHz_             = 0.0;   // 0 = linked to UL / unused
     int    fmBurstHz_             = 0;     // 0 or 1750
+    int    fmBurstMs_             = 2000;  // 0.5 / 2 / 3 / 4 s
     bool   fmBurstActive_         = false;
     QTimer fmBurstTimer_;
     int    fmEmphasisMode_        = 1;   // 0=Off, 1=Comm (voice default)

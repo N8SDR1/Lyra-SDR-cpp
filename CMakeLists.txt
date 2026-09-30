@@ -549,6 +549,7 @@ qt_add_qml_module(lyra
         src/qml/ProfilePanel.qml
         src/qml/DisplayPanel.qml
         src/qml/BandPanel.qml
+        src/qml/MemoryRecallPopup.qml
         src/qml/ModeFilterPanel.qml
         src/qml/MeterPanel.qml
         src/qml/TunerPanel.qml

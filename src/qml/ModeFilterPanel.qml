@@ -18,7 +18,7 @@ import QtQuick.Layouts
 Rectangle {
     id: root
     implicitHeight: 50
-    implicitWidth: 580
+    implicitWidth: 500
     color: "#101820"
     border.color: "#2a4a5a"
 
@@ -136,7 +136,10 @@ Rectangle {
         Label { text: qsTr("Rate"); color: "#cccccc"; font.bold: true }
         LyraComboBox {
             id: rateCombo
-            Layout.preferredWidth: 76
+            Layout.preferredWidth: 64
+            font.pixelSize: 12
+            textLeftPad: 4
+            textRightPad: 14
             model: ["96 k", "192 k", "384 k"]
             currentIndex: root.rateIndex(Prefs.sampleRate)
             onActivated: root.applyRate(root.rateVals[currentIndex])
@@ -155,7 +158,10 @@ Rectangle {
         }
         LyraComboBox {
             id: bwCombo
-            Layout.preferredWidth: 120
+            Layout.preferredWidth: 92
+            font.pixelSize: 12
+            textLeftPad: 4
+            textRightPad: 14
             model: root.bwModel(root.rxMode, root.rxBw)
             currentIndex: root.bwCurrentIndex(root.rxMode, root.rxBw)
             onActivated: {
@@ -194,7 +200,10 @@ Rectangle {
         }
         LyraComboBox {
             id: txBwCombo
-            Layout.preferredWidth: 120
+            Layout.preferredWidth: 92
+            font.pixelSize: 12
+            textLeftPad: 4
+            textRightPad: 14
             enabled: !root.isFm           // FM TX width is auto (deviation-derived)
             // In FM, show the auto-derived occupied channel (Carson:
             // 2·(deviation + 3 kHz audio)) instead of an editable preset —

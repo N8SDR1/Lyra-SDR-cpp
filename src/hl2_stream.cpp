@@ -52,6 +52,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 
@@ -632,9 +633,11 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
                           kDefaultFmDeviationHz).toDouble(), 1000.0, 6000.0);
     ctcssEnabled_  = QSettings().value(QStringLiteral("tx/ctcssEnabled"),
                                        false).toBool();
-    ctcssToneHz_   = snapCtcssTone(
-        QSettings().value(QStringLiteral("tx/ctcssToneHz"),
-                          kDefaultCtcssToneHz).toDouble());
+    {
+        const double t = QSettings().value(QStringLiteral("tx/ctcssToneHz"),
+                                           kDefaultCtcssToneHz).toDouble();
+        ctcssToneHz_ = (t > 0.5) ? snapCtcssTone(t) : 0.0;
+    }
     {
         const double dl = QSettings().value(QStringLiteral("tx/ctcssDlHz"), 0.0)
                               .toDouble();
@@ -644,6 +647,15 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
                   == 1750)
                      ? 1750
                      : 0;
+    {
+        const int raw = QSettings().value(QStringLiteral("tx/fmBurstMs"), 2000)
+                            .toInt();
+        constexpr int kMs[] = {500, 2000, 3000, 4000};
+        int best = kMs[0];
+        for (int v : kMs)
+            if (std::abs(v - raw) < std::abs(best - raw)) best = v;
+        fmBurstMs_ = best;
+    }
     fmBurstTimer_.setSingleShot(true);
     connect(&fmBurstTimer_, &QTimer::timeout, this, [this]() {
         g_fmBurstMix.store(0, std::memory_order_release);
@@ -4258,7 +4270,7 @@ void HL2Stream::setPhrotEnabled(bool on) {
 // setTxMode edge, and channel open (registerTxControl).
 void HL2Stream::applyCtcssRun() {
     const bool fm  = (txMode_.load(std::memory_order_relaxed) == 5);
-    const bool run = ctcssEnabled_ && fm;
+    const bool run = ctcssEnabled_ && fm && ctcssToneHz_ > 0.5;
     std::function<void(bool)> fwd;
     {
         std::lock_guard<std::mutex> lk(txControlMtx_);
@@ -4313,17 +4325,20 @@ void HL2Stream::setCtcssEnabled(bool on) {
 // #107 — CTCSS sub-tone frequency (snapped to the standard table).  Persists
 // + emits + forwards the tone to the WDSP TXA fmmod stage.
 void HL2Stream::setCtcssToneHz(double hz) {
-    const double v = snapCtcssTone(hz);
+    const double v = (hz > 0.5) ? snapCtcssTone(hz) : 0.0;
     if (v == ctcssToneHz_) return;
     ctcssToneHz_ = v;
     QSettings().setValue(QStringLiteral("tx/ctcssToneHz"), v);
     emit ctcssToneHzChanged(v);
-    std::function<void(double)> fwd;
-    {
-        std::lock_guard<std::mutex> lk(txControlMtx_);
-        fwd = txControl_.setCtcssFreq;
+    if (v > 0.5) {
+        std::function<void(double)> fwd;
+        {
+            std::lock_guard<std::mutex> lk(txControlMtx_);
+            fwd = txControl_.setCtcssFreq;
+        }
+        if (fwd) fwd(v);
     }
-    if (fwd) fwd(v);
+    applyCtcssRun();
 }
 
 void HL2Stream::setCtcssDlHz(double hz) {
@@ -4340,6 +4355,17 @@ void HL2Stream::setFmBurstHz(int hz) {
     fmBurstHz_ = v;
     QSettings().setValue(QStringLiteral("tx/fmBurstHz"), v);
     emit fmBurstHzChanged(v);
+}
+
+void HL2Stream::setFmBurstMs(int ms) {
+    constexpr int kMs[] = {500, 2000, 3000, 4000};
+    int v = kMs[0];
+    for (int x : kMs)
+        if (std::abs(x - ms) < std::abs(v - ms)) v = x;
+    if (v == fmBurstMs_) return;
+    fmBurstMs_ = v;
+    QSettings().setValue(QStringLiteral("tx/fmBurstMs"), v);
+    emit fmBurstMsChanged(v);
 }
 
 void HL2Stream::mixFm1750Tx(int nsamples, double* buff) {
@@ -4369,7 +4395,7 @@ void HL2Stream::fireFmBurst() {
     g_fmBurstMix.store(1, std::memory_order_release);
     fmBurstActive_ = true;
     emit fmBurstActiveChanged();
-    fmBurstTimer_.start(500);
+    fmBurstTimer_.start(fmBurstMs_);
 }
 
 // §15.31 — ATT-on-TX enable.  Persists + emits; if currently keyed,

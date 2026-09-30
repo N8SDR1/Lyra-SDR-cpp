@@ -414,25 +414,11 @@ Rectangle {
                 text: qsTr("Mem")
                 Layout.preferredWidth: 50
                 chipActive: false
-                onClicked: memRecallMenu.popup()
-                Menu {
-                    id: memRecallMenu
-                    Repeater {
-                        model: root.memList
-                        delegate: MenuItem {
-                            required property var modelData
-                            required property int index
-                            text: (modelData.name.length > 0
-                                   ? modelData.name : modelData.freqMHz)
-                                  + "   " + modelData.freqMHz + " " + modelData.mode
-                            onTriggered: { Gen.deactivate(); Memory.recall(index) }
-                        }
-                    }
-                    MenuItem {
-                        text: qsTr("(no presets — right-click to save)")
-                        enabled: false
-                        visible: root.memList.length === 0
-                    }
+                onClicked: memRecallPopup.open()
+                MemoryRecallPopup {
+                    id: memRecallPopup
+                    memories: root.memList
+                    onRecalled: function(index) { Gen.deactivate(); Memory.recall(index) }
                 }
                 MouseArea {
                     anchors.fill: parent

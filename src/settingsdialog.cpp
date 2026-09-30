@@ -1184,6 +1184,10 @@ QWidget *SettingsDialog::buildBandsTab() {
     table->setAlternatingRowColors(true);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    table->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    table->setMinimumHeight(220);
+    table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     // First click opens the cell (not double-click). Spreadsheet-style so
     // the list does not look read-only.
     table->setEditTriggers(QAbstractItemView::AllEditTriggers);
@@ -1267,7 +1271,7 @@ QWidget *SettingsDialog::buildBandsTab() {
         }
         *refreshing = false;
     });
-    v->addWidget(table);
+    v->addWidget(table, 1);
 
     auto *btnRow = new QHBoxLayout;
     auto *addBtn = new QPushButton(tr("Store current"), mem);
@@ -1341,8 +1345,8 @@ QWidget *SettingsDialog::buildBandsTab() {
            "set Offset (TX shift in kHz, e.g. −100 for 10 m, −1000 = −1 MHz "
            "for 6 m, −7600 for 70 cm), UL (TX CTCSS Hz), optional DL (RX tone if different "
            "from UL), and Burst (1750 for a 1750 Hz tone-burst recipe). "
-           "Recall arms SPLIT + UL; DL shows on Tuning only when it differs "
-           "from UL. Blank Offset/UL = simplex. Up to %1 presets.")
+           "Recall arms SPLIT + UL. Blank Offset/UL/DL = none (simplex / no "
+           "tone). Up to %1 presets. Scroll the table if more rows are stored.")
             .arg(MemoryStore::kMax), mem);
     hint->setWordWrap(true);
     hint->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
@@ -2644,7 +2648,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             "1750 Hz burst instead of CTCSS.  Region 2 (US) and Region 3 "
             "almost always use CTCSS, so this chip stays hidden unless you "
             "check here.  With no saved choice it follows Region 1 only.  "
-            "The burst is a ~0.5 s 1750 Hz tone on FM TX audio while keyed."));
+            "Burst length is set next to this checkbox (0.5 / 2 / 3 / 4 s)."));
         connect(burst1750Ck, &QCheckBox::clicked, grp, [this](bool on) {
             prefs_->setFmShow1750Burst(on);
         });
@@ -2653,7 +2657,34 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (burst1750Ck->isChecked() != prefs_->fmShow1750Burst())
                 burst1750Ck->setChecked(prefs_->fmShow1750Burst());
         });
-        g->addWidget(burst1750Ck, 2, 0, 1, 2);
+        g->addWidget(burst1750Ck, 2, 0, 1, 1);
+
+        auto *burstMsCombo = new QComboBox(grp);
+        burstMsCombo->addItem(tr("0.5 s"), 500);
+        burstMsCombo->addItem(tr("2 s"), 2000);
+        burstMsCombo->addItem(tr("3 s"), 3000);
+        burstMsCombo->addItem(tr("4 s"), 4000);
+        burstMsCombo->setToolTip(tr(
+            "How long the Tuning 1750 chip mixes 1750 Hz into FM TX audio. "
+            "Default 2 s. Hold MOX / PTT, then tap 1750."));
+        if (stream_) {
+            const int i = burstMsCombo->findData(stream_->fmBurstMs());
+            burstMsCombo->setCurrentIndex(i >= 0 ? i : 1);
+        }
+        connect(burstMsCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+                grp, [this, burstMsCombo](int) {
+            if (stream_)
+                stream_->setFmBurstMs(burstMsCombo->currentData().toInt());
+        });
+        if (stream_) {
+            connect(stream_, &lyra::ipc::HL2Stream::fmBurstMsChanged,
+                    burstMsCombo, [burstMsCombo](int ms) {
+                const int i = burstMsCombo->findData(ms);
+                if (i >= 0 && burstMsCombo->currentIndex() != i)
+                    burstMsCombo->setCurrentIndex(i);
+            });
+        }
+        g->addWidget(burstMsCombo, 2, 1);
 
         // Overlay-layer toggles (the panadapter top strip).  Each mirrors
         // a Prefs bool; Region = None hides everything regardless.
@@ -7651,15 +7682,20 @@ QWidget *SettingsDialog::buildTxTab() {
             131.8, 136.5, 141.3, 146.2, 151.4, 156.7, 159.8, 162.2, 165.5, 167.9,
             171.3, 173.8, 177.3, 179.9, 183.5, 186.2, 189.9, 192.8, 196.6, 199.5,
             203.5, 206.5, 210.7, 218.1, 225.7, 229.1, 233.6, 241.8, 250.3, 254.1};
+        toneCombo->addItem(tr("— (none)"), 0.0);
         for (double t : kCtcss)
             toneCombo->addItem(QStringLiteral("%1 Hz").arg(t, 0, 'f', 1),
                                QVariant(t));
-        toneCombo->setToolTip(tr("Standard CTCSS sub-audible tone (Hz)."));
+        toneCombo->setToolTip(tr(
+            "Uplink CTCSS (TX encode). Empty = no encode (simplex / DL-only)."));
         const double curTone = stream_->ctcssToneHz();
-        for (int i = 0; i < toneCombo->count(); ++i)
-            if (toneCombo->itemData(i).toDouble() == curTone) {
-                toneCombo->setCurrentIndex(i); break;
-            }
+        if (curTone <= 0.5)
+            toneCombo->setCurrentIndex(0);
+        else
+            for (int i = 0; i < toneCombo->count(); ++i)
+                if (toneCombo->itemData(i).toDouble() == curTone) {
+                    toneCombo->setCurrentIndex(i); break;
+                }
         connect(toneCombo, qOverload<int>(&QComboBox::currentIndexChanged),
                 this, [this, toneCombo](int) {
                     if (stream_) stream_->setCtcssToneHz(
@@ -7667,6 +7703,11 @@ QWidget *SettingsDialog::buildTxTab() {
                 });
         connect(stream_, &lyra::ipc::HL2Stream::ctcssToneHzChanged, toneCombo,
                 [toneCombo](double hz) {
+                    if (hz <= 0.5) {
+                        if (toneCombo->currentIndex() != 0)
+                            toneCombo->setCurrentIndex(0);
+                        return;
+                    }
                     for (int i = 0; i < toneCombo->count(); ++i)
                         if (toneCombo->itemData(i).toDouble() == hz) {
                             if (toneCombo->currentIndex() != i)

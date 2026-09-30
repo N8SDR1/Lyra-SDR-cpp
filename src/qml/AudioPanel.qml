@@ -113,7 +113,7 @@ Rectangle {
                 // overload dot it replaces, which pushed the Out button off
                 // the right edge of row 1.  Trimmed here and on Vol rather
                 // than shrinking the readouts.
-                Layout.preferredWidth: 100
+                Layout.preferredWidth: 90
                 from: FrontEnd.minimum; to: FrontEnd.maximum
                 stepSize: 1; snapMode: Slider.SnapAlways
                 value: FrontEnd.value
@@ -237,7 +237,7 @@ Rectangle {
             Label { text: qsTr("AF"); color: root.cMuted }
             LyraSlider {
                 id: afSlider
-                Layout.preferredWidth: 84
+                Layout.preferredWidth: 76
                 from: 0; to: 40; stepSize: 1; snapMode: Slider.SnapAlways
                 value: WdspEngine.afGainDb
                 onMoved: WdspEngine.setAfGainDb(value)
@@ -256,7 +256,7 @@ Rectangle {
             LyraSlider {
                 id: volSlider
                 // Shorten when Vol2 is on the row so MUTE/Bal still fit.
-                Layout.preferredWidth: 78
+                Layout.preferredWidth: 70
                 from: 0.0; to: 1.0
                 value: WdspEngine.volume
                 onMoved: WdspEngine.setVolume(value)
@@ -289,7 +289,7 @@ Rectangle {
                 text: qsTr("Vol2"); color: root.cMuted
             }
             LyraSlider {
-                Layout.preferredWidth: 78
+                Layout.preferredWidth: 70
                 from: 0.0; to: 1.0
                 value: WdspEngine.volumeRx2
                 onMoved: WdspEngine.setVolumeRx2(value)
@@ -323,7 +323,7 @@ Rectangle {
             Label { text: qsTr("Bal"); color: root.cMuted }
             LyraSlider {
                 id: balSlider
-                Layout.preferredWidth: 84
+                Layout.preferredWidth: 76
                 from: -1.0; to: 1.0
                 value: WdspEngine.balance
                 // Snap to dead-centre near 0 so it's easy to recentre.
@@ -370,7 +370,7 @@ Rectangle {
             }
             LyraSlider {
                 id: monSlider
-                Layout.preferredWidth: 96
+                Layout.preferredWidth: 72
                 from: 0.0; to: 1.0
                 enabled: WdspEngine.monEnabled
                 value: WdspEngine.monVolume
@@ -708,7 +708,7 @@ Rectangle {
                 visible: WdspEngine.squelchEnabled
                 from: 0; to: 100; stepSize: 1
                 value: Math.round(WdspEngine.squelchThreshold * 100)
-                Layout.preferredWidth: 110
+                Layout.preferredWidth: 96
                 onMoved: WdspEngine.setSquelchThreshold(value / 100.0)
                 ToolTip.text: qsTr("Squelch threshold — higher = tighter (only stronger signals open it).\n"
                     + "Typical sweet spot 10–30; routes to SSQL / FM-SQ / AM-SQ by mode.")
@@ -737,7 +737,7 @@ Rectangle {
                 }
                 LyraSlider {
                     id: cwMonSlider
-                    Layout.preferredWidth: 96
+                    Layout.preferredWidth: 80
                     from: 0; to: 127; stepSize: 1
                     value: Stream.cwSidetoneLevel
                     onMoved: Stream.cwSidetoneLevel = Math.round(value)
@@ -769,7 +769,7 @@ Rectangle {
                 id: nrModeSlider
                 from: 1; to: 4; stepSize: 1; snapMode: Slider.SnapAlways
                 value: WdspEngine.nrMode
-                Layout.preferredWidth: 110
+                Layout.preferredWidth: 96
                 onMoved: WdspEngine.setNrMode(Math.round(value))
                 ToolTip.text: qsTr("NR mode 1..4 (WDSP EMNR gain function):\n"
                     + "1 Wiener+SPP   2 Wiener   3 MMSE-LSA (default)   4 trained")
@@ -826,7 +826,7 @@ Rectangle {
                 visible: WdspEngine.lmsEnabled
                 from: 0; to: 100; stepSize: 1
                 value: Math.round(WdspEngine.lmsStrength * 100)
-                Layout.preferredWidth: 120
+                Layout.preferredWidth: 104
                 onMoved: WdspEngine.setLmsStrength(value / 100.0)
                 ToolTip.text: qsTr("LMS strength — more taps + harder prediction.\n"
                     + "0 subtle · 50 WDSP-class default · 100 full")
@@ -846,7 +846,7 @@ Rectangle {
                 visible: WdspEngine.nbEnabled
                 from: 0; to: 100; stepSize: 1
                 value: Math.round(WdspEngine.nbStrength * 100)
-                Layout.preferredWidth: 120
+                Layout.preferredWidth: 104
                 onMoved: WdspEngine.setNbStrength(value / 100.0)
                 ToolTip.text: qsTr("Noise-blanker strength — higher = more aggressive impulse blanking.\n"
                     + "Back off if it starts chewing CW/SSB transients.")
@@ -867,7 +867,7 @@ Rectangle {
                 visible: WdspEngine.apfEnabled
                 from: 3; to: 18; stepSize: 3; snapMode: Slider.SnapAlways
                 value: WdspEngine.apfGainDb
-                Layout.preferredWidth: 110
+                Layout.preferredWidth: 96
                 onMoved: WdspEngine.setApfGainDb(value)
                 ToolTip.text: qsTr("APF peak gain — how hard the CW peak lifts the tone (3–18 dB).")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
@@ -886,7 +886,7 @@ Rectangle {
                 visible: WdspEngine.binEnabled
                 from: 0; to: 100; stepSize: 5
                 value: Math.round(WdspEngine.binDepth * 100)
-                Layout.preferredWidth: 110
+                Layout.preferredWidth: 96
                 onMoved: WdspEngine.setBinDepth(value / 100.0)
                 ToolTip.text: qsTr("Binaural depth — soundstage width on headphones (0 = mono, 100 = full Hilbert pair).")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
