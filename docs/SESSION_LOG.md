@@ -4,6 +4,16 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-02 — v0.25.8 Sheliak (patch)
+
+- Version bump **0.25.7 → 0.25.8**. Star name stays **Sheliak**.
+- Bundled WDSP **2.10** (`wdsp.dll`); wisdom `wdspWisdom01`.
+- NNR operator surface: toggle, Standard/Premium (default Premium), Mask
+  −10…−50 default −40, XOR vs EMNR, NR-C still independent.
+- PS Amp View: GetPSDisp version-gated; P1 + P2 re-proved.
+- USER_GUIDE / wiki / `docs/releases/v0.25.8.md`. Tag `v0.25.8`. Do not
+  merge `main`.
+
 ## 2026-10-02 — v0.25.7 Sheliak (patch)
 
 - Version bump **0.25.6 → 0.25.7**. Star name stays **Sheliak**.

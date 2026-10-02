@@ -192,6 +192,7 @@ void PsFsm::pollAmpPlot() {
     constexpr int kN    = kInts * kSpi;
     constexpr int kCoef = 4 * kInts;
     constexpr int kCorr = 256;
+    constexpr int kDispPts = 512;
     constexpr double kSmooth = 0.22;
 
     if (dispX_.size() != static_cast<size_t>(kN)) {
@@ -202,17 +203,33 @@ void PsFsm::pollAmpPlot() {
         dispCm_.assign(kCoef, 0.0);
         dispCc_.assign(kCoef, 0.0);
         dispCs_.assign(kCoef, 0.0);
+        dispXmCor_.assign(kDispPts, 0.0);
+        dispYmCor_.assign(kDispPts, 0.0);
+        dispXaCor_.assign(kDispPts, 0.0);
+        dispYaCor_.assign(kDispPts, 0.0);
     }
 
-    GetPSDisp(kTxa, dispX_.data(), dispYm_.data(), dispYc_.data(),
-              dispYs_.data(), dispCm_.data(), dispCc_.data(), dispCs_.data());
+    int nsamps = 0;
+    int cpts = 0;
+    double phsRef = 0.0;
+    get_ps_disp(kTxa,
+                dispX_.data(), dispYm_.data(), dispYc_.data(), dispYs_.data(),
+                dispCm_.data(), dispCc_.data(), dispCs_.data(),
+                dispXmCor_.data(), dispYmCor_.data(),
+                dispXaCor_.data(), dispYaCor_.data(),
+                &nsamps, &cpts, &phsRef);
+    (void)phsRef;
+
+    int scatterN = kN;
+    if (nsamps > 0)
+        scatterN = std::min(nsamps, kN);
 
     constexpr int kBins = 96;
     std::vector<double> binSum(kBins, 0.0);
     std::vector<int>    binN(kBins, 0);
-    for (int i = 0; i < kN; ++i) {
-        const double xin = dispX_[i];
-        const double g   = dispYm_[i];
+    for (int i = 0; i < scatterN; ++i) {
+        const double xin = dispX_[static_cast<size_t>(i)];
+        const double g   = dispYm_[static_cast<size_t>(i)];
         if (xin <= 0.0 || g <= 0.0) continue;
         int b = static_cast<int>(xin * kBins);
         if (b < 0) b = 0;
@@ -240,10 +257,29 @@ void PsFsm::pollAmpPlot() {
         ampMagY_.append(magEwma_[bi]);
     }
 
-    if (corrEwma_.size() != static_cast<size_t>(kCorr))
-        corrEwma_.assign(kCorr, 0.0);
     ampCorrX_.clear();
     ampCorrY_.clear();
+    if (cpts > 0) {
+        const int n = std::min(cpts, kDispPts);
+        if (corrEwma_.size() != static_cast<size_t>(n))
+            corrEwma_.assign(static_cast<size_t>(n), 0.0);
+        ampCorrX_.reserve(n);
+        ampCorrY_.reserve(n);
+        for (int i = 0; i < n; ++i) {
+            const size_t ii = static_cast<size_t>(i);
+            const double qx = dispXmCor_[ii];
+            const double y  = dispYmCor_[ii];
+            corrEwma_[ii] = (corrEwma_[ii] <= 0.0)
+                ? y
+                : kSmooth * y + (1.0 - kSmooth) * corrEwma_[ii];
+            ampCorrX_.append(qx);
+            ampCorrY_.append(corrEwma_[ii]);
+        }
+        return;
+    }
+
+    if (corrEwma_.size() != static_cast<size_t>(kCorr))
+        corrEwma_.assign(kCorr, 0.0);
     ampCorrX_.reserve(kCorr);
     ampCorrY_.reserve(kCorr);
     for (int i = 0; i < kCorr; ++i) {

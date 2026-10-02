@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.7 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.25.8 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
@@ -23,9 +23,12 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 ## Receive (RX)
 
 - ✅ Full WDSP receive chain — **USB / LSB / CW / AM / SAM / DSB / FM / DIGU / DIGL / SPEC**
-- ✅ Per-mode filters, AGC (Fast/Med/Slow/Long/Auto), **noise reduction**, noise blanker, **auto-notch (ANF)**, manual notches, all-mode **squelch**
+- ✅ Per-mode filters, AGC (Fast/Med/Slow/Long/Auto), **NR** (EMNR 1–4) **or**
+  **NNR** (WDSP 2.10 neural; Standard / Premium, mask −10…−50 dB), exclusive
+  vs each other; noise blanker, **auto-notch (ANF)**, **LMS**, all-mode **squelch**
 - ✅ **8-band RX parametric EQ** (draggable curve)
-- ✅ **Captured-noise profile** — grab your band noise and subtract it (occupied bins mixed at full scale so the passband stays brick-wall)
+- ✅ **Captured-noise profile (NR-C)** — grab your band noise and subtract it
+  (IQ-domain; can run with NR or NNR; last profile restores on restart)
 - ✅ **Centre-tune (CTUN)** — drag the marker onto a signal while the LO stays put
 - ✅ **RIT** (receiver incremental tuning)
 - ✅ **Zero-beat markers** — Kenwood-style ± needle to dead-tune a CW / AM / SAM / FM carrier by eye

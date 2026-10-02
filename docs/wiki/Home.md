@@ -62,7 +62,7 @@ Full detail (why Open is refused, what TX would do, Brick flash help) on the **[
 
 ## At a glance — what works now
 
-✅ Full **receive** (all modes, the complete WDSP noise/filter toolkit, RX EQ,
+✅ Full **receive** (all modes, WDSP 2.10 NR or NNR, RX EQ,
 captured-noise reduction, CTUN, RIT) · ✅ Full **transmit** — SSB / AM / SAM /
 DSB / FM / CW plus digital over TCI, VAC, and the **Apps** launcher · ✅ **SUB / RX2 + SPLIT on HL2 and BrickSDR2** ·
 ✅ a **native TX audio rack**

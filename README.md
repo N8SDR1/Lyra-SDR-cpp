@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.7 Sheliak** — TCI handshake for WSJT-X / JTDX (MSHV unchanged). Apps recommended links. Analog band-follow from 0.25.6.
+**v0.25.8 Sheliak** — WDSP 2.10 with neural NR (NNR). PureSignal Amp View kept. TCI / Apps from 0.25.7.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 

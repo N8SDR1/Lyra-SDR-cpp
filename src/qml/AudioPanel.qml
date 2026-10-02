@@ -509,7 +509,14 @@ Rectangle {
                 text: "NR"
                 checked: WdspEngine.nrEnabled
                 onToggled: WdspEngine.setNrEnabled(checked)
-                note: qsTr("Noise Reduction (EMNR). Mode / AEPF / NPE on the row below.")
+                note: qsTr("Noise Reduction (EMNR). Mode / AEPF / NPE on the row below. Turns NNR off — do not run both.")
+            }
+            DspToggle {
+                text: "NNR"
+                checked: WdspEngine.nnrEnabled
+                enabled: WdspEngine.nnrAvailable
+                onToggled: WdspEngine.setNnrEnabled(checked)
+                note: qsTr("Neural NR (WDSP 2.10). Model + mask-floor slider on the row below. Adds ~51 ms. Turns EMNR off — do not run both. NR-C is independent.")
             }
             DspToggle {
                 text: "ANF"
@@ -764,24 +771,69 @@ Rectangle {
             spacing: 6
             Layout.fillWidth: true
 
-            Label { text: qsTr("NR Mode:"); color: root.cText; font.pixelSize: 11 }
+            Label { text: qsTr("NR Mode:"); color: root.cText; font.pixelSize: 11
+                    visible: !WdspEngine.nnrEnabled }
             LyraSlider {
                 id: nrModeSlider
+                visible: !WdspEngine.nnrEnabled
                 from: 1; to: 4; stepSize: 1; snapMode: Slider.SnapAlways
                 value: WdspEngine.nrMode
                 Layout.preferredWidth: 96
                 onMoved: WdspEngine.setNrMode(Math.round(value))
                 ToolTip.text: qsTr("NR mode 1..4 (WDSP EMNR gain function):\n"
-                    + "1 Wiener+SPP   2 Wiener   3 MMSE-LSA (default)   4 trained")
+                                   + "1 Wiener+SPP   2 Wiener   3 MMSE-LSA (default)   4 trained")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
-            Label { text: WdspEngine.nrMode; color: "#50d0ff"
+            Label { visible: !WdspEngine.nnrEnabled
+                    text: WdspEngine.nrMode; color: "#50d0ff"
                     font.family: "Consolas"; font.bold: true
-                    Layout.preferredWidth: 16 }
+                    Layout.preferredWidth: 16
+                    ToolTip.text: qsTr("EMNR Mode %1").arg(WdspEngine.nrMode)
+                    ToolTip.visible: (hovered) && Prefs.tooltipsEnabled }
 
-            Item { width: 8 }
+            Label { text: qsTr("NNR Model:"); color: root.cText; font.pixelSize: 11
+                    visible: WdspEngine.nnrEnabled }
+            LyraComboBox {
+                id: nnrModelCombo
+                visible: WdspEngine.nnrEnabled
+                model: [qsTr("Standard"), qsTr("Premium")]
+                currentIndex: WdspEngine.nnrModel
+                onActivated: WdspEngine.setNnrModel(currentIndex)
+                Layout.preferredWidth: 110
+                font.pixelSize: 11
+                ToolTip.text: qsTr("WDSP NNR model:\n"
+                                   + "Standard = slot 0\n"
+                                   + "Premium = slot 1 (Heiko starting point)")
+                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
+            }
+
+            Label { text: qsTr("Mask:"); color: root.cText; font.pixelSize: 11
+                    visible: WdspEngine.nnrEnabled }
+            LyraSlider {
+                id: nnrMaskSlider
+                visible: WdspEngine.nnrEnabled
+                from: -10; to: -50; stepSize: 1; snapMode: Slider.SnapAlways
+                value: WdspEngine.nnrMaskFloorDb
+                Layout.preferredWidth: 96
+                onMoved: WdspEngine.setNnrMaskFloorDb(value)
+                ToolTip.text: qsTr("NNR mask floor (dB):\n"
+                                   + "−10 least suppression (more noise through)\n"
+                                   + "−50 most suppression\n"
+                                   + "Default −40 (Heiko). Warren engine default −25.")
+                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
+            }
+            Label { visible: WdspEngine.nnrEnabled
+                    text: Math.round(WdspEngine.nnrMaskFloorDb)
+                    color: "#50d0ff"; font.family: "Consolas"; font.bold: true
+                    Layout.preferredWidth: 32
+                    ToolTip.text: qsTr("NNR mask floor %1 dB")
+                                  .arg(Math.round(WdspEngine.nnrMaskFloorDb))
+                    ToolTip.visible: (hovered) && Prefs.tooltipsEnabled }
+
+            Item { width: 8; visible: !WdspEngine.nnrEnabled }
             CheckBox {
                 id: aepfCheck
+                visible: !WdspEngine.nnrEnabled
                 text: qsTr("AEPF")
                 checked: WdspEngine.aepfEnabled
                 onToggled: WdspEngine.setAepfEnabled(checked)
@@ -800,21 +852,25 @@ Rectangle {
                                  ? aepfCheck.indicator.width + 4 : 0
                 }
                 ToolTip.text: qsTr("Anti-musical-noise smoother — engages BOTH WDSP "
-                    + "stages (artifact elimination + post-filter). On = "
-                    + "noticeably less musical 'twinkle' with the voice kept "
-                    + "natural (MMSE-LSA); off = rawer EMNR on quiet bands.")
+                                   + "stages (artifact elimination + post-filter). On = "
+                                   + "noticeably less musical 'twinkle' with the voice kept "
+                                   + "natural (MMSE-LSA); off = rawer EMNR on quiet bands.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
 
-            Item { width: 6 }
-            Label { text: qsTr("NPE:"); color: root.cText; font.pixelSize: 11 }
+            Item { width: 6; visible: !WdspEngine.nnrEnabled }
+            Label { text: qsTr("NPE:"); color: root.cText; font.pixelSize: 11
+                    visible: !WdspEngine.nnrEnabled }
             LyraComboBox {
                 id: npeCombo
+                visible: !WdspEngine.nnrEnabled
                 model: ["OSMS", "MCRA"]
                 currentIndex: WdspEngine.npeMethod
                 onActivated: WdspEngine.setNpeMethod(currentIndex)
                 Layout.preferredWidth: 86
                 font.pixelSize: 11
+                ToolTip.text: qsTr("EMNR noise-power estimator: OSMS or MCRA.")
+                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
 
             // LMS strength — appears only when LMS is engaged (old-Lyra idiom).

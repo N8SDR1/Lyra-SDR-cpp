@@ -222,6 +222,13 @@ class WdspEngine : public QObject {
     Q_PROPERTY(int  nrMode     READ nrMode    NOTIFY nrChanged)
     Q_PROPERTY(bool aepfEnabled READ aepfEnabled NOTIFY nrChanged)
     Q_PROPERTY(int  npeMethod  READ npeMethod  NOTIFY nrChanged)
+    // WDSP Neural NR (2.10).  XOR with EMNR — enabling one turns the
+    // other off.  nnrModel: 0=Standard 1=Premium (Heiko default).
+    // Mask floor: −10 (least) … −50 (most); Heiko starting point −40.
+    Q_PROPERTY(bool nnrEnabled READ nnrEnabled NOTIFY nrChanged)
+    Q_PROPERTY(bool nnrAvailable READ nnrAvailable NOTIFY nrChanged)
+    Q_PROPERTY(int  nnrModel   READ nnrModel   NOTIFY nrChanged)
+    Q_PROPERTY(double nnrMaskFloorDb READ nnrMaskFloorDb NOTIFY nrChanged)
     // AGC mode as an operator-facing string: off / fast / med / slow.
     // (Long / Auto / Custom land with the rest of the AGC surface.)
     Q_PROPERTY(QString agcMode READ agcMode NOTIFY agcModeChanged)
@@ -500,11 +507,18 @@ public:
     int  nrMode()      const { return nrMode_; }
     bool aepfEnabled() const { return aepfEnabled_; }
     int  npeMethod()   const { return npeMethod_; }
+    bool nnrEnabled()  const { return nnrEnabled_; }
+    bool nnrAvailable() const;
+    int  nnrModel()    const { return nnrModel_; }
+    double nnrMaskFloorDb() const { return nnrMaskFloorDb_; }
     QString agcMode()  const { return agcMode_; }
     Q_INVOKABLE void setNrEnabled(bool on);
     Q_INVOKABLE void setNrMode(int mode);        // 1..4
     Q_INVOKABLE void setAepfEnabled(bool on);
     Q_INVOKABLE void setNpeMethod(int method);   // 0=OSMS 1=MCRA
+    Q_INVOKABLE void setNnrEnabled(bool on);
+    Q_INVOKABLE void setNnrModel(int slot);      // 0=Standard 1=Premium
+    Q_INVOKABLE void setNnrMaskFloorDb(double db);  // −10..−50
     Q_INVOKABLE void setAgcMode(const QString &mode);  // off/fast/med/slow
     // AGC knee/threshold in WDSP-dBFS (more negative = more weak-signal
     // headroom).  Re-derives the AGC ceiling via SetRXAAGCThresh; clamped
@@ -1078,10 +1092,8 @@ private:
     // Push the current mode_/bw_ to WDSP (SetRXAMode + RXASetPassband).
     // No-op when the channel isn't open (applied on the next openRx1).
     void applyModeFilter();
-    // Push the current NR (EMNR) state to WDSP — run + gain method +
-    // NPE method + AEPF + position.  No-op when the channel is closed
-    // (re-applied on the next openRx1).  Channel-parameterized so RX2
-    // can reuse it unchanged.
+    // Push EMNR + NNR.  Mutual exclusion is applied here: at most one
+    // of EMNR-run / NNR-run is 1.  No-op when the channel is closed.
     void pushNrState();
     // Push the current AGC mode (SetRXAAGCMode).  No-op when closed.
     void pushAgcMode();
@@ -1330,6 +1342,11 @@ private:
     int     nrMode_      = 3;            // 1..4 (UI) -> gain_method 0..3
     bool    aepfEnabled_ = true;
     int     npeMethod_   = 0;            // 0=OSMS 1=MCRA
+    bool    nnrEnabled_  = false;        // WDSP Neural NR; default off
+    int     nnrModel_    = 1;            // 0=Standard 1=Premium
+    double  nnrMaskFloorDb_ = -40.0;     // −10..−50; Heiko −40
+    static constexpr double kNnrMaskFloorMinDb = -50.0;
+    static constexpr double kNnrMaskFloorMaxDb = -10.0;
     QString agcMode_     = QStringLiteral("med");
     double  agcThreshDb_ = -100.0;   // WDSP-dBFS AGC knee (persisted; see kAgcThreshDbFs)
     // Latching Auto AGC-T state.  autoAgcThresh_ is persisted; the timer runs

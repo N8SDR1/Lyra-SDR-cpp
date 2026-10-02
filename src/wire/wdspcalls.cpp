@@ -88,7 +88,6 @@ void (*SetTXAFMEmphPosition)(int, int) = nullptr;   // FM pre-emphasis chain pos
 void (*SetTXACTCSSFreq)(int, double) = nullptr;     // #107 FM CTCSS sub-tone Hz
 void (*SetTXAAMCarrierLevel)(int, double) = nullptr;   // AM/SAM carrier fraction 0..1
 void (*pscc)(int, int, double*, double*) = nullptr;
-void (*psccF)(int, int, float*, float*, float*, float*, int, int) = nullptr;
 void (*SetPSRunCal)(int, int) = nullptr;
 void (*SetPSMox)(int, int) = nullptr;
 void (*GetPSInfo)(int, int*) = nullptr;
@@ -102,14 +101,9 @@ void (*SetPSMoxDelay)(int, double) = nullptr;
 void (*SetPSHWPeak)(int, double) = nullptr;
 void (*GetPSHWPeak)(int, double*) = nullptr;
 void (*GetPSMaxTX)(int, double*) = nullptr;
-void (*SetPSPtol)(int, double) = nullptr;
-void (*GetPSDisp)(int, double*, double*, double*, double*,
-                  double*, double*, double*) = nullptr;
+void* GetPSDisp = nullptr;
+int  (*GetWDSPVersion)() = nullptr;
 void (*SetPSFeedbackRate)(int, int) = nullptr;
-void (*SetPSPinMode)(int, int) = nullptr;
-void (*SetPSMapMode)(int, int) = nullptr;
-void (*SetPSStabilize)(int, int) = nullptr;
-void (*SetPSIntsAndSpi)(int, int, int) = nullptr;
 
 // X-macro over every table entry: one line per symbol; the resolver
 // below expands it.  Adding a symbol = one extern in the header, one
@@ -180,7 +174,6 @@ void (*SetPSIntsAndSpi)(int, int, int) = nullptr;
     X(SetTXACTCSSFreq)      \
     X(SetTXAAMCarrierLevel) \
     X(pscc)                 \
-    X(psccF)                \
     X(SetPSRunCal)          \
     X(SetPSMox)             \
     X(GetPSInfo)            \
@@ -194,13 +187,9 @@ void (*SetPSIntsAndSpi)(int, int, int) = nullptr;
     X(SetPSHWPeak)          \
     X(GetPSHWPeak)          \
     X(GetPSMaxTX)           \
-    X(SetPSPtol)            \
     X(GetPSDisp)            \
-    X(SetPSFeedbackRate)    \
-    X(SetPSPinMode)         \
-    X(SetPSMapMode)         \
-    X(SetPSStabilize)       \
-    X(SetPSIntsAndSpi)
+    X(GetWDSPVersion)       \
+    X(SetPSFeedbackRate)
 
 int resolve_wdsp_calls()
 {
@@ -229,6 +218,45 @@ int resolve_wdsp_calls()
 #undef LYRA_RESOLVE
 
     return missing;
+}
+
+int wdsp_engine_version()
+{
+    return GetWDSPVersion ? GetWDSPVersion() : 0;
+}
+
+void get_ps_disp(int channel,
+                 double* x, double* ym, double* yc, double* ys,
+                 double* cm, double* cc, double* cs,
+                 double* xm_cor, double* ym_cor,
+                 double* xa_cor, double* ya_cor,
+                 int* nsamps_out, int* cpts_out, double* phs_ref_deg_out)
+{
+    if (!GetPSDisp)
+        return;
+
+    const int ver = wdsp_engine_version();
+    if (ver >= 200) {
+        using Fn = void (*)(int, double*, double*, double*, double*,
+                            double*, double*, double*, double*,
+                            int*, int*, double*);
+        auto fn = reinterpret_cast<Fn>(GetPSDisp);
+        fn(channel, x, ym, yc, ys,
+           xm_cor, ym_cor, xa_cor, ya_cor,
+           nsamps_out, cpts_out, phs_ref_deg_out);
+        return;
+    }
+
+    using Fn = void (*)(int, double*, double*, double*, double*,
+                        double*, double*, double*);
+    auto fn = reinterpret_cast<Fn>(GetPSDisp);
+    fn(channel, x, ym, yc, ys, cm, cc, cs);
+    if (nsamps_out)
+        *nsamps_out = 0;
+    if (cpts_out)
+        *cpts_out = 0;
+    if (phs_ref_deg_out)
+        *phs_ref_deg_out = 0.0;
 }
 
 }  // namespace lyra::wire

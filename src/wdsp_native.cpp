@@ -361,6 +361,15 @@ bool WdspNative::resolveSymbols() {
     resolve(api_.SetRXAEMNRaeRun,      "SetRXAEMNRaeRun");
     resolve(api_.SetRXAEMNRPosition,   "SetRXAEMNRPosition");
     resolve(api_.SetRXAEMNRpost2Run,   "SetRXAEMNRpost2Run");
+    // NNR is 2.10+ only.  Soft-resolve so a 1.29 wayback DLL still loads;
+    // the operator toggle no-ops when these stay nullptr.
+    if (FARPROC pNnr = ::GetProcAddress(mod, "SetRXANNRRun"))
+        api_.SetRXANNRRun = reinterpret_cast<fn_SetRXANNRRun_t>(pNnr);
+    if (FARPROC pNnr = ::GetProcAddress(mod, "SetRXANNRMaskFloor"))
+        api_.SetRXANNRMaskFloor =
+            reinterpret_cast<fn_SetRXANNRMaskFloor_t>(pNnr);
+    if (FARPROC pNnr = ::GetProcAddress(mod, "SetRXANNRModel"))
+        api_.SetRXANNRModel = reinterpret_cast<fn_SetRXANNRModel_t>(pNnr);
     resolve(api_.SetRXAAGCDecay,         "SetRXAAGCDecay");
     resolve(api_.SetRXAAGCHang,          "SetRXAAGCHang");
     resolve(api_.SetRXAAGCHangThreshold, "SetRXAAGCHangThreshold");
@@ -531,7 +540,8 @@ namespace {
 
 // Hard-coded filename per WDSP source (wisdom.c) — same name
 // every HPSDR app produces; isolation is purely by directory.
-constexpr const char *kWisdomFilename = "wdspWisdom00";
+// WDSP 2.00+ writes wdspWisdom01 (wisdom.c).  1.29 used 00.
+constexpr const char *kWisdomFilename = "wdspWisdom01";
 
 bool wisdomFileExists(const QString &dir) {
     return QFileInfo::exists(QDir(dir).filePath(
@@ -913,13 +923,13 @@ bool WdspNative::ensureWisdom() {
     const bool    haveExisting = wisdomFileExists(dir);
 
     // Crash-safe publish: plan/import in a private work dir on the SAME
-    // volume, then atomically rename wdspWisdom00 into place.  WDSPwisdom
+    // volume, then atomically rename wdspWisdom01 into place.  WDSPwisdom
     // writes a fixed filename into whatever dir it is handed AND leaves the
     // freshly-planned wisdom live in FFTW's process-global state, so building
     // in a work dir still primes the running process — only the *file* moves.
     // An interrupted build/rebuild (force-kill during a slow FFTW_PATIENT
     // plan, or during WDSP's reject-and-re-export) can then only leave a torn
-    // file inside the work dir; the live wdspWisdom00 is replaced in one
+    // file inside the work dir; the live wdspWisdom01 is replaced in one
     // atomic step or left untouched.  This closes the crash-on-launch class
     // where a torn wisdom file yields a bad (SIMD-misaligned) FFT plan that
     // faults on execute — the mechanism observed after a force-kill cascade.

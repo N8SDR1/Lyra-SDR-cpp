@@ -626,6 +626,14 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     aepfEnabled_ = s.value(QStringLiteral("dsp/aepf"), true).toBool();
     npeMethod_   = std::clamp(
         s.value(QStringLiteral("dsp/npeMethod"), 0).toInt(), 0, 1);
+    nnrEnabled_  = s.value(QStringLiteral("dsp/nnrEnabled"), false).toBool();
+    nnrModel_    = std::clamp(
+        s.value(QStringLiteral("dsp/nnrModel"), 1).toInt(), 0, 1);
+    nnrMaskFloorDb_ = std::clamp(
+        s.value(QStringLiteral("dsp/nnrMaskFloorDb"), -40.0).toDouble(),
+        kNnrMaskFloorMinDb, kNnrMaskFloorMaxDb);
+    if (nnrEnabled_ && nrEnabled_)
+        nrEnabled_ = false;
     agcMode_     = s.value(QStringLiteral("dsp/agcMode"),
                            QStringLiteral("med")).toString();
     agcThreshDb_ = std::clamp(
@@ -3180,6 +3188,8 @@ void WdspEngine::pushNrState()
     if (!opened_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
     if (!api.SetRXAEMNRRun) return;   // EMNR not resolved -> nothing to push
+    const bool nnrOn  = nnrEnabled_ && api.SetRXANNRRun;
+    const bool emnrOn = nrEnabled_ && !nnrOn;
     auto apply = [&](int ch) {
         if (api.SetRXAEMNRgainMethod)
             api.SetRXAEMNRgainMethod(ch, std::clamp(nrMode_, 1, 4) - 1);
@@ -3191,10 +3201,24 @@ void WdspEngine::pushNrState()
             api.SetRXAEMNRpost2Run(ch, aepfEnabled_ ? 1 : 0);
         if (api.SetRXAEMNRPosition)
             api.SetRXAEMNRPosition(ch, 1);
-        api.SetRXAEMNRRun(ch, nrEnabled_ ? 1 : 0);
+        api.SetRXAEMNRRun(ch, emnrOn ? 1 : 0);
+        if (api.SetRXANNRRun) {
+            if (nnrOn) {
+                if (api.SetRXANNRModel)
+                    api.SetRXANNRModel(ch, nnrModel_);
+                if (api.SetRXANNRMaskFloor)
+                    api.SetRXANNRMaskFloor(ch, nnrMaskFloorDb_);
+            }
+            api.SetRXANNRRun(ch, nnrOn ? 1 : 0);
+        }
     };
     apply(channel_);
     if (rx2Opened_) apply(rx2Channel_);
+}
+
+bool WdspEngine::nnrAvailable() const
+{
+    return wdsp_ && wdsp_->api().SetRXANNRRun;
 }
 
 void WdspEngine::pushAgcMode()
@@ -3229,6 +3253,10 @@ void WdspEngine::setNrEnabled(bool on)
     if (nrEnabled_ == on) return;
     nrEnabled_ = on;
     QSettings().setValue(QStringLiteral("dsp/nrEnabled"), on);
+    if (on && nnrEnabled_) {
+        nnrEnabled_ = false;
+        QSettings().setValue(QStringLiteral("dsp/nnrEnabled"), false);
+    }
     pushNrState();
     emit nrChanged();
     emitLog(QStringLiteral("[wdsp] NR %1 (Mode %2)")
@@ -3263,6 +3291,53 @@ void WdspEngine::setNpeMethod(int method)
     QSettings().setValue(QStringLiteral("dsp/npeMethod"), method);
     pushNrState();
     emit nrChanged();
+}
+
+void WdspEngine::setNnrEnabled(bool on)
+{
+    if (nnrEnabled_ == on) return;
+    if (on && !nnrAvailable()) {
+        emitLog(QStringLiteral("[wdsp] NNR unavailable (engine lacks SetRXANNRRun)"));
+        return;
+    }
+    nnrEnabled_ = on;
+    QSettings().setValue(QStringLiteral("dsp/nnrEnabled"), on);
+    if (on && nrEnabled_) {
+        nrEnabled_ = false;
+        QSettings().setValue(QStringLiteral("dsp/nrEnabled"), false);
+    }
+    pushNrState();
+    emit nrChanged();
+    emitLog(QStringLiteral("[wdsp] NNR %1 (%2, floor %3 dB)")
+                .arg(on ? QStringLiteral("on") : QStringLiteral("off"))
+                .arg(nnrModel_ == 1 ? QStringLiteral("Premium")
+                                    : QStringLiteral("Standard"))
+                .arg(nnrMaskFloorDb_, 0, 'f', 0));
+}
+
+void WdspEngine::setNnrModel(int slot)
+{
+    slot = std::clamp(slot, 0, 1);
+    if (nnrModel_ == slot) return;
+    nnrModel_ = slot;
+    QSettings().setValue(QStringLiteral("dsp/nnrModel"), slot);
+    pushNrState();
+    emit nrChanged();
+    emitLog(QStringLiteral("[wdsp] NNR model %1")
+                .arg(slot == 1 ? QStringLiteral("Premium")
+                               : QStringLiteral("Standard")));
+}
+
+void WdspEngine::setNnrMaskFloorDb(double db)
+{
+    db = std::clamp(std::round(db), kNnrMaskFloorMinDb, kNnrMaskFloorMaxDb);
+    if (nnrMaskFloorDb_ == db) return;
+    nnrMaskFloorDb_ = db;
+    QSettings().setValue(QStringLiteral("dsp/nnrMaskFloorDb"), db);
+    pushNrState();
+    emit nrChanged();
+    emitLog(QStringLiteral("[wdsp] NNR mask floor %1 dB")
+                .arg(db, 0, 'f', 0));
 }
 
 // Re-derive the AGC ceiling from agcThreshDb_.  The slope + thresh calls

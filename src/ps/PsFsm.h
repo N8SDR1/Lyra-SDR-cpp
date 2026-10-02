@@ -87,6 +87,10 @@ private:
     std::vector<double> dispCm_;
     std::vector<double> dispCc_;
     std::vector<double> dispCs_;
+    std::vector<double> dispXmCor_;
+    std::vector<double> dispYmCor_;
+    std::vector<double> dispXaCor_;
+    std::vector<double> dispYaCor_;
     QVariantList ampMagX_;
     QVariantList ampMagY_;
     QVariantList ampCorrX_;

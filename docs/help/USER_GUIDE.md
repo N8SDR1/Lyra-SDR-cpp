@@ -20,6 +20,21 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.8
+
+- **WDSP 2.10** — bundled DSP engine is NR0V **2.10** (`GetWDSPVersion` 210).
+  First start after the update may re-run **FFT optimization** once (new
+  wisdom file). Mac / Linux engine binaries are not in this installer.
+- **NNR (neural noise reduction)** — Audio panel **NNR** button. Default
+  **off**. While on: **Model** Standard or **Premium** (default), and a
+  **Mask** slider **−10** (least) to **−50** (most); default **−40**. NNR
+  and classic **NR** (EMNR Modes 1–4) cannot run together; **NR-C** still
+  can. Hover the NR row for a short cheat sheet. See
+  [Row 3 — Noise Reduction](#row-3--noise-reduction-character).
+- **PureSignal Amp View** — still live on HL2 (Protocol 1) and Brick
+  (Protocol 2). Display ABI is version-gated so the plot stays correct on
+  2.10.
+
 ## What's new in 0.25.7
 
 - **TCI handshake** — Lyra sends `start;` then `ready;` and echoes the
@@ -105,6 +120,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.8](#whats-new-in-0258)
 - [What's new in 0.25.7](#whats-new-in-0257)
 - [What's new in 0.25.6](#whats-new-in-0256)
 - [What's new in 0.25.5](#whats-new-in-0255)
@@ -427,14 +443,15 @@ the **Radio** section. Or just use **▶ Start** on the toolbar:
 
 ### 4. First-launch note (one-time)
 
-The very first time Lyra runs (and after a settings reset), it tunes its
-signal-processing math for your CPU — a one-time "FFT optimization". A
-setup window appears with the Lyra logo, a few tips, and a progress bar;
-it takes a few minutes once, then Lyra opens **automatically** and every
-launch after is fast. **Please let it finish and don't close it** — the
-main window opens on its own when it's done. (You can force a fresh
-optimization later from **Settings → Backup & Restore → "Rebuild FFT
-optimization on next start"**, e.g. after a CPU change.)
+The very first time Lyra runs (and after a settings reset **or a DSP-engine
+update** such as v0.25.8), it tunes its signal-processing math for your
+CPU — a one-time "FFT optimization". A setup window appears with the Lyra
+logo, a few tips, and a progress bar; it takes a few minutes once, then
+Lyra opens **automatically** and every launch after is fast. **Please let
+it finish and don't close it** — the main window opens on its own when
+it's done. (You can force a fresh optimization later from **Settings →
+Backup & Restore → "Rebuild FFT optimization on next start"**, e.g. after
+a CPU change.)
 
 ### 5. Tune and listen
 
@@ -445,7 +462,7 @@ optimization on next start"**, e.g. after a CPU change.)
   see [Filters panel](#filters-panel).
 - **Band panel** — jump between bands.
 - **Audio panel** — the **DSP + AUDIO** strip: **Vol / MUTE**, the **AGC**
-  cycle, and **Noise Reduction** (NR on/off + Mode 1–4 + AEPF + NPE).
+  cycle, and **Noise Reduction** (NR or **NNR**, plus NR-C).
   Choose the output
   device in **Settings → Audio**.
 - **Panadapter** — click/drag/wheel to tune; drag the right edge to set
@@ -1300,29 +1317,40 @@ laid out in old Lyra's three-row arrangement:
   **threshold** and the **live gain action** (dB) beside the mode.
 
 **Row 3 — Noise Reduction character**
-- **NR Mode (1–4)** — picks the WDSP denoiser's gain function:
-  **1** Wiener + speech-presence, **2** plain Wiener (edgier), **3**
-  MMSE-LSA (the smoothest, default), **4** trained-adaptive (most
-  aggressive). Turn **NR** on in Row 2, then sweep modes to find the best
-  sound for the band.
-- **AEPF** — anti-musical-noise smoother. On (default) engages *both* of
-  WDSP's cleanup stages — artifact elimination **and** the post-filter
-  that stock WDSP leaves off by default — so the "musical twinkle" is
-  knocked down hard while MMSE-LSA (Mode 3) keeps the voice natural
-  rather than robotic.
-  Turn it off to hear raw EMNR on already-quiet bands. If you still want
-  the most natural voice, stay on **Mode 3** (Mode 4 trades smoothness for
-  aggression and brings musical noise back).
-- **NPE** — how the denoiser tracks the noise floor: **OSMS** (smooth,
-  best for steady atmospheric hiss) or **MCRA** (faster-tracking, better
-  for changing/intermittent QRM).
+
+Use **either** classic **NR** (EMNR) **or** **NNR** (neural). They are
+exclusive. **NR-C** (captured profile) is independent of both.
+
+- **NNR** — WDSP 2.10 neural denoiser. Default **off**. While on, Row 3
+  shows **Model** and **Mask** instead of Mode / AEPF / NPE:
+  - **Standard** vs **Premium** (default). Premium is the heavier model.
+  - **Mask** −10 dB (least suppression) … **−50 dB** (most). Default
+    **−40**. More negative = more noise cut (and more chance of watery
+    artifacts). This is the main NNR amount control.
+  NNR adds a small extra delay (~50 ms class). Hover the NR / NNR
+  controls for the same cheat sheet.
+- **NR Mode (1–4)** — only while classic **NR** is on (NNR off). Picks the
+  WDSP EMNR gain function: **1** Wiener + speech-presence, **2** plain
+  Wiener (edgier), **3** MMSE-LSA (the smoothest, default), **4**
+  trained-adaptive (most aggressive). Turn **NR** on in Row 2, then sweep
+  modes to find the best sound for the band.
+- **AEPF** — anti-musical-noise smoother (classic NR only). On (default)
+  engages *both* of WDSP's cleanup stages — artifact elimination **and**
+  the post-filter that stock WDSP leaves off by default — so the "musical
+  twinkle" is knocked down hard while MMSE-LSA (Mode 3) keeps the voice
+  natural rather than robotic. Turn it off to hear raw EMNR on
+  already-quiet bands. If you still want the most natural voice, stay on
+  **Mode 3** (Mode 4 trades smoothness for aggression and brings musical
+  noise back).
+- **NPE** — classic NR only. How the denoiser tracks the noise floor:
+  **OSMS** (smooth, best for steady atmospheric hiss) or **MCRA**
+  (faster-tracking, better for changing/intermittent QRM).
 - **LMS strength** — appears in this row only while **LMS** is on: 0 is
   subtle, 50 is the WDSP-class default, 100 is full prediction (more taps,
   harder pull). Most useful digging weak CW out of band hiss.
 
-Surfacing NR Mode + AEPF + NPE as separate knobs is one of Lyra's
-differentiators — most SDR apps hide them. All three persist across
-restarts.
+Classic NR Mode + AEPF + NPE stay operator knobs when NNR is off. All of
+the above persist across restarts.
 
 ### Captured noise profile (NR-C) — Lyra's signature noise reduction
 

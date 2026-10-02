@@ -124,6 +124,13 @@ at a time. The connected one is shown green/bold in the list.
 
 ## Audio
 
+**NNR vs NR vs NR-C — which one?**
+- **NR** — classic WDSP EMNR (Modes 1–4, AEPF, NPE).
+- **NNR** — WDSP 2.10 neural denoiser (Standard / Premium + Mask slider).
+  **NR** and **NNR** cannot run at the same time.
+- **NR-C** — captured band-noise profile (your QTH). It can run with either
+  NR or NNR.
+
 **No receive audio.**
 - Press **▶ Start**, raise **AF Gain / Volume**, and check the squelch
   isn't holding it closed.
