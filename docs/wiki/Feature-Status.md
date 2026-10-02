@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.6 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.25.7 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
@@ -74,11 +74,11 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **Frequency calibration** against WWV / time stations
 - ✅ **Session recorder** — RX audio + timed panadapter snapshots → a synced **MP4**
 - ✅ **CAT / Serial** — Kenwood TS-480/2000 CAT over COM/TCP, serial PTT input, Winkeyer
-- ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log)
+- ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; ExpertSDR3 / SunSDR2PRO identity + `start;` before `ready;` so **WSJT-X / JTDX** attach (MSHV / Open SSTV unchanged); **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log)
 - ✅ **USB-BCD** band data for linear-amp band switching
 - ✅ **Backup &amp; Restore** — export config, dated snapshots (survive reinstall), selective restore
 - ✅ Solar / propagation panel, weather alerts
-- ✅ **Apps** — named shortcuts for third-party programs (fldigi, WSJT-X, SSTV, …); auto-start after Hardware Startup (default off)
+- ✅ **Apps** — named shortcuts for third-party programs; **Tested with and recommended** links (Open SSTV, MSHV / WSJT-X, VarAC, midi2tci); auto-start after Hardware Startup (default off)
 - ✅ **USB encoder (HID wheel)** — Settings → Hardware → Navigation (Windows); tunes the focused VFO by the Tuning **Step**
 - ✅ **MIDI via TCI sidecar** — not native MIDI; Browse an operator-installed MIDI→TCI program under Settings → Apps (default TCI port **40001**)
 

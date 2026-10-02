@@ -4,6 +4,16 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-02 — v0.25.7 Sheliak (patch)
+
+- Version bump **0.25.6 → 0.25.7**. Star name stays **Sheliak**.
+- TCI: `start;` before `ready;` + echo client start/stop. WSJT-X / JTDX
+  attach; MSHV unchanged. Operator bench: RX + key-up on MSHV, WSJT-X,
+  JTDX.
+- Settings → Apps “Tested with and recommended” links.
+- USER_GUIDE / wiki / `docs/releases/v0.25.7.md`.
+- Installer pending. Tag `v0.25.7`. Do not merge `main`.
+
 ## 2026-09-30 — v0.25.6 Sheliak (patch)
 
 - Version bump **0.25.5 → 0.25.6**. Star name stays **Sheliak**.

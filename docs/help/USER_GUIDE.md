@@ -20,6 +20,18 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.7
+
+- **TCI handshake** — Lyra sends `start;` then `ready;` and echoes the
+  client's own `start;` / `stop;`. **WSJT-X** and **JTDX** no longer
+  report “TCI SDR is not switched on.” **MSHV** and Open SSTV still
+  connect. Bench: RX and key-up on MSHV, WSJT-X, and JTDX. Settings →
+  Network: keep both emulate boxes on (default). See
+  [Settings → Network (TCI)](#settings--network-tci).
+- **Apps recommended links** — Settings → Apps lists Open SSTV, MSHV /
+  WSJT-X, VarAC, and midi2tci (install yourself, then Browse). See
+  [Tested with and recommended](#tested-with-and-recommended).
+
 ## What's new in 0.25.6
 
 - **HL2 analog band-follow** — with **Enable N2ADR / IO board** on (the
@@ -93,6 +105,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.7](#whats-new-in-0257)
 - [What's new in 0.25.6](#whats-new-in-0256)
 - [What's new in 0.25.5](#whats-new-in-0255)
 - [What's new in 0.25.4](#whats-new-in-0254)
@@ -171,6 +184,7 @@ not programmers — if you can click a menu, you can use this.
   - [Digital modes over VAC](#digital-modes-over-vac-virtual-audio-cable)
   - [DX-cluster spots](#dx-cluster-spots)
 - [Settings → Apps](#settings--apps)
+  - [Tested with and recommended](#tested-with-and-recommended)
   - [MIDI controllers (sidecar)](#midi-controllers-sidecar)
 - [Settings → Visuals](#settings--visuals)
   - [Trace color](#trace-color)
@@ -4783,6 +4797,23 @@ RTTY, FT8, SSTV, and other digital programs live here (plus TCI / VAC).
 Lyra does not ship an in-radio RTTY decoder. **CW** paddle / keyboard /
 TCI send and the **CW Dec** reader stay native — do not look for Morse
 decode under Apps.
+
+### Tested with and recommended
+
+Lyra does **not** bundle these. Install them yourself, then **Browse** to
+the `.exe` on **Settings → Apps**. The same list is on that tab as clickable
+links.
+
+| Use | Program | Link |
+| --- | --- | --- |
+| SSTV | Open SSTV | <https://bucknova.github.io/Open-SSTV/> |
+| FT8 / FT4 | MSHV | <http://lz2hv.org/mshv> |
+| FT8 / FT4 | WSJT-X | <https://wsjtx.github.io/wsjtx/index.html> |
+| VARA chat | VarAC | <https://www.varac-hamradio.com/> |
+| MIDI surface | midi2tci (sidecar) | <https://github.com/ftl/midi2tci> |
+
+TCI vs VAC audio setup is in [Digital modes](#digital-modes-over-tci). MIDI
+wiring is below.
 
 ### MIDI controllers (sidecar)
 

@@ -26,10 +26,18 @@ See **[Supported Radios](Supported-Radios)**.
 **Does Lyra support MIDI controllers?**
 Not inside the radio. A USB knob that Windows treats as a **mouse wheel**
 goes on **Settings → Hardware → Navigation**. A real MIDI surface needs a
-**MIDI→TCI sidecar** you install yourself, then **Settings → Apps → Browse**
+**MIDI→TCI sidecar** you install yourself (for example
+[midi2tci](https://github.com/ftl/midi2tci)), then **Settings → Apps → Browse**
 to that `.exe`, with TCI on (default port **40001**). Skip RIT/XIT and
 mixer maps until Lyra's TCI grows those. Details: in-app **Help → MIDI
 controllers (sidecar)**.
+
+**Which digital / SSTV programs are recommended?**
+Lyra does not ship them. **Settings → Apps** lists programs we have tested
+with: [Open SSTV](https://bucknova.github.io/Open-SSTV/),
+[MSHV](http://lz2hv.org/mshv) or [WSJT-X](https://wsjtx.github.io/wsjtx/index.html)
+for FT8/FT4, and [VarAC](https://www.varac-hamradio.com/). Browse to each
+`.exe` after you install it.
 
 **Is it free? What's the license?**
 Yes — GPL v3+ (compatible with the WDSP DSP engine it uses). See

@@ -10398,6 +10398,39 @@ QWidget *SettingsDialog::buildAppsTab() {
     }
 
     outer->addLayout(grid);
+
+    auto *recGrp = new QGroupBox(tr("Tested with and recommended"), page);
+    QFont recFont = recGrp->font();
+    recFont.setPointSizeF(recFont.pointSizeF() + 2.0);
+    recGrp->setFont(recFont);
+    auto *recV = new QVBoxLayout(recGrp);
+    auto *recHint = new QLabel(
+        tr("Lyra does not ship these programs. Install them yourself, then "
+           "<b>Browse</b> to the <tt>.exe</tt> in a row above. Click a link "
+           "to open the project page."), recGrp);
+    recHint->setWordWrap(true);
+    recHint->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+    recV->addWidget(recHint);
+    auto *recLinks = new QLabel(
+        tr("<ul>"
+           "<li><b>SSTV</b> — "
+           "<a href=\"https://bucknova.github.io/Open-SSTV/\">Open SSTV</a></li>"
+           "<li><b>FT8 / FT4</b> — "
+           "<a href=\"http://lz2hv.org/mshv\">MSHV</a> or "
+           "<a href=\"https://wsjtx.github.io/wsjtx/index.html\">WSJT-X</a></li>"
+           "<li><b>VARA chat</b> — "
+           "<a href=\"https://www.varac-hamradio.com/\">VarAC</a></li>"
+           "<li><b>MIDI controller</b> — not native; a MIDI→TCI sidecar such as "
+           "<a href=\"https://github.com/ftl/midi2tci\">midi2tci</a> "
+           "(point it at Lyra TCI, default port <b>40001</b>)</li>"
+           "</ul>"), recGrp);
+    recLinks->setWordWrap(true);
+    recLinks->setTextFormat(Qt::RichText);
+    recLinks->setOpenExternalLinks(true);
+    recLinks->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    recV->addWidget(recLinks);
+    outer->addWidget(recGrp);
+
     outer->addStretch(1);
     return page;
 }
