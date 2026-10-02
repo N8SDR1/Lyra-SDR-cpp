@@ -186,9 +186,14 @@ dock, then key **2-tone**. FB **teal** = too low, **green** = 129–181,
 **red** = too hot. SUB pauses while MOX+PS is live. See
 **[User Guide → PureSignal](User-Guide#puresignal)**.
 
-**JTDX won't connect over TCI (but MSHV does).**
-Fixed in current versions (the TCI audio handshake now echoes the ack JTDX
-expects). Update to the latest release.
+**JTDX / WSJT-X won't connect over TCI (MSHV and Open SSTV do).**
+Those two clients expect ExpertSDR3 identity (`protocol:ExpertSDR3,2.0`,
+SunSDR-class `device:`), **`start;` before `ready;`**, and an echo of
+their own `start;` / `stop;`. “TCI SDR is not switched on” means that
+handshake flag, **not** Lyra’s TCI checkbox. Settings → Network → both
+emulate boxes on (default). Match Lyra's **port** (usually **40001**);
+WSJT templates often still say **50001**. Rig = **Expert Electronics
+(TCI)**, Network Server `127.0.0.1:<that port>`.
 
 ---
 

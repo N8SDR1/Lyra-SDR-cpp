@@ -364,8 +364,8 @@ private:
     QString  bindHost_         = QStringLiteral("127.0.0.1");
     int      rateLimitMs_      = 20;      // ~50 Hz
     bool     sendInitialState_ = true;
-    bool     emulateExpertSdr3_= false;
-    bool     emulateSunSdr2_   = false;
+    bool     emulateExpertSdr3_= true;
+    bool     emulateSunSdr2_   = true;
     bool     cwluBecomesCw_    = true;
     // Set true while a TCI `tune:` command holds the key, so the wire-edge
     // onMoxActiveChanged mirrors the edge on the `tune:` channel (Thetis emits

@@ -4310,9 +4310,11 @@ Lyra runs a TCI **server**; the other program connects to it as a client.
   sync.
 - **Add "CW" to the modulations list (CWL/CWU alias)** — some clients
   only understand a bare `CW`; enable this so they can select it.
-- **Emulate ExpertSDR3 / Emulate SunSDR2 PRO** — report an Expert
-  protocol/device name. Enable these only if a client refuses to talk to
-  Lyra unless it sees a SunSDR/ExpertSDR rig.
+- **Emulate ExpertSDR3 / Emulate SunSDR2 PRO** — default **on**. JTDX
+  and WSJT-X only attach to that protocol/device pair; they also need
+  `start;` **before** `ready;` (otherwise WSJT-X says “TCI not switched
+  on” even when this checkbox is on). MSHV and Open SSTV accept Lyra's
+  own names. Un-tick only if you need Lyra to identify as itself.
 - **TCI server running** — the master on/off. When on, the header shows
   the **● TCI** indicator (green with a client count, amber when idle).
 

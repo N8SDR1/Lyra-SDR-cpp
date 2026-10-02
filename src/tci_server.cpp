@@ -257,8 +257,11 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                                  QStringLiteral("127.0.0.1")).toString();
     rateLimitMs_       = s.value(QString::fromLatin1(kKeyRate), 20).toInt();
     sendInitialState_  = s.value(QString::fromLatin1(kKeyInitial), true).toBool();
-    emulateExpertSdr3_ = s.value(QString::fromLatin1(kKeyEsdr3), false).toBool();
-    emulateSunSdr2_    = s.value(QString::fromLatin1(kKeySunSdr), false).toBool();
+    // Default ON: JTDX / WSJT-X drop the socket unless protocol: is a
+    // name they already know (ExpertSDR3). MSHV / Open SSTV accept any
+    // identity. Operator can un-tick in Settings to advertise Lyra.
+    emulateExpertSdr3_ = s.value(QString::fromLatin1(kKeyEsdr3), true).toBool();
+    emulateSunSdr2_    = s.value(QString::fromLatin1(kKeySunSdr), true).toBool();
     cwluBecomesCw_     = s.value(QString::fromLatin1(kKeyCwlu), true).toBool();
     comboEnabled_      = s.value(QString::fromLatin1(kKeyCombo), false).toBool();
 
@@ -1186,7 +1189,6 @@ void TciServer::sendInit(QWebSocket *ws) {
     const qint64 half = rate / 2;
     const QString mode = prefs_ ? toTciMode(prefs_->mode()) : QStringLiteral("USB");
     const qint64 hz = stream_ ? qint64(stream_->rx1FreqHz()) : 7074000;
-    const bool run = stream_ && stream_->isRunning();
 
     const QString proto = emulateExpertSdr3_ ? QStringLiteral("ExpertSDR3")
                                              : QStringLiteral("Lyra");
@@ -1197,6 +1199,7 @@ void TciServer::sendInit(QWebSocket *ws) {
     sendTo(ws, QStringLiteral("device:%1").arg(dev));
     sendTo(ws, QStringLiteral("receive_only:false"));
     sendTo(ws, QStringLiteral("trx_count:1"));
+    sendTo(ws, QStringLiteral("channel_count:2"));    // spec name
     sendTo(ws, QStringLiteral("channels_count:2"));   // RX1 + RX2 (SUB); TCI ch1 = RX2
     sendTo(ws, QStringLiteral("vfo_limits:%1,%2").arg(kVfoLo).arg(kVfoHi));
     sendTo(ws, QStringLiteral("if_limits:%1,%2").arg(-half).arg(half));
@@ -1220,7 +1223,6 @@ void TciServer::sendInit(QWebSocket *ws) {
     sendTo(ws, QStringLiteral("audio_stream_samples:%1")
                    .arg(audioOutSamples_));
     sendTo(ws, QStringLiteral("tx_stream_audio_buffering:50"));
-    sendTo(ws, QStringLiteral("ready"));
 
     // Lyra ↔ SDRLogger+ Combo link: tell a freshly-connected client whether
     // Combo is on, so its "Lyra Combo: Linked" indicator is correct from the
@@ -1307,7 +1309,13 @@ void TciServer::sendInit(QWebSocket *ws) {
     sendTo(ws, QStringLiteral("iq_stop:0"));                    // sendIQStartStop(0,false)
     sendTo(ws, QStringLiteral("iq_samplerate:%1")               // sendIQSampleRate (clamp 48k..384k)
                    .arg(std::clamp(rate, 48000, 384000)));
-    sendTo(ws, run ? QStringLiteral("start") : QStringLiteral("stop"));
+    // WSJT-X / JTDX latch "SDR switched on" from `start;` and evaluate
+    // that flag at `ready;`. Sending ready first (or sending stop) is
+    // exactly "TCI SDR is not switched on" even when the TCI checkbox
+    // is on. Advertise start in the connect burst; echo of a later
+    // client START is in dispatch(). READY last (spec).
+    sendTo(ws, QStringLiteral("start"));
+    sendTo(ws, QStringLiteral("ready"));
 }
 
 void TciServer::sendTo(QWebSocket *ws, const QString &line) {
@@ -1440,8 +1448,16 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
     const qint64 curHz = stream_ ? qint64(stream_->rx1FreqHz()) : 0;
 
     // ── lifecycle ────────────────────────────────────────────────
-    if (cmd == QStringLiteral("START")) { emit startRequested(); return; }
-    if (cmd == QStringLiteral("STOP"))  { emit stopRequested();  return; }
+    if (cmd == QStringLiteral("START")) {
+        sendTo(ws, QStringLiteral("start"));   // WSJT-X waits for this echo
+        emit startRequested();
+        return;
+    }
+    if (cmd == QStringLiteral("STOP")) {
+        sendTo(ws, QStringLiteral("stop"));
+        emit stopRequested();
+        return;
+    }
     if (cmd == QStringLiteral("SET_IN_FOCUS")) return;   // no-op
 
     // ── Lyra ↔ SDRLogger+ Combo link ─────────────────────────────

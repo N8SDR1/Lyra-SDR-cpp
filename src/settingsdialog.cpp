@@ -1923,8 +1923,9 @@ QWidget *SettingsDialog::buildNetworkTab() {
     auto *emuProto = new QCheckBox(tr("Emulate ExpertSDR3 (report protocol "
                                       "name “ExpertSDR3”)"), grp);
     emuProto->setChecked(tci_->emulateExpertSdr3());
-    emuProto->setToolTip(tr("Some clients only recognise ExpertSDR3 / SunSDR "
-                            "rigs. Enable these to masquerade as one."));
+    emuProto->setToolTip(tr("JTDX and WSJT-X only attach if the protocol "
+                            "name is ExpertSDR3 (MSHV / Open SSTV do not "
+                            "care). Default on. Un-tick to advertise Lyra."));
     connect(emuProto, &QCheckBox::toggled, tci_,
             [this](bool on) { tci_->setEmulateExpertSdr3(on); });
     form->addRow(QString(), emuProto);
