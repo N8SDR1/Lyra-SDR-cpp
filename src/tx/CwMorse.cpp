@@ -54,23 +54,56 @@ int cwDitUs(int wpm) noexcept {
 std::vector<CwElement> cwTextToElements(const std::string& text,
                                         int wpm,
                                         int weightPct) {
-    const int dit = cwDitUs(wpm);   // dit unit in microseconds (#194)
     weightPct = std::clamp(weightPct, 10, 90);
 
     // Weight scales mark + intra-element gap around 50 % neutral;
     // a long element is 3 mark units; gaps below stay nominal.
     const double markScale  = weightPct / 50.0;
     const double spaceScale = (100 - weightPct) / 50.0;
-    const int markDit  = std::max(1, static_cast<int>(dit * markScale + 0.5));
-    const int intraGap = std::max(1, static_cast<int>(dit * spaceScale + 0.5));
-    const int charGap  = 3 * dit;   // inter-character (nominal)
-    const int wordGap  = 7 * dit;   // inter-word (nominal)
+    int speed = std::clamp(wpm, 5, 100);
+    int dit = 0, markDit = 0, intraGap = 0, charGap = 0, wordGap = 0;
+    // `<` / `>` step the speed of everything after them. Plain text
+    // never hits this, so its element list stays the same.
+    auto retiming = [&]() {
+        dit      = cwDitUs(speed);
+        markDit  = std::max(1, static_cast<int>(dit * markScale + 0.5));
+        intraGap = std::max(1, static_cast<int>(dit * spaceScale + 0.5));
+        charGap  = 3 * dit;
+        wordGap  = 7 * dit;
+    };
+    retiming();
 
     std::vector<CwElement> out;
     bool prevWasChar = false;   // a sendable char was emitted before
+    bool inProsign = false;
+    bool proJoin = false;       // next letter inside |SK| uses the intra gap
+
+    auto emitPattern = [&](const char* pat, bool tight) {
+        if (prevWasChar)
+            out.push_back({false, tight ? intraGap : charGap});
+        for (const char* p = pat; *p; ++p) {
+            out.push_back({true, (*p == '-') ? 3 * markDit : markDit});
+            if (*(p + 1))
+                out.push_back({false, intraGap});
+        }
+        prevWasChar = true;
+    };
 
     for (unsigned char raw : text) {
         const char up = static_cast<char>(std::toupper(raw));
+
+        if (inProsign) {
+            if (up == '|') { inProsign = false; proJoin = false; continue; }
+            if (up == ' ' || up == '\t' || up == '\n' || up == '\r') continue;
+            const char* pat = lookup(up);
+            if (!pat) continue;
+            emitPattern(pat, proJoin);
+            proJoin = true;
+            continue;
+        }
+        if (up == '|') { inProsign = true; proJoin = false; continue; }
+        if (up == '<') { speed = std::max(5, speed - 5); retiming(); continue; }
+        if (up == '>') { speed = std::min(100, speed + 5); retiming(); continue; }
 
         if (up == ' ' || up == '\t' || up == '\n' || up == '\r') {
             // Word break: replace any pending inter-char gap with the

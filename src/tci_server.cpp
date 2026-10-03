@@ -323,6 +323,18 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
         // pump.  Keeps TCI-server state coherent with the real wire.
         connect(stream_, &lyra::ipc::HL2Stream::moxActiveChanged,
                 this, &TciServer::onMoxActiveChanged);
+        connect(stream_, &lyra::ipc::HL2Stream::cwMacrosDrained, this, [this] {
+            if (cwTerminal_)
+                broadcastNow(QStringLiteral("cw_macros_empty"));
+        });
+        connect(stream_, &lyra::ipc::HL2Stream::cwCallsignSent, this,
+                [this](const QString &cs) {
+                    broadcastNow(QStringLiteral("callsign_send:%1").arg(cs));
+                });
+        connect(stream_, &lyra::ipc::HL2Stream::cwTerminalHoldDropped, this, [this] {
+            cwTerminal_ = false;
+            broadcastNow(QStringLiteral("cw_terminal:false"));
+        });
     }
     // Task #33 — TX_CHRONO outbound pump.  Always constructed; only
     // ticks when the timer is started (in tryAcquireActiveTxAudioListener).
@@ -564,6 +576,9 @@ void TciServer::stop() {
     }
     lyra::tci::TciTxBridge::instance().clear();   // drop stale TX backlog (no replay next session)
     sensorsEnabled_ = false;
+    txSensorsEnabled_ = false;
+    txSensorPeakW_ = 0.0;
+    dropCwTerminalKey();
     streams_.clear();
     recomputeStreaming();    // turn the engine taps back off
     destroyTxResampler();    // Task #68 — free WDSP resampler if any
@@ -616,7 +631,13 @@ void TciServer::onClientDisconnected() {
     clients_.removeAll(ws);
     streams_.remove(ws);
     ws->deleteLater();
-    if (clients_.isEmpty()) { smeterTimer_->stop(); sensorsEnabled_ = false; }
+    if (clients_.isEmpty()) {
+        sensorsEnabled_ = false;
+        txSensorsEnabled_ = false;
+        txSensorPeakW_ = 0.0;
+        smeterTimer_->stop();
+        dropCwTerminalKey();
+    }
     recomputeStreaming();
     emit clientCountChanged(clients_.size());
 }
@@ -632,7 +653,13 @@ void TciServer::pruneDeadClients() {
         }
     }
     if (clients_.size() != before) {
-        if (clients_.isEmpty()) { smeterTimer_->stop(); sensorsEnabled_ = false; }
+        if (clients_.isEmpty()) {
+        sensorsEnabled_ = false;
+        txSensorsEnabled_ = false;
+        txSensorPeakW_ = 0.0;
+        smeterTimer_->stop();
+        dropCwTerminalKey();
+    }
         recomputeStreaming();
         emit clientCountChanged(clients_.size());
     }
@@ -1709,9 +1736,8 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
     if (cmd == QStringLiteral("CW_MACROS")) {
         // cw_macros:<tcvr>,<text> — arg[0] = transceiver index (ignored).
         // Raw commas in text are escaped to ~, so the text is a single arg;
-        // the join+unescape is robust regardless.  Inline | | prosign-combine
-        // and < > speed-step are macro-text niceties (follow-on); plain text
-        // keys correctly today (CwMorse skips unknown glyphs like | < >).
+        // the join+unescape is robust regardless.  |SK| sends as one
+        // prosign; < and > step the speed 5 WPM for the letters after them.
         if (stream_ && args.size() >= 2) {
             const QString text = cwUnescape(args.mid(1).join(QLatin1Char(',')));
             if (!text.isEmpty())
@@ -1722,41 +1748,64 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         return;
     }
     if (cmd == QStringLiteral("CW_MSG")) {
-        // cw_msg:<tcvr>,<prefix>,<callsign>,<suffix> (spec §3.2.2) — the
-        // contest exchange; "$N" after the callsign repeats it N times.
-        // The 1-arg callsign-edit form (cw_msg:<tcvr>;) + the CW_MSG-over-
-        // CW_MACROS interrupt/priority semantics are a follow-on (this cut
-        // assembles + sends the full message).
-        if (stream_ && args.size() >= 4) {
-            QString call = args[2];
-            int rep = 1;
-            const int dollar = call.indexOf(QLatin1Char('$'));
-            if (dollar >= 0) {
-                bool ok = false; const int n = call.mid(dollar + 1).toInt(&ok);
-                if (ok && n > 0) rep = n;
-                call = call.left(dollar);
-            }
-            QStringList parts;
-            if (!args[1].isEmpty()) parts << cwUnescape(args[1]);      // prefix
-            for (int i = 0; i < rep; ++i) parts << cwUnescape(call);   // callsign ×N
-            if (!args[3].isEmpty()) parts << cwUnescape(args[3]);      // suffix
-            const QString text = parts.join(QLatin1Char(' '));
-            if (!text.isEmpty())
-                QMetaObject::invokeMethod(stream_, "sendCw",
-                                          Qt::QueuedConnection,
-                                          Q_ARG(QString, text));
+        // Four fields: transceiver, prefix, callsign, suffix. "$N" after
+        // the callsign repeats it. The callsign stays in the editable
+        // tail until its letters start, so a later one-field line
+        // (cw_msg:<newcall>;) can replace what has not gone out yet.
+        // A letter that has already started is left alone.
+        if (!stream_) return;
+        if (args.size() == 1) {
+            stream_->cwCorrectCallsign(cwUnescape(args[0]));
+            return;
         }
+        if (args.size() < 4) return;
+        QString call = args[2];
+        int rep = 1;
+        const int dollar = call.indexOf(QLatin1Char('$'));
+        if (dollar >= 0) {
+            bool ok = false; const int n = call.mid(dollar + 1).toInt(&ok);
+            if (ok && n > 0) rep = n;
+            call = call.left(dollar);
+        }
+        call = cwUnescape(call);
+        QString prefix = cwUnescape(args[1]);
+        for (int i = 1; i < rep; ++i) {
+            if (!prefix.isEmpty()) prefix += QLatin1Char(' ');
+            prefix += call;
+        }
+        const QString suffix = cwUnescape(args[3]);
+        stream_->cwQueueMessage(prefix, call, suffix);
+        return;
+    }
+    if (cmd == QStringLiteral("CW_TERMINAL")) {
+        // Empty args: report the switch. With an arg: set it and echo.
+        // Turning it off finishes the letters already queued; it does
+        // not chop the one on the air.
+        if (!args.isEmpty()) {
+            cwTerminal_ = parseBool(args[0]);
+            if (stream_) stream_->setCwTerminal(cwTerminal_);
+        }
+        broadcastNow(cwTerminal_ ? QStringLiteral("cw_terminal:true")
+                                 : QStringLiteral("cw_terminal:false"));
         return;
     }
 
     // ── sensors / S-meter ────────────────────────────────────────
     if (cmd == QStringLiteral("RX_SENSORS_ENABLE")) {
         sensorsEnabled_ = !args.isEmpty() && parseBool(args[0]);
-        if (sensorsEnabled_ && !clients_.isEmpty()) smeterTimer_->start();
-        else smeterTimer_->stop();
+        syncSensorTimer();
         return;
     }
-    if (cmd == QStringLiteral("TX_SENSORS_ENABLE")) return;  // RX-only
+    if (cmd == QStringLiteral("TX_SENSORS_ENABLE")) {
+        // Client asks for the TX meter line. The optional second field
+        // is a requested interval; the report stays on the shared 250 ms
+        // tick (inside the 30–1000 ms window) so the S-meter rate does
+        // not move.
+        txSensorsEnabled_ = !args.isEmpty() && parseBool(args[0]);
+        if (!txSensorsEnabled_) txSensorPeakW_ = 0.0;
+        syncSensorTimer();
+        return;
+    }
 
     // ── Task #33 commit 3.4: TCI handshake-config commands MUST be
     //    echoed back so the client knows the SET took effect.  MSHV
@@ -2173,7 +2222,7 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         || cmd == QStringLiteral("RIT_OFFSET") || cmd == QStringLiteral("XIT_OFFSET")
         || cmd == QStringLiteral("KEYER")
         || cmd.startsWith(QStringLiteral("CW_MACROS"))
-        || cmd == QStringLiteral("CW_MSG") || cmd == QStringLiteral("CW_TERMINAL")
+        || cmd == QStringLiteral("CW_MSG")
         || cmd == QStringLiteral("CW_KEYER_SPEED"))
         return;
 
@@ -2431,8 +2480,24 @@ void TciServer::onRunningChanged() {
     broadcastNow(stream_->isRunning() ? QStringLiteral("start")
                                       : QStringLiteral("stop"));
 }
+void TciServer::syncSensorTimer() {
+    if ((sensorsEnabled_ || txSensorsEnabled_) && !clients_.isEmpty())
+        smeterTimer_->start();
+    else
+        smeterTimer_->stop();
+}
+
+void TciServer::dropCwTerminalKey() {
+    if (!cwTerminal_) return;
+    cwTerminal_ = false;
+    if (!stream_) return;
+    stream_->setCwTerminal(false);
+    stream_->abortCw();
+}
+
 void TciServer::onSmeterTick() {
-    if (!sensorsEnabled_ || clients_.isEmpty() || !engine_) return;
+    if (clients_.isEmpty()) return;
+    if (sensorsEnabled_ && engine_) {
     // Broadcast the SAME calibrated RX S-meter dBm the on-screen meter
     // shows.  MeterModel owns the one calibration (WDSP RXA_S_PK in-passband
     // + operator calDb trim − LNA gain), so the front-panel meter and every
@@ -2469,6 +2534,35 @@ void TciServer::onSmeterTick() {
         broadcast(QStringLiteral("lyra_snr"),
                   QStringLiteral("lyra_snr:%1")
                       .arg(QString::number(meter_->rxSnrDb(), 'f', 1)));
+    }
+
+    if (!txSensorsEnabled_ || !stream_) return;
+    double mic = -200.0;
+    if (engine_) {
+        const double pk = engine_->txMeterRaw(0);
+        if (std::isfinite(pk)) mic = pk;
+    }
+    if (mic <= -199.0) mic = stream_->voxMicDbfs();
+    double rms = stream_->fwdPowerCalW();
+    if (!std::isfinite(rms) || rms < 0.0) rms = 0.0;
+    if (rms > txSensorPeakW_) txSensorPeakW_ = rms;
+    const double peak = txSensorPeakW_;
+    txSensorPeakW_ = rms;
+    const double fwd = stream_->fwdPowerW();
+    const double rev = stream_->revPowerW();
+    double swr = 1.0;
+    if (std::isfinite(fwd) && std::isfinite(rev) && fwd >= 0.5 && rev >= 0.0) {
+        double rho = std::sqrt(std::min(rev / fwd, 1.0));
+        if (rho > 0.999) rho = 0.999;
+        swr = (1.0 + rho) / (1.0 - rho);
+        if (swr > 99.0) swr = 99.0;
+    }
+    broadcast(QStringLiteral("tx_sensors"),
+              QStringLiteral("tx_sensors:0,%1,%2,%3,%4")
+                  .arg(QString::number(mic, 'f', 1))
+                  .arg(QString::number(rms, 'f', 1))
+                  .arg(QString::number(peak, 'f', 1))
+                  .arg(QString::number(swr, 'f', 1)));
 }
 
 } // namespace lyra::ui

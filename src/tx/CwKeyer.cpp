@@ -2,7 +2,10 @@
 
 #include "CwKeyer.h"
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
+#include <cstring>
 
 namespace lyra::tx {
 
@@ -35,7 +38,7 @@ void CwKeyer::emitTextLocked() {
     std::string pend;
     pend.reserve(pending_.size());
     for (const auto& pc : pending_)
-        pend.push_back(pc.c);
+        pend += pc.glyph;
     onTextFn_(committedText_, pend);
 }
 
@@ -57,7 +60,7 @@ void CwKeyer::pushChar(char c, int wpm, int weightPct) {
         std::lock_guard<std::mutex> lk(m_);
         if (stop_)
             return;
-        pending_.push_back({c, wpm, weightPct});
+        pending_.push_back(PendingChar{std::string(1, c), wpm, weightPct, false, false});
         emitTextLocked();
     }
     cv_.notify_all();
@@ -86,6 +89,8 @@ void CwKeyer::abort() {
         abort_ = true;
         queue_.clear();
         pending_.clear();
+        callSent_.clear();
+        callWindowDone_ = true;
         if (!committedText_.empty()) {
             committedText_.clear();
             emitTextLocked();               // CWX Esc: clear the line
@@ -106,6 +111,7 @@ void CwKeyer::run() {
         // aborted run; clear it for this one.
         abort_   = false;
         committedText_.clear();
+        holdAnnounced_ = false;
         busy_.store(true, std::memory_order_relaxed);
         bool typeAhead = false;             // ≥1 staged char committed this run → bridge applies
         bool runFirst  = true;              // no leading gap before the run's first mark
@@ -142,22 +148,77 @@ void CwKeyer::run() {
                     pending_.pop_front();
                     typeAhead = true;
                     lastWpm   = pc.wpm;
-                    committedText_.push_back(pc.c);
+                    committedText_ += pc.glyph;
+                    if (pc.callsign) {
+                        callSent_ += pc.glyph;
+                        bool moreCall = false;
+                        for (const auto& rest : pending_)
+                            if (rest.callsign) { moreCall = true; break; }
+                        if (!moreCall && !callWindowDone_) {
+                            callWindowDone_ = true;
+                            if (onCallFn_ && !callSent_.empty())
+                                onCallFn_(callSent_);
+                        }
+                    }
                     emitTextLocked();
 
-                    if (pc.c == ' ' || pc.c == '\t') {
+                    if (pc.glyph == " " || pc.glyph == "\t") {
                         wordGap = true;     // a typed space → next letter gets the 7·dit gap
                         continue;           // the space itself keys nothing
                     }
 
                     const int ditUs = cwDitUs(pc.wpm);
-                    const int gapUs = runFirst ? 0 : (wordGap ? 7 : 3) * ditUs;
+                    const int gapUs = runFirst ? 0
+                                    : (pc.prosign ? 1 : (wordGap ? 7 : 3)) * ditUs;
                     wordGap  = false;
                     runFirst = false;
                     if (gapUs > 0)
                         queue_.push_back({false, gapUs});   // key already released above
-                    auto elems = cwTextToElements(std::string(1, pc.c), pc.wpm, pc.weight);
+                    const std::string body = (pc.glyph.size() > 1)
+                        ? (std::string("|") + pc.glyph + "|")
+                        : pc.glyph;
+                    auto elems = cwTextToElements(body, pc.wpm, pc.weight);
                     queue_.insert(queue_.end(), elems.begin(), elems.end());
+                    continue;
+                }
+
+                // Terminal hold: the letters already queued are done.
+                // Keep cwx_ptt up (do not drop and re-key) until more
+                // text arrives, the switch turns off, or 30 s pass.
+                if (holdAfter_) {
+                    if (!holdAnnounced_) {
+                        holdAnnounced_ = true;
+                        DrainFn cb = onDrainFn_;
+                        lk.unlock();
+                        if (cb) cb();
+                        lk.lock();
+                    }
+                    if (abort_ || stop_ || !holdAfter_)
+                        break;
+                    if (!queue_.empty() || !pending_.empty()) {
+                        holdAnnounced_ = false;
+                        deadline = clock::now();
+                        continue;
+                    }
+                    const bool more = cv_.wait_for(lk, std::chrono::seconds(30), [this] {
+                        return abort_ || stop_ || !holdAfter_
+                            || !queue_.empty() || !pending_.empty();
+                    });
+                    if (abort_ || stop_ || !holdAfter_)
+                        break;
+                    if (!queue_.empty() || !pending_.empty()) {
+                        holdAnnounced_ = false;
+                        deadline = clock::now();
+                        continue;
+                    }
+                    if (!more) {
+                        holdAfter_ = false;
+                        DrainFn to = onHoldTimeoutFn_;
+                        lk.unlock();
+                        if (to) to();
+                        lk.lock();
+                        break;
+                    }
                     continue;
                 }
 
@@ -222,6 +283,150 @@ void CwKeyer::run() {
         if (stop_)
             return;
     }
+}
+
+void CwKeyer::setHoldAfter(bool on) {
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        holdAfter_ = on;
+    }
+    cv_.notify_all();
+}
+
+void CwKeyer::setDrainFn(DrainFn fn) {
+    std::lock_guard<std::mutex> lk(m_);
+    onDrainFn_ = std::move(fn);
+}
+
+void CwKeyer::setHoldTimeoutFn(DrainFn fn) {
+    std::lock_guard<std::mutex> lk(m_);
+    onHoldTimeoutFn_ = std::move(fn);
+}
+
+void CwKeyer::setCallsignFn(CallFn fn) {
+    std::lock_guard<std::mutex> lk(m_);
+    onCallFn_ = std::move(fn);
+}
+
+std::vector<CwKeyer::PendingChar>
+CwKeyer::parseAtoms(const std::string& text, bool callsign,
+                    int wpm, int weight) const {
+    std::vector<PendingChar> out;
+    int speed = std::clamp(wpm, 5, 100);
+    const int wt = std::clamp(weight, 10, 90);
+    bool inPro = false;
+    std::string pro;
+    for (unsigned char raw : text) {
+        const char ch = static_cast<char>(std::toupper(raw));
+        if (inPro) {
+            if (ch == '|') {
+                if (!pro.empty())
+                    out.push_back(PendingChar{pro, speed, wt, callsign, false});
+                inPro = false;
+                pro.clear();
+                continue;
+            }
+            if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') continue;
+            if (!std::isalnum(static_cast<unsigned char>(ch))
+                && std::strchr(".,?/+=-():;\"'@!&", ch) == nullptr)
+                continue;
+            pro.push_back(ch);
+            continue;
+        }
+        if (ch == '|') { inPro = true; pro.clear(); continue; }
+        if (ch == '<') { speed = std::max(5, speed - 5); continue; }
+        if (ch == '>') { speed = std::min(100, speed + 5); continue; }
+        if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
+            out.push_back(PendingChar{" ", speed, wt, callsign, false});
+            continue;
+        }
+        if (!std::isalnum(static_cast<unsigned char>(ch))
+            && std::strchr(".,?/+=-():;\"'@!&", ch) == nullptr)
+            continue;
+        out.push_back(PendingChar{std::string(1, ch), speed, wt, callsign, false});
+    }
+    if (!pro.empty())
+        out.push_back(PendingChar{pro, speed, wt, callsign, false});
+    return out;
+}
+
+void CwKeyer::queueMessage(const std::string& prefix, const std::string& call,
+                           const std::string& suffix, int wpm, int weightPct) {
+    auto pre  = parseAtoms(prefix, false, wpm, weightPct);
+    auto mid  = parseAtoms(call,   true,  wpm, weightPct);
+    auto post = parseAtoms(suffix, false, wpm, weightPct);
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        if (stop_)
+            return;
+        for (auto& pc : pending_)
+            pc.callsign = false;
+        callSent_.clear();
+        callWindowDone_ = mid.empty();
+        pending_.insert(pending_.end(), pre.begin(), pre.end());
+        pending_.insert(pending_.end(), mid.begin(), mid.end());
+        pending_.insert(pending_.end(), post.begin(), post.end());
+        emitTextLocked();
+    }
+    cv_.notify_all();
+}
+
+bool CwKeyer::correctCall(const std::string& call, int wpm, int weightPct) {
+    auto neu = parseAtoms(call, true, wpm, weightPct);
+    std::string want;
+    for (const auto& a : neu) want += a.glyph;
+    auto up = [](std::string s) {
+        for (char& c : s)
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        return s;
+    };
+    CallFn fire;
+    std::string fired;
+    bool ok = false;
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        std::size_t idx = 0;
+        bool found = false;
+        for (; idx < pending_.size(); ++idx) {
+            if (pending_[idx].callsign) { found = true; break; }
+        }
+        if (!found)
+            return false;
+        const std::string sent = up(callSent_);
+        const std::string w = up(want);
+        if (!sent.empty()) {
+            if (w.compare(0, sent.size(), sent) != 0)
+                return false;
+            std::string left = sent;
+            while (!left.empty() && !neu.empty()) {
+                const std::string g = up(neu.front().glyph);
+                if (left.size() < g.size() || left.compare(0, g.size(), g) != 0)
+                    return false;
+                left.erase(0, g.size());
+                neu.erase(neu.begin());
+            }
+            if (!left.empty())
+                return false;
+        }
+        pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
+                                      [](const PendingChar& pc) { return pc.callsign; }),
+                       pending_.end());
+        if (idx > pending_.size())
+            idx = pending_.size();
+        pending_.insert(pending_.begin() + static_cast<std::ptrdiff_t>(idx),
+                        neu.begin(), neu.end());
+        if (neu.empty() && !callSent_.empty() && !callWindowDone_) {
+            callWindowDone_ = true;
+            fire = onCallFn_;
+            fired = callSent_;
+        }
+        emitTextLocked();
+        ok = true;
+    }
+    if (fire && !fired.empty())
+        fire(fired);
+    cv_.notify_all();
+    return ok;
 }
 
 }  // namespace lyra::tx

@@ -169,6 +169,8 @@ private:
     void sendTo(QWebSocket *ws, const QString &line);
     void broadcast(const QString &key, const QString &line); // rate-limited
     void broadcastNow(const QString &line);        // unthrottled (edges)
+    void syncSensorTimer();
+    void dropCwTerminalKey();
     void pruneDeadClients();                       // drop non-connected sockets
     void recomputeStreaming();                     // enable engine taps iff a client wants them
     // Radio-signal handlers → broadcasts.
@@ -230,6 +232,9 @@ private:
     QTimer                *smeterTimer_ = nullptr;
     QTimer                *maintTimer_  = nullptr;   // ping + prune dead clients
     bool                   sensorsEnabled_ = false;
+    bool                   txSensorsEnabled_ = false;
+    bool                   cwTerminal_ = false;
+    double                 txSensorPeakW_ = 0.0;
     QString                bindError_;   // last listen() failure reason ("" = ok)
 
     // Match the reference's RX-audio packetisation cadence (per

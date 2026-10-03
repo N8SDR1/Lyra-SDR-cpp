@@ -4667,6 +4667,23 @@ void HL2Stream::ensureCwKeyer() {
                 emit cwTypeAheadTextChanged(c, p);
             }, Qt::QueuedConnection);
         });
+    if (cwTerminal_.load(std::memory_order_relaxed))
+        cwKeyer_->setHoldAfter(true);
+    cwKeyer_->setDrainFn([this] {
+        QMetaObject::invokeMethod(this, [this] { emit cwMacrosDrained(); },
+                                  Qt::QueuedConnection);
+    });
+    cwKeyer_->setHoldTimeoutFn([this] {
+        QMetaObject::invokeMethod(this, [this] {
+            cwTerminal_.store(false, std::memory_order_relaxed);
+            emit cwTerminalHoldDropped();
+        }, Qt::QueuedConnection);
+    });
+    cwKeyer_->setCallsignFn([this](const std::string& s) {
+        const QString q = QString::fromStdString(s);
+        QMetaObject::invokeMethod(this, [this, q] { emit cwCallsignSent(q); },
+                                  Qt::QueuedConnection);
+    });
 }
 
 void HL2Stream::setCwxKey(bool down) {
@@ -4710,6 +4727,29 @@ void HL2Stream::sendCw(const QString& text) {
 
 void HL2Stream::abortCw() {
     if (cwKeyer_) cwKeyer_->abort();
+}
+
+void HL2Stream::setCwTerminal(bool on) {
+    cwTerminal_.store(on, std::memory_order_relaxed);
+    if (cwKeyer_) cwKeyer_->setHoldAfter(on);
+}
+
+void HL2Stream::cwQueueMessage(const QString& prefix, const QString& call,
+                               const QString& suffix) {
+    const int tm = txMode_.load(std::memory_order_relaxed);
+    if (!(tm == 3 || tm == 4)) return;
+    if (prefix.isEmpty() && call.isEmpty() && suffix.isEmpty()) return;
+    ensureCwKeyer();
+    cwKeyer_->queueMessage(prefix.toStdString(), call.toStdString(),
+                           suffix.toStdString(),
+                           cwKeyerSpeedWpm_, cwKeyerWeight_);
+}
+
+void HL2Stream::cwCorrectCallsign(const QString& call) {
+    const int tm = txMode_.load(std::memory_order_relaxed);
+    if (!(tm == 3 || tm == 4)) return;
+    if (!cwKeyer_) return;
+    cwKeyer_->correctCall(call.toStdString(), cwKeyerSpeedWpm_, cwKeyerWeight_);
 }
 
 void HL2Stream::cwTypeAhead(const QString& s) {

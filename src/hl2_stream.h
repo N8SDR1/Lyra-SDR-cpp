@@ -1514,6 +1514,15 @@ public slots:
     // host stays RX, exactly like the paddle.  Thread-safe.
     Q_INVOKABLE void sendCw(const QString& text);
     Q_INVOKABLE void abortCw();
+    // Terminal switch. Off (the default) leaves macros, the paddle, and
+    // the on-screen window alone. On keeps cwx_ptt up after a message
+    // so the next letter does not click the TR relay. Does not assert
+    // the wire MOX bit.
+    Q_INVOKABLE void setCwTerminal(bool on);
+    bool cwTerminal() const { return cwTerminal_.load(std::memory_order_relaxed); }
+    Q_INVOKABLE void cwQueueMessage(const QString& prefix, const QString& call,
+                                    const QString& suffix);
+    Q_INVOKABLE void cwCorrectCallsign(const QString& call);
 
     // #105 CW-3b — CWX "send as you type" (type-ahead).  cwTypeAhead
     // appends each character of `s` to the keyer's editable staging tail;
@@ -1642,6 +1651,12 @@ signals:
     // already keyed / locked (on the air), `pending` = the still-editable
     // tail.  Emitted on this QObject's thread whenever either changes.
     void cwTypeAheadTextChanged(const QString& committed, const QString& pending);
+    // Last queued letter has started; the key line is held for more text.
+    void cwMacrosDrained();
+    // The callsign's last letter just started. Text is what actually keyed.
+    void cwCallsignSent(const QString& callsign);
+    // The 30 s idle hold dropped the key line and cleared the switch.
+    void cwTerminalHoldDropped();
     // #105 — display TX-state (moxActive || cwKeyingActive) changed.
     void txDisplayActiveChanged(bool on);
     // Fires ONCE per requestMox(true) call (MOX button click, TUN arm,
@@ -2645,6 +2660,7 @@ private:
     void   updateTxDisplayActive();
     void   ensureCwKeyer();
     std::unique_ptr<lyra::tx::CwKeyer> cwKeyer_;
+    std::atomic<bool> cwTerminal_{false};
     // #171 — break-in hang for the serial straight-key path: on key-up we
     // drop tx[0].cwx immediately but hold cwx_ptt for cwHangDelayMs_ so
     // inter-element gaps don't drop TX (lazy-created, single-shot, main thread).
