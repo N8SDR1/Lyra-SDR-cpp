@@ -26,10 +26,13 @@ not programmers — if you can click a menu, you can use this.
   First start after the update may re-run **FFT optimization** once (new
   wisdom file). Mac / Linux engine binaries are not in this installer.
 - **NNR (neural noise reduction)** — Audio panel **NNR** button. Default
-  **off**. While on: **Model** Standard or **Premium** (default), and a
-  **Mask** slider **−10** (least) to **−50** (most); default **−40**. NNR
-  and classic **NR** (EMNR Modes 1–4) cannot run together; **NR-C** still
-  can. Hover the NR row for a short cheat sheet. See
+  **off**. While on: **Model** **Standard** (default) or **Premium**, and a
+  **Mask** slider **−10** (least) to **−50** (most); default **−40**.
+  Premium is the heavier model and uses more CPU; Standard is the
+  everyday start, and Premium with a mask around **−40** is the setting
+  to try once you are listening. NNR and classic **NR** (EMNR Modes 1–4)
+  cannot run together; **NR-C** still can. Hover the NR row for a short
+  cheat sheet. See
   [Row 3 — Noise Reduction](#row-3--noise-reduction-character).
 - **PureSignal Amp View** — still live on HL2 (Protocol 1) and Brick
   (Protocol 2). Display ABI is version-gated so the plot stays correct on
@@ -390,6 +393,11 @@ it's about running *everything at once* without the machine breaking a sweat:
 dual receivers, the full TX speech-processing rack, spots, high-refresh
 spectrum and waterfall on a big screen, and comfortable margin for the heavier
 DSP features on the roadmap.
+
+**NNR and CPU.** Neural noise reduction adds CPU in the receive audio chain.
+**Standard** is the factory default. **Premium** uses more and is comfortable
+on the Recommended tier and up. On Minimum, prefer Standard or classic NR if
+the machine is already busy (dual receive, a high waterfall rate).
 
 **Two things that matter on any tier:**
 
@@ -1323,7 +1331,11 @@ exclusive. **NR-C** (captured profile) is independent of both.
 
 - **NNR** — WDSP 2.10 neural denoiser. Default **off**. While on, Row 3
   shows **Model** and **Mask** instead of Mode / AEPF / NPE:
-  - **Standard** vs **Premium** (default). Premium is the heavier model.
+  - **Standard** (default) vs **Premium**. Premium is the heavier model
+    and uses more CPU. Standard is the start; switch to Premium when
+    you want to hear the stronger model (a mask around **−40** is the
+    amount to try while listening). On a Minimum-tier PC, stay on
+    Standard — or classic NR — if the machine is already busy.
   - **Mask** −10 dB (least suppression) … **−50 dB** (most). Default
     **−40**. More negative = more noise cut (and more chance of watery
     artifacts). This is the main NNR amount control.

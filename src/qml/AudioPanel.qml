@@ -802,8 +802,8 @@ Rectangle {
                 Layout.preferredWidth: 110
                 font.pixelSize: 11
                 ToolTip.text: qsTr("WDSP NNR model:\n"
-                                   + "Standard = slot 0\n"
-                                   + "Premium = slot 1 (Heiko starting point)")
+                                   + "Standard = slot 0 (default, lighter CPU)\n"
+                                   + "Premium = slot 1 (heavier model, more CPU)")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
 

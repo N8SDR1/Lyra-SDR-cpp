@@ -223,8 +223,8 @@ class WdspEngine : public QObject {
     Q_PROPERTY(bool aepfEnabled READ aepfEnabled NOTIFY nrChanged)
     Q_PROPERTY(int  npeMethod  READ npeMethod  NOTIFY nrChanged)
     // WDSP Neural NR (2.10).  XOR with EMNR — enabling one turns the
-    // other off.  nnrModel: 0=Standard 1=Premium (Heiko default).
-    // Mask floor: −10 (least) … −50 (most); Heiko starting point −40.
+    // other off.  nnrModel: 0=Standard (factory default) 1=Premium
+    // (heavier CPU).  Mask floor: −10 (least) … −50 (most); default −40.
     Q_PROPERTY(bool nnrEnabled READ nnrEnabled NOTIFY nrChanged)
     Q_PROPERTY(bool nnrAvailable READ nnrAvailable NOTIFY nrChanged)
     Q_PROPERTY(int  nnrModel   READ nnrModel   NOTIFY nrChanged)
@@ -1343,8 +1343,8 @@ private:
     bool    aepfEnabled_ = true;
     int     npeMethod_   = 0;            // 0=OSMS 1=MCRA
     bool    nnrEnabled_  = false;        // WDSP Neural NR; default off
-    int     nnrModel_    = 1;            // 0=Standard 1=Premium
-    double  nnrMaskFloorDb_ = -40.0;     // −10..−50; Heiko −40
+    int     nnrModel_    = 0;            // 0=Standard (default) 1=Premium
+    double  nnrMaskFloorDb_ = -40.0;     // −10..−50; factory default −40
     static constexpr double kNnrMaskFloorMinDb = -50.0;
     static constexpr double kNnrMaskFloorMaxDb = -10.0;
     QString agcMode_     = QStringLiteral("med");

@@ -126,8 +126,10 @@ at a time. The connected one is shown green/bold in the list.
 
 **NNR vs NR vs NR-C — which one?**
 - **NR** — classic WDSP EMNR (Modes 1–4, AEPF, NPE).
-- **NNR** — WDSP 2.10 neural denoiser (Standard / Premium + Mask slider).
-  **NR** and **NNR** cannot run at the same time.
+- **NNR** — WDSP 2.10 neural denoiser. **Standard** is the default (lighter
+  CPU); **Premium** uses more and is comfortable on the Recommended PC tier.
+  Mask runs **−10…−50 dB**, default **−40**. **NR** and **NNR** cannot run
+  at the same time.
 - **NR-C** — captured band-noise profile (your QTH). It can run with either
   NR or NNR.
 

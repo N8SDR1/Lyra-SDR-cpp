@@ -628,7 +628,7 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
         s.value(QStringLiteral("dsp/npeMethod"), 0).toInt(), 0, 1);
     nnrEnabled_  = s.value(QStringLiteral("dsp/nnrEnabled"), false).toBool();
     nnrModel_    = std::clamp(
-        s.value(QStringLiteral("dsp/nnrModel"), 1).toInt(), 0, 1);
+        s.value(QStringLiteral("dsp/nnrModel"), 0).toInt(), 0, 1);
     nnrMaskFloorDb_ = std::clamp(
         s.value(QStringLiteral("dsp/nnrMaskFloorDb"), -40.0).toDouble(),
         kNnrMaskFloorMinDb, kNnrMaskFloorMaxDb);
