@@ -20,6 +20,25 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.9
+
+- **NNR starts on Standard.** A fresh install picks the lighter
+  **Standard** model (the 0.25.8 installer picked **Premium**). A model
+  you already saved is kept. NNR is still **off** until you turn it on.
+  The **Mask** tooltip suggests trying **−25 to −40**. See
+  [Row 3 — Noise Reduction](#row-3--noise-reduction-character).
+- **PWR needle tracks voice peaks.** Between ticks the power meter keeps
+  the loudest forward-power sample, so a syllable shows instead of a
+  quiet average. Factory peak-hold for that needle is **700 ms** if you
+  have not saved your own. See [Meter panel](#meter-panel).
+- **TCI CW terminal** — a logger can hold the key line up between
+  letters and correct the callsign while you are still sending.
+  Prosigns (`|SK|`) and speed steps (`<` / `>`) work in the text. See
+  [CW keying over TCI](#cw-keying-over-tci).
+- **TCI TX sensors stay live at receive** — mic, forward power, peak
+  power, and SWR keep updating while you are listening, so a client's
+  TX meters do not blank between overs.
+
 ## What's new in 0.25.8
 
 - **WDSP 2.10** — bundled DSP engine is NR0V **2.10** (`GetWDSPVersion` 210).
@@ -123,6 +142,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.9](#whats-new-in-0259)
 - [What's new in 0.25.8](#whats-new-in-0258)
 - [What's new in 0.25.7](#whats-new-in-0257)
 - [What's new in 0.25.6](#whats-new-in-0256)
@@ -1843,6 +1863,12 @@ receiving (press **▶ Start** first; it rests at S0 when idle).
 > reading stays put as you adjust LNA — you can calibrate at any setting.
 > The relative movement, peak-hold, SNR, and
 > noise-floor behaviour are all live regardless.
+>
+> **PWR peaks.** The forward-power needle keeps the loudest coupler
+> sample between ticks, so a voice peak shows instead of the quiet
+> sample that happened to land on the tick. Factory peak-hold for that
+> needle is **700 ms** if you have not saved your own
+> (`Settings → Meter`).
 >
 > **Transmit meters** are fully wired. The wire / safety / telemetry
 > set — **PWR** (forward power, watts), **SWR** (antenna match),
@@ -4472,10 +4498,21 @@ Expert Electronics TCI CW commands:
 - **`cw_macros_speed`** — set the keying speed (WPM); a bare query reads
   it back.
 - **`cw_macros_stop`** — abort the current send immediately.
+- **CW terminal** — the key line stays up between letters so you can
+  correct the callsign mid-send. Lyra reports when the queued text has
+  drained and when the callsign's last letter starts. `|SK|` (and the
+  other prosigns) join as one character; `<` and `>` step the speed by
+  5 WPM inside the text. Turning the terminal off finishes the letters
+  already queued, then drops the line. Idle for 30 seconds drops it
+  too.
 
 Keying only happens in **CWU/CWL** (in any other mode the commands are
 ignored). Set your logger's TCI keyer to Lyra and it sends straight
 through. SDRLogger+, N1MM and similar work this way.
+
+**TX sensors** (mic dBm, RMS watts, peak watts, SWR) keep streaming
+while you are receiving, so a client's transmit meters do not go blank
+between overs.
 
 ### Digital modes over TCI (FT8 / FT4 / MSK144 / Q65 / etc.)
 

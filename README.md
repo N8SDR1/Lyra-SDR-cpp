@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.8 Sheliak** — WDSP 2.10 with neural NR (NNR). PureSignal Amp View kept. TCI / Apps from 0.25.7.
+**v0.25.9 Sheliak** — NNR factory model is Standard. PWR needle tracks voice peaks. TCI CW terminal holds the key line between letters; TX sensors stay live at receive. WDSP 2.10 from 0.25.8.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 

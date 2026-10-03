@@ -52,7 +52,7 @@ these are real roadmap items, not "maybe someday."
 
 ## Smaller items on the list
 
-- ✅ **WDSP 2.10** — Windows engine + NNR (v0.25.8). Mac/Linux binaries later.
+- ✅ **WDSP 2.10** — Windows engine + NNR (v0.25.8; factory model Standard from v0.25.9). Mac/Linux binaries later.
 - ✅ **VAC2** — second independent virtual-audio cable (RX2 / SUB); enable,
   auto-digital, gains, and latency store in TX profiles (schema 6). Audio
   device names stay global.

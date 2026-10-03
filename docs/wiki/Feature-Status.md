@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.8 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.25.9 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
@@ -56,7 +56,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 
 ### Metering &amp; TX safety
 
-- ✅ Multimeter — **PO / SWR / MIC / COMP / ALC / PA current**
+- ✅ Multimeter — **PO / SWR / MIC / COMP / ALC / PA current**. The **PWR** needle keeps the loudest coupler sample between ticks so voice peaks land on the scale (factory peak-hold 700 ms if you have not saved your own)
 - ✅ **ATT-on-TX** RX-front-end protection · **TR-sequencing** for amp hot-switch safety
 - ✅ **SWR protection** (auto-cut above threshold) · **max power / drive cap** for low-drive amps
 - ✅ **TX time-out** · hard **External TX Inhibit**
@@ -77,7 +77,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **Frequency calibration** against WWV / time stations
 - ✅ **Session recorder** — RX audio + timed panadapter snapshots → a synced **MP4**
 - ✅ **CAT / Serial** — Kenwood TS-480/2000 CAT over COM/TCP, serial PTT input, Winkeyer
-- ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; ExpertSDR3 / SunSDR2PRO identity + `start;` before `ready;` so **WSJT-X / JTDX** attach (MSHV / Open SSTV unchanged); **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log)
+- ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; **CW terminal** (key line stays up between letters; callsign correct mid-send) and **TX sensors** that keep reporting at receive; ExpertSDR3 / SunSDR2PRO identity + `start;` before `ready;` so **WSJT-X / JTDX** attach (MSHV / Open SSTV unchanged); **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log)
 - ✅ **USB-BCD** band data for linear-amp band switching
 - ✅ **Backup &amp; Restore** — export config, dated snapshots (survive reinstall), selective restore
 - ✅ Solar / propagation panel, weather alerts
