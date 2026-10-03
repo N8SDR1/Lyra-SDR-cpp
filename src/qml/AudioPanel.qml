@@ -819,7 +819,7 @@ Rectangle {
                 ToolTip.text: qsTr("NNR mask floor (dB):\n"
                                    + "−10 least suppression (more noise through)\n"
                                    + "−50 most suppression\n"
-                                   + "Default −40 (Heiko). Warren engine default −25.")
+                                   + "Try −25 to −40 as a starting point.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
             Label { visible: WdspEngine.nnrEnabled
