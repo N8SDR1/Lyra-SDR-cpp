@@ -5207,9 +5207,10 @@ QWidget *SettingsDialog::buildMeterTab() {
         "want each peak to read as a distinct event.  Ignores the "
         "PWR peak-hold spin box below.\n\n"
         "• Peak — sliding-window MAX with operator-tunable hold "
-        "(default 3000 ms).  Peaks park long enough to read off "
-        "the digital face at leisure; matches the typical Bird/"
-        "Palstar PEAK ballistic.  General-purpose default.\n\n"
+        "(factory default 700 ms).  Each tick keeps the highest "
+        "forward-power sample since the last one, then the needle "
+        "holds that peak for the time below.  General-purpose "
+        "default.\n\n"
         "• Avg — IIR smoother (~200 ms time constant).  Tracks the "
         "running average of forward power, NOT peaks.  Calm needle "
         "for sustained-tone gain-structure work and ragchew.  The "
@@ -5237,22 +5238,20 @@ QWidget *SettingsDialog::buildMeterTab() {
     pwrHold->setRange(100, 10000);
     pwrHold->setSingleStep(100);
     pwrHold->setSuffix(tr(" ms"));
-    pwrHold->setValue(meter_ ? meter_->pwrPeakHoldMs() : 3000);
+    pwrHold->setValue(meter_ ? meter_->pwrPeakHoldMs()
+                             : MeterModel::kDefaultPwrPeakHoldMs);
     pwrHold->setToolTip(tr(
-        "PWR meter peak hold — how long the main needle holds a "
-        "captured peak before decaying.  Sliding-window MAX detector: "
-        "needle jumps to peak instantly and holds at that value for "
-        "this duration before the slot wraps and the next-highest "
-        "sample takes over.  Default 3000 ms (3 sec, Bird/Palstar-"
-        "PEAK-style ballistic).  Lower for snappier decay; higher "
-        "for analog-needle-style long park.\n\n"
+        "PWR meter peak hold — how long the main needle keeps a "
+        "captured peak.  Between display updates the meter keeps "
+        "the highest forward-power sample, so a short voice peak "
+        "is not skipped.  This knob is how long that peak stays "
+        "on the face.  Factory default 700 ms.  Lower for a "
+        "snappier fall; higher to park a reading longer.\n\n"
         "ONLY APPLIES IN \"Peak\" BALLISTIC MODE — PEP uses a fixed "
         "500 ms hold and Avg uses an IIR smoother (this knob greys "
         "out for those two modes).\n\n"
-        "Note: this does NOT change how fast the needle CLIMBS to "
-        "peak — that's limited by the HL2 forward-power ADC's "
-        "hardware response time (directional coupler analog "
-        "integrator), which no software knob can shorten."));
+        "A value you already saved is kept.  The coupler's own "
+        "rise time is still the hardware floor."));
     connect(pwrHold, &QSpinBox::valueChanged, this,
             [this](int v) { if (meter_) meter_->setPwrPeakHoldMs(v); });
     form->addRow(tr("PWR peak-hold:"), pwrHold);

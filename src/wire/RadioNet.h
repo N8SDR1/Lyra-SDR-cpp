@@ -666,6 +666,12 @@ public:
 
 extern RadioNet* prn;
 
+// Highest raw forward-power ADC count since the PWR meter last took it.
+// tx[0].fwd_power stays the live word for the watts cap, SWR, calibration,
+// and CW key detect.  Written on the EP6 thread; taken on the meter tick.
+void noteFwdPowerSample(int raw);
+int  takeFwdPowerIntervalMax();
+
 // ===== §1.12 supplement — `create_rnet()` allocator =====
 //
 // Direct mirror of the reference's `create_rnet()` at

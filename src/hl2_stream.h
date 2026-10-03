@@ -876,6 +876,10 @@ public:
     // watts-cap servo, so "5 W cap" == "5 W on the meter".  (fwdPowerW stays
     // RAW for the SWR ratio + CW-keying detect, where a trim would be wrong.)
     double  fwdPowerCalW() const;
+    // Calibrated watts of the highest forward-power count since the
+    // previous take, then the maximum is cleared.  PWR needle only —
+    // fwdPowerW() / fwdPowerCalW() stay the live word.
+    double  takeFwdPowerIntervalMaxCalW() const;
     double  revPowerW()  const;
     // P2/Brick forward+reverse power ingest.  The P1/HL2 path decodes fwd/rev
     // from the EP6 `prn` telemetry inside fwdPowerW()/revPowerW(); the P2 wire
@@ -1777,6 +1781,8 @@ private slots:
     void onFatalError(QString reason);
 
 private:
+    double applyPwrTrim(double rawW) const;
+
     // Mirror a safety-critical TX/wire event to BOTH the in-app log
     // dock (emit logLine) AND the Qt logging surface (qInfo / qCritical
     // → stderr + any installed file handler).  Operator-facing record
@@ -2171,8 +2177,8 @@ private:
     // reading that falls well under the cap.  QSettings pa_gain/<band>/capSettled.
     std::atomic<bool>    capServoSettled_[kNumPaGainBands];
     // Per-band PWR-meter trim (1.0 = raw formula, no correction).  Applied
-    // by fwdPowerCalW() so the displayed watts + the cap servo share ONE
-    // calibrated basis.  QSettings meter/pwrTrim/<idx>.
+    // by applyPwrTrim() so the live word, the PWR-needle interval max, and
+    // the cap servo share one calibrated basis.  QSettings meter/pwrTrim/<idx>.
     std::atomic<double>  pwrTrimByBand_[kNumPaGainBands];
     // Cap ARM gate (2026-07-03) — the cap only limits when armed.  Default
     // false.  QSettings tx/capArmed.  See capActive_() / capArmed().

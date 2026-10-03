@@ -998,13 +998,9 @@ void Ep6RecvThread::decode_status_header(const uint8_t cc[5]) {
             p->tx[0].fwd_power =
                 static_cast<int>(((static_cast<int>(cc[3]) << 8) & 0xff00) |
                                  ( static_cast<int>(cc[4])       & 0x00ff));
-            // FIXME (Task #114 TX-policy plumbing): reference
-            // also calls `PeakFwdPower((float)prn->tx[0].fwd_power)`
-            // here to maintain a running peak-meter state for
-            // consumer-facing readouts.  Lyra-native peak
-            // helper lands with the TX-policy plumbing commit;
-            // raw fwd_power above is already populated for
-            // direct consumers.
+            // Side maximum for the PWR needle only.  The live word above
+            // is what the watts cap, SWR, and CW key detect keep reading.
+            noteFwdPowerSample(p->tx[0].fwd_power);
             break;
         case 0x10:  // C0 0001 0xxx
             // AIN2 PA reverse power + AIN3 MKII PA volts.

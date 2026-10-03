@@ -1869,6 +1869,13 @@ double HL2Stream::paCurrentA() const {
     const int raw = lyra::wire::prn->user_adc0;
     return ((3.26 * (raw / 4096.0)) / 50.0) / 0.04 / (1000.0 / 1270.0);
 }
+namespace {
+double hl2FwdWattsFromRaw(int raw) {
+    const double v = (raw - 6.0) / 4095.0 * 3.3;
+    return (v > 0.0) ? (v * v) / 1.5 : 0.0;
+}
+}  // namespace
+
 double HL2Stream::fwdPowerW() const {
     // P2/Brick: the P2 wire has no `prn` fwd/rev, so the P2RxBridge pushes
     // coupler watts via setPowerTelemetry().  Prefer it while a P2 source is
@@ -1879,11 +1886,7 @@ double HL2Stream::fwdPowerW() const {
     // Stage 2b2: read `prn->tx[0].fwd_power` direct (Ep6RecvThread
     // writes from slot 0x08 C3:C4 per networkproto1.c:507).
     if (lyra::wire::prn == nullptr) return kNaN;
-    const int raw = lyra::wire::prn->tx[0].fwd_power;
-    // Provisional + UNCALIBRATED — real watts need the per-band 3-point
-    // forward-power cal (a later TX-3 step).
-    const double v = (raw - 6.0) / 4095.0 * 3.3;
-    return (v > 0.0) ? (v * v) / 1.5 : 0.0;
+    return hl2FwdWattsFromRaw(lyra::wire::prn->tx[0].fwd_power);
 }
 double HL2Stream::revPowerW() const {
     if (p2PowerActive_.load(std::memory_order_relaxed))
@@ -1909,19 +1912,28 @@ void HL2Stream::clearPowerTelemetry() {
     // (keeps the working HL2 model intact after a P2 -> P1 rig switch).
     p2PowerActive_.store(false, std::memory_order_release);
 }
-double HL2Stream::fwdPowerCalW() const {
-    // Raw formula watts × the current TX band's PWR-meter trim.  This is the
-    // ONE calibrated watts value shared by the meter display and the watts
-    // cap, so a "5 W" cap lands where the meter reads 5 W.  Band from the TX
-    // freq (== RX freq in simplex).  No band / no trim -> raw.
-    const double raw = fwdPowerW();
-    if (std::isnan(raw)) return raw;
+double HL2Stream::applyPwrTrim(double rawW) const {
+    if (std::isnan(rawW)) return rawW;
     const int band = lyra::paPowerBandIndexForFreq(
         ddsHzForRf(txFreqHz_.load(std::memory_order_relaxed)));
     const double t = (band >= 0 && band < kNumPaGainBands)
                          ? pwrTrimByBand_[band].load(std::memory_order_relaxed)
                          : 1.0;
-    return raw * t;
+    return rawW * t;
+}
+
+double HL2Stream::fwdPowerCalW() const {
+    // Raw formula watts × the current TX band's PWR-meter trim.  This is the
+    // live calibrated watts the watts cap reads.  The PWR needle uses
+    // takeFwdPowerIntervalMaxCalW() so a syllable between ticks is not missed.
+    // Band from the TX freq (== RX freq in simplex).  No band / no trim -> raw.
+    return applyPwrTrim(fwdPowerW());
+}
+
+double HL2Stream::takeFwdPowerIntervalMaxCalW() const {
+    if (lyra::wire::prn == nullptr) return kNaN;
+    return applyPwrTrim(
+        hl2FwdWattsFromRaw(lyra::wire::takeFwdPowerIntervalMax()));
 }
 double HL2Stream::pwrTrimForBand(int idx) const {
     return (idx >= 0 && idx < kNumPaGainBands)

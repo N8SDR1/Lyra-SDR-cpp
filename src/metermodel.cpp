@@ -147,7 +147,7 @@ MeterModel::MeterModel(lyra::ipc::HL2Stream *stream,
     // cap indicator's hang/decay; THIS one controls the main needle
     // hold via the sliding-window MAX detector's window length).
     pwrPeakHoldMs_ = std::clamp(
-        s.value(QString::fromLatin1(kKeyPwrPeakHold), 3000).toInt(),
+        s.value(QString::fromLatin1(kKeyPwrPeakHold), kDefaultPwrPeakHoldMs).toInt(),
         100, 10000);
     pwrWinSamples_ = std::clamp(pwrPeakHoldMs_ / kTickMs,
                                  1, kPwrWindowSamplesMax);
@@ -907,10 +907,17 @@ void MeterModel::ladderRowFor(int src, double *level, double *danger) const {
     if (!stream_) return;
     switch (src) {
     case PWR: {
-        const double raw = (p2_ && p2_->isRunning())
-            ? p2_->forwardPowerW() : stream_->fwdPowerCalW();
-        const double w = (std::isnan(raw) || raw < 0.0) ? 0.0 : raw;
-        *level = std::clamp(w / std::max(pwrScaleMaxW_, 1e-9), 0.0, 1.0);
+        // When PWR is the face, the bar matches the needle (interval
+        // max, then the hold window).  Other faces already drained
+        // that maximum this tick, so the row falls back to the live word.
+        if (source_ == PWR) {
+            *level = level_;
+        } else {
+            const double raw = (p2_ && p2_->isRunning())
+                ? p2_->forwardPowerW() : stream_->fwdPowerCalW();
+            const double w = (std::isnan(raw) || raw < 0.0) ? 0.0 : raw;
+            *level = std::clamp(w / std::max(pwrScaleMaxW_, 1e-9), 0.0, 1.0);
+        }
         *danger = std::clamp(pwrRatedMaxW_ / std::max(pwrScaleMaxW_, 1e-9),
                               0.0, 1.0);
         return;
@@ -1052,8 +1059,10 @@ void MeterModel::buildLadderRows() {
         QVariantMap row;
         row.insert(QStringLiteral("label"), labels[i]);
         row.insert(QStringLiteral("value"),
-                   srcs[i] == RX_SMETER ? text_
-                                        : formatSecondaryText(srcs[i]));
+                   (srcs[i] == RX_SMETER
+                    || (srcs[i] == PWR && source_ == PWR))
+                       ? text_
+                       : formatSecondaryText(srcs[i]));
         row.insert(QStringLiteral("level"),  level);
         row.insert(QStringLiteral("danger"), danger);
         ladderRows_.append(row);
@@ -1083,6 +1092,12 @@ void MeterModel::buildLadderRows() {
 }
 
 void MeterModel::tick() {
+    // Drop the forward-power interval max when this tick is not drawing
+    // PWR.  Otherwise a stretch on ALC or S would dump the whole
+    // transmission's peak into the first PWR frame.
+    if (source_ != PWR && stream_ && !(p2_ && p2_->isRunning()))
+        stream_->takeFwdPowerIntervalMaxCalW();
+
     // Dispatch to the source-specific compute.  Each compute fn fills
     // level_/peak_/text_/etc. and emits updated() at the end.  Sources
     // not yet implemented fall through to a passive no-op (render stays
@@ -1276,41 +1291,40 @@ double MeterModel::rxSMeterDbmRx2() const {
 }
 
 void MeterModel::computePwr() {
-    // PWR — forward TX power in watts.  Reads HL2Stream::fwdPowerCalW
-    // (raw ADC → W formula x the operator's per-band trim, so it already
-    // matches the external watt-meter — the same value the watts cap
-    // servo uses) and maps it onto a 0..pwrScaleMaxW_ scale.  Renderer's
-    // "danger zone"
-    // (the historical normAtS9 binding the QML uses for the red zone)
-    // lands at the operator's rated max (pwrRatedMaxW_, default 5 W
-    // for a bare HL2+ on-board PA — pwrScaleMaxW_ is 2× that).
-    //
-    // No noise floor / SNR concept — those are RX-specific.  The text
-    // readouts are "X.X W" / "X.XX W peak" so the operator can read
-    // the watt-meter without crunching the scale.
-    const double raw = (p2_ && p2_->isRunning())
+    // PWR — forward TX power in watts, mapped onto 0..pwrScaleMaxW_.
+    // The danger zone lands at the operator's rated max (pwrRatedMaxW_,
+    // default 5 W for a bare on-board PA; the scale is 2× that).
+    // Peak and PEP read the highest coupler sample since the previous
+    // tick.  The watts cap, SWR, and calibration stay on the live word.
+    // P2 keeps its smoothed forwardPowerW() for every ballistic.
+    // HL2 AVG stays on the live calibrated word.  HL2 PEAK and PEP
+    // use the highest count since the previous take, so a syllable
+    // between ticks is kept.  The take still runs in AVG so a later
+    // switch to Peak cannot show a piled-up maximum.  fwdPowerCalW()
+    // itself is unchanged — the watts cap and SWR keep the live word.
+    const bool onP2 = p2_ && p2_->isRunning();
+    const double liveRaw = onP2
         ? p2_->forwardPowerW()
         : (stream_ ? stream_->fwdPowerCalW()
                    : std::numeric_limits<double>::quiet_NaN());
-    // Telemetry sentinel: NaN means the slot hasn't arrived yet (stream
-    // not running, or pre-first-statsChanged).  Display zero state so
-    // the renderer doesn't show stale-bogus levels from a previous
-    // source's history.
-    const double w = (std::isnan(raw) || raw < 0.0)
-                          ? 0.0
-                          : raw;
+    const double liveW = (std::isnan(liveRaw) || liveRaw < 0.0) ? 0.0 : liveRaw;
+    double peakW = liveW;
+    if (!onP2 && stream_) {
+        const double interval = stream_->takeFwdPowerIntervalMaxCalW();
+        if (!std::isnan(interval) && interval > peakW) peakW = interval;
+    }
+    const bool useInterval = !onP2 &&
+        (pwrBallistic_ == PWR_PEAK || pwrBallistic_ == PWR_PEP);
+    const double w = useInterval ? peakW : liveW;
 
     // PWR ballistic — one of three modes the operator picks in
     // Settings → Meter:
     //
     //   PWR_PEAK (default) — sliding-window MAX over the last
     //     pwrWinSamples_ ticks (operator-tunable hold via the PWR
-    //     Peak Hold spin box; default 60 samples × 50 ms = 3000 ms).
-    //     The 2026-05-31 bench-fix ballistic: brief voice peaks are
-    //     captured and held for the full window duration so the
-    //     digital bar parks at the peak long enough to read
-    //     (compensates for the lack of analog-needle damping in a
-    //     digital renderer).
+    //     Peak Hold spin box; factory 14 samples × 50 ms = 700 ms).
+    //     Each sample is already the highest coupler count in that
+    //     tick.  A saved meter/pwrPeakHoldMs is left alone.
     //
     //   PWR_PEP — sliding-window MAX over a FIXED 10 ticks (= 500 ms
     //     at the 50 ms tick rate).  Tight, snappy "PEP" ballistic —
