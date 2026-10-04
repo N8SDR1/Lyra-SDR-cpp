@@ -146,12 +146,20 @@ inline LyraHandleBase *lyra_handle(HANDLE h)
 // Events become semaphores: the ported code uses them only in the
 // auto-reset signal/wait pattern, which a counting semaphore models
 // exactly; it never relies on manual-reset broadcast wake-all.
+//
+// Always created at 0 and signalled up to `initial`: libdispatch traps
+// (SIGTRAP, "semaphore object deallocated while in use") when a semaphore
+// is released with its count below its CREATION value.  Win32 has no such
+// rule, and the ported code closes semaphores mid-use.  Signalling the
+// initial count keeps the creation value 0, so that check can never fire.
 inline HANDLE CreateSemaphore(void *attrs, long initial, long maximum, void *name)
 {
     (void)attrs; (void)maximum; (void)name;
     auto *handle = new LyraSemaphoreHandle{};
     handle->kind      = LyraHandleKind::Semaphore;
-    handle->semaphore = dispatch_semaphore_create(initial);
+    handle->semaphore = dispatch_semaphore_create(0);
+    for (long i = 0; i < initial; ++i)
+        dispatch_semaphore_signal(handle->semaphore);
     return static_cast<HANDLE>(handle);
 }
 

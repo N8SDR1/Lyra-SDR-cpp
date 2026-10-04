@@ -137,10 +137,24 @@ typedef CRITICAL_SECTION *LPCRITICAL_SECTION;
 // Both map to dispatch semaphores.  WDSP only ever uses events in the
 // auto-reset, signal/wait pattern that a counting semaphore models
 // exactly; it never relies on manual-reset broadcast semantics.
+//
+// Always created at 0 and signalled up to the initial count: libdispatch
+// traps (SIGTRAP) when a semaphore is released with its count below its
+// CREATION value, and WDSP does exactly that — flush_iobuffs() closes a
+// partly consumed Sem_OutReady and recreates it.  Win32 allows it.  A
+// creation value of 0 means the check can never fire.
+static inline dispatch_semaphore_t lyra_semaphore_create(long initial)
+{
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    for (long i = 0; i < initial; ++i)
+        dispatch_semaphore_signal(sem);
+    return sem;
+}
+
 static inline HANDLE CreateSemaphore(void *attrs, long initial, long maximum, void *name)
 {
     (void)attrs; (void)maximum; (void)name;
-    return (HANDLE)dispatch_semaphore_create(initial);
+    return (HANDLE)lyra_semaphore_create(initial);
 }
 
 static inline BOOL ReleaseSemaphore(HANDLE h, long count, long *previous)
@@ -154,7 +168,7 @@ static inline BOOL ReleaseSemaphore(HANDLE h, long count, long *previous)
 static inline HANDLE CreateEvent(void *attrs, BOOL manual_reset, BOOL initial, void *name)
 {
     (void)attrs; (void)manual_reset; (void)name;
-    return (HANDLE)dispatch_semaphore_create(initial ? 1 : 0);
+    return (HANDLE)lyra_semaphore_create(initial ? 1 : 0);
 }
 
 static inline BOOL SetEvent(HANDLE h)

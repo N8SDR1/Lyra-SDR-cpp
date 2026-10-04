@@ -1304,4 +1304,18 @@ if(APPLE)
     )
     target_include_directories(test_wdsp_posix_qos PRIVATE
         third_party/wdsp_posix/include)
+
+    # Closing a shim semaphore below its initial count must not trip
+    # libdispatch's dispose trap (WDSP's flush_iobuffs does exactly that).
+    # Build + run:  cmake --build build --target test_semaphore_close test_wdsp_posix_semaphore
+    add_executable(test_semaphore_close EXCLUDE_FROM_ALL
+        scratch/test_semaphore_close.cpp
+    )
+    target_include_directories(test_semaphore_close PRIVATE src)
+
+    add_executable(test_wdsp_posix_semaphore EXCLUDE_FROM_ALL
+        scratch/test_wdsp_posix_semaphore.c
+    )
+    target_include_directories(test_wdsp_posix_semaphore PRIVATE
+        third_party/wdsp_posix/include)
 endif()
