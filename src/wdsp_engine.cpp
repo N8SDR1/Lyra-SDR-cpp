@@ -678,7 +678,22 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
         const double sec = s.value(QStringLiteral("dsp/npCaptureSeconds"), 5.0).toDouble();
         npCaptureSeconds_ = (sec == 3.0 || sec == 5.0 || sec == 10.0) ? sec : 5.0;
         npAlpha_     = std::clamp(s.value(QStringLiteral("dsp/npAlpha"), 1.0).toDouble(), 1.0, 5.0);
-        npFloorDb_   = std::clamp(s.value(QStringLiteral("dsp/npFloorDb"), -12.0).toDouble(), -30.0, -3.0);
+        // Floor is max bin attenuation *before* WDSP AGC.  −12 dB was the
+        // original default; AGC Fast then makes most of that back, so with
+        // the panadapter no longer showing the mask the ear only hears a
+        // whisper.  −24 dB is still under the −30 slider stop.  One-shot
+        // migrate: a stored −12 that was never moved off the old default
+        // becomes −24 (dsp/npFloorMigrated).  An operator who later sets
+        // −12 by hand keeps it.
+        npFloorDb_   = std::clamp(s.value(QStringLiteral("dsp/npFloorDb"), -24.0).toDouble(), -30.0, -3.0);
+        if (!s.value(QStringLiteral("dsp/npFloorMigrated"), false).toBool()) {
+            const double stored = s.value(QStringLiteral("dsp/npFloorDb"), -12.0).toDouble();
+            if (stored > -12.5 && stored < -11.5) {
+                npFloorDb_ = -24.0;
+                s.setValue(QStringLiteral("dsp/npFloorDb"), -24.0);
+            }
+            s.setValue(QStringLiteral("dsp/npFloorMigrated"), true);
+        }
         npSmoothing_ = std::clamp(s.value(QStringLiteral("dsp/npSmoothing"), 0.6).toDouble(), 0.0, 0.95);
     }
     loadProfiles();
@@ -5075,8 +5090,8 @@ void WdspEngine::feedIq(const double *iq, int nframes)
     while (accum_.size() >= blockDoubles) {
         // Noise blanker (EXT): splice the impulse blanker on the raw IQ
         // block BEFORE WDSP's RXA chain — xnobEXT cleans accum_ front into
-        // nbBuf_, and the cleaned block then drives BOTH the demod and the
-        // analyzer so audio + panadapter match.  NB off → use accum_.
+        // nbBuf_.  That post-NB block feeds NR-C (audio), Spectrum0,
+        // capture, and zero-beat.  NB off → use accum_.
         double *blockPtr = accum_.data();
         if (nbEnabled_ && nbCreated_ && api.xnobEXT &&
             nbBuf_.size() >= blockDoubles) {
@@ -5105,10 +5120,12 @@ void WdspEngine::feedIq(const double *iq, int nframes)
             }
         }
         // Slice 3 apply: when enabled + a valid profile is loaded, clean
-        // the post-NB IQ block (Wiener-from-profile) and run WDSP + the
-        // analyzer on the CLEANED block so audio and panadapter match.
-        // Same-count interface → just swap the pointer (one window of
-        // latency lives inside the reducer).  Off/no-profile → unchanged.
+        // the post-NB IQ block (Wiener-from-profile) for WDSP audio only.
+        // The panadapter stays on post-NB IQ: the STFT gain mask around a
+        // strong station otherwise paints a 70–90 kHz slope.  Same-count
+        // interface → swap the pointer (one window of latency lives
+        // inside the reducer).
+        // Off/no-profile → unchanged.
         double *dspPtr = blockPtr;
         if (applyEnabled_.load(std::memory_order_relaxed) &&
             !lyra::ps::captured_profile_ps_bypass() && reducer_ &&
@@ -5121,8 +5138,8 @@ void WdspEngine::feedIq(const double *iq, int nframes)
         }
         api.fexchange0(channel_, dspPtr, outBuf_.data(), &fexErr_);
 
-        // Step 5: feed the SAME block WDSP saw (cleaned when applying) to
-        // the panadapter so the trace matches the audio.
+        // Step 5: panadapter sees post-NB IQ (blockPtr), not NR-C-cleaned
+        // IQ, so the trace stays brick-wall like the reference display.
         //
         // Task #44 Phase 2: skip the RX feed when TX owns the analyzer —
         // the TX worker is then feeding pre-iqc TX I/Q via
@@ -5133,11 +5150,11 @@ void WdspEngine::feedIq(const double *iq, int nframes)
         // moxActiveChanged edge from main.cpp.
         if (analyzerOpen_ && api.Spectrum0
                 && !txOwnsAnalyzer_.load(std::memory_order_acquire)) {
-            api.Spectrum0(1, kAnDisp, 0, 0, dspPtr);
+            api.Spectrum0(1, kAnDisp, 0, 0, blockPtr);
         }
 
-        // Zero-beat carrier tracker (RX-only tuning aid): the SAME block WDSP
-        // + the panadapter see.  Runs only when enabled AND in a lockable
+        // Zero-beat carrier tracker (RX-only tuning aid): same IQ the
+        // panadapter sees (post-NB, pre-NR-C).  Runs only when enabled AND in a lockable
         // carrier mode (CW/AM/SAM/FM).  All estimator mutation stays on this
         // RX-worker thread; only the result atomics cross to the UI.
         {
@@ -5155,7 +5172,7 @@ void WdspEngine::feedIq(const double *iq, int nframes)
                 // so the on-freq carrier sits at −markerOffset.
                 const double mk = zbMarkerHz_.load(std::memory_order_relaxed);
                 zeroBeat_.setSearchCenter(-mk);
-                zeroBeat_.process(dspPtr, cfg_.inSize);
+                zeroBeat_.process(blockPtr, cfg_.inSize);
                 zbRawHz_.store(zeroBeat_.offsetHz(), std::memory_order_relaxed);
                 zbValid_.store(zeroBeat_.valid(),    std::memory_order_relaxed);
             } else if (zbRunPrev_) {

@@ -27,6 +27,12 @@ not programmers — if you can click a menu, you can use this.
   you already saved is kept. NNR is still **off** until you turn it on.
   The **Mask** tooltip suggests trying **−25 to −40**. See
   [Row 3 — Noise Reduction](#row-3--noise-reduction-character).
+- **NR-C keeps the panadapter rectangular.** The reducer still cleans RX
+  audio. The spectrum stays on uncleaned IQ, so a strong station does not
+  paint a 70–90 kHz slope. The audio mask is full Wiener again (no
+  occupied-bin mix) so the speaker floor drop matches pre-split NR-C.
+  See
+  [Captured noise profile (NR-C)](#captured-noise-profile-nr-c--lyras-signature-noise-reduction).
 - **PWR needle tracks voice peaks.** Between ticks the power meter keeps
   the loudest forward-power sample, so a syllable shows instead of a
   quiet average. Factory peak-hold for that needle is **700 ms** if you
@@ -131,8 +137,9 @@ not programmers — if you can click a menu, you can use this.
 
 ## What's new in 0.25.1
 
-- **NR-C** leaves occupied bins (signals) at full scale so the RX passband
-  stays brick-wall at the edges.
+- **NR-C** tried an occupied-bin mix so voice/CW edges stayed brick-wall
+  in audio. That mix also lifted the audio noise floor; later dropped once
+  the panadapter used uncleaned IQ.
 - **Xvtr** chips on the Band row — four transverter slots; VFO stays in RF;
   right-click the slot editor. See [Band panel](#band-panel).
 - **Anti-aliasing (MSAA)** — Settings → Visuals **Off / 2× / 4× / 8×**
@@ -1401,14 +1408,16 @@ much sits where it was.
    noise; press it again to cancel.
 4. Press **Save**, give the profile a name (e.g. `40m-night`, `20m-ESSB`) in
    the box that pops up. It's now in the picker.
-5. Flip **NR-C** on. The captured noise is subtracted from RX. The panadapter
-   shows the cleaned spectrum too, so you can watch the floor drop. Occupied
-   bins (signals) are left alone, so the RX passband stays brick-wall rather
-   than sloping at the edges.
+5. Flip **NR-C** on. The captured noise is subtracted from RX audio. The
+   panadapter stays on the uncleaned IQ so strong stations keep a sharp
+   rectangular shape (the reducer STFT would otherwise slope 70–90 kHz
+   around a loud signal). You hear the floor drop; the display does not
+   follow the mask.
 6. Fine-tune with the **⚙** button (appears next to NR-C while it's on):
    - **Strength** (1–5×) — how hard to subtract. Higher = more cut.
-   - **Floor** (−3 to −30 dB) — the deepest any bin is allowed to drop.
-     More negative = more aggressive.
+   - **Floor** (−3 to −30 dB, default −24) — the deepest any bin is allowed
+     to drop before WDSP AGC. More negative = more audible hiss cut. −12
+     is too gentle once the panadapter no longer follows the mask.
    - **Smoothing** (0–95%) — steadies the gain so it doesn't "twinkle."
      Raise it if deeper Strength/Floor starts to sound watery.
 
@@ -1434,8 +1443,10 @@ on). Set the picker to **None**, or turn the toggles off before closing, for a
 clean start.
 
 Notes: NR-C adds about one FFT window of RX latency (≈21 ms at 4096) *only
-while it's on*; off, the path is unchanged. It's independent of the WDSP
-**NR** denoiser — you can run either, both, or neither.
+while it's on*; off, the path is unchanged. The panadapter does not take
+that delay — it stays on the uncleaned IQ so the trace stays rectangular.
+It's independent of the WDSP **NR** denoiser — you can run either, both, or
+neither.
 
 ---
 

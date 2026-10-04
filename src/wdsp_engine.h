@@ -431,12 +431,12 @@ public:
     // out_rate / in_rate).  Step 3d sizes its output buffer to this.
     int outSize() const { return outSize_; }
 
-    // Step 5: WDSP spectral analyzer (panadapter source).  The IQ fed
-    // to the audio chain is also fed to the analyzer; copySpectrum
-    // pulls the latest display-width dB array (called from the
-    // panadapter's render thread — WDSP serialises feed-vs-read
-    // internally, as standard SDR apps rely on).  Plain C++ (not Q_INVOKABLE):
-    // the panadapter is a C++ QQuickPaintedItem, not QML JS.
+    // Step 5: WDSP spectral analyzer (panadapter source).  Fed post-NB
+    // IQ (NR-C cleans WDSP audio only; it does not enter the analyzer).
+    // copySpectrum pulls the latest display-width dB array (called from
+    // the panadapter's render thread — WDSP serialises feed-vs-read
+    // internally).  Plain C++ (not Q_INVOKABLE): the panadapter is a
+    // C++ QQuickPaintedItem, not QML JS.
     int  spectrumPixelCount() const;
     void setRxDisplayCalibrationDb(double db) {
         rxDisplayCalibrationDb_.store(db, std::memory_order_relaxed);
@@ -1403,7 +1403,7 @@ private:
     std::vector<double> cleanBuf_;                  // 2*inSize cleaned IQ
     double              npCaptureSeconds_ = 5.0;    // 3/5/10
     double              npAlpha_     = 1.0;          // over-subtraction
-    double              npFloorDb_   = -12.0;        // max attenuation
+    double              npFloorDb_   = -24.0;        // max attenuation (pre-AGC)
     double              npSmoothing_ = 0.6;          // mask smoothing
     QString             npActiveName_;              // loaded profile ("" = none)
     void applyReducerParams();   // push α/floor/smoothing to reducer_ (lock held)
