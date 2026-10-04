@@ -77,10 +77,10 @@ not programmers — if you can click a menu, you can use this.
 
 ## What's new in 0.25.6
 
-- **HL2 analog band-follow** — with **Enable N2ADR / IO board** on (the
-  default), stock IO-board analog voltage now tracks **TX frequency** the
-  same way Thetis / Quisk / SparkSDR do. Start the radio after enabling it.
-  Protocol 2 Brick/ANAN is unchanged. See
+- **HL2 analog band-follow** — Protocol 1 always writes TX Hz to the IO
+  board (I2C2 / 0x1D). That is **not** gated on **Enable N2ADR / IO
+  board** (that box is OC / LPF relays). Protocol 2 Brick/ANAN is
+  unchanged. See
   [Settings → Filters / BCD](#settings--filters--bcd).
 
 ## What's new in 0.25.5
@@ -138,8 +138,8 @@ not programmers — if you can click a menu, you can use this.
 ## What's new in 0.25.1
 
 - **NR-C** tried an occupied-bin mix so voice/CW edges stayed brick-wall
-  in audio. That mix also lifted the audio noise floor; later dropped once
-  the panadapter used uncleaned IQ.
+  in audio. That mix also lifted the audio noise floor; 0.25.9 dropped it
+  once the panadapter used uncleaned IQ.
 - **Xvtr** chips on the Band row — four transverter slots; VFO stays in RF;
   right-click the slot editor. See [Band panel](#band-panel).
 - **Anti-aliasing (MSAA)** — Settings → Visuals **Off / 2× / 4× / 8×**
@@ -3558,10 +3558,10 @@ paths** plus OC filters — they are not the same pin. Protocol 2 radios
 | Path | Pin | How Lyra turns it on | Same as |
 |------|-----|----------------------|---------|
 | Gateware Band Volts | **J3** (fan PWM / GPIO04_Fan) | **HL2 Band Volts on J3** checkbox | DeskHPSDR RX → *HL2 Band Volts / Dither Bit*; MI0BOT Thetis *HL2 Band Volts* |
-| Pico analog (stock `n2adr_basic`) | **J4 pin 8** | **Enable N2ADR / IO board** (default on) — Lyra writes TX Hz over I2C **0x1D** | Thetis / Quisk / SparkSDR (same Pico TX-freq writes; OC is filters only) |
-| N2ADR LPF relays | J16 → I2C **0x20** | same checkbox | DeskHPSDR `filter_board = N2ADR` |
+| Pico analog (stock `n2adr_basic`) | **J4 pin 8** | Always on Protocol 1 — Lyra writes TX Hz over I2C **0x1D** (I2C2) | Thetis / Quisk / SparkSDR (same Pico TX-freq writes; OC is filters only) |
+| N2ADR LPF relays | J16 → I2C **0x20** | **Enable N2ADR / IO board** | DeskHPSDR `filter_board = N2ADR` |
 
-USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no board.
+USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no filter board (analog still follows).
 
 ### Filter board — OC Control (J16 pins)
 
@@ -3573,10 +3573,10 @@ nearby AM broadcaster, say). Gateware relays those bits over I2C
 on **J4 pin 8** follows **TX frequency** written over I2C **0x1D** — not
 the OC bits. Analog on **J3** is the separate Band Volts checkbox.
 
-- **Enable N2ADR / IO board (filters + Pico analog, not J3)** —
-  turns OC band-switching on **and** Pico TX-Hz writes (HL2 / HL2+ only;
-  default on). Off = OC idle and no Pico analog updates. Harmless with
-  no board. **J3** analog is Band Volts, further down.
+- **Enable N2ADR / IO board (OC / LPF relays, not analog)** —
+  turns OC band-switching on (HL2 / HL2+ only; default on). Off = OC
+  idle. Pico TX-Hz analog still runs on Protocol 1. Harmless with no
+  board. **J3** analog is Band Volts, further down.
 - **Live pins** (top-right) — the seven cells light to show which J16
   pins are being driven **right now**, on the wire. They follow the band
   as you tune and flip to the transmit pattern while you're keyed.
@@ -3637,8 +3637,9 @@ instead — install the FTDI D2XX driver to use USB-BCD.)
 ### Band Volts on J3 (fan PWM) — leave off for Pico / J4
 
 **Do not tick this** for stock Pico analog, M0AWS DB9 BAND, or a
-GP100/GPA100 on **J4 pin 8**. That path is **Enable N2ADR / IO board**
-(I2C **0x1D**) — no extra Hardware box, matching Thetis/Quisk.
+GP100/GPA100 on **J4 pin 8**. That path is Protocol 1 TX-Hz on I2C
+**0x1D** (always sent) — matching Thetis/Quisk. The N2ADR checkbox is
+OC/LPF only.
 
 Use this checkbox **only** if the amp is jumpered to **IO-board J3**
 (the fan header / GPIO04_Fan). Tick **HL2 Band Volts on J3 / fan-PWM
