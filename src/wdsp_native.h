@@ -129,6 +129,12 @@ using fn_SetRXAEMNRPosition_t   = void (*)(int channel, int position);
 // voice.  We drive post2Run with the AEPF control; params stay at the
 // WDSP create defaults (0.15 / 0.15 / 5.0 / 0.12) — not overridden.
 using fn_SetRXAEMNRpost2Run_t   = void (*)(int channel, int run);
+// Neural NR (WDSP 2.10+).  Optional on older DLLs — nullptr means
+// the NNR toggle is inert.  Model slot 0=Standard 1=Premium.
+// Mask floor is dB, typical −10 (more residual) .. −50 (max cut).
+using fn_SetRXANNRRun_t        = void (*)(int channel, int run);
+using fn_SetRXANNRMaskFloor_t  = void (*)(int channel, double floor_db);
+using fn_SetRXANNRModel_t      = int  (*)(int channel, int slot);
 // AGC time constants — set explicitly per mode so Fast/Med/Slow are
 // audibly distinct (decay/hang in ms; hang threshold 0..100).
 using fn_SetRXAAGCDecay_t         = void (*)(int channel, int decay);
@@ -431,6 +437,9 @@ struct WdspApi {
     fn_SetRXAEMNRaeRun_t      SetRXAEMNRaeRun      = nullptr;
     fn_SetRXAEMNRPosition_t   SetRXAEMNRPosition   = nullptr;
     fn_SetRXAEMNRpost2Run_t   SetRXAEMNRpost2Run   = nullptr;
+    fn_SetRXANNRRun_t         SetRXANNRRun         = nullptr;   // optional (2.10+)
+    fn_SetRXANNRMaskFloor_t   SetRXANNRMaskFloor   = nullptr;   // optional
+    fn_SetRXANNRModel_t       SetRXANNRModel       = nullptr;   // optional
     fn_SetRXAAGCDecay_t         SetRXAAGCDecay         = nullptr;
     fn_SetRXAAGCHang_t          SetRXAAGCHang          = nullptr;
     fn_SetRXAAGCFixed_t         SetRXAAGCFixed         = nullptr;
@@ -563,7 +572,7 @@ public:
     //       fftw/, leave it untouched per CLAUDE.md §15.26
     //       isolation-by-directory rule);
     //
-    //   (b) if `wdspWisdom00` exists in that dir, calling
+    //   (b) if `wdspWisdom01` exists in that dir, calling
     //       api().WDSPwisdom(<dir>) IN-PROCESS — fast import,
     //       <100 ms typical;
     //

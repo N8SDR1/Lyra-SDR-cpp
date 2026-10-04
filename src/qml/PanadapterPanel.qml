@@ -2106,11 +2106,14 @@ Item {
                 }
 
                 // #182 — colour legend (top-right) for by-mode / by-region.
+                // Sit left of the right-edge dB scale (DbLabels: width + 5 px)
+                // so CW/Phone/FT8/RTTY does not cover the upper tick numbers.
                 Rectangle {
                     visible: bandPlan.legendList.length > 0
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.margins: 6
+                    anchors.topMargin: 6
+                    anchors.rightMargin: 48
                     width: legendCol.width + 12
                     height: legendCol.height + 8
                     radius: 4

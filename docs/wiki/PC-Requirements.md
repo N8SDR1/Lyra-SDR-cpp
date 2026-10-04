@@ -88,6 +88,11 @@ spots, high-refresh spectrum and waterfall on a big screen, and comfortable
 margin for dual receive plus **PureSignal** (coupler / ADC0 feedback while
 keyed).
 
+**NNR** (neural noise reduction) is extra CPU in the receive audio chain.
+**Standard** is the factory default. **Premium** uses more and is comfortable
+on Recommended and up. On Minimum, prefer Standard or classic NR if the
+machine is already busy (dual receive, a high waterfall rate).
+
 ## Two things that matter on any tier
 
 - 🔌 A **wired** connection to the Hermes Lite is the single biggest factor in

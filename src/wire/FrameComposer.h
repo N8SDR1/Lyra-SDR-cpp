@@ -104,6 +104,29 @@ void set_rx_freq(int rx_idx, int freq_hz);
 // (see Q4).
 void set_tx_freq(int freq_hz);
 
+// Pack TX RF Hz as 5 big-endian bytes for the Jim Ahlstrom HL2IOBoard
+// Pico (I2C 0x1D registers 0..4 = BYTE4..BYTE0).  BYTE0 last on the wire
+// latches new_tx_freq / analog PWM.  Protocol 1 / HL2 family only.
+inline void pack_hl2_ioboard_tx_freq_bytes(std::uint64_t hz,
+                                           unsigned char out[5]) noexcept
+{
+    out[0] = static_cast<unsigned char>((hz >> 32) & 0xFFu);
+    out[1] = static_cast<unsigned char>((hz >> 24) & 0xFFu);
+    out[2] = static_cast<unsigned char>((hz >> 16) & 0xFFu);
+    out[3] = static_cast<unsigned char>((hz >>  8) & 0xFFu);
+    out[4] = static_cast<unsigned char>( hz        & 0xFFu);
+}
+
+// Host I2C write overlay (C0 0x3c / 0x3d).  Same ring as the EP2 I2C
+// steal in write_main_loop_hl2.  Returns false if prn is null or the
+// 32-slot ring is full.  Address is 7-bit.
+bool enqueue_i2c_write(unsigned char bus, unsigned char address,
+                       unsigned char control, unsigned char write_data);
+
+// Five writes to Pico 0x1D: BYTE4..BYTE0 (register 0 then 4 last).
+// No-op / false if prn is null or fewer than 5 free slots.
+bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz);
+
 // HL2 "Band Volts" output enable (MI0BOT / Ramdor gateware feature).
 // Writes the C0=0x00 frame's C3 bit 3 — the ADC "dither" bit — which the
 // gateware decodes as `band_volts_enabled` (control.v:582-584,

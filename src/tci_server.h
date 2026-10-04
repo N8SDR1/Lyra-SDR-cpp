@@ -169,6 +169,8 @@ private:
     void sendTo(QWebSocket *ws, const QString &line);
     void broadcast(const QString &key, const QString &line); // rate-limited
     void broadcastNow(const QString &line);        // unthrottled (edges)
+    void syncSensorTimer();
+    void dropCwTerminalKey();
     void pruneDeadClients();                       // drop non-connected sockets
     void recomputeStreaming();                     // enable engine taps iff a client wants them
     // Radio-signal handlers → broadcasts.
@@ -230,6 +232,9 @@ private:
     QTimer                *smeterTimer_ = nullptr;
     QTimer                *maintTimer_  = nullptr;   // ping + prune dead clients
     bool                   sensorsEnabled_ = false;
+    bool                   txSensorsEnabled_ = false;
+    bool                   cwTerminal_ = false;
+    double                 txSensorPeakW_ = 0.0;
     QString                bindError_;   // last listen() failure reason ("" = ok)
 
     // Match the reference's RX-audio packetisation cadence (per
@@ -364,8 +369,8 @@ private:
     QString  bindHost_         = QStringLiteral("127.0.0.1");
     int      rateLimitMs_      = 20;      // ~50 Hz
     bool     sendInitialState_ = true;
-    bool     emulateExpertSdr3_= false;
-    bool     emulateSunSdr2_   = false;
+    bool     emulateExpertSdr3_= true;
+    bool     emulateSunSdr2_   = true;
     bool     cwluBecomesCw_    = true;
     // Set true while a TCI `tune:` command holds the key, so the wire-edge
     // onMoxActiveChanged mirrors the edge on the `tune:` channel (Thetis emits

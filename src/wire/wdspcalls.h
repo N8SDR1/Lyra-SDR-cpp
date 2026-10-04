@@ -239,45 +239,16 @@ extern void (*SetTXACTCSSFreq)(int channel, double freq);
 //   ammod.c:103      void SetTXAAMCarrierLevel (int channel, double c_level);
 extern void (*SetTXAAMCarrierLevel)(int channel, double c_level);
 
-// ---- PureSignal (calcc.c exports; committed feature, v0.3 consumer) ------
-// Signatures harvested from wdsp/calcc.c definition sites (PORT-
-// prefixed; line numbers cited in wdspcalls.cpp).  All verified
-// present in the bundled wdsp.dll exports (dumpbin 2026-06-09).
-//   calcc.c:617   void pscc (int channel, int size, double* tx, double* rx);
-//   calcc.c:840   void psccF (int channel, int size, float* Itxbuff,
-//                     float* Qtxbuff, float* Irxbuff, float* Qrxbuff,
-//                     int mox, int solidmox);
-//   calcc.c:891   void SetPSRunCal (int channel, int run);
-//   calcc.c:901   void SetPSMox (int channel, int mox);
-//   calcc.c:914   void GetPSInfo (int channel, int* info);
-//   calcc.c:924   void SetPSReset (int channel, int reset);
-//   calcc.c:934   void SetPSMancal (int channel, int mancal);
-//   calcc.c:942   void SetPSAutomode (int channel, int automode);
-//   calcc.c:950   void SetPSTurnon (int channel, int turnon);
-//   calcc.c:958   void SetPSControl (int channel, int reset, int mancal,
-//                     int automode, int turnon);
-//   calcc.c:971   void SetPSLoopDelay (int channel, double delay);
-//   calcc.c:982   void SetPSMoxDelay (int channel, double delay);
-//   calcc.c:1016  void SetPSHWPeak (int channel, double peak);
-//   calcc.c:1026  void GetPSHWPeak (int channel, double* peak);
-//   calcc.c:1034  void GetPSMaxTX (int channel, double* maxtx);
-//   calcc.c:1042  void SetPSPtol (int channel, double ptol);
-//   calcc.c:1050  void GetPSDisp (int channel, double* x, double* ym,
-//                     double* yc, double* ys, double* cm, double* cc,
-//                     double* cs);
-//   calcc.c:1065  void SetPSFeedbackRate (int channel, int rate);
-//   calcc.c:1094  void SetPSPinMode (int channel, int pin);
-//   calcc.c:1102  void SetPSMapMode (int channel, int map);
-//   calcc.c:1110  void SetPSStabilize (int channel, int stbl);
-//   calcc.c:1132  void SetPSIntsAndSpi (int channel, int ints, int spi);
-//
-// NOTE: SetPSTXDelay is exported by the DLL (dumpbin ordinal 143)
-// but its definition site was not located in calcc.c on the
-// 2026-06-09 harvest pass — per table rule #1 it is NOT declared
-// here until its signature is verified at first use.
+// ---- PureSignal (calcc.c exports; live consumer is lyra::ps::PsFsm) ------
+// Live PS path: pscc / SetPSControl / GetPSInfo / GetPSDisp (via
+// get_ps_disp) / SetPSHWPeak / GetPSHWPeak / GetPSMaxTX /
+// SetPSFeedbackRate / SetPSMox / SetPSRunCal / SetPS*Delay.
+// GetPSDisp arity changed at engine 2.00 (cubic cm/cc/cs replaced
+// by NURBS corr arrays + nsamps/cpts/phs). Stored untyped; call
+// only through get_ps_disp(). 1.x-only knobs that 2.x dropped
+// (psccF, SetPSPtol, SetPSPinMode, SetPSMapMode, SetPSStabilize,
+// SetPSIntsAndSpi) are not resolved — Lyra never called them.
 extern void (*pscc)(int channel, int size, double* tx, double* rx);
-extern void (*psccF)(int channel, int size, float* Itxbuff, float* Qtxbuff,
-                     float* Irxbuff, float* Qrxbuff, int mox, int solidmox);
 extern void (*SetPSRunCal)(int channel, int run);
 extern void (*SetPSMox)(int channel, int mox);
 extern void (*GetPSInfo)(int channel, int* info);
@@ -292,14 +263,9 @@ extern void (*SetPSMoxDelay)(int channel, double delay);
 extern void (*SetPSHWPeak)(int channel, double peak);
 extern void (*GetPSHWPeak)(int channel, double* peak);
 extern void (*GetPSMaxTX)(int channel, double* maxtx);
-extern void (*SetPSPtol)(int channel, double ptol);
-extern void (*GetPSDisp)(int channel, double* x, double* ym, double* yc,
-                         double* ys, double* cm, double* cc, double* cs);
+extern void* GetPSDisp;
+extern int  (*GetWDSPVersion)();
 extern void (*SetPSFeedbackRate)(int channel, int rate);
-extern void (*SetPSPinMode)(int channel, int pin);
-extern void (*SetPSMapMode)(int channel, int map);
-extern void (*SetPSStabilize)(int channel, int stbl);
-extern void (*SetPSIntsAndSpi)(int channel, int ints, int spi);
 
 // ---- resolver ------------------------------------------------------------
 // Resolves every pointer above from the already-loaded wdsp.dll
@@ -309,5 +275,20 @@ extern void (*SetPSIntsAndSpi)(int channel, int ints, int spi);
 // missing name is qWarning'd.  MUST be called after WdspNative::load
 // succeeds and BEFORE create_cmaster().
 int resolve_wdsp_calls();
+
+// Engine version as GetWDSPVersion (version × 100). 0 if missing.
+// Bundled 1.29 → 129; TAPR 2.10 → 210.
+int  wdsp_engine_version();
+
+// Version-gated GetPSDisp. Always pass live buffers (2.x memcpy
+// does not tolerate nullptr). Engine < 200 fills cm/cc/cs and
+// leaves nsamps/cpts/phs at 0; engine >= 200 fills NURBS corr
+// arrays plus the three out-params. No-op if GetPSDisp is null.
+void get_ps_disp(int channel,
+                 double* x, double* ym, double* yc, double* ys,
+                 double* cm, double* cc, double* cs,
+                 double* xm_cor, double* ym_cor,
+                 double* xa_cor, double* ya_cor,
+                 int* nsamps_out, int* cpts_out, double* phs_ref_deg_out);
 
 }  // namespace lyra::wire

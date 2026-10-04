@@ -25,8 +25,8 @@ listening — and talking — fast. This same guide is built into the app
   finds.
 - **Double-click your radio** to open it. On a fixed IP or different subnet, use
   **Add by IP**.
-- *First launch only:* Lyra spends a few minutes tuning its DSP math to your
-  CPU — a one-time step. Let it finish; it opens by itself.
+- *First launch, and after a DSP-engine update:* Lyra spends a few minutes
+  tuning its DSP math to your CPU. Let it finish; it opens by itself.
 
 ## 3 · Start the radio ▶️
 

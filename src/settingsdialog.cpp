@@ -1184,6 +1184,10 @@ QWidget *SettingsDialog::buildBandsTab() {
     table->setAlternatingRowColors(true);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    table->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    table->setMinimumHeight(220);
+    table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     // First click opens the cell (not double-click). Spreadsheet-style so
     // the list does not look read-only.
     table->setEditTriggers(QAbstractItemView::AllEditTriggers);
@@ -1267,7 +1271,7 @@ QWidget *SettingsDialog::buildBandsTab() {
         }
         *refreshing = false;
     });
-    v->addWidget(table);
+    v->addWidget(table, 1);
 
     auto *btnRow = new QHBoxLayout;
     auto *addBtn = new QPushButton(tr("Store current"), mem);
@@ -1341,8 +1345,8 @@ QWidget *SettingsDialog::buildBandsTab() {
            "set Offset (TX shift in kHz, e.g. −100 for 10 m, −1000 = −1 MHz "
            "for 6 m, −7600 for 70 cm), UL (TX CTCSS Hz), optional DL (RX tone if different "
            "from UL), and Burst (1750 for a 1750 Hz tone-burst recipe). "
-           "Recall arms SPLIT + UL; DL shows on Tuning only when it differs "
-           "from UL. Blank Offset/UL = simplex. Up to %1 presets.")
+           "Recall arms SPLIT + UL. Blank Offset/UL/DL = none (simplex / no "
+           "tone). Up to %1 presets. Scroll the table if more rows are stored.")
             .arg(MemoryStore::kMax), mem);
     hint->setWordWrap(true);
     hint->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
@@ -1919,8 +1923,9 @@ QWidget *SettingsDialog::buildNetworkTab() {
     auto *emuProto = new QCheckBox(tr("Emulate ExpertSDR3 (report protocol "
                                       "name “ExpertSDR3”)"), grp);
     emuProto->setChecked(tci_->emulateExpertSdr3());
-    emuProto->setToolTip(tr("Some clients only recognise ExpertSDR3 / SunSDR "
-                            "rigs. Enable these to masquerade as one."));
+    emuProto->setToolTip(tr("JTDX and WSJT-X only attach if the protocol "
+                            "name is ExpertSDR3 (MSHV / Open SSTV do not "
+                            "care). Default on. Un-tick to advertise Lyra."));
     connect(emuProto, &QCheckBox::toggled, tci_,
             [this](bool on) { tci_->setEmulateExpertSdr3(on); });
     form->addRow(QString(), emuProto);
@@ -2644,7 +2649,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             "1750 Hz burst instead of CTCSS.  Region 2 (US) and Region 3 "
             "almost always use CTCSS, so this chip stays hidden unless you "
             "check here.  With no saved choice it follows Region 1 only.  "
-            "The burst is a ~0.5 s 1750 Hz tone on FM TX audio while keyed."));
+            "Burst length is set next to this checkbox (0.5 / 2 / 3 / 4 s)."));
         connect(burst1750Ck, &QCheckBox::clicked, grp, [this](bool on) {
             prefs_->setFmShow1750Burst(on);
         });
@@ -2653,7 +2658,34 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (burst1750Ck->isChecked() != prefs_->fmShow1750Burst())
                 burst1750Ck->setChecked(prefs_->fmShow1750Burst());
         });
-        g->addWidget(burst1750Ck, 2, 0, 1, 2);
+        g->addWidget(burst1750Ck, 2, 0, 1, 1);
+
+        auto *burstMsCombo = new QComboBox(grp);
+        burstMsCombo->addItem(tr("0.5 s"), 500);
+        burstMsCombo->addItem(tr("2 s"), 2000);
+        burstMsCombo->addItem(tr("3 s"), 3000);
+        burstMsCombo->addItem(tr("4 s"), 4000);
+        burstMsCombo->setToolTip(tr(
+            "How long the Tuning 1750 chip mixes 1750 Hz into FM TX audio. "
+            "Default 2 s. Hold MOX / PTT, then tap 1750."));
+        if (stream_) {
+            const int i = burstMsCombo->findData(stream_->fmBurstMs());
+            burstMsCombo->setCurrentIndex(i >= 0 ? i : 1);
+        }
+        connect(burstMsCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+                grp, [this, burstMsCombo](int) {
+            if (stream_)
+                stream_->setFmBurstMs(burstMsCombo->currentData().toInt());
+        });
+        if (stream_) {
+            connect(stream_, &lyra::ipc::HL2Stream::fmBurstMsChanged,
+                    burstMsCombo, [burstMsCombo](int ms) {
+                const int i = burstMsCombo->findData(ms);
+                if (i >= 0 && burstMsCombo->currentIndex() != i)
+                    burstMsCombo->setCurrentIndex(i);
+            });
+        }
+        g->addWidget(burstMsCombo, 2, 1);
 
         // Overlay-layer toggles (the panadapter top strip).  Each mirrors
         // a Prefs bool; Region = None hides everything regardless.
@@ -4511,15 +4543,15 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
             tr("Enable N2ADR / IO board (filters + Pico analog, not J3)"));
         fb->setChecked(stream_->filterBoardEnabled());
         fb->setToolTip(tr(
+            "HL2 / HL2+ only. Protocol 2 (Brick SDR, ANAN) ignores Pico analog.\n\n"
             "DeskHPSDR: HL2 filter_board = N2ADR, OC on every frame.\n"
-            "Thetis/Quisk send the same OC bits with no extra checkbox.\n\n"
-            "Drives J16 open-collectors. Gateware relays them over I2C "
-            "(addr 0x20) for N2ADR LPFs. A Pico (M0AWS / KP4RX) can turn "
-            "those bits into analog PWM — stock N2ADR firmware is J4 pin 8, "
-            "not J3.\n\n"
+            "Thetis/Quisk send OC (filters) plus I2C TX frequency to the Pico.\n\n"
+            "J16 open-collectors: gateware I2C 0x20 = N2ADR LPF relays.\n"
+            "Stock n2adr_basic analog on J4 pin 8: host I2C 0x1D TX Hz "
+            "(not OC bits, not J3).\n\n"
             "IO-board J3 is the fan-PWM header. Analog on J3 uses the Band "
             "Volts checkbox below (DeskHPSDR dither / MI0BOT HL2 Band Volts).\n\n"
-            "Off = OC pins idle (harmless with no board)."));
+            "Off = OC idle and Pico analog not updated (harmless with no board)."));
         connect(fb, &QCheckBox::toggled, stream_,
                 &lyra::ipc::HL2Stream::setFilterBoardEnabled);
         connect(stream_, &lyra::ipc::HL2Stream::filterBoardChanged, fb,
@@ -4665,16 +4697,17 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         // block; stock ak4951 without fan leaves the pin low.
         {
             auto *bvBox = section(
-                tr("IO-board J3 analog (fan PWM / Band Volts)"));
+                tr("J3 fan header only — not Pico / J4 analog"));
             auto *bvv = new QVBoxLayout(bvBox);
 
             auto *note = new QLabel(tr(
-                "If your amp/tuner takes analog band voltage from IO-board "
-                "J3 (the fan header), use this checkbox — same wire bit as "
-                "DeskHPSDR’s “HL2 Band Volts / Dither Bit” and MI0BOT "
-                "Thetis “HL2 Band Volts”. Leave it off if J3 is a cooling "
-                "fan. N2ADR filters still use the OC enable above; stock "
-                "Pico analog PWM is J4 pin 8."));
+                "Leave this off for a stock N2ADR Pico, M0AWS DB9, or "
+                "GP100/GPA100 on J4 pin 8. That analog is the N2ADR "
+                "checkbox above (I2C 0x1D TX Hz) — same as Thetis/Quisk, "
+                "no extra box.\n\n"
+                "Tick this only if the amp is jumpered to IO-board J3 "
+                "(GPIO04_Fan). Then J3 becomes gateware Band Volts instead "
+                "of a cooling fan (DeskHPSDR / MI0BOT “HL2 Band Volts”)."));
             note->setWordWrap(true);
             note->setStyleSheet(QStringLiteral("color:#e0b060;"));  // amber caution
             bvv->addWidget(note);
@@ -5174,9 +5207,10 @@ QWidget *SettingsDialog::buildMeterTab() {
         "want each peak to read as a distinct event.  Ignores the "
         "PWR peak-hold spin box below.\n\n"
         "• Peak — sliding-window MAX with operator-tunable hold "
-        "(default 3000 ms).  Peaks park long enough to read off "
-        "the digital face at leisure; matches the typical Bird/"
-        "Palstar PEAK ballistic.  General-purpose default.\n\n"
+        "(factory default 700 ms).  Each tick keeps the highest "
+        "forward-power sample since the last one, then the needle "
+        "holds that peak for the time below.  General-purpose "
+        "default.\n\n"
         "• Avg — IIR smoother (~200 ms time constant).  Tracks the "
         "running average of forward power, NOT peaks.  Calm needle "
         "for sustained-tone gain-structure work and ragchew.  The "
@@ -5204,22 +5238,20 @@ QWidget *SettingsDialog::buildMeterTab() {
     pwrHold->setRange(100, 10000);
     pwrHold->setSingleStep(100);
     pwrHold->setSuffix(tr(" ms"));
-    pwrHold->setValue(meter_ ? meter_->pwrPeakHoldMs() : 3000);
+    pwrHold->setValue(meter_ ? meter_->pwrPeakHoldMs()
+                             : MeterModel::kDefaultPwrPeakHoldMs);
     pwrHold->setToolTip(tr(
-        "PWR meter peak hold — how long the main needle holds a "
-        "captured peak before decaying.  Sliding-window MAX detector: "
-        "needle jumps to peak instantly and holds at that value for "
-        "this duration before the slot wraps and the next-highest "
-        "sample takes over.  Default 3000 ms (3 sec, Bird/Palstar-"
-        "PEAK-style ballistic).  Lower for snappier decay; higher "
-        "for analog-needle-style long park.\n\n"
+        "PWR meter peak hold — how long the main needle keeps a "
+        "captured peak.  Between display updates the meter keeps "
+        "the highest forward-power sample, so a short voice peak "
+        "is not skipped.  This knob is how long that peak stays "
+        "on the face.  Factory default 700 ms.  Lower for a "
+        "snappier fall; higher to park a reading longer.\n\n"
         "ONLY APPLIES IN \"Peak\" BALLISTIC MODE — PEP uses a fixed "
         "500 ms hold and Avg uses an IIR smoother (this knob greys "
         "out for those two modes).\n\n"
-        "Note: this does NOT change how fast the needle CLIMBS to "
-        "peak — that's limited by the HL2 forward-power ADC's "
-        "hardware response time (directional coupler analog "
-        "integrator), which no software knob can shorten."));
+        "A value you already saved is kept.  The coupler's own "
+        "rise time is still the hardware floor."));
     connect(pwrHold, &QSpinBox::valueChanged, this,
             [this](int v) { if (meter_) meter_->setPwrPeakHoldMs(v); });
     form->addRow(tr("PWR peak-hold:"), pwrHold);
@@ -7651,15 +7683,20 @@ QWidget *SettingsDialog::buildTxTab() {
             131.8, 136.5, 141.3, 146.2, 151.4, 156.7, 159.8, 162.2, 165.5, 167.9,
             171.3, 173.8, 177.3, 179.9, 183.5, 186.2, 189.9, 192.8, 196.6, 199.5,
             203.5, 206.5, 210.7, 218.1, 225.7, 229.1, 233.6, 241.8, 250.3, 254.1};
+        toneCombo->addItem(tr("— (none)"), 0.0);
         for (double t : kCtcss)
             toneCombo->addItem(QStringLiteral("%1 Hz").arg(t, 0, 'f', 1),
                                QVariant(t));
-        toneCombo->setToolTip(tr("Standard CTCSS sub-audible tone (Hz)."));
+        toneCombo->setToolTip(tr(
+            "Uplink CTCSS (TX encode). Empty = no encode (simplex / DL-only)."));
         const double curTone = stream_->ctcssToneHz();
-        for (int i = 0; i < toneCombo->count(); ++i)
-            if (toneCombo->itemData(i).toDouble() == curTone) {
-                toneCombo->setCurrentIndex(i); break;
-            }
+        if (curTone <= 0.5)
+            toneCombo->setCurrentIndex(0);
+        else
+            for (int i = 0; i < toneCombo->count(); ++i)
+                if (toneCombo->itemData(i).toDouble() == curTone) {
+                    toneCombo->setCurrentIndex(i); break;
+                }
         connect(toneCombo, qOverload<int>(&QComboBox::currentIndexChanged),
                 this, [this, toneCombo](int) {
                     if (stream_) stream_->setCtcssToneHz(
@@ -7667,6 +7704,11 @@ QWidget *SettingsDialog::buildTxTab() {
                 });
         connect(stream_, &lyra::ipc::HL2Stream::ctcssToneHzChanged, toneCombo,
                 [toneCombo](double hz) {
+                    if (hz <= 0.5) {
+                        if (toneCombo->currentIndex() != 0)
+                            toneCombo->setCurrentIndex(0);
+                        return;
+                    }
                     for (int i = 0; i < toneCombo->count(); ++i)
                         if (toneCombo->itemData(i).toDouble() == hz) {
                             if (toneCombo->currentIndex() != i)
@@ -10355,6 +10397,39 @@ QWidget *SettingsDialog::buildAppsTab() {
     }
 
     outer->addLayout(grid);
+
+    auto *recGrp = new QGroupBox(tr("Tested with and recommended"), page);
+    QFont recFont = recGrp->font();
+    recFont.setPointSizeF(recFont.pointSizeF() + 2.0);
+    recGrp->setFont(recFont);
+    auto *recV = new QVBoxLayout(recGrp);
+    auto *recHint = new QLabel(
+        tr("Lyra does not ship these programs. Install them yourself, then "
+           "<b>Browse</b> to the <tt>.exe</tt> in a row above. Click a link "
+           "to open the project page."), recGrp);
+    recHint->setWordWrap(true);
+    recHint->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+    recV->addWidget(recHint);
+    auto *recLinks = new QLabel(
+        tr("<ul>"
+           "<li><b>SSTV</b> — "
+           "<a href=\"https://bucknova.github.io/Open-SSTV/\">Open SSTV</a></li>"
+           "<li><b>FT8 / FT4</b> — "
+           "<a href=\"http://lz2hv.org/mshv\">MSHV</a> or "
+           "<a href=\"https://wsjtx.github.io/wsjtx/index.html\">WSJT-X</a></li>"
+           "<li><b>VARA chat</b> — "
+           "<a href=\"https://www.varac-hamradio.com/\">VarAC</a></li>"
+           "<li><b>MIDI controller</b> — not native; a MIDI→TCI sidecar such as "
+           "<a href=\"https://github.com/ftl/midi2tci\">midi2tci</a> "
+           "(point it at Lyra TCI, default port <b>40001</b>)</li>"
+           "</ul>"), recGrp);
+    recLinks->setWordWrap(true);
+    recLinks->setTextFormat(Qt::RichText);
+    recLinks->setOpenExternalLinks(true);
+    recLinks->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    recV->addWidget(recLinks);
+    outer->addWidget(recGrp);
+
     outer->addStretch(1);
     return page;
 }

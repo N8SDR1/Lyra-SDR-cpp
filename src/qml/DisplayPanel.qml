@@ -23,7 +23,7 @@ import QtQuick.Layouts
 Rectangle {
     id: root
     implicitHeight: 100
-    implicitWidth: 700
+    implicitWidth: 620
     color: "#101820"
     border.color: "#2a4a5a"
 
@@ -86,7 +86,10 @@ Rectangle {
         LyraComboBox {
             id: zoomCombo
             Layout.row: 0; Layout.column: 1
-            Layout.preferredWidth: 64
+            Layout.preferredWidth: 52
+            font.pixelSize: 12
+            textLeftPad: 4
+            textRightPad: 14
             model: ["1x", "2x", "4x", "8x", "16x"]
             currentIndex: root.zoomIndex(Prefs.zoom)
             onActivated: Prefs.zoom = root.zoomLevels[currentIndex]
@@ -94,9 +97,9 @@ Rectangle {
         LyraSlider {
             id: zoomSlider
             Layout.row: 0; Layout.column: 2
-            Layout.preferredWidth: 110
+            Layout.preferredWidth: 88
             Layout.fillWidth: true          // the slider yields, not the panel
-            Layout.minimumWidth: 60
+            Layout.minimumWidth: 52
             from: 10; to: 160; stepSize: 1     // slider int = zoom × 10
             value: Prefs.zoom * 10
             onMoved: Prefs.zoom = Math.round(value) / 10
@@ -112,7 +115,7 @@ Rectangle {
             Layout.row: 0; Layout.column: 3
             text: Prefs.zoom.toFixed(1) + qsTr("x")
             color: "#cdd9e5"; font.family: "Consolas"; font.bold: true
-            Layout.preferredWidth: 40
+            Layout.preferredWidth: 36
         }
 
         // ── Row 1 (left group): Panafall scroll step + Exact/100 Hz ──
@@ -127,7 +130,10 @@ Rectangle {
         LyraComboBox {
             id: stepCombo
             Layout.row: 1; Layout.column: 1
-            Layout.preferredWidth: 92
+            Layout.preferredWidth: 76
+            font.pixelSize: 12
+            textLeftPad: 4
+            textRightPad: 14
             readonly property var steps: [
                 1, 10, 50, 500, 1000, 5000, 6250, 8333, 10000, 12500, 25000, 100000]
             model: ["1 Hz", "10 Hz", "50 Hz", "500 Hz", "1 kHz", "5 kHz",
@@ -140,7 +146,7 @@ Rectangle {
         }
         Button {
             Layout.row: 1; Layout.column: 2
-            Layout.preferredWidth: 72
+            Layout.preferredWidth: 64
             checkable: true
             checked: Prefs.panRound100
             // Label is self-explanatory (Exact ⇄ 100 Hz); no hover tooltip
@@ -157,9 +163,9 @@ Rectangle {
         LyraSlider {
             id: fpsSlider
             Layout.row: 1; Layout.column: 5
-            Layout.preferredWidth: 140
+            Layout.preferredWidth: 110
             Layout.fillWidth: true
-            Layout.minimumWidth: 60
+            Layout.minimumWidth: 52
             from: 5; to: 120; stepSize: 1
             value: Prefs.targetFps
             onMoved: Prefs.targetFps = Math.round(value)
@@ -188,7 +194,10 @@ Rectangle {
         LyraComboBox {
             id: peakCombo
             Layout.row: 2; Layout.column: 1
-            Layout.preferredWidth: 80
+            Layout.preferredWidth: 64
+            font.pixelSize: 12
+            textLeftPad: 4
+            textRightPad: 14
             model: ["Off", "Live", "1 s", "2 s", "5 s", "10 s", "30 s", "Hold"]
             currentIndex: root.peakHoldIndex(Prefs.peakHoldSecs)
             onActivated: {
@@ -198,11 +207,14 @@ Rectangle {
         }
         RowLayout {
             Layout.row: 2; Layout.column: 2
-            spacing: 6
+            spacing: 4
             Label { text: qsTr("Decay"); color: "#cccccc" }
             LyraComboBox {
                 id: decayCombo
-                Layout.preferredWidth: 72
+                Layout.preferredWidth: 56
+                font.pixelSize: 12
+                textLeftPad: 4
+                textRightPad: 14
                 model: ["Fast", "Med", "Slow"]
                 currentIndex: root.peakDecayIndex(Prefs.peakDecayDbps)
                 // Decay only applies to the timed hold modes.
@@ -211,7 +223,7 @@ Rectangle {
             }
             Button {
                 text: qsTr("Clear")
-                Layout.preferredWidth: 60
+                Layout.preferredWidth: 52
                 // Off has nothing to clear; Live re-seeds itself every tick.
                 enabled: Prefs.peakEnabled && Prefs.peakHoldSecs !== -2
                 onClicked: Prefs.requestClearPeaks()
@@ -226,9 +238,9 @@ Rectangle {
         LyraSlider {
             id: wfSlider
             Layout.row: 2; Layout.column: 5
-            Layout.preferredWidth: 140
+            Layout.preferredWidth: 110
             Layout.fillWidth: true
-            Layout.minimumWidth: 60
+            Layout.minimumWidth: 52
             from: 1; to: 120; stepSize: 1
             value: Prefs.waterfallSpeed
             onMoved: Prefs.waterfallSpeed = Math.round(value)

@@ -119,6 +119,47 @@ void set_tx_freq(int freq_hz) {
     prn->tx[0].frequency = corrected_freq(freq_hz);
 }
 
+bool enqueue_i2c_write(unsigned char bus, unsigned char address,
+                       unsigned char control, unsigned char write_data)
+{
+    if (prn == nullptr)
+        return false;
+    const unsigned char next =
+        static_cast<unsigned char>((prn->i2c.in_index + 1) % kMaxI2cQueue);
+    if (next == prn->i2c.out_index)
+        return false;
+    auto& e = prn->i2c.i2c_queue[next];
+    e.bus = bus;
+    e.address = address;
+    e.control = control;
+    e.write_data = write_data;
+    prn->i2c.in_index = next;
+    return true;
+}
+
+bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz)
+{
+    if (prn == nullptr)
+        return false;
+    const int in = static_cast<int>(prn->i2c.in_index);
+    const int out = static_cast<int>(prn->i2c.out_index);
+    const int used = (in - out + kMaxI2cQueue) % kMaxI2cQueue;
+    const int free = kMaxI2cQueue - 1 - used;
+    if (free < 5)
+        return false;
+    unsigned char b[5];
+    pack_hl2_ioboard_tx_freq_bytes(hz, b);
+    // Pico I2C slave 0x1D; first payload byte = register, second = data.
+    // Register 4 (BYTE0) last latches analog / new_tx_freq.
+    constexpr unsigned char kPicoAddr = 0x1D;
+    for (int reg = 0; reg < 5; ++reg) {
+        if (!enqueue_i2c_write(0, kPicoAddr, static_cast<unsigned char>(reg),
+                               b[reg]))
+            return false;
+    }
+    return true;
+}
+
 // HL2 "Band Volts" enable → C0=0x00 frame C3 bit 3 (ADC dither bit).
 // compose_case_0 reads `prn->adc[0].dither` into C3 bit 3; the gateware
 // (control.v:582-584) latches it as `band_volts_enabled`.

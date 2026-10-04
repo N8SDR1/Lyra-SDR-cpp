@@ -4,6 +4,51 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-03 — v0.25.9 Sheliak (patch)
+
+- Version bump **0.25.8 → 0.25.9**. Star name stays **Sheliak**.
+- NNR factory model **Standard** (the 0.25.8 installer was Premium). A
+  saved `dsp/nnrModel` is kept. Mask tooltip: try −25 to −40.
+- PWR needle keeps the highest coupler sample between ticks so voice
+  peaks show. Factory PWR peak-hold **700 ms** when unset.
+- TCI CW terminal holds the key line between letters (`CW_MSG` queue
+  and callsign correct, prosigns, speed steps). `TX_SENSORS` stay
+  live at receive.
+- USER_GUIDE / wiki / `docs/releases/v0.25.9.md`. Tag `v0.25.9`. Do not
+  merge `main`.
+
+## 2026-10-02 — v0.25.8 Sheliak (patch)
+
+- Version bump **0.25.7 → 0.25.8**. Star name stays **Sheliak**.
+- Bundled WDSP **2.10** (`wdsp.dll`); wisdom `wdspWisdom01`.
+- NNR operator surface: toggle, Standard / Premium (**factory Premium**
+  in the 0.25.8 installer), Mask −10…−50 default −40, XOR vs EMNR, NR-C
+  still independent.
+- Follow-up `1c47d60`: factory model **Standard** for the next build
+  (Heiko: NNR raises CPU, Premium more than Standard). Existing
+  `dsp/nnrModel` QSettings keep whatever 0.25.8 already wrote.
+- PS Amp View: GetPSDisp version-gated; P1 + P2 re-proved.
+- USER_GUIDE / wiki / `docs/releases/v0.25.8.md`. Tag `v0.25.8`. Do not
+  merge `main`.
+
+## 2026-10-02 — v0.25.7 Sheliak (patch)
+
+- Version bump **0.25.6 → 0.25.7**. Star name stays **Sheliak**.
+- TCI: `start;` before `ready;` + echo client start/stop. WSJT-X / JTDX
+  attach; MSHV unchanged. Operator bench: RX + key-up on MSHV, WSJT-X,
+  JTDX.
+- Settings → Apps “Tested with and recommended” links.
+- USER_GUIDE / wiki / `docs/releases/v0.25.7.md`.
+- Installer pending. Tag `v0.25.7`. Do not merge `main`.
+
+## 2026-09-30 — v0.25.6 Sheliak (patch)
+
+- Version bump **0.25.5 → 0.25.6**. Star name stays **Sheliak**.
+- HL2 / HL2+ N2ADR analog band-follow writes TX frequency so IO-board analog
+  voltage tracks the band. Closes GitHub **#14**.
+- USER_GUIDE / wiki / `docs/releases/v0.25.6.md`.
+- Installer `dist/Lyra-Setup-0.25.6.exe`. Tag `v0.25.6`. Do not merge `main`.
+
 ## 2026-09-29 — v0.25.5 Sheliak (patch)
 
 - Version bump **0.25.4 → 0.25.5**. Star name stays **Sheliak**.

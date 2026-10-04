@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.5 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.25.9 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
@@ -18,14 +18,17 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ Graphics **crash ladder** (OpenGL → software, MSAA off on software) so a bad GPU driver does not leave Lyra with no window
 - ✅ **MSAA** picker **Off / 2× / 4× / 8×** (Settings → Visuals; default 4×; restart)
 - ✅ **Xvtr** band chips — RF dial (ten-digit LED, ~2.147 GHz), IF NCO, Disable PA default on; Shift+click SUB hop; right-click slot editor. Band-plan **region does not rewrite** slot MHz — set RF low/high/LO for your allocation. See User Guide **Band panel**.
-- ✅ HL2 **N2ADR / IO board OC** plus optional **Band Volts on J3** (fan PWM / dither bit); two different analog pins
+- ✅ HL2 **N2ADR / IO board** — OC LPF (I2C **0x20**) plus Pico analog on **J4 pin 8** (I2C **0x1D** TX Hz, P1 HL2/HL2+ only). Optional **Band Volts on J3** is a separate fan-PWM gateware path, default off.
 
 ## Receive (RX)
 
 - ✅ Full WDSP receive chain — **USB / LSB / CW / AM / SAM / DSB / FM / DIGU / DIGL / SPEC**
-- ✅ Per-mode filters, AGC (Fast/Med/Slow/Long/Auto), **noise reduction**, noise blanker, **auto-notch (ANF)**, manual notches, all-mode **squelch**
+- ✅ Per-mode filters, AGC (Fast/Med/Slow/Long/Auto), **NR** (EMNR 1–4) **or**
+  **NNR** (WDSP 2.10 neural; Standard default, Premium optional, mask −10…−50 dB, default −40), exclusive
+  vs each other; noise blanker, **auto-notch (ANF)**, **LMS**, all-mode **squelch**
 - ✅ **8-band RX parametric EQ** (draggable curve)
-- ✅ **Captured-noise profile** — grab your band noise and subtract it (occupied bins mixed at full scale so the passband stays brick-wall)
+- ✅ **Captured-noise profile (NR-C)** — grab your band noise and subtract it
+  (IQ-domain; can run with NR or NNR; last profile restores on restart)
 - ✅ **Centre-tune (CTUN)** — drag the marker onto a signal while the LO stays put
 - ✅ **RIT** (receiver incremental tuning)
 - ✅ **Zero-beat markers** — Kenwood-style ± needle to dead-tune a CW / AM / SAM / FM carrier by eye
@@ -53,7 +56,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 
 ### Metering &amp; TX safety
 
-- ✅ Multimeter — **PO / SWR / MIC / COMP / ALC / PA current**
+- ✅ Multimeter — **PO / SWR / MIC / COMP / ALC / PA current**. The **PWR** needle keeps the loudest coupler sample between ticks so voice peaks land on the scale (factory peak-hold 700 ms if you have not saved your own)
 - ✅ **ATT-on-TX** RX-front-end protection · **TR-sequencing** for amp hot-switch safety
 - ✅ **SWR protection** (auto-cut above threshold) · **max power / drive cap** for low-drive amps
 - ✅ **TX time-out** · hard **External TX Inhibit**
@@ -74,11 +77,11 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **Frequency calibration** against WWV / time stations
 - ✅ **Session recorder** — RX audio + timed panadapter snapshots → a synced **MP4**
 - ✅ **CAT / Serial** — Kenwood TS-480/2000 CAT over COM/TCP, serial PTT input, Winkeyer
-- ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log)
+- ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; **CW terminal** (key line stays up between letters; callsign correct mid-send) and **TX sensors** that keep reporting at receive; ExpertSDR3 / SunSDR2PRO identity + `start;` before `ready;` so **WSJT-X / JTDX** attach (MSHV / Open SSTV unchanged); **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log)
 - ✅ **USB-BCD** band data for linear-amp band switching
 - ✅ **Backup &amp; Restore** — export config, dated snapshots (survive reinstall), selective restore
 - ✅ Solar / propagation panel, weather alerts
-- ✅ **Apps** — named shortcuts for third-party programs (fldigi, WSJT-X, SSTV, …); auto-start after Hardware Startup (default off)
+- ✅ **Apps** — named shortcuts for third-party programs; **Tested with and recommended** links (Open SSTV, MSHV / WSJT-X, VarAC, midi2tci); auto-start after Hardware Startup (default off)
 - ✅ **USB encoder (HID wheel)** — Settings → Hardware → Navigation (Windows); tunes the focused VFO by the Tuning **Step**
 - ✅ **MIDI via TCI sidecar** — not native MIDI; Browse an operator-installed MIDI→TCI program under Settings → Apps (default TCI port **40001**)
 

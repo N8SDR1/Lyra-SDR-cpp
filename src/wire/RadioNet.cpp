@@ -27,6 +27,23 @@ RadioNet::~RadioNet() = default;
 // reference-parity grep discipline.
 RadioNet* prn = nullptr;
 
+// Meter-only running max of the raw forward-power count.  The live
+// tx[0].fwd_power word is a separate store.
+std::atomic<int> fwdPowerIntervalMax{0};
+
+void noteFwdPowerSample(int raw) {
+    int cur = fwdPowerIntervalMax.load(std::memory_order_relaxed);
+    while (raw > cur &&
+           !fwdPowerIntervalMax.compare_exchange_weak(
+               cur, raw,
+               std::memory_order_relaxed,
+               std::memory_order_relaxed)) {}
+}
+
+int takeFwdPowerIntervalMax() {
+    return fwdPowerIntervalMax.exchange(0, std::memory_order_relaxed);
+}
+
 // §1.12 supplement — `create_rnet()` allocator.  Direct verbatim
 // mirror of the reference's `create_rnet()` at
 // `netInterface.c:1590-1763`.  See RadioNet.h declaration for the

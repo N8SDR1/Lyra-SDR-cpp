@@ -106,11 +106,11 @@ public:
     //           where every burst should be readable; ignores the
     //           PWR Peak Hold spin box.
     //   PEAK  — sliding-window MAX, hold = pwrPeakHoldMs_ (operator-
-    //           tunable in Settings, default 3000 ms = 60 samples).
-    //           Compensates for the digital bar's lack of inherent
-    //           damping — peaks park long enough to read at leisure.
-    //           General-purpose default.  This is the existing
-    //           shipped behaviour; default for backward compatibility.
+    //           tunable in Settings, factory default 700 ms = 14
+    //           samples).  Each tick is the highest coupler count
+    //           since the previous tick, so a short syllable is kept.
+    //           The hold is how long that peak stays on the face.
+    //           A saved meter/pwrPeakHoldMs value is left alone.
     //   AVG   — IIR smoother (single time constant ~200 ms τ).  Calm,
     //           slow-moving needle — does NOT track speech peaks,
     //           tracks the running average of forward power.  Best
@@ -128,6 +128,9 @@ public:
         PWR_AVG  = 2,        // IIR smoothed
     };
     Q_ENUM(PwrBallistic)
+
+    // Factory PWR Peak hold.  A saved meter/pwrPeakHoldMs is not rewritten.
+    static constexpr int kDefaultPwrPeakHoldMs = 700;
 
 private:
     // One NOTIFY for the fast-changing values — QML repaints on `updated`.
@@ -183,18 +186,14 @@ private:
     // controls the small peak-cap indicator's hang/decay; THIS one
     // controls the MAIN needle / fill-bar hold via the sliding-window
     // MAX detector's window length.  Live-apply (no restart).
-    // Persisted.  Range 100-10000 ms.  Default 3000 ms.
+    // Persisted.  Range 100-10000 ms.  Factory default 700 ms.
+    // A value already saved under meter/pwrPeakHoldMs is kept.
     //
-    // Honest scope note: the HARDWARE attack characteristic of the HL2
-    // forward-power sensing chain (directional coupler analog
-    // integrator + gateware ADC sample rate) is what it is — no
-    // software fix can shorten the rise time from key-down to peak.
-    // Operator-observed "slow to react" is partly the HW ramp curve
-    // (the needle visibly sweeps UP through ADC samples as they
-    // climb toward the peak); the MAX detector itself is instant-
-    // attack at the software layer.  This knob only changes how LONG
-    // the captured peak holds before decaying — not how fast it
-    // climbs to peak in the first place.
+    // The needle's input on HL2 is the highest forward-power count
+    // since the previous tick (takeFwdPowerIntervalMaxCalW).  This
+    // knob only sets how long that peak stays up.  The coupler's own
+    // rise time is still the hardware floor.  The separate peak pip
+    // and the 3 s max-hold mark are unchanged.
     Q_PROPERTY(int pwrPeakHoldMs READ pwrPeakHoldMs WRITE setPwrPeakHoldMs
                NOTIFY pwrPeakHoldMsChanged)
     // PWR meter ballistic mode (PEP / PEAK / AVG).  See PwrBallistic
@@ -483,9 +482,9 @@ private:
     QString sLabel(double dbm) const;  // standard HF dBm→S-unit table
     // PWR cal: per-band watt calibration lives in HL2Stream
     // (fwdPowerCalW() = raw ADC->W formula x the per-band trim the
-    // operator sets on the PA Gain tab).  The meter displays that
-    // calibrated value directly, so the meter, the watts cap and the
-    // operator's external watt-meter all agree.  Persisted under
+    // operator sets on the PA Gain tab).  Peak and PEP display the
+    // highest of those samples since the last tick.  The watts cap
+    // stays on the live sample of the same trim.  Persisted under
     // meter/pwrRatedMaxW (default 5.0 W = HL2+ on-board PA).
     double pwrRatedMaxW_ = 5.0;     // danger-zone (red) starts here
     double pwrScaleMaxW_ = 10.0;    // full-scale watts (== 2 * rated max)
@@ -540,22 +539,12 @@ private:
     // max() over the ring.  Zero-init = needle starts at 0 W and
     // rises as samples accumulate (correct first-TX behaviour).
     //
-    // Window length tuning (operator bench follow-up 2026-05-31 PM):
-    // initial fix used 10 samples × 50 ms = 500 ms (verified-
-    // reference default).  Operator-observed peak amplitudes were
-    // correct (4.6 W Lyra vs 4.3 W Palstar) but the visual hold
-    // "felt instant" — a digital bar holding the same pixel value
-    // for 500 ms reads as a flash because there's no visible decay
-    // motion like an analog needle.  Bumped to 60 samples × 50 ms =
-    // 3000 ms = 3 sec hold, matching typical Bird-Palstar PEAK
-    // ballistic where a peak parks for several seconds so the
-    // operator can read it at leisure.  Trade-off: rapid-fire CW
-    // dits or fast voice peaks will show the highest single peak
-    // for up to 3 sec — operationally normal for a peak-power
-    // meter, less useful for rapidly-changing power.  If operator
-    // prefers tighter hold (closer to verified-reference 500 ms)
-    // OR wants live tuning, a follow-up adds a Settings → Meter
-    // "PWR Peak Hold" spin box mapped to this constant.
+    // Each HL2 tick stores the highest coupler count since the
+    // previous tick, then the window holds the max of those.
+    // Factory hold is 700 ms: long enough to read a syllable, short
+    // enough that the next word can move the needle.  The peak pip
+    // (~800 ms) and the max-hold mark (default 3 s) still park the
+    // highest recent reading.  A saved meter/pwrPeakHoldMs is kept.
     // Fixed-max buffer sized for the worst-case hold time (10 sec at
     // 50 ms tick = 200 slots).  Operator setter (setPwrPeakHoldMs)
     // updates pwrWinSamples_ to the CURRENT active count; only the
@@ -565,10 +554,10 @@ private:
     static constexpr int kPwrWindowSamplesMax = 200;   // 10 sec at 50ms
     double pwrWinHist_[kPwrWindowSamplesMax] = {};     // zero-initialized
     int    pwrWinIdx_ = 0;
-    int    pwrWinSamples_ = 60;   // active count, derived from
-                                  // pwrPeakHoldMs_ / kTickMs.  Default
-                                  // 60 = 3 sec; updated by the setter.
-    int    pwrPeakHoldMs_ = 3000;
+    int    pwrWinSamples_ = 14;   // active count, derived from
+                                  // pwrPeakHoldMs_ / kTickMs.  Factory
+                                  // 14 = 700 ms; updated by the setter.
+    int    pwrPeakHoldMs_ = kDefaultPwrPeakHoldMs;
     // PWR ballistic mode selector.  Default PWR_PEAK = current
     // shipped behavior (sliding-window MAX, operator-tunable hold).
     // PEP shortens the window to a fixed 500 ms; AVG swaps the

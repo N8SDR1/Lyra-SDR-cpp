@@ -411,6 +411,15 @@ bool WdspNative::resolveSymbols() {
     resolve(api_.SetRXAEMNRaeRun,      "SetRXAEMNRaeRun");
     resolve(api_.SetRXAEMNRPosition,   "SetRXAEMNRPosition");
     resolve(api_.SetRXAEMNRpost2Run,   "SetRXAEMNRpost2Run");
+    // NNR is 2.10+ only.  Soft-resolve so a 1.29 wayback DLL still loads;
+    // the operator toggle no-ops when these stay nullptr.
+    if (void *pNnr = lyra::platform::resolveSymbol(mod, "SetRXANNRRun"))
+        api_.SetRXANNRRun = reinterpret_cast<fn_SetRXANNRRun_t>(pNnr);
+    if (void *pNnr = lyra::platform::resolveSymbol(mod, "SetRXANNRMaskFloor"))
+        api_.SetRXANNRMaskFloor =
+            reinterpret_cast<fn_SetRXANNRMaskFloor_t>(pNnr);
+    if (void *pNnr = lyra::platform::resolveSymbol(mod, "SetRXANNRModel"))
+        api_.SetRXANNRModel = reinterpret_cast<fn_SetRXANNRModel_t>(pNnr);
     resolve(api_.SetRXAAGCDecay,         "SetRXAAGCDecay");
     resolve(api_.SetRXAAGCHang,          "SetRXAAGCHang");
     resolve(api_.SetRXAAGCHangThreshold, "SetRXAAGCHangThreshold");
@@ -584,12 +593,12 @@ namespace {
 // produces; isolation is purely by directory.
 //
 // The name is a property of the ENGINE BUILD, not the platform, and it
-// changed across WDSP versions: the bundled Windows wdsp.dll writes
-// "wdspWisdom00", while WDSP 2.00 (wisdom.c:50, what
-// tools/build_wdsp_macos.sh builds) writes "wdspWisdom01".  Getting this
-// wrong is not cosmetic — the post-build existence check fails, wisdom is
-// declared unusable, and EVERY launch repeats the multi-minute
-// FFTW_PATIENT search.
+// changed across WDSP versions: WDSP 1.x engines (the Windows DLL before
+// v0.25.8) write "wdspWisdom00", while WDSP 2.00+ (wisdom.c:50 — the 2.10
+// DLL Windows now bundles, and what tools/build_wdsp_macos.sh builds)
+// writes "wdspWisdom01".  Getting this wrong is not cosmetic — the
+// post-build existence check fails, wisdom is declared unusable, and EVERY
+// launch repeats the multi-minute FFTW_PATIENT search.
 //
 // So probe the known names, newest first, rather than hardcoding one.
 constexpr const char *kWisdomFilenames[] = {
@@ -1009,13 +1018,13 @@ bool WdspNative::ensureWisdom() {
     const bool    haveExisting = wisdomFileExists(dir);
 
     // Crash-safe publish: plan/import in a private work dir on the SAME
-    // volume, then atomically rename wdspWisdom00 into place.  WDSPwisdom
+    // volume, then atomically rename wdspWisdom01 into place.  WDSPwisdom
     // writes a fixed filename into whatever dir it is handed AND leaves the
     // freshly-planned wisdom live in FFTW's process-global state, so building
     // in a work dir still primes the running process — only the *file* moves.
     // An interrupted build/rebuild (force-kill during a slow FFTW_PATIENT
     // plan, or during WDSP's reject-and-re-export) can then only leave a torn
-    // file inside the work dir; the live wdspWisdom00 is replaced in one
+    // file inside the work dir; the live wdspWisdom01 is replaced in one
     // atomic step or left untouched.  This closes the crash-on-launch class
     // where a torn wisdom file yields a bad (SIMD-misaligned) FFT plan that
     // faults on execute — the mechanism observed after a force-kill cascade.
@@ -1032,8 +1041,8 @@ bool WdspNative::ensureWisdom() {
     const bool    haveWork = QDir().mkpath(workDir);
     // Seed/probe under the SAME basename as the live file.  (Upstream names
     // this from a single kWisdomFilename constant; the port has to probe
-    // instead, because WDSP 2.00 writes "wdspWisdom01" and the bundled
-    // Windows DLL writes "wdspWisdom00" — see kWisdomFilenames.)
+    // instead, because WDSP 2.00+ writes "wdspWisdom01" and WDSP 1.x
+    // engines write "wdspWisdom00" — see kWisdomFilenames.)
     const QString workFile =
         QDir(workDir).filePath(QFileInfo(finalFile).fileName());
     // The dir handed to WDSP: the work dir when we could make it, else fall

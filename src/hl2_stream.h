@@ -618,6 +618,8 @@ class HL2Stream : public QObject {
                WRITE setCtcssDlHz     NOTIFY ctcssDlHzChanged)
     Q_PROPERTY(int    fmBurstHz     READ fmBurstHz
                WRITE setFmBurstHz     NOTIFY fmBurstHzChanged)
+    Q_PROPERTY(int    fmBurstMs     READ fmBurstMs
+               WRITE setFmBurstMs     NOTIFY fmBurstMsChanged)
     Q_PROPERTY(bool   fmBurstActive READ fmBurstActive
                NOTIFY fmBurstActiveChanged)
     // FM pre-emphasis selector: 0 = Off (flat — true bypass, for digital/data
@@ -874,6 +876,10 @@ public:
     // watts-cap servo, so "5 W cap" == "5 W on the meter".  (fwdPowerW stays
     // RAW for the SWR ratio + CW-keying detect, where a trim would be wrong.)
     double  fwdPowerCalW() const;
+    // Calibrated watts of the highest forward-power count since the
+    // previous take, then the maximum is cleared.  PWR needle only —
+    // fwdPowerW() / fwdPowerCalW() stay the live word.
+    double  takeFwdPowerIntervalMaxCalW() const;
     double  revPowerW()  const;
     // P2/Brick forward+reverse power ingest.  The P1/HL2 path decodes fwd/rev
     // from the EP6 `prn` telemetry inside fwdPowerW()/revPowerW(); the P2 wire
@@ -1108,6 +1114,7 @@ public:
     double  ctcssToneHz()           const { return ctcssToneHz_;           }
     double  ctcssDlHz()             const { return ctcssDlHz_;             }
     int     fmBurstHz()             const { return fmBurstHz_;             }
+    int     fmBurstMs()             const { return fmBurstMs_;             }
     bool    fmBurstActive()         const { return fmBurstActive_;         }
     int     fmEmphasisMode()        const { return fmEmphasisMode_;        }
 
@@ -1186,12 +1193,12 @@ public slots:
     // (atomic).  Ignores 48 k (EP2 cadence, like old Lyra).
     void setSampleRate(int hz);
 
-    // Enable/disable N2ADR / IO-board OC (filters + analog J3 band
-    // voltage via I2C 0x20).  When on, the per-band OC pattern is driven
-    // on frame-0 C2 and re-applied on every band change; when off, C2 OC
-    // pins are cleared (0).  Default ON (Thetis/Quisk-parity).  Persisted
-    // to QSettings (hw/filterBoard).  Thread-safe (atomic C2; readout on
-    // the main thread).
+    // Enable/disable N2ADR / IO-board (OC filters on I2C 0x20 + Pico
+    // analog via I2C 0x1D TX-Hz writes).  Protocol 1 / HL2 / HL2+ only.
+    // When on, per-band OC is driven on frame-0 C2 and the Pico gets
+    // TX RF Hz for stock n2adr_basic PWM on J4 pin 8.  When off, OC is
+    // cleared and Pico writes stop.  Default ON.  Persisted as
+    // hw/filterBoard.  Gateware analog on J3 is Band Volts, not this.
     void setFilterBoardEnabled(bool on);
 
     // ---- TX-state C&C registers (TX-0b foundation) -----------------
@@ -1507,6 +1514,15 @@ public slots:
     // host stays RX, exactly like the paddle.  Thread-safe.
     Q_INVOKABLE void sendCw(const QString& text);
     Q_INVOKABLE void abortCw();
+    // Terminal switch. Off (the default) leaves macros, the paddle, and
+    // the on-screen window alone. On keeps cwx_ptt up after a message
+    // so the next letter does not click the TR relay. Does not assert
+    // the wire MOX bit.
+    Q_INVOKABLE void setCwTerminal(bool on);
+    bool cwTerminal() const { return cwTerminal_.load(std::memory_order_relaxed); }
+    Q_INVOKABLE void cwQueueMessage(const QString& prefix, const QString& call,
+                                    const QString& suffix);
+    Q_INVOKABLE void cwCorrectCallsign(const QString& call);
 
     // #105 CW-3b — CWX "send as you type" (type-ahead).  cwTypeAhead
     // appends each character of `s` to the keyer's editable staging tail;
@@ -1529,7 +1545,8 @@ public slots:
     void setCtcssToneHz(double hz);     // snapped to the standard tone table
     void setCtcssDlHz(double hz);       // 0 = same as UL / unused (no RX TSQ yet)
     void setFmBurstHz(int hz);          // 0 or 1750 — memory recipe only
-    Q_INVOKABLE void fireFmBurst();     // ~500 ms 1750 Hz chip (FM TX mic mix)
+    void setFmBurstMs(int ms);          // 500 / 2000 / 3000 / 4000
+    Q_INVOKABLE void fireFmBurst();     // 1750 Hz chip (FM TX mic mix)
     // CMaster TX pump: mix a 1750 Hz sine into pcm->in after the mic rack.
     static void mixFm1750Tx(int nsamples, double* buff);
     void setFmEmphasisMode(int mode);   // 0=Off, 1=Comm; forward via TxControl
@@ -1634,6 +1651,12 @@ signals:
     // already keyed / locked (on the air), `pending` = the still-editable
     // tail.  Emitted on this QObject's thread whenever either changes.
     void cwTypeAheadTextChanged(const QString& committed, const QString& pending);
+    // Last queued letter has started; the key line is held for more text.
+    void cwMacrosDrained();
+    // The callsign's last letter just started. Text is what actually keyed.
+    void cwCallsignSent(const QString& callsign);
+    // The 30 s idle hold dropped the key line and cleared the switch.
+    void cwTerminalHoldDropped();
     // #105 — display TX-state (moxActive || cwKeyingActive) changed.
     void txDisplayActiveChanged(bool on);
     // Fires ONCE per requestMox(true) call (MOX button click, TUN arm,
@@ -1751,6 +1774,7 @@ signals:
     void ctcssToneHzChanged(double hz);     // #107
     void ctcssDlHzChanged(double hz);
     void fmBurstHzChanged(int hz);
+    void fmBurstMsChanged(int ms);
     void fmBurstActiveChanged();
     // Fires once when the safety timeout actually expires and the FSM
     // auto-clears MOX.  Useful for a status-bar toast / log highlight;
@@ -1772,6 +1796,8 @@ private slots:
     void onFatalError(QString reason);
 
 private:
+    double applyPwrTrim(double rawW) const;
+
     // Mirror a safety-critical TX/wire event to BOTH the in-app log
     // dock (emit logLine) AND the Qt logging surface (qInfo / qCritical
     // → stderr + any installed file handler).  Operator-facing record
@@ -1872,6 +1898,10 @@ private:
     // on, else VFO A (rx1).  The SINGLE TX-freq writer for split paths so
     // PureSignal's feedback DDCs (which read tx[0].frequency) follow it.
     void pushEffectiveTxFreq();
+    // HL2 / HL2+ P1 only: enqueue five I2C writes to Pico 0x1D (TX RF Hz,
+    // BYTE0 last) when the N2ADR/IO-board checkbox is on.  Skipped on
+    // Protocol 2 (Brick / ANAN).  force=true resends after enable / P1 return.
+    void pushIoboardTxFreq(bool force = false);
     // Writes the RX DDC NCOs from rx1FreqHz_ + (ritEnabled ? ritOffsetHz : 0)
     // — the single RX-NCO writer, mirror of pushEffectiveTxFreq.  Called by
     // setRx1FreqHz (every dial gesture) and the RIT setters.
@@ -2162,8 +2192,8 @@ private:
     // reading that falls well under the cap.  QSettings pa_gain/<band>/capSettled.
     std::atomic<bool>    capServoSettled_[kNumPaGainBands];
     // Per-band PWR-meter trim (1.0 = raw formula, no correction).  Applied
-    // by fwdPowerCalW() so the displayed watts + the cap servo share ONE
-    // calibrated basis.  QSettings meter/pwrTrim/<idx>.
+    // by applyPwrTrim() so the live word, the PWR-needle interval max, and
+    // the cap servo share one calibrated basis.  QSettings meter/pwrTrim/<idx>.
     std::atomic<double>  pwrTrimByBand_[kNumPaGainBands];
     // Cap ARM gate (2026-07-03) — the cap only limits when armed.  Default
     // false.  QSettings tx/capArmed.  See capActive_() / capArmed().
@@ -2186,6 +2216,8 @@ private:
     // Last TX band applyTxPower_ ran for — so a freq dial tick only
     // re-applies the power when the band (gbb) actually changed.
     std::atomic<int>     lastTxBand_{-2};
+    // Last Pico 0x1D TX-Hz enqueue (RF, not DDS).  ~0 = never sent / force.
+    std::atomic<quint64> lastIoboardTxHz_{~quint64{0}};
     std::atomic<int>     txStepAttnDb_{0};      // 0..31 dB; 0x1C C3 (31-db)
     std::atomic<int>     txMode_{1};            // 0=LSB 1=USB; mirror of the WDSP TXA mode, for the TUN DDS-offset sign (txDdsHzForTune)
     std::atomic<bool>    psUiDigital_{false};   // focused RX DIG/DRM/CW/FM lock-out
@@ -2628,6 +2660,7 @@ private:
     void   updateTxDisplayActive();
     void   ensureCwKeyer();
     std::unique_ptr<lyra::tx::CwKeyer> cwKeyer_;
+    std::atomic<bool> cwTerminal_{false};
     // #171 — break-in hang for the serial straight-key path: on key-up we
     // drop tx[0].cwx immediately but hold cwx_ptt for cwHangDelayMs_ so
     // inter-element gaps don't drop TX (lazy-created, single-shot, main thread).
@@ -2648,6 +2681,7 @@ private:
     double ctcssToneHz_           = kDefaultCtcssToneHz;
     double ctcssDlHz_             = 0.0;   // 0 = linked to UL / unused
     int    fmBurstHz_             = 0;     // 0 or 1750
+    int    fmBurstMs_             = 2000;  // 0.5 / 2 / 3 / 4 s
     bool   fmBurstActive_         = false;
     QTimer fmBurstTimer_;
     int    fmEmphasisMode_        = 1;   // 0=Off, 1=Comm (voice default)

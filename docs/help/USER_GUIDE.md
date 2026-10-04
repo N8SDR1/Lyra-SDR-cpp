@@ -20,14 +20,72 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.9
+
+- **NNR starts on Standard.** A fresh install picks the lighter
+  **Standard** model (the 0.25.8 installer picked **Premium**). A model
+  you already saved is kept. NNR is still **off** until you turn it on.
+  The **Mask** tooltip suggests trying **−25 to −40**. See
+  [Row 3 — Noise Reduction](#row-3--noise-reduction-character).
+- **PWR needle tracks voice peaks.** Between ticks the power meter keeps
+  the loudest forward-power sample, so a syllable shows instead of a
+  quiet average. Factory peak-hold for that needle is **700 ms** if you
+  have not saved your own. See [Meter panel](#meter-panel).
+- **TCI CW terminal** — a logger can hold the key line up between
+  letters and correct the callsign while you are still sending.
+  Prosigns (`|SK|`) and speed steps (`<` / `>`) work in the text. See
+  [CW keying over TCI](#cw-keying-over-tci).
+- **TCI TX sensors stay live at receive** — mic, forward power, peak
+  power, and SWR keep updating while you are listening, so a client's
+  TX meters do not blank between overs.
+
+## What's new in 0.25.8
+
+- **WDSP 2.10** — bundled DSP engine is NR0V **2.10** (`GetWDSPVersion` 210).
+  First start after the update may re-run **FFT optimization** once (new
+  wisdom file). Mac / Linux engine binaries are not in this installer.
+- **NNR (neural noise reduction)** — Audio panel **NNR** button. Default
+  **off**. While on: **Model** **Standard** (default) or **Premium**, and a
+  **Mask** slider **−10** (least) to **−50** (most); default **−40**.
+  Premium is the heavier model and uses more CPU; Standard is the
+  everyday start, and Premium with a mask around **−40** is the setting
+  to try once you are listening. NNR and classic **NR** (EMNR Modes 1–4)
+  cannot run together; **NR-C** still can. Hover the NR row for a short
+  cheat sheet. See
+  [Row 3 — Noise Reduction](#row-3--noise-reduction-character).
+- **PureSignal Amp View** — still live on HL2 (Protocol 1) and Brick
+  (Protocol 2). Display ABI is version-gated so the plot stays correct on
+  2.10.
+
+## What's new in 0.25.7
+
+- **TCI handshake** — Lyra sends `start;` then `ready;` and echoes the
+  client's own `start;` / `stop;`. **WSJT-X** and **JTDX** no longer
+  report “TCI SDR is not switched on.” **MSHV** and Open SSTV still
+  connect. Bench: RX and key-up on MSHV, WSJT-X, and JTDX. Settings →
+  Network: keep both emulate boxes on (default). See
+  [Settings → Network (TCI)](#settings--network-tci).
+- **Apps recommended links** — Settings → Apps lists Open SSTV, MSHV /
+  WSJT-X, VarAC, and midi2tci (install yourself, then Browse). See
+  [Tested with and recommended](#tested-with-and-recommended).
+
+## What's new in 0.25.6
+
+- **HL2 analog band-follow** — with **Enable N2ADR / IO board** on (the
+  default), stock IO-board analog voltage now tracks **TX frequency** the
+  same way Thetis / Quisk / SparkSDR do. Start the radio after enabling it.
+  Protocol 2 Brick/ANAN is unchanged. See
+  [Settings → Filters / BCD](#settings--filters--bcd).
+
 ## What's new in 0.25.5
 
 - **USB encoder** — **Settings → Hardware → Navigation**: a HID mouse-wheel
   knob (the usual 1-knob USB encoder) tunes the focused VFO by the Tuning
   **Step**. Windows only. See
   [Navigation (USB encoder / HID wheel)](#navigation-usb-encoder--hid-wheel).
-- **FM 1750 Hz burst** — hold MOX / PTT, tap **1750**: ~0.5 s of 1750 Hz is
-  mixed into FM TX audio. Chip is shown for **IARU Region 1** (Hardware
+- **FM 1750 Hz burst** — hold MOX / PTT, tap **1750**. Default length is
+  **2 s** (was 0.5 s). Pick **0.5 / 2 / 3 / 4 s** under **Settings →
+  Hardware → Band plan**. Chip is shown for **IARU Region 1** (Hardware
   override for other regions). See [Tuning panel](#tuning-panel).
 - Extra VFO **Step** values **6.25 / 8.33 / 12.5 kHz**. FM **RPT** offset
   can be typed in kHz; **7.6 MHz** preset for 70 cm (−7600 kHz typical).
@@ -84,6 +142,10 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.9](#whats-new-in-0259)
+- [What's new in 0.25.8](#whats-new-in-0258)
+- [What's new in 0.25.7](#whats-new-in-0257)
+- [What's new in 0.25.6](#whats-new-in-0256)
 - [What's new in 0.25.5](#whats-new-in-0255)
 - [What's new in 0.25.4](#whats-new-in-0254)
 - [What's new in 0.25.3](#whats-new-in-0253)
@@ -161,6 +223,7 @@ not programmers — if you can click a menu, you can use this.
   - [Digital modes over VAC](#digital-modes-over-vac-virtual-audio-cable)
   - [DX-cluster spots](#dx-cluster-spots)
 - [Settings → Apps](#settings--apps)
+  - [Tested with and recommended](#tested-with-and-recommended)
   - [MIDI controllers (sidecar)](#midi-controllers-sidecar)
 - [Settings → Visuals](#settings--visuals)
   - [Trace color](#trace-color)
@@ -351,6 +414,11 @@ dual receivers, the full TX speech-processing rack, spots, high-refresh
 spectrum and waterfall on a big screen, and comfortable margin for the heavier
 DSP features on the roadmap.
 
+**NNR and CPU.** Neural noise reduction adds CPU in the receive audio chain.
+**Standard** is the factory default. **Premium** uses more and is comfortable
+on the Recommended tier and up. On Minimum, prefer Standard or classic NR if
+the machine is already busy (dual receive, a high waterfall rate).
+
 **Two things that matter on any tier:**
 
 - On first launch Lyra tunes its FFT math to your CPU and caches it — a
@@ -403,14 +471,15 @@ the **Radio** section. Or just use **▶ Start** on the toolbar:
 
 ### 4. First-launch note (one-time)
 
-The very first time Lyra runs (and after a settings reset), it tunes its
-signal-processing math for your CPU — a one-time "FFT optimization". A
-setup window appears with the Lyra logo, a few tips, and a progress bar;
-it takes a few minutes once, then Lyra opens **automatically** and every
-launch after is fast. **Please let it finish and don't close it** — the
-main window opens on its own when it's done. (You can force a fresh
-optimization later from **Settings → Backup & Restore → "Rebuild FFT
-optimization on next start"**, e.g. after a CPU change.)
+The very first time Lyra runs (and after a settings reset **or a DSP-engine
+update** such as v0.25.8), it tunes its signal-processing math for your
+CPU — a one-time "FFT optimization". A setup window appears with the Lyra
+logo, a few tips, and a progress bar; it takes a few minutes once, then
+Lyra opens **automatically** and every launch after is fast. **Please let
+it finish and don't close it** — the main window opens on its own when
+it's done. (You can force a fresh optimization later from **Settings →
+Backup & Restore → "Rebuild FFT optimization on next start"**, e.g. after
+a CPU change.)
 
 ### 5. Tune and listen
 
@@ -421,7 +490,7 @@ optimization on next start"**, e.g. after a CPU change.)
   see [Filters panel](#filters-panel).
 - **Band panel** — jump between bands.
 - **Audio panel** — the **DSP + AUDIO** strip: **Vol / MUTE**, the **AGC**
-  cycle, and **Noise Reduction** (NR on/off + Mode 1–4 + AEPF + NPE).
+  cycle, and **Noise Reduction** (NR or **NNR**, plus NR-C).
   Choose the output
   device in **Settings → Audio**.
 - **Panadapter** — click/drag/wheel to tune; drag the right edge to set
@@ -815,28 +884,30 @@ band, a pile-up offset). The action row beneath the VFOs has:
   on this copies full RX2 state; with SUB off it is frequency (VFO B
   shadow).
 
-**In FM**, the raw SPLIT button is replaced by a friendlier repeater
-front-end (FM repeaters are the common split case):
+**In FM**, **Dev / Emph / RPT / Offset / CTCSS / 1750** stay on the **same
+action row** as SPLIT / SUB / Mem (fields are compact so a second row is
+not needed):
 
-- **Dev** — FM deviation, right there in the row (same control as
-  Settings → TX → FM). Changing it auto-sizes the RX bandwidth to the
-  matching FM channel width (±2.5 kHz → 12 kHz, ±5 kHz → 16 kHz).
+- **Dev** — FM deviation (same control as Settings → TX → FM). Changing it
+  auto-sizes the RX bandwidth to the matching FM channel width
+  (±2.5 kHz → 12 kHz, ±5 kHz → 16 kHz).
 - **Emph** — FM pre-emphasis, **Comm** (6 dB/oct voice) / **Off** (flat,
   for data). Same control as Settings → TX → FM; leave it on Comm for voice.
 - **RPT** — the FM split toggle. Turn it on, then pick **Offset** direction
-  (**−** / **+**) and the shift in **kHz** (type any value, or pick a
-  preset: 100 kHz / 500 kHz / 600 kHz / 1 MHz / 5 MHz / **7.6 MHz**).
+  (**−** / **+**) and the shift in **one** field (type kHz / MHz, or pick
+  100 kHz / 500 kHz / 600 kHz / 1 MHz / 5 MHz / **7.6 MHz**).
   **70 cm** IARU Region 1 repeaters are typically **−7600 kHz**. Band
   defaults when you first arm RPT: 10 m 100 kHz, 2 m 600 kHz, 6 m 1 MHz,
   70 cm 7.6 MHz (all shift down). VFO B = VFO A ± offset, split armed.
   As you tune VFO A, VFO B **tracks** the offset (duplex). **CTCSS** is a
-  lit button → enable it and pick **UL** (TX encode). A **DL** combo
-  appears only when a memory used a different RX tone. Hold FM
+  lit button → enable it and pick **UL** (TX encode) and **DL** (RX recipe).
+  Either combo may be **—** (no tone). Hold FM
   **MOX / PTT**, then tap **1750**: a 1750 Hz tone is mixed into TX audio
-  for ~0.5 s (the chip lights for that window). Memory Burst=1750 stores
+  for the duration set in **Settings → Hardware → Band plan** (default
+  **2 s**; the chip lights for that window). Memory Burst=1750 stores
   the recipe. Shown by default only for **IARU Region 1**; Region 2/3 hide
-  it (CTCSS is the usual access). Toggle it under **Settings → Hardware →
-  Band plan → Show 1750 Hz tone burst**.
+  it (CTCSS is the usual access). Toggle visibility under **Settings →
+  Hardware → Band plan → Show 1750 Hz tone burst**.
 
 On the panadapter (centred on your RX, VFO A) the **RX** carrier is a
 solid orange line at centre and the **TX (VFO B)** freq is a solid
@@ -1154,9 +1225,11 @@ Show memory recall on the Tuning panel**.
   tone if different from UL), and **Burst** (`1750` for a 1750 Hz burst
   recipe). Store the **output** frequency in Freq, Mode = FM. Recall
   tunes the output, **arms SPLIT** to the input, and sets UL. **DL**
-  appears on Tuning only when it differs from UL (RX decode is stored,
-  not yet squelched). Blank Offset/UL = simplex (recall clears split +
-  tone). "Store current" captures offset, UL, DL, and Burst.
+  appears on Tuning whenever CTCSS is on (pick **—** if unused; RX decode is
+  stored, not yet squelched). Blank Offset/UL/DL = simplex (recall clears split +
+  tone). "Store current" captures offset, UL, DL, and Burst. The **Mem**
+  recall list and the Settings table both **scroll** when you have more
+  than a handful of presets.
 
 Pick the **mode** under the VFO (Tuning panel) and the **filter width**
 in the **Filters** panel.
@@ -1272,29 +1345,44 @@ laid out in old Lyra's three-row arrangement:
   **threshold** and the **live gain action** (dB) beside the mode.
 
 **Row 3 — Noise Reduction character**
-- **NR Mode (1–4)** — picks the WDSP denoiser's gain function:
-  **1** Wiener + speech-presence, **2** plain Wiener (edgier), **3**
-  MMSE-LSA (the smoothest, default), **4** trained-adaptive (most
-  aggressive). Turn **NR** on in Row 2, then sweep modes to find the best
-  sound for the band.
-- **AEPF** — anti-musical-noise smoother. On (default) engages *both* of
-  WDSP's cleanup stages — artifact elimination **and** the post-filter
-  that stock WDSP leaves off by default — so the "musical twinkle" is
-  knocked down hard while MMSE-LSA (Mode 3) keeps the voice natural
-  rather than robotic.
-  Turn it off to hear raw EMNR on already-quiet bands. If you still want
-  the most natural voice, stay on **Mode 3** (Mode 4 trades smoothness for
-  aggression and brings musical noise back).
-- **NPE** — how the denoiser tracks the noise floor: **OSMS** (smooth,
-  best for steady atmospheric hiss) or **MCRA** (faster-tracking, better
-  for changing/intermittent QRM).
+
+Use **either** classic **NR** (EMNR) **or** **NNR** (neural). They are
+exclusive. **NR-C** (captured profile) is independent of both.
+
+- **NNR** — WDSP 2.10 neural denoiser. Default **off**. While on, Row 3
+  shows **Model** and **Mask** instead of Mode / AEPF / NPE:
+  - **Standard** (default) vs **Premium**. Premium is the heavier model
+    and uses more CPU. Standard is the start; switch to Premium when
+    you want to hear the stronger model (a mask around **−40** is the
+    amount to try while listening). On a Minimum-tier PC, stay on
+    Standard — or classic NR — if the machine is already busy.
+  - **Mask** −10 dB (least suppression) … **−50 dB** (most). Default
+    **−40**. More negative = more noise cut (and more chance of watery
+    artifacts). This is the main NNR amount control.
+  NNR adds a small extra delay (~50 ms class). Hover the NR / NNR
+  controls for the same cheat sheet.
+- **NR Mode (1–4)** — only while classic **NR** is on (NNR off). Picks the
+  WDSP EMNR gain function: **1** Wiener + speech-presence, **2** plain
+  Wiener (edgier), **3** MMSE-LSA (the smoothest, default), **4**
+  trained-adaptive (most aggressive). Turn **NR** on in Row 2, then sweep
+  modes to find the best sound for the band.
+- **AEPF** — anti-musical-noise smoother (classic NR only). On (default)
+  engages *both* of WDSP's cleanup stages — artifact elimination **and**
+  the post-filter that stock WDSP leaves off by default — so the "musical
+  twinkle" is knocked down hard while MMSE-LSA (Mode 3) keeps the voice
+  natural rather than robotic. Turn it off to hear raw EMNR on
+  already-quiet bands. If you still want the most natural voice, stay on
+  **Mode 3** (Mode 4 trades smoothness for aggression and brings musical
+  noise back).
+- **NPE** — classic NR only. How the denoiser tracks the noise floor:
+  **OSMS** (smooth, best for steady atmospheric hiss) or **MCRA**
+  (faster-tracking, better for changing/intermittent QRM).
 - **LMS strength** — appears in this row only while **LMS** is on: 0 is
   subtle, 50 is the WDSP-class default, 100 is full prediction (more taps,
   harder pull). Most useful digging weak CW out of band hiss.
 
-Surfacing NR Mode + AEPF + NPE as separate knobs is one of Lyra's
-differentiators — most SDR apps hide them. All three persist across
-restarts.
+Classic NR Mode + AEPF + NPE stay operator knobs when NNR is off. All of
+the above persist across restarts.
 
 ### Captured noise profile (NR-C) — Lyra's signature noise reduction
 
@@ -1775,6 +1863,12 @@ receiving (press **▶ Start** first; it rests at S0 when idle).
 > reading stays put as you adjust LNA — you can calibrate at any setting.
 > The relative movement, peak-hold, SNR, and
 > noise-floor behaviour are all live regardless.
+>
+> **PWR peaks.** The forward-power needle keeps the loudest coupler
+> sample between ticks, so a voice peak shows instead of the quiet
+> sample that happened to land on the tick. Factory peak-hold for that
+> needle is **700 ms** if you have not saved your own
+> (`Settings → Meter`).
 >
 > **Transmit meters** are fully wired. The wire / safety / telemetry
 > set — **PWR** (forward power, watts), **SWR** (antenna match),
@@ -3446,13 +3540,15 @@ To make a report actionable, please include:
 ## Settings → Filters / BCD
 
 Everything that makes an **external band-following accessory follow your
-tuning** lives here. There are **two analog-voltage paths** on an HL2
-with an N2ADR / IO board — they are not the same pin:
+tuning** lives here. On an **HL2 / HL2+** there are **two analog-voltage
+paths** plus OC filters — they are not the same pin. Protocol 2 radios
+(Brick SDR, ANAN) do not use the Pico I2C analog path.
 
 | Path | Pin | How Lyra turns it on | Same as |
 |------|-----|----------------------|---------|
 | Gateware Band Volts | **J3** (fan PWM / GPIO04_Fan) | **HL2 Band Volts on J3** checkbox | DeskHPSDR RX → *HL2 Band Volts / Dither Bit*; MI0BOT Thetis *HL2 Band Volts* |
-| OC → I2C → Pico PWM | stock firmware **J4 pin 8** | **Enable N2ADR / IO board** (default on) | DeskHPSDR `filter_board = N2ADR`; Thetis/Quisk OC with no extra box |
+| Pico analog (stock `n2adr_basic`) | **J4 pin 8** | **Enable N2ADR / IO board** (default on) — Lyra writes TX Hz over I2C **0x1D** | Thetis / Quisk / SparkSDR (same Pico TX-freq writes; OC is filters only) |
+| N2ADR LPF relays | J16 → I2C **0x20** | same checkbox | DeskHPSDR `filter_board = N2ADR` |
 
 USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no board.
 
@@ -3462,13 +3558,14 @@ The HL2's **J16 open-collector (OC) pins** drive an external band-pass
 filter board (N2ADR or compatible) so its filters follow the band
 you're on — front-end protection against strong out-of-band signals (a
 nearby AM broadcaster, say). Gateware relays those bits over I2C
-(addr 0x20). Pico firmware can PWM analog from the same bits; **stock
-N2ADR analog is J4 pin 8**, not J3.
+(addr **0x20**). Stock Jim Ahlstrom Pico firmware (`n2adr_basic`) PWM
+on **J4 pin 8** follows **TX frequency** written over I2C **0x1D** — not
+the OC bits. Analog on **J3** is the separate Band Volts checkbox.
 
 - **Enable N2ADR / IO board (filters + Pico analog, not J3)** —
-  turns OC band-switching on (default, matching DeskHPSDR). Off = the
-  OC pins drive nothing (harmless with no board). Analog on **J3** is
-  the Band Volts checkbox further down.
+  turns OC band-switching on **and** Pico TX-Hz writes (HL2 / HL2+ only;
+  default on). Off = OC idle and no Pico analog updates. Harmless with
+  no board. **J3** analog is Band Volts, further down.
 - **Live pins** (top-right) — the seven cells light to show which J16
   pins are being driven **right now**, on the wire. They follow the band
   as you tune and flip to the transmit pattern while you're keyed.
@@ -3526,12 +3623,15 @@ option to borrow the adjacent band's filter:
 (If the FTDI driver, `ftd2xx.dll`, isn't installed, this section says so
 instead — install the FTDI D2XX driver to use USB-BCD.)
 
-### Band Volts on J3 (fan PWM)
+### Band Volts on J3 (fan PWM) — leave off for Pico / J4
 
-If your amp or tuner (Xiegu GP100, HardRock-50 in analog-voltage mode,
-etc.) is jumpered to **IO-board J3**, that header is the fan PWM, not
-the Pico analog output. Tick **HL2 Band Volts on J3 / fan-PWM pin
-(dither bit)**. That is Protocol-1 C0=0x00 C3 bit 3 — the same bit
+**Do not tick this** for stock Pico analog, M0AWS DB9 BAND, or a
+GP100/GPA100 on **J4 pin 8**. That path is **Enable N2ADR / IO board**
+(I2C **0x1D**) — no extra Hardware box, matching Thetis/Quisk.
+
+Use this checkbox **only** if the amp is jumpered to **IO-board J3**
+(the fan header / GPIO04_Fan). Tick **HL2 Band Volts on J3 / fan-PWM
+pin (dither bit)**. That is Protocol-1 C0=0x00 C3 bit 3 — the same bit
 DeskHPSDR and MI0BOT Thetis use. Off (default) leaves J3 as a cooling
 fan.
 
@@ -3872,7 +3972,7 @@ only bite when you key FM. All persist across sessions.
 |---|---|---|
 | **Deviation** | 5.0 kHz | Peak FM deviation. The spin box flags the two standard presets — **5.0 kHz — Wide (US)** and **2.5 kHz — Narrow (US/EU)** — and reads plain `kHz` at any other value. Too much deviation splatters into adjacent channels; too little sounds weak and quiet. Changing it also re-sizes the RX filter and the TX occupied-width readout to match (see below). |
 | **Pre-emphasis** | Comm | The treble-boost curve applied before the modulator. **Comm** is the standard 6 dB/oct (300–3000 Hz) communications curve every FM rig and repeater expects — leave it here for **voice**. **Off** is flat (no boost) — use it for **FM data** (packet, 1200/9600 baud, VARA FM), where the treble tilt would distort the data tones, or for a deliberately flat/warm sound. (A true *Off* is a Lyra edge — most rigs force pre-emphasis on.) |
-| **CTCSS sub-tone** | Off | Transmit a sub-audible **UL** CTCSS tone to open a tone-protected FM repeater. On the Tuning dock, **CTCSS** is available in FM even without RPT. Enable it and pick **UL** (67.0–254.1 Hz). Leave it off for simplex. **DL** (a different RX tone) lives mainly in **Settings → Bands → Memory** and only shows on Tuning when DL ≠ UL. RX CTCSS decode is not wired yet. **1750** (Region 1 burst chip) is hidden unless **Settings → Hardware → Band plan → Show 1750 Hz tone burst** is on. |
+| **CTCSS sub-tone** | Off | Transmit a sub-audible **UL** CTCSS tone to open a tone-protected FM repeater. On the Tuning dock, **CTCSS** is available in FM even without RPT. Enable it and pick **UL** and **DL** (67.0–254.1 Hz, or **—** for none). Leave CTCSS off for simplex. RX CTCSS decode is not wired yet. **1750** (Region 1 burst chip) is hidden unless **Settings → Hardware → Band plan → Show 1750 Hz tone burst** is on; burst length is 0.5 / 2 / 3 / 4 s next to that checkbox (default 2 s). |
 
 > **Why pre-emphasis exists:** FM brings high audio frequencies out of the
 > receiver noisier than low ones. Every FM radio boosts the highs on
@@ -3888,11 +3988,12 @@ compressor / reverb into FM's pre-emphasis just over-drives into "mush", so
 FM audio is shaped only by its band-limit and the pre-emphasis curve above.
 Nothing to switch off by hand.
 
-**Quick access on the Tuning panel.** In FM the Tuning panel's front row
-mirrors these controls — a **Dev** spin box and an **Emph** (Comm / Off)
-chip sit right next to the **RPT** repeater button, two-way-synced with
-Settings → TX → FM. And **choosing a Deviation auto-sizes the RX bandwidth**
-to the matching FM channel width (±2.5 kHz → 12 kHz, ±5 kHz → 16 kHz); the
+**Quick access on the Tuning panel.** In FM the same action row as
+SPLIT / SUB / Mem / RIT shows **Dev**, **Emph** (Comm / Off), **RPT**, a
+single **Offset** field (preset or type kHz), **CTCSS** with **UL** /
+**DL** (either may be **—**), and **1750**.
+Choosing a Deviation auto-sizes the RX bandwidth to the matching FM
+channel width (±2.5 kHz → 12 kHz, ±5 kHz → 16 kHz); the
 TX bandwidth in FM is always shown as the auto-derived occupied width
 (`2 × (deviation + 3 kHz)`), so you never set a TX filter by hand in FM.
 You can still override the RX bandwidth in the Filters panel afterward.
@@ -4289,9 +4390,11 @@ Lyra runs a TCI **server**; the other program connects to it as a client.
   sync.
 - **Add "CW" to the modulations list (CWL/CWU alias)** — some clients
   only understand a bare `CW`; enable this so they can select it.
-- **Emulate ExpertSDR3 / Emulate SunSDR2 PRO** — report an Expert
-  protocol/device name. Enable these only if a client refuses to talk to
-  Lyra unless it sees a SunSDR/ExpertSDR rig.
+- **Emulate ExpertSDR3 / Emulate SunSDR2 PRO** — default **on**. JTDX
+  and WSJT-X only attach to that protocol/device pair; they also need
+  `start;` **before** `ready;` (otherwise WSJT-X says “TCI not switched
+  on” even when this checkbox is on). MSHV and Open SSTV accept Lyra's
+  own names. Un-tick only if you need Lyra to identify as itself.
 - **TCI server running** — the master on/off. When on, the header shows
   the **● TCI** indicator (green with a client count, amber when idle).
 
@@ -4395,10 +4498,21 @@ Expert Electronics TCI CW commands:
 - **`cw_macros_speed`** — set the keying speed (WPM); a bare query reads
   it back.
 - **`cw_macros_stop`** — abort the current send immediately.
+- **CW terminal** — the key line stays up between letters so you can
+  correct the callsign mid-send. Lyra reports when the queued text has
+  drained and when the callsign's last letter starts. `|SK|` (and the
+  other prosigns) join as one character; `<` and `>` step the speed by
+  5 WPM inside the text. Turning the terminal off finishes the letters
+  already queued, then drops the line. Idle for 30 seconds drops it
+  too.
 
 Keying only happens in **CWU/CWL** (in any other mode the commands are
 ignored). Set your logger's TCI keyer to Lyra and it sends straight
 through. SDRLogger+, N1MM and similar work this way.
+
+**TX sensors** (mic dBm, RMS watts, peak watts, SWR) keep streaming
+while you are receiving, so a client's transmit meters do not go blank
+between overs.
 
 ### Digital modes over TCI (FT8 / FT4 / MSK144 / Q65 / etc.)
 
@@ -4760,6 +4874,23 @@ RTTY, FT8, SSTV, and other digital programs live here (plus TCI / VAC).
 Lyra does not ship an in-radio RTTY decoder. **CW** paddle / keyboard /
 TCI send and the **CW Dec** reader stay native — do not look for Morse
 decode under Apps.
+
+### Tested with and recommended
+
+Lyra does **not** bundle these. Install them yourself, then **Browse** to
+the `.exe` on **Settings → Apps**. The same list is on that tab as clickable
+links.
+
+| Use | Program | Link |
+| --- | --- | --- |
+| SSTV | Open SSTV | <https://bucknova.github.io/Open-SSTV/> |
+| FT8 / FT4 | MSHV | <http://lz2hv.org/mshv> |
+| FT8 / FT4 | WSJT-X | <https://wsjtx.github.io/wsjtx/index.html> |
+| VARA chat | VarAC | <https://www.varac-hamradio.com/> |
+| MIDI surface | midi2tci (sidecar) | <https://github.com/ftl/midi2tci> |
+
+TCI vs VAC audio setup is in [Digital modes](#digital-modes-over-tci). MIDI
+wiring is below.
 
 ### MIDI controllers (sidecar)
 
