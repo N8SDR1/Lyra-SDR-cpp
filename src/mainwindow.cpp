@@ -95,6 +95,8 @@
 #include <QQuickWidget>
 #include <QQuickWindow>   // frameSwapped — crash-guard first-frame sentinel clear
 #include <QQuickItem>
+#include <QQuickItemGrabResult>
+#include <QScreen>
 #include <QSettings>
 #include <QVariant>
 #include <QJsonDocument>
@@ -512,7 +514,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     connect(recorder_, &lyra::recorder::RecorderEngine::error, this,
             [this](const QString &m) { statusBar()->showMessage(m, 8000); });
     connect(recorder_, &lyra::recorder::RecorderEngine::snapshotDue, this,
-            [this] { captureRecorderSnapshot(); });
+            [this] { captureRecorderSnapshot(); }, Qt::QueuedConnection);
     // Panel ⚙ shortcut → open Settings → Recording.
     connect(recorder_, &lyra::recorder::RecorderEngine::settingsRequested, this,
             [this] { openSettingsTopic(QStringLiteral("recorder")); });
@@ -522,10 +524,12 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         const qint64 f = stream_ ? stream_->property("rx1FreqHz").toLongLong() : 0;
         return qMakePair(f, prefs_ ? prefs_->mode() : QString());
     });
-    // Refuse to record while the stream is stopped (would just capture silence).
+    // Refuse to record while the radio is stopped (would just capture silence).
     recorder_->setCanRecordProbe([this]() -> bool {
-        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-        return st && st->isRunning();
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+            if (st->isRunning()) return true;
+        if (p2Bridge_ && p2Bridge_->isRunning()) return true;
+        return stream_ && stream_->property("running").toBool();
     });
 
     // #201 Stage 5 — offline MP4 converter.  Runs a below-normal-priority
@@ -717,18 +721,22 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         auto *recorder = voiceKeyer_->recorder();
         st->ep6Thread().set_mic_record_tap(
             [recorder](int n, const double *iq) { recorder->feedMicPairs(iq, n); });
-        // #89 C2 — RX-record tap: the post-RX-DSP "what you heard" audio feeds
-        // the voice-keyer clip recorder while an RX clip records AND the #201
-        // session recorder while a session records (both lock-free no-ops
-        // otherwise — each gates on its own atomic).  One tap, two consumers.
-        if (auto *we = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
-            auto *sessionRec = recorder_;
-            we->setRxRecordTap(
-                [recorder, sessionRec](const double *audio, int n) {
-                    recorder->feedRxStereoDup(audio, n);
-                    if (sessionRec) sessionRec->feedAudioDoubles(audio, n, 2);
-                });
-        }
+        // #89 C2 — mic-path voice-keyer recorder is HL2-only (EP6 mic).
+        // The RX session-recorder tap is installed below for both P1 and P2.
+    }
+
+    // #201 session recorder + #89 RX-clip tap: post-RX-DSP "what you heard".
+    // Must live on WdspEngine regardless of Protocol 1 vs 2 — gating this
+    // behind HL2Stream left Protocol 2 with empty WAVs (and a silent tap
+    // if the stream object is not an HL2Stream).
+    if (auto *we = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
+        auto *clipRec = voiceKeyer_ ? voiceKeyer_->recorder() : nullptr;
+        auto *sessionRec = recorder_;
+        we->setRxRecordTap(
+            [clipRec, sessionRec](const double *audio, int n) {
+                if (clipRec) clipRec->feedRxStereoDup(audio, n);
+                if (sessionRec) sessionRec->feedAudioDoubles(audio, n, 2);
+            });
     }
 
     // #59 RX parametric EQ model (drives RxEqPanel.qml, "RxEq" context
@@ -1369,23 +1377,97 @@ void MainWindow::showEvent(QShowEvent *event) {
     }
 }
 
+void MainWindow::saveRecorderSnapshotImage(const QImage &img)
+{
+    if (!recorder_ || !recorder_->isRecording()) return;
+    if (img.isNull() || img.size().isEmpty()) return;
+    const QString path = recorder_->reserveSnapshotFile();
+    if (!img.save(path, "PNG")) {
+        statusBar()->showMessage(tr("Couldn't write the panadapter snapshot."), 4000);
+        return;
+    }
+    const qint64 freq = stream_ ? stream_->property("rx1FreqHz").toLongLong() : 0;
+    recorder_->noteSnapshot(path, freq, prefs_ ? prefs_->mode() : QString());
+}
+
+namespace {
+// QWidget::grab() / leftover OpenGL FBOs on a Vulkan QQuickWidget often
+// return a correctly-sized all-black image — not null.  Treat that as a
+// failed grab so we fall through to RHI readback / compositor capture.
+bool recorderSnapshotLooksLive(const QImage &img)
+{
+    if (img.isNull() || img.width() < 8 || img.height() < 8)
+        return false;
+    const int stepX = qMax(1, img.width() / 32);
+    const int stepY = qMax(1, img.height() / 32);
+    int lit = 0, n = 0;
+    for (int y = 0; y < img.height(); y += stepY) {
+        for (int x = 0; x < img.width(); x += stepX) {
+            ++n;
+            const QRgb p = img.pixel(x, y);
+            if (qRed(p) + qGreen(p) + qBlue(p) > 24)
+                ++lit;
+        }
+    }
+    return n > 0 && lit * 20 > n;
+}
+} // namespace
+
 void MainWindow::captureRecorderSnapshot() {
-    // #201 — fired by RecorderEngine::snapshotDue while recording.  Grabs the
-    // panadapter dock's QQuickWidget framebuffer (the spectrum + waterfall as
-    // displayed — RX signal on receive, TX on transmit) to a PNG in the
-    // session folder, then records the manifest entry.  A no-op if the panel
-    // is hidden / not yet rendered (grabFramebuffer returns a null image).
     if (!recorder_ || !recorder_->isRecording()) return;
     QDockWidget *dock = docks_.value(QStringLiteral("panadapter"));
     if (!dock) return;
     auto *qw = dock->findChild<QQuickWidget *>();
     if (!qw) return;
-    const QImage img = qw->grabFramebuffer();
-    if (img.isNull()) return;
-    const QString path = recorder_->reserveSnapshotFile();
-    if (!img.save(path, "PNG")) return;
-    const qint64 freq = stream_ ? stream_->property("rx1FreqHz").toLongLong() : 0;
-    recorder_->noteSnapshot(path, freq, prefs_ ? prefs_->mode() : QString());
+
+    QImage img;
+    if (QQuickWindow *win = qw->quickWindow())
+        img = win->grabWindow();
+    if (recorderSnapshotLooksLive(img)) {
+        saveRecorderSnapshotImage(img);
+        return;
+    }
+
+    // Compositor capture of the dock's on-screen pixels — works when the
+    // panadapter is Vulkan/RHI (no OpenGL FBO for grabFramebuffer()).
+    if (QScreen *scr = qw->screen() ? qw->screen()
+                                    : (window() ? window()->screen() : nullptr)) {
+        const QRect geo = scr->geometry();
+        const QPoint g = qw->mapToGlobal(QPoint(0, 0));
+        const QPixmap px = scr->grabWindow(0,
+                                           g.x() - geo.x(), g.y() - geo.y(),
+                                           qw->width(), qw->height());
+        img = px.toImage();
+        if (recorderSnapshotLooksLive(img)) {
+            saveRecorderSnapshotImage(img);
+            return;
+        }
+    }
+
+    QQuickItem *root = qw->rootObject();
+    if (!root) {
+        statusBar()->showMessage(tr("Couldn't capture a panadapter snapshot."), 4000);
+        return;
+    }
+    QSize sz = qw->size();
+    if (sz.width() < 8 || sz.height() < 8)
+        sz = QSize(qMax(8, int(root->width())), qMax(8, int(root->height())));
+    auto grab = root->grabToImage(sz);
+    if (!grab) {
+        statusBar()->showMessage(tr("Couldn't capture a panadapter snapshot."), 4000);
+        return;
+    }
+    connect(grab.data(), &QQuickItemGrabResult::ready, this,
+            [this, grab]() {
+                const QImage grabbed = grab ? grab->image() : QImage();
+                if (!recorderSnapshotLooksLive(grabbed)) {
+                    statusBar()->showMessage(
+                        tr("Couldn't capture a panadapter snapshot."), 4000);
+                    return;
+                }
+                saveRecorderSnapshotImage(grabbed);
+            },
+            Qt::SingleShotConnection);
 }
 
 void MainWindow::syncCollapsibleDock() {

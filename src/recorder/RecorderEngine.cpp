@@ -237,6 +237,8 @@ bool RecorderEngine::start(qint64 freqHz, const QString &mode) {
     if (cfg_.snapshotsOn) {
         const int ivl = std::max(1, int(60000.0 / cfg_.snapshotsPerMin));
         snapTimer_->start(ivl);
+        // First PNG at Rec, not after a full interval (5/min used to wait 12 s).
+        emit snapshotDue();
     }
 
     emit recordingChanged(true);

@@ -15,6 +15,7 @@
 #pragma once
 
 #include <QHash>
+#include <QImage>
 #include <QMainWindow>
 #include <QList>
 #include <QPoint>
@@ -182,6 +183,7 @@ private:
     // #201 — grab the panadapter+waterfall to a PNG in the active session
     // folder (driven by RecorderEngine::snapshotDue while recording).
     void captureRecorderSnapshot();
+    void saveRecorderSnapshotImage(const QImage &img);
     // Wrap a QML panel in a movable/floatable/closable QDockWidget,
     // register it in docks_, and dock it into <area>.  <topic> drives
     // the title-bar "?" badge (Help guide / Settings).
