@@ -1,4 +1,6 @@
-// Pico I2C TX-freq byte pack (HL2IOBoard 0x1D BYTE4..BYTE0).
+// Pico I2C TX-freq byte pack (HL2IOBoard slave 0x1D on I2C2 / C0 0x3d,
+// BYTE4..BYTE0).  Live enqueue uses bus=1; I2C1 (0x3c) never reaches
+// the N2ADR IO board.
 // Must match lyra::wire::pack_hl2_ioboard_tx_freq_bytes in FrameComposer.h.
 // Wire-inert: no stream, no event loop, no Qt.
 //

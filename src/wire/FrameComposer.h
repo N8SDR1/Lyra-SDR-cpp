@@ -120,12 +120,20 @@ inline void pack_hl2_ioboard_tx_freq_bytes(std::uint64_t hz,
 // Host I2C write overlay (C0 0x3c / 0x3d).  Same ring as the EP2 I2C
 // steal in write_main_loop_hl2.  Returns false if prn is null or the
 // 32-slot ring is full.  Address is 7-bit.
+// bus 0 → I2C1 (C0 command 0x3c); bus 1 → I2C2 (C0 command 0x3d).
+// N2ADR LPF (0x20) and IO-board analog slave (0x1D) sit on I2C2.
 bool enqueue_i2c_write(unsigned char bus, unsigned char address,
                        unsigned char control, unsigned char write_data);
 
-// Five writes to Pico 0x1D: BYTE4..BYTE0 (register 0 then 4 last).
-// No-op / false if prn is null or fewer than 5 free slots.
+// Five writes to IO-board slave 0x1D on I2C2: BYTE4..BYTE0
+// (register 0 then 4 last).  No-op / false if prn is null or fewer
+// than 5 free slots.
 bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz);
+
+// Latest TX RF Hz the EP2 writer should push to 0x1D on I2C2.
+// Writer retries when the 32-slot ring has room (band-voltage follow
+// must not be lost to a full queue).
+void request_hl2_ioboard_tx_freq(std::uint64_t hz);
 
 // HL2 "Band Volts" output enable (MI0BOT / Ramdor gateware feature).
 // Writes the C0=0x00 frame's C3 bit 3 — the ADC "dither" bit — which the

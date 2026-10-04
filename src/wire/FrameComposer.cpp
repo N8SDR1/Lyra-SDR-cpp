@@ -21,6 +21,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <mutex>
 #include <vector>
 
 #include <QtGlobal>   // CW wire-probe (LYRA_CW_DEBUG) — diagnostic only
@@ -119,8 +120,20 @@ void set_tx_freq(int freq_hz) {
     prn->tx[0].frequency = corrected_freq(freq_hz);
 }
 
-bool enqueue_i2c_write(unsigned char bus, unsigned char address,
-                       unsigned char control, unsigned char write_data)
+namespace {
+
+std::recursive_mutex g_i2c_mu;
+std::atomic<std::uint64_t> g_ioboard_want{0};
+std::atomic<std::uint64_t> g_ioboard_sent{~std::uint64_t{0}};
+
+// HL2 I2C2 (C0 command 0x3d).  Filter chip 0x20 and analog slave 0x1D
+// share this bus — I2C1 (0x3c) never reaches the IO board.
+constexpr unsigned char kI2cBusIoboard = 1;
+constexpr unsigned char kIoboardSlave  = 0x1D;
+
+bool enqueue_i2c_write_unlocked(unsigned char bus, unsigned char address,
+                                unsigned char control,
+                                unsigned char write_data)
 {
     if (prn == nullptr)
         return false;
@@ -137,27 +150,66 @@ bool enqueue_i2c_write(unsigned char bus, unsigned char address,
     return true;
 }
 
-bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz)
+int i2c_free_unlocked()
 {
     if (prn == nullptr)
-        return false;
+        return 0;
     const int in = static_cast<int>(prn->i2c.in_index);
     const int out = static_cast<int>(prn->i2c.out_index);
     const int used = (in - out + kMaxI2cQueue) % kMaxI2cQueue;
-    const int free = kMaxI2cQueue - 1 - used;
-    if (free < 5)
+    return kMaxI2cQueue - 1 - used;
+}
+
+bool enqueue_hl2_ioboard_tx_freq_unlocked(std::uint64_t hz)
+{
+    if (prn == nullptr)
+        return false;
+    if (i2c_free_unlocked() < 5)
         return false;
     unsigned char b[5];
     pack_hl2_ioboard_tx_freq_bytes(hz, b);
-    // Pico I2C slave 0x1D; first payload byte = register, second = data.
-    // Register 4 (BYTE0) last latches analog / new_tx_freq.
-    constexpr unsigned char kPicoAddr = 0x1D;
+    // Slave 0x1D; register 4 (BYTE0) last latches analog / new_tx_freq.
     for (int reg = 0; reg < 5; ++reg) {
-        if (!enqueue_i2c_write(0, kPicoAddr, static_cast<unsigned char>(reg),
-                               b[reg]))
+        if (!enqueue_i2c_write_unlocked(kI2cBusIoboard, kIoboardSlave,
+                                        static_cast<unsigned char>(reg),
+                                        b[reg]))
             return false;
     }
     return true;
+}
+
+void flush_ioboard_want_unlocked()
+{
+    const std::uint64_t want = g_ioboard_want.load(std::memory_order_relaxed);
+    if (want == g_ioboard_sent.load(std::memory_order_relaxed))
+        return;
+    if (!enqueue_hl2_ioboard_tx_freq_unlocked(want))
+        return;
+    g_ioboard_sent.store(want, std::memory_order_relaxed);
+}
+
+}  // namespace
+
+bool enqueue_i2c_write(unsigned char bus, unsigned char address,
+                       unsigned char control, unsigned char write_data)
+{
+    std::lock_guard<std::recursive_mutex> lk(g_i2c_mu);
+    return enqueue_i2c_write_unlocked(bus, address, control, write_data);
+}
+
+bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz)
+{
+    std::lock_guard<std::recursive_mutex> lk(g_i2c_mu);
+    g_ioboard_want.store(hz, std::memory_order_relaxed);
+    if (!enqueue_hl2_ioboard_tx_freq_unlocked(hz))
+        return false;
+    g_ioboard_sent.store(hz, std::memory_order_relaxed);
+    return true;
+}
+
+void request_hl2_ioboard_tx_freq(std::uint64_t hz)
+{
+    g_ioboard_want.store(hz, std::memory_order_relaxed);
 }
 
 // HL2 "Band Volts" enable → C0=0x00 frame C3 bit 3 (ADC dither bit).
@@ -941,63 +993,70 @@ void write_main_loop_hl2(const char* out_bufp) {
         C0 = static_cast<unsigned char>(XmitBit);
 
         // I2C-transaction overlay (HL2-only).  Lines 898-943.
-        // First leg: decrement delay if non-zero.
-        if (0 != prn->i2c.delay) {
-            prn->i2c.delay--;
+        bool i2c_overlay = false;
+        {
+            std::lock_guard<std::recursive_mutex> i2c_lk(g_i2c_mu);
+            flush_ioboard_want_unlocked();
+
+            // First leg: decrement delay if non-zero.
+            if (0 != prn->i2c.delay) {
+                prn->i2c.delay--;
+            }
+
+            // Second leg: pre-decrement delay AND check the queue.
+            // Preserved verbatim — the double decrement is the
+            // reference's countdown pattern.  When the queue has data
+            // AND delay is at-or-below-zero, fire an I2C transaction
+            // and reset delay to 5.
+            if ((0 >= --prn->i2c.delay) &&
+                (prn->i2c.in_index != prn->i2c.out_index)) {
+                prn->i2c.delay = 5;
+                i2c_overlay = true;
+
+                // I2C queue ring-buffer next-index walk (HL2 has
+                // MAX_I2C_QUEUE = 32 slots; kMaxI2cQueue mirrors).
+                unsigned char next = prn->i2c.out_index + 1 >= kMaxI2cQueue
+                                         ? 0
+                                         : prn->i2c.out_index + 1;
+
+                // C0 — I2C1 0x3c (bus 0) or I2C2 0x3d (bus 1) shifted
+                // into bits[7:1], plus ctrl_request → C0 bit 7 (RQST).
+                // Stop-at-end is C2 bit 7 (0x80), not this bit.
+                if (0 == prn->i2c.i2c_queue[next].bus) {
+                    C0 |= static_cast<unsigned char>((0x3c << 1)
+                              | (prn->i2c.ctrl_request << 7));
+                } else {
+                    C0 |= static_cast<unsigned char>((0x3d << 1)
+                              | (prn->i2c.ctrl_request << 7));
+                }
+
+                // C2 — I2C target address.  If MSB set (7-bit notation
+                // shifted), normalize by right-shift; then OR 0x80
+                // (Stop request).
+                unsigned char address = prn->i2c.i2c_queue[next].address;
+                if (0x7f < address) {
+                    address = address >> 1;
+                }
+                C2 = static_cast<unsigned char>(0x80 | address);
+
+                // C1 — read=0x07 / write=0x06 sub-command
+                if (prn->i2c.ctrl_read) {
+                    C1 = 0x07;
+                } else {
+                    C1 = 0x06;
+                }
+
+                // C3 / C4 — payload control byte + write data
+                C3 = prn->i2c.i2c_queue[next].control;
+                C4 = prn->i2c.i2c_queue[next].write_data;
+
+                // Advance queue out-index
+                prn->i2c.out_index = next;
+
+                // NB: I2C-overlay frames do NOT advance g_out_control_idx.
+            }
         }
-
-        // Second leg: pre-decrement delay AND check the queue.
-        // Preserved verbatim — the double decrement is the
-        // reference's countdown pattern.  When the queue has data
-        // AND delay is at-or-below-zero, fire an I2C transaction
-        // and reset delay to 5.
-        if ((0 >= --prn->i2c.delay) &&
-            (prn->i2c.in_index != prn->i2c.out_index)) {
-            prn->i2c.delay = 5;
-
-            // I2C queue ring-buffer next-index walk (HL2 has
-            // MAX_I2C_QUEUE = 32 slots; kMaxI2cQueue mirrors).
-            unsigned char next = prn->i2c.out_index + 1 >= kMaxI2cQueue
-                                     ? 0
-                                     : prn->i2c.out_index + 1;
-
-            // C0 — I2C addr 0x3c (bus 0) or 0x3d (bus 1) shifted
-            // into bits[7:1], plus ctrl_request → bit 7 (which is
-            // the "stop" bit on the wire).
-            if (0 == prn->i2c.i2c_queue[next].bus) {
-                C0 |= static_cast<unsigned char>((0x3c << 1)
-                          | (prn->i2c.ctrl_request << 7));
-            } else {
-                C0 |= static_cast<unsigned char>((0x3d << 1)
-                          | (prn->i2c.ctrl_request << 7));
-            }
-
-            // C2 — I2C target address.  If MSB set (7-bit notation
-            // shifted), normalize by right-shift; then OR 0x80
-            // (Stop request).
-            unsigned char address = prn->i2c.i2c_queue[next].address;
-            if (0x7f < address) {
-                address = address >> 1;
-            }
-            C2 = static_cast<unsigned char>(0x80 | address);
-
-            // C1 — read=0x07 / write=0x06 sub-command
-            if (prn->i2c.ctrl_read) {
-                C1 = 0x07;
-            } else {
-                C1 = 0x06;
-            }
-
-            // C3 / C4 — payload control byte + write data
-            C3 = prn->i2c.i2c_queue[next].control;
-            C4 = prn->i2c.i2c_queue[next].write_data;
-
-            // Advance queue out-index
-            prn->i2c.out_index = next;
-
-            // NB: I2C-overlay frames do NOT advance g_out_control_idx.
-            // The else-branch below does that on non-I2C frames.
-        } else {
+        if (!i2c_overlay) {
             // Normal switch dispatch (networkproto1.c:946-1178).
             // All 19 cases compile-time present per Q2 eager.
             // §4a-scope: cases 0 / 2 / 3 implemented.  Cases 1

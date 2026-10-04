@@ -309,8 +309,9 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     // for the restored band (so the board is correct from the first send).
     // Default ON: DeskHPSDR sets filter_board=N2ADR and emits OC on
     // every HL2 (Thetis/Quisk same OC→I²C 0x20 with no extra checkbox).
-    // That drives N2ADR LPFs and Pico PWM analog (stock firmware is
-    // J4 pin 8, not J3).  Off is still available; idle OC is harmless.
+    // This checkbox is OC / LPF relays only.  Pico analog (I2C2 0x1D
+    // TX-Hz) always follows on Protocol 1 — same as Thetis IOBoard
+    // setFrequency / Quisk IOBoard HeartBeat.
     filterBoardEnabled_ =
         QSettings().value(QStringLiteral("hw/filterBoard"), true).toBool();
     // #199 Stage 2 — seed the editable OC table with the N2ADR preset (so an
@@ -2732,20 +2733,40 @@ void HL2Stream::setP2DrivePath(bool on) {
     applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
     if (was && !on) {
         lastIoboardTxHz_.store(~quint64{0}, std::memory_order_relaxed);
+        lastIoboardBand_.store(-1, std::memory_order_relaxed);
         pushIoboardTxFreq(true);
     }
 }
 
 void HL2Stream::pushIoboardTxFreq(bool force) {
+    // Protocol 1 only.  Analog is independent of the N2ADR OC checkbox:
+    // Thetis IOBoard.setFrequency and Quisk IOBoard.HeartBeat always
+    // write I2C2 slave 0x1D (five TX-Hz bytes) whether filters are on.
     if (p2DrivePath_.load(std::memory_order_relaxed))
         return;
-    if (!filterBoardEnabled_)
-        return;
     const quint64 hz = txFreqHz_.load(std::memory_order_relaxed);
-    if (!force && hz == lastIoboardTxHz_.load(std::memory_order_relaxed))
+    const quint64 last = lastIoboardTxHz_.load(std::memory_order_relaxed);
+    if (!force && hz == last)
         return;
-    if (lyra::wire::enqueue_hl2_ioboard_tx_freq(hz))
-        lastIoboardTxHz_.store(hz, std::memory_order_relaxed);
+    const int band = lyra::paPowerBandIndexForFreq(
+        static_cast<int>(qMin(hz, quint64(std::numeric_limits<int>::max()))));
+    const int lastBand = lastIoboardBand_.load(std::memory_order_relaxed);
+    const qint64 now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::steady_clock::now().time_since_epoch())
+                           .count();
+    const bool bandChanged = (last == ~quint64{0}) || band != lastBand;
+    const bool due =
+        (now - lastIoboardTxMs_.load(std::memory_order_relaxed)) >= 500;
+    // Analog is band-shaped.  Same-band VFO ticks coalesce to 0.5 s so
+    // the I2C steal cannot starve C&C.  Cross-band always goes now.
+    if (!force && !bandChanged && !due)
+        return;
+    lyra::wire::request_hl2_ioboard_tx_freq(hz);
+    if (!lyra::wire::enqueue_hl2_ioboard_tx_freq(hz))
+        return;
+    lastIoboardTxHz_.store(hz, std::memory_order_relaxed);
+    lastIoboardBand_.store(band, std::memory_order_relaxed);
+    lastIoboardTxMs_.store(now, std::memory_order_relaxed);
 }
 
 double HL2Stream::paGainForBand(int idx) const {
@@ -5474,10 +5495,6 @@ void HL2Stream::setFilterBoardEnabled(bool on) {
     oc_.setEnabled(on);
     QSettings().setValue(QStringLiteral("hw/filterBoard"), on);
     updateOcPattern();
-    if (on) {
-        lastIoboardTxHz_.store(~quint64{0}, std::memory_order_relaxed);
-        pushIoboardTxFreq(true);
-    }
     noteSubFrontEnd();
     emit filterBoardChanged(on);
     emit logLine(QStringLiteral("Filter board %1")

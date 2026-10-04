@@ -4540,18 +4540,16 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         // --- master enable + live hardware pin-state strip ---
         auto *topRow = new QHBoxLayout;
         auto *fb = new QCheckBox(
-            tr("Enable N2ADR / IO board (filters + Pico analog, not J3)"));
+            tr("Enable N2ADR filter board (OC / LPF relays, not analog)"));
         fb->setChecked(stream_->filterBoardEnabled());
         fb->setToolTip(tr(
-            "HL2 / HL2+ only. Protocol 2 (Brick SDR, ANAN) ignores Pico analog.\n\n"
-            "DeskHPSDR: HL2 filter_board = N2ADR, OC on every frame.\n"
-            "Thetis/Quisk send OC (filters) plus I2C TX frequency to the Pico.\n\n"
-            "J16 open-collectors: gateware I2C 0x20 = N2ADR LPF relays.\n"
-            "Stock n2adr_basic analog on J4 pin 8: host I2C 0x1D TX Hz "
-            "(not OC bits, not J3).\n\n"
-            "IO-board J3 is the fan-PWM header. Analog on J3 uses the Band "
-            "Volts checkbox below (DeskHPSDR dither / MI0BOT HL2 Band Volts).\n\n"
-            "Off = OC idle and Pico analog not updated (harmless with no board)."));
+            "HL2 / HL2+ only. Turns J16 open-collectors / N2ADR LPF relays "
+            "(gateware I2C 0x20). Off = OC idle.\n\n"
+            "Pico analog on J4 pin 8 is separate: Protocol 1 always sends "
+            "TX Hz on I2C2 (C0 0x3d) slave 0x1D, five bytes BYTE4..BYTE0, "
+            "same as Thetis IOBoard.setFrequency and Quisk IOBoard HeartBeat. "
+            "No extra setting. Protocol 2 (Brick / ANAN) does not send it.\n\n"
+            "J3 fan-PWM analog is the Band Volts checkbox below."));
         connect(fb, &QCheckBox::toggled, stream_,
                 &lyra::ipc::HL2Stream::setFilterBoardEnabled);
         connect(stream_, &lyra::ipc::HL2Stream::filterBoardChanged, fb,
@@ -4702,9 +4700,9 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
 
             auto *note = new QLabel(tr(
                 "Leave this off for a stock N2ADR Pico, M0AWS DB9, or "
-                "GP100/GPA100 on J4 pin 8. That analog is the N2ADR "
-                "checkbox above (I2C 0x1D TX Hz) — same as Thetis/Quisk, "
-                "no extra box.\n\n"
+                "GP100/GPA100 on J4 pin 8. That analog is always sent on "
+                "Protocol 1 (I2C2 C0 0x3d, slave 0x1D TX Hz) — same as "
+                "Thetis/Quisk, no extra box.\n\n"
                 "Tick this only if the amp is jumpered to IO-board J3 "
                 "(GPIO04_Fan). Then J3 becomes gateware Band Volts instead "
                 "of a cooling fan (DeskHPSDR / MI0BOT “HL2 Band Volts”)."));
