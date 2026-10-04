@@ -4,6 +4,15 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-04 — v0.25.10 Sheliak (patch)
+
+- Version bump **0.25.9 → 0.25.10**. Star name stays **Sheliak**.
+- Analog: Protocol 1 always writes TX Hz; N2ADR checkbox is OC/LPF only.
+- NR-C: display Spectrum0 on uncleaned IQ (rectangular); Floor −24.
+- Rec: RX WAV on P1 and P2; Vulkan snapshot grab.
+- USER_GUIDE / wiki / `docs/releases/v0.25.10.md`. Tag `v0.25.10`. Do not
+  merge `main`.
+
 ## 2026-10-03 — v0.25.9 Sheliak (patch)
 
 - Version bump **0.25.8 → 0.25.9**. Star name stays **Sheliak**.

@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.9 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.25.10 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
@@ -18,7 +18,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ Graphics **crash ladder** (OpenGL → software, MSAA off on software) so a bad GPU driver does not leave Lyra with no window
 - ✅ **MSAA** picker **Off / 2× / 4× / 8×** (Settings → Visuals; default 4×; restart)
 - ✅ **Xvtr** band chips — RF dial (ten-digit LED, ~2.147 GHz), IF NCO, Disable PA default on; Shift+click SUB hop; right-click slot editor. Band-plan **region does not rewrite** slot MHz — set RF low/high/LO for your allocation. See User Guide **Band panel**.
-- ✅ HL2 **N2ADR / IO board** — OC LPF (I2C **0x20**) plus Pico analog on **J4 pin 8** (I2C **0x1D** TX Hz, P1 HL2/HL2+ only). Optional **Band Volts on J3** is a separate fan-PWM gateware path, default off.
+- ✅ HL2 **N2ADR / IO board** — OC LPF (I2C **0x20**) is the **Enable N2ADR / IO board** checkbox. Analog band-follow is **always** Protocol 1 TX Hz on I2C **0x1D** (I2C2), not gated on that box. Optional **Band Volts on J3** is a separate fan-PWM gateware path, default off.
 
 ## Receive (RX)
 
@@ -28,7 +28,9 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
   vs each other; noise blanker, **auto-notch (ANF)**, **LMS**, all-mode **squelch**
 - ✅ **8-band RX parametric EQ** (draggable curve)
 - ✅ **Captured-noise profile (NR-C)** — grab your band noise and subtract it
-  (IQ-domain; can run with NR or NNR; last profile restores on restart)
+  (IQ-domain; panadapter stays on uncleaned IQ so a strong station stays
+  rectangular; Floor default **−24 dB**; can run with NR or NNR; last
+  profile restores on restart)
 - ✅ **Centre-tune (CTUN)** — drag the marker onto a signal while the LO stays put
 - ✅ **RIT** (receiver incremental tuning)
 - ✅ **Zero-beat markers** — Kenwood-style ± needle to dead-tune a CW / AM / SAM / FM carrier by eye
@@ -75,7 +77,8 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **DX spots** — cluster / RBN / TCI sources, filters, panadapter overlay, click-to-tune
 - ✅ **Tuner memory** — manual-ATU settings per band and per antenna
 - ✅ **Frequency calibration** against WWV / time stations
-- ✅ **Session recorder** — RX audio + timed panadapter snapshots → a synced **MP4**
+- ✅ **Session recorder** — RX audio on Protocol 1 and Protocol 2 + timed
+  panadapter snapshots (Vulkan-safe) → a synced **MP4**
 - ✅ **CAT / Serial** — Kenwood TS-480/2000 CAT over COM/TCP, serial PTT input, Winkeyer
 - ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; **CW terminal** (key line stays up between letters; callsign correct mid-send) and **TX sensors** that keep reporting at receive; ExpertSDR3 / SunSDR2PRO identity + `start;` before `ready;` so **WSJT-X / JTDX** attach (MSHV / Open SSTV unchanged); **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log)
 - ✅ **USB-BCD** band data for linear-amp band switching

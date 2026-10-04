@@ -20,6 +20,22 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.10
+
+- **HL2 analog band-follow is independent of N2ADR OC.** Protocol 1
+  always writes TX frequency to the IO board so analog filters follow
+  the band. **Enable N2ADR / IO board** only drives OC / LPF relays.
+  See [Settings → Filters](#settings--filters).
+- **NR-C keeps the panadapter rectangular.** The reducer still cleans RX
+  audio. The spectrum stays on uncleaned IQ, so a strong station does not
+  paint a 70–90 kHz slope. The audio mask is full Wiener again (no
+  occupied-bin mix) so the speaker floor drop matches pre-split NR-C.
+  Floor default is **−24 dB** (older −12 migrates). See
+  [Captured noise profile (NR-C)](#captured-noise-profile-nr-c--lyras-signature-noise-reduction).
+- **Session recorder** — RX WAV on Protocol 1 and Protocol 2. Panadapter
+  snapshots work on Vulkan (then screen, then widget). See
+  [Session recorder](#session-recorder-rx-audio--snapshots--mp4).
+
 ## What's new in 0.25.9
 
 - **NNR starts on Standard.** A fresh install picks the lighter
@@ -27,12 +43,6 @@ not programmers — if you can click a menu, you can use this.
   you already saved is kept. NNR is still **off** until you turn it on.
   The **Mask** tooltip suggests trying **−25 to −40**. See
   [Row 3 — Noise Reduction](#row-3--noise-reduction-character).
-- **NR-C keeps the panadapter rectangular.** The reducer still cleans RX
-  audio. The spectrum stays on uncleaned IQ, so a strong station does not
-  paint a 70–90 kHz slope. The audio mask is full Wiener again (no
-  occupied-bin mix) so the speaker floor drop matches pre-split NR-C.
-  See
-  [Captured noise profile (NR-C)](#captured-noise-profile-nr-c--lyras-signature-noise-reduction).
 - **PWR needle tracks voice peaks.** Between ticks the power meter keeps
   the loudest forward-power sample, so a syllable shows instead of a
   quiet average. Factory peak-hold for that needle is **700 ms** if you
@@ -138,7 +148,7 @@ not programmers — if you can click a menu, you can use this.
 ## What's new in 0.25.1
 
 - **NR-C** tried an occupied-bin mix so voice/CW edges stayed brick-wall
-  in audio. That mix also lifted the audio noise floor; 0.25.9 dropped it
+  in audio. That mix also lifted the audio noise floor; 0.25.10 dropped it
   once the panadapter used uncleaned IQ.
 - **Xvtr** chips on the Band row — four transverter slots; VFO stays in RF;
   right-click the slot editor. See [Band panel](#band-panel).
@@ -149,6 +159,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.10](#whats-new-in-02510)
 - [What's new in 0.25.9](#whats-new-in-0259)
 - [What's new in 0.25.8](#whats-new-in-0258)
 - [What's new in 0.25.7](#whats-new-in-0257)
@@ -2421,6 +2432,8 @@ click it to reopen the panel, where **Stop** lives.
 > **You have to be on the air to record.** Recording needs live receive
 > audio, so **Record does nothing while the radio stream is stopped** — press
 > **▶ Start** in the header first. (Otherwise you'd just capture silence.)
+> RX WAV works on Protocol 1 and Protocol 2. Snapshots try a Vulkan
+> framebuffer grab first, then a screen grab, then a widget grab.
 
 ### Settings → Recording
 
