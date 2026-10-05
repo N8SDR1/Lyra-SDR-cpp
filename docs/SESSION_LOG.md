@@ -4,6 +4,17 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-05 — v0.25.11 Sheliak (patch)
+
+- Version bump **0.25.10 → 0.25.11**. Star name stays **Sheliak**.
+- Hardware Startup companions wait until FFTW + create_rnet (Phil
+  AG5EY 0.25.10 first-run vanish with Logger mid-wisdom).
+- beginConnect refuses until prn is allocated.
+- TCI STOP / handshake / prune unkey / TUNE-TRX-if-stopped.
+- Analog same-Hz skip (`e912417`) in this cut.
+- USER_GUIDE / wiki / `docs/releases/v0.25.11.md`. Tag `v0.25.11`.
+  Do not merge `main`. Rec default-path left uncommitted.
+
 ## 2026-10-04 — v0.25.10 Sheliak (patch)
 
 - Version bump **0.25.9 → 0.25.10**. Star name stays **Sheliak**.

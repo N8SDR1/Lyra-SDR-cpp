@@ -29,7 +29,8 @@ signal. For the full reference, see the **[User Guide](User-Guide)**.
 
 The very first time Lyra runs it builds an **FFT plan cache** ("optimizing"
 splash). This is a one‑time, few‑minute step — let it finish and Lyra opens
-normally. After that, launches are fast. (If you ever change CPU/RAM or want
+normally. Companion auto-start (SDRLogger+) waits until that finishes.
+After that, launches are fast. (If you ever change CPU/RAM or want
 to rebuild it, **Settings → Radio → FFT optimization → Clear &amp; rebuild**.)
 
 ## 3. Find and open your radio

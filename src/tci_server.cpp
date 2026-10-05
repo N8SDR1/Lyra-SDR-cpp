@@ -647,6 +647,15 @@ void TciServer::pruneDeadClients() {
     for (int i = clients_.size() - 1; i >= 0; --i) {
         QWebSocket *ws = clients_[i];
         if (!ws || ws->state() != QAbstractSocket::ConnectedState) {
+            // Same owner/unkey path as onClientDisconnected. The prune
+            // path used to drop the socket without releasing TX ownership
+            // if `disconnected` never fired (half-closed WS).
+            if (ws && ws == txAudioOwner_) {
+                txAudioOwner_ = nullptr;
+                chronoOutstanding_ = 0;
+                chronoTimer_->stop();
+                if (stream_) stream_->requestMoxFromTci(false);
+            }
             clients_.removeAt(i);
             streams_.remove(ws);
             if (ws) ws->deleteLater();
@@ -1336,12 +1345,15 @@ void TciServer::sendInit(QWebSocket *ws) {
     sendTo(ws, QStringLiteral("iq_stop:0"));                    // sendIQStartStop(0,false)
     sendTo(ws, QStringLiteral("iq_samplerate:%1")               // sendIQSampleRate (clamp 48k..384k)
                    .arg(std::clamp(rate, 48000, 384000)));
-    // WSJT-X / JTDX latch "SDR switched on" from `start;` and evaluate
-    // that flag at `ready;`. Sending ready first (or sending stop) is
-    // exactly "TCI SDR is not switched on" even when the TCI checkbox
-    // is on. Advertise start in the connect burst; echo of a later
-    // client START is in dispatch(). READY last (spec).
-    sendTo(ws, QStringLiteral("start"));
+    // WSJT-X / JTDX latch "SDR switched on" from `start;` at `ready;`.
+    // Tell the truth: if the radio session is not running, send `stop`.
+    // Always advertising `start` made clients think IQ/audio were live
+    // while the HL2 was closed, then TUNE/timeout sent STOP and killed
+    // a later session. Operator Start broadcasts the real `start`.
+    if (stream_ && stream_->isRunning())
+        sendTo(ws, QStringLiteral("start"));
+    else
+        sendTo(ws, QStringLiteral("stop"));
     sendTo(ws, QStringLiteral("ready"));
 }
 
@@ -1477,12 +1489,23 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
     // ── lifecycle ────────────────────────────────────────────────
     if (cmd == QStringLiteral("START")) {
         sendTo(ws, QStringLiteral("start"));   // WSJT-X waits for this echo
-        emit startRequested();
+        if (!(stream_ && stream_->isRunning()))
+            emit startRequested();
         return;
     }
     if (cmd == QStringLiteral("STOP")) {
-        sendTo(ws, QStringLiteral("stop"));
-        emit stopRequested();
+        // Do NOT map TCI STOP onto Lyra Stop / HL2 close.
+        // WSJT-X and JTDX send STOP when TCI RX audio goes silent
+        // (Lyra zeros the TCI tap while MOX). Closing the radio
+        // there kills waterfall and leaves TCI stuck (close still
+        // looks running, so the follow-up START is ignored).
+        if (stream_ && stream_->isRunning()) {
+            if (stream_->moxActive())
+                stream_->requestMoxFromTci(false);
+            sendTo(ws, QStringLiteral("start"));
+        } else {
+            sendTo(ws, QStringLiteral("stop"));
+        }
         return;
     }
     if (cmd == QStringLiteral("SET_IN_FOCUS")) return;   // no-op
@@ -1934,6 +1957,11 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
             sendTo(ws, QStringLiteral("tune:0,false"));
             return;
         }
+        if (!stream_->isRunning()) {
+            tciTuneActive_ = false;
+            sendTo(ws, QStringLiteral("tune:0,false"));
+            return;
+        }
         if (args.size() < 2) {
             // 1-arg query — report current state (we don't track a
             // separate TUN flag yet; report based on wire MOX).
@@ -2017,6 +2045,10 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
             sendTo(ws, QStringLiteral("trx:0,%1%2")
                            .arg(mox ? QStringLiteral("true") : QStringLiteral("false"))
                            .arg(tok));
+            return;
+        }
+        if (wantsTx && !stream_->isRunning()) {
+            sendTo(ws, QStringLiteral("trx:0,false"));
             return;
         }
         if (wantsTx) {

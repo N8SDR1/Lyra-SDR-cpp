@@ -20,6 +20,19 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.11
+
+- **First-run FFTW and companion apps no longer overlap.** Hardware
+  Startup (SDRLogger+, Apps auto-start, the two generic slots) waits until
+  the FFT plan cache and the radio layer are up. A 0.25.10 first launch
+  could fire Logger while FFTW was still building and then vanish. Let
+  optimizing finish — Lyra stays open, then Logger starts.
+- **TCI STOP does not close the radio.** Handshake sends `start` only when
+  the session is running; otherwise `stop` then `ready`. Dropped TCI TX
+  audio unkeys. TUNE/TRX are refused until you press **▶ Start**.
+- **HL2 analog IO** skips a redundant same-Hz write on a fast return to
+  the same band (under half a second).
+
 ## What's new in 0.25.10
 
 - **HL2 analog band-follow is independent of N2ADR OC.** Protocol 1
@@ -159,6 +172,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.11](#whats-new-in-02511)
 - [What's new in 0.25.10](#whats-new-in-02510)
 - [What's new in 0.25.9](#whats-new-in-0259)
 - [What's new in 0.25.8](#whats-new-in-0258)
@@ -2946,8 +2960,9 @@ The complete manager lives in **Settings → Profiles**:
 ## Auto-starting apps at launch
 
 **Settings → Hardware → "Startup — launch apps when Lyra opens"** lets you
-have companion programs open automatically a few seconds after Lyra starts
-(long enough for Lyra's CAT and TCI servers to come up first).
+have companion programs open automatically after Lyra is ready (FFTW
+cache loaded, radio layer up, CAT / TCI listening). They do **not**
+launch during the first-run "optimizing" splash.
 
 - **SDRLogger+** — Lyra's companion logger. If it's installed, the status
   reads *installed* and you can tick **Auto-start with Lyra**; the button

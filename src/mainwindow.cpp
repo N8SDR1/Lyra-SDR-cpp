@@ -52,6 +52,7 @@
 #include "tx/VoiceKeyer.h"
 #include "wire/Ep6RecvThread.h"       // #89 B1 — ep6Thread().set_tx_clip_source(...)
 #include "wire/P2RxBridge.h"          // Saturn / ANAN G2 Protocol 2 RX path
+#include "wire/RadioNet.h"            // prn — refuse Start until create_rnet
 #include "hardware/ActiveFrontEndModel.h"
 #include "settingsdialog.h"
 #include "dockdragcontroller.h"
@@ -929,10 +930,9 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
         if (st && !st->isRunning()) onStartStop();
     });
-    connect(tci_, &TciServer::stopRequested, this, [this]() {
-        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-        if (st && st->isRunning()) onStartStop();
-    });
+    // TCI STOP must not close the radio. WSJT-X sends STOP when TCI
+    // RX audio drops (MOX zeros the tap). Mapping that to onStartStop
+    // closed the HL2 session and TCI never recovered.
     if (tci_->enabled()) tci_->start();
 
     // Solar / HF-propagation service — fetches HamQSL, derives per-band
@@ -3023,6 +3023,13 @@ void MainWindow::onStartStop() {
 void MainWindow::beginConnect(const QString &preferIp) {
     auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
     if (!st || st->isRunning() || connectInFlight_) return;
+    // FFTW / WDSP init calls create_rnet() after ensureWisdom(). A TCI
+    // START (or lastRadio) during that nested loop used to open() with
+    // prn still null.
+    if (!lyra::wire::prn) {
+        qWarning("[wire] beginConnect: radio layer not ready yet");
+        return;
+    }
     connectInFlight_ = true;
     // Arm the "radio never answered" watchdog for this attempt. It's cancelled
     // by updateConnState() the moment either wire path reports running, or by

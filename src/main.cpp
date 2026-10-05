@@ -2194,40 +2194,40 @@ int main(int argc, char *argv[])
             win->raise();
             win->activateWindow();
         }
-    });
 
-    // --- Startup auto-launch (Settings → Hardware → Startup) ---
-    // Fire the operator's enabled companion apps a few seconds after the UI
-    // is up, so Lyra's CAT/TCI servers are listening first.  Fire-and-forget
-    // (closing Lyra never kills them).  Staggered so several apps don't fight
-    // for CPU/audio at once.  Runs regardless of which show()-path ran above.
-    QTimer::singleShot(2500, &app, [&app]() {
-        QSettings s;
-        struct Slot { const char *en; const char *path; const char *args; };
-        const Slot appSlots[] = {
-            {"autostart/sdrlogger/enabled", "autostart/sdrlogger/path", nullptr},
-            {"autostart/app1/enabled", "autostart/app1/path", nullptr},
-            {"autostart/app2/enabled", "autostart/app2/path", nullptr},
-        };
-        int n = 0;
-        for (const auto &sl : appSlots) {
-            if (!s.value(sl.en, false).toBool()) continue;
-            const QString path = s.value(sl.path).toString().trimmed();
-            if (path.isEmpty()) continue;
-            const QString args =
-                sl.args ? s.value(sl.args).toString() : QString();
-            QTimer::singleShot(n++ * 1500, &app, [path, args]() {
-                lyra::profile::CompanionLauncher::launchDetached(path, args);
-            });
-        }
-        for (const auto &e : lyra::AppShortcuts::load()) {
-            if (!e.autoStart) continue;
-            if (e.path.trimmed().isEmpty()) continue;
-            const lyra::AppShortcut copy = e;
-            QTimer::singleShot(n++ * 1500, &app, [copy]() {
-                lyra::AppShortcuts::launch(copy);
-            });
-        }
+        // Startup companions (SDRLogger+, generic slots, Apps auto-start).
+        // Arm ONLY after ensureWisdom() + create_rnet() (or a failed DLL
+        // load). A 2.5 s timer from process start used to fire inside
+        // wisdom's nested event loop; Logger's TCI then raced FFTW.
+        QTimer::singleShot(1500, qApp, []() {
+            QSettings s;
+            struct Slot { const char *en; const char *path; const char *args; };
+            const Slot appSlots[] = {
+                {"autostart/sdrlogger/enabled", "autostart/sdrlogger/path", nullptr},
+                {"autostart/app1/enabled", "autostart/app1/path", nullptr},
+                {"autostart/app2/enabled", "autostart/app2/path", nullptr},
+            };
+            int n = 0;
+            QCoreApplication *app = qApp;
+            for (const auto &sl : appSlots) {
+                if (!s.value(sl.en, false).toBool()) continue;
+                const QString path = s.value(sl.path).toString().trimmed();
+                if (path.isEmpty()) continue;
+                const QString args =
+                    sl.args ? s.value(sl.args).toString() : QString();
+                QTimer::singleShot(n++ * 1500, app, [path, args]() {
+                    lyra::profile::CompanionLauncher::launchDetached(path, args);
+                });
+            }
+            for (const auto &e : lyra::AppShortcuts::load()) {
+                if (!e.autoStart) continue;
+                if (e.path.trimmed().isEmpty()) continue;
+                const lyra::AppShortcut copy = e;
+                QTimer::singleShot(n++ * 1500, app, [copy]() {
+                    lyra::AppShortcuts::launch(copy);
+                });
+            }
+        });
     });
 
     const int rc = app.exec();

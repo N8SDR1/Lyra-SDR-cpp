@@ -230,7 +230,10 @@ Settings export/import writes a single profile file you can copy. See
 
 **First launch is stuck "optimizing".**
 That's the one‑time FFT plan‑cache build — let it finish (a few minutes).
-It only happens once (or after **Clear &amp; rebuild**).
+It only happens once (or after **Clear &amp; rebuild**). Companion apps
+(SDRLogger+ Hardware Startup) wait until that cache and the radio layer
+are up. If **0.25.10** vanished during optimizing, install **0.25.11** and
+close leftover SDRLogger+ in Task Manager before the first run.
 
 **Xvtr VFO stops at 55.999.999 Hz.**
 That was the old eight-digit LED cap. **v0.25.3+** uses ten digits so 2 m /
