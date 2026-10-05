@@ -37,7 +37,7 @@ namespace lyra::recorder {
 class WavStreamWriter;
 
 struct RecorderConfig {
-    QString path;                 // record root ("" = Documents/Lyra/Recordings)
+    QString path;                 // record root ("" = ~/Lyra/Recordings)
     bool    recordTx     = false; // false = RX only; true = RX(L)+TX(R) stereo
     bool    snapshotsOn  = true;  // capture pan/waterfall snapshots
     double  snapshotsPerMin = 5.0;

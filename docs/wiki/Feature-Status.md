@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.11 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.25.12 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
@@ -78,7 +78,8 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **Tuner memory** — manual-ATU settings per band and per antenna
 - ✅ **Frequency calibration** against WWV / time stations
 - ✅ **Session recorder** — RX audio on Protocol 1 and Protocol 2 + timed
-  panadapter snapshots (Vulkan-safe) → a synced **MP4**
+  panadapter snapshots (Vulkan-safe) → a synced **MP4**; default folder
+  `%USERPROFILE%\Lyra\Recordings` (v0.25.12, never Program Files)
 - ✅ **CAT / Serial** — Kenwood TS-480/2000 CAT over COM/TCP, serial PTT input, Winkeyer
 - ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; **CW terminal** (key line stays up between letters; callsign correct mid-send) and **TX sensors** that keep reporting at receive; handshake sends `start` only when the radio session is running (otherwise `stop` then `ready`); **STOP** never closes the radio (echoes `start` while live so WSJT-X / JTDX stay attached); **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log)
 - ✅ **USB-BCD** band data for linear-amp band switching

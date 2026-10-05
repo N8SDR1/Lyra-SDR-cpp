@@ -4,6 +4,15 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-05 — v0.25.12 Sheliak (patch)
+
+- Version bump **0.25.11 → 0.25.12**. Star name stays **Sheliak**.
+- Rec default `%USERPROFILE%\Lyra\Recordings`; migrate empty / relative /
+  Program Files roots (Start-Menu cwd made Rec look dead).
+- 0.25.11 FFTW-before-companions + TCI STOP + analog skip stay in tree.
+- USER_GUIDE / wiki / `docs/releases/v0.25.12.md`. Tag `v0.25.12`.
+  Do not merge `main`.
+
 ## 2026-10-05 — v0.25.11 Sheliak (patch)
 
 - Version bump **0.25.10 → 0.25.11**. Star name stays **Sheliak**.

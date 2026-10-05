@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.11 Sheliak** — first-run FFTW finishes before companion apps (SDRLogger+) start; TCI STOP no longer closes the radio. WDSP 2.10 from 0.25.8.
+**v0.25.12 Sheliak** — Rec writes under `%USERPROFILE%\Lyra\Recordings` (not Program Files); 0.25.11 FFTW/TCI fixes. WDSP 2.10 from 0.25.8.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 

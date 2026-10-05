@@ -3,6 +3,7 @@
 #include "recorder/RecorderEngine.h"
 #include "recorder/WavStreamWriter.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
@@ -19,6 +20,59 @@
 #include <chrono>
 
 namespace lyra::recorder {
+
+namespace {
+
+// User-writable default.  Never the install folder — a Start-Menu launch
+// has cwd under Program Files, and QDir("") / a relative path lands there
+// (not writable without elevation → Rec appears to "do nothing").
+QString defaultRecordRoot()
+{
+    const QString home =
+        QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+    if (!home.isEmpty())
+        return QDir::cleanPath(QDir(home).filePath(QStringLiteral("Lyra/Recordings")));
+    const QString app =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (!app.isEmpty())
+        return QDir::cleanPath(QDir(app).filePath(QStringLiteral("Recordings")));
+    const QString tmp =
+        QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    return QDir::cleanPath(QDir(tmp).filePath(QStringLiteral("Lyra/Recordings")));
+}
+
+bool pathUnderInstallDir(const QString &path)
+{
+    if (path.isEmpty()) return false;
+    const QString abs  = QFileInfo(path).absoluteFilePath();
+    const QString exe  = QFileInfo(QCoreApplication::applicationDirPath())
+                             .absoluteFilePath();
+    if (!exe.isEmpty() &&
+        abs.startsWith(exe, Qt::CaseInsensitive))
+        return true;
+#ifdef Q_OS_WIN
+    const QString pf  = QDir::toNativeSeparators(
+        qEnvironmentVariable("ProgramFiles"));
+    const QString pf86 = QDir::toNativeSeparators(
+        qEnvironmentVariable("ProgramFiles(x86)"));
+    const QString native = QDir::toNativeSeparators(abs);
+    if (!pf.isEmpty() && native.startsWith(pf, Qt::CaseInsensitive))
+        return true;
+    if (!pf86.isEmpty() && native.startsWith(pf86, Qt::CaseInsensitive))
+        return true;
+#endif
+    return false;
+}
+
+bool pathUnusable(const QString &path)
+{
+    if (path.isEmpty()) return true;
+    if (QDir::isRelativePath(path)) return true;
+    if (pathUnderInstallDir(path)) return true;
+    return false;
+}
+
+}  // namespace
 
 // ── Lock-free SPSC float ring (audio thread → writer thread) ──────────────
 class RecorderEngine::Fifo {
@@ -109,6 +163,11 @@ void RecorderEngine::loadConfig() {
     cfg_.audioRateHz     = s.value("recorder/audioRateHz", 48000).toInt();
     if (cfg_.audioRateHz <= 0) cfg_.audioRateHz = 48000;
     if (cfg_.snapshotsPerMin < 0.1) cfg_.snapshotsPerMin = 0.1;
+    // Migrate empty / relative / Program Files roots to the writable default.
+    if (pathUnusable(cfg_.path)) {
+        cfg_.path = defaultRecordRoot();
+        s.setValue("recorder/path", cfg_.path);
+    }
 }
 
 void RecorderEngine::saveConfig() const {
@@ -133,10 +192,8 @@ void RecorderEngine::setConfig(const RecorderConfig &c) {
 }
 
 QString RecorderEngine::recordRoot() const {
-    if (!cfg_.path.isEmpty()) return cfg_.path;
-    const QString docs =
-        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    return QDir(docs).filePath(QStringLiteral("Lyra/Recordings"));
+    if (!pathUnusable(cfg_.path)) return cfg_.path;
+    return defaultRecordRoot();
 }
 
 // ── paths ─────────────────────────────────────────────────────────────────

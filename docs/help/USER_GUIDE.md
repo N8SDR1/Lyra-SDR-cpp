@@ -20,6 +20,13 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.12
+
+- **Rec default folder is writable.** Sessions go to
+  `%USERPROFILE%\Lyra\Recordings`. A Start-Menu launch used to land Rec
+  under Program Files (not writable) so Rec looked like it did nothing.
+  An old empty / relative / install-folder path is migrated on load.
+
 ## What's new in 0.25.11
 
 - **First-run FFTW and companion apps no longer overlap.** Hardware
@@ -172,6 +179,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.12](#whats-new-in-02512)
 - [What's new in 0.25.11](#whats-new-in-02511)
 - [What's new in 0.25.10](#whats-new-in-02510)
 - [What's new in 0.25.9](#whats-new-in-0259)
@@ -2452,8 +2460,8 @@ click it to reopen the panel, where **Stop** lives.
 ### Settings → Recording
 
 - **Recordings folder** — where sessions are saved (default
-  `Documents\Lyra\Recordings`). **Browse** to pick your own, **Default** to
-  go back.
+  `%USERPROFILE%\Lyra\Recordings`, never the install folder under Program
+  Files). **Browse** to pick your own, **Default** to go back.
 - **Snapshots** — master on/off and the capture **rate** (per minute).
 - **Auto-split** — start a fresh audio file every **N minutes** and/or every
   **N MB** (both default **off**). Useful for very long sessions.
