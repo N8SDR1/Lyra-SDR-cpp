@@ -4,6 +4,15 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-05 — v0.25.13 Sheliak (patch)
+
+- Version bump **0.25.12 → 0.25.13**. Star name stays **Sheliak**.
+- TCI STOP no longer unkeys: WSJT-X / JTDX send STOP when the TCI RX tap
+  goes silent on MOX; 0.25.11 closed the radio (fixed) but also dropped
+  MOX. STOP still echoes `start` while the session is running.
+- USER_GUIDE / wiki / `docs/releases/v0.25.13.md`. Tag `v0.25.13`.
+  Do not merge `main`.
+
 ## 2026-10-05 — v0.25.12 Sheliak (patch)
 
 - Version bump **0.25.11 → 0.25.12**. Star name stays **Sheliak**.

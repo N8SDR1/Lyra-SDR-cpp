@@ -872,8 +872,9 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     });
 
     // TCI server — lets loggers/cluster apps drive + read Lyra over a
-    // WebSocket (Settings → Network).  START/STOP from a client route
-    // through onStartStop, guarded so they only act when state differs.
+    // WebSocket (Settings → Network).  START may open a stopped radio;
+    // STOP must not close it or drop MOX (clients send STOP on silent
+    // TCI RX audio during TX).
     tci_ = new TciServer(prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_),
                          qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_),
                          spots_, this);

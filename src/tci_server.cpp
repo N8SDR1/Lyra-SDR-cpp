@@ -1494,18 +1494,15 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         return;
     }
     if (cmd == QStringLiteral("STOP")) {
-        // Do NOT map TCI STOP onto Lyra Stop / HL2 close.
-        // WSJT-X and JTDX send STOP when TCI RX audio goes silent
-        // (Lyra zeros the TCI tap while MOX). Closing the radio
-        // there kills waterfall and leaves TCI stuck (close still
-        // looks running, so the follow-up START is ignored).
-        if (stream_ && stream_->isRunning()) {
-            if (stream_->moxActive())
-                stream_->requestMoxFromTci(false);
+        // Do NOT map TCI STOP onto Lyra Stop / HL2 close, and do NOT
+        // unkey. WSJT-X / JTDX send STOP when TCI RX audio goes silent
+        // (Lyra zeros the tap while MOX). Closing the radio there killed
+        // waterfall (0.25.11). Unkeying on that same STOP dropped MOX
+        // the instant a digital client went to TX.
+        if (stream_ && stream_->isRunning())
             sendTo(ws, QStringLiteral("start"));
-        } else {
+        else
             sendTo(ws, QStringLiteral("stop"));
-        }
         return;
     }
     if (cmd == QStringLiteral("SET_IN_FOCUS")) return;   // no-op

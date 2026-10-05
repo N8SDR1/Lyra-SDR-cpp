@@ -20,6 +20,14 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.13
+
+- **TCI STOP no longer drops MOX.** WSJT-X / JTDX send STOP when TCI RX
+  audio goes silent during TX. 0.25.11 stopped closing the radio on that
+  command, but still unkeyed. STOP echoes `start` while the session is
+  running. TUNE/TRX still need **▶ Start**. Dropped TCI TX-audio owner
+  still unkeys.
+
 ## What's new in 0.25.12
 
 - **Rec default folder is writable.** Sessions go to
@@ -179,6 +187,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.13](#whats-new-in-02513)
 - [What's new in 0.25.12](#whats-new-in-02512)
 - [What's new in 0.25.11](#whats-new-in-02511)
 - [What's new in 0.25.10](#whats-new-in-02510)
