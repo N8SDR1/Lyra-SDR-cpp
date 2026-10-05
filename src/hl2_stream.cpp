@@ -1389,6 +1389,7 @@ void HL2Stream::open(const QString &ip) {
         lyra::wire::set_tx_freq(            // TX NCO + DDC2/3 mirror (case 1/5/6)
             ddsHzForRf(static_cast<quint32>(txRfTune < 0 ? 0 : txRfTune)));
         lastIoboardTxHz_.store(~quint64{0}, std::memory_order_relaxed);
+        lastIoboardBand_.store(-1, std::memory_order_relaxed);
         pushIoboardTxFreq(true);
         lyra::wire::set_rx_step_attn_db(    // LNA gain (case 11 !XmitBit)
             std::clamp(lnaGainDb_.load(std::memory_order_relaxed),
@@ -2740,14 +2741,18 @@ void HL2Stream::setP2DrivePath(bool on) {
 
 void HL2Stream::pushIoboardTxFreq(bool force) {
     // Protocol 1 only.  Analog is independent of the N2ADR OC checkbox:
-    // Thetis IOBoard.setFrequency and Quisk IOBoard.HeartBeat always
-    // write I2C2 slave 0x1D (five TX-Hz bytes) whether filters are on.
+    // I2C2 slave 0x1D (five TX-Hz bytes) whether filters are on.
     if (p2DrivePath_.load(std::memory_order_relaxed))
         return;
     const quint64 hz = txFreqHz_.load(std::memory_order_relaxed);
+    // Always latch the wanted Hz first.  The EP2 writer retries the
+    // five-byte 0x1D burst when the I2C ring has room.  Skipping that
+    // latch because lastIoboardTxHz_ already matches leaves analog on
+    // the previous band: an earlier click can fail to enqueue (ring
+    // full of 0x20 LPF writes) while the writer still flushes the
+    // *other* band's Hz, then a return click looks like a no-op.
+    lyra::wire::request_hl2_ioboard_tx_freq(hz);
     const quint64 last = lastIoboardTxHz_.load(std::memory_order_relaxed);
-    if (!force && hz == last)
-        return;
     const int band = lyra::paPowerBandIndexForFreq(
         static_cast<int>(qMin(hz, quint64(std::numeric_limits<int>::max()))));
     const int lastBand = lastIoboardBand_.load(std::memory_order_relaxed);
@@ -2758,10 +2763,9 @@ void HL2Stream::pushIoboardTxFreq(bool force) {
     const bool due =
         (now - lastIoboardTxMs_.load(std::memory_order_relaxed)) >= 500;
     // Analog is band-shaped.  Same-band VFO ticks coalesce to 0.5 s so
-    // the I2C steal cannot starve C&C.  Cross-band always goes now.
-    if (!force && !bandChanged && !due)
+    // the I2C steal cannot starve C&C.  Cross-band always tries now.
+    if (!force && hz == last && !bandChanged && !due)
         return;
-    lyra::wire::request_hl2_ioboard_tx_freq(hz);
     if (!lyra::wire::enqueue_hl2_ioboard_tx_freq(hz))
         return;
     lastIoboardTxHz_.store(hz, std::memory_order_relaxed);
