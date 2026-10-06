@@ -323,6 +323,11 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
         // pump.  Keeps TCI-server state coherent with the real wire.
         connect(stream_, &lyra::ipc::HL2Stream::moxActiveChanged,
                 this, &TciServer::onMoxActiveChanged);
+        connect(stream_, &lyra::ipc::HL2Stream::tuneEnabledChanged,
+                this, [this](bool on) {
+                    broadcastNow(QStringLiteral("tune:0,%1").arg(
+                        on ? QStringLiteral("true") : QStringLiteral("false")));
+                });
         connect(stream_, &lyra::ipc::HL2Stream::cwMacrosDrained, this, [this] {
             if (cwTerminal_)
                 broadcastNow(QStringLiteral("cw_macros_empty"));
@@ -647,15 +652,6 @@ void TciServer::pruneDeadClients() {
     for (int i = clients_.size() - 1; i >= 0; --i) {
         QWebSocket *ws = clients_[i];
         if (!ws || ws->state() != QAbstractSocket::ConnectedState) {
-            // Same owner/unkey path as onClientDisconnected. The prune
-            // path used to drop the socket without releasing TX ownership
-            // if `disconnected` never fired (half-closed WS).
-            if (ws && ws == txAudioOwner_) {
-                txAudioOwner_ = nullptr;
-                chronoOutstanding_ = 0;
-                chronoTimer_->stop();
-                if (stream_) stream_->requestMoxFromTci(false);
-            }
             clients_.removeAt(i);
             streams_.remove(ws);
             if (ws) ws->deleteLater();
@@ -936,11 +932,6 @@ void TciServer::onBinaryMessage(const QByteArray &frame) {
         }
     }
     if (txAudioOwner_ == nullptr || ws != txAudioOwner_) return;
-    // Note arrival of an inbound TX_AUDIO_STREAM block for the
-    // CHRONO outstanding-counter timeout reset (working reference:
-    // cmaster.cs:1303-1305 decrement on dequeue).
-    if (chronoOutstanding_ > 0) --chronoOutstanding_;
-    chronoLastInboundMs_ = QDateTime::currentMSecsSinceEpoch();
 
     if (frame.size() < 64) return;
     const char *p = frame.constData();
@@ -950,6 +941,11 @@ void TciServer::onBinaryMessage(const QByteArray &frame) {
     const quint32 type       = getU32(p + 24);
     const quint32 headerChan = getU32(p + 28);
     if (type != STREAM_TX_AUDIO || length == 0) return;
+    // Credit one outstanding TX_CHRONO only on a real TX_AUDIO payload
+    // (the host DSP pump decrements on TX-audio dequeue, not on any
+    // binary frame).
+    if (chronoOutstanding_ > 0) --chronoOutstanding_;
+    chronoLastInboundMs_ = QDateTime::currentMSecsSinceEpoch();
 
     const int dataOffset = 64;
     const int dataBytes  = frame.size() - dataOffset;
@@ -1032,10 +1028,9 @@ void TciServer::onChronoTick() {
     // 2026-06-01).
     if (!txAudioOwner_ || !stream_ || !stream_->moxActive()) return;
     if (txAudioOwner_->state() != QAbstractSocket::ConnectedState) {
-        // Owner dropped without disconnect signal yet — release now.
-        txAudioOwner_ = nullptr;
-        chronoTimer_->stop();
-        if (stream_) stream_->requestMoxFromTci(false);
+        // Do not unkey from the CHRONO tick.  Disconnect / TRX-off
+        // own PTT release.  A brief socket state flicker must not
+        // drop a live TX.
         return;
     }
 
@@ -1098,35 +1093,24 @@ void TciServer::onChronoTick() {
     }
 
     // Emit up to requestsNeeded CHRONO requests this tick, bounded
-    // by kTciTxMaxOutstanding (reference TCI_TX_MAX_OUTSTANDING).
-    //
-    // Channels + length matches the reference's SendTxChrono
-    // (TCIServer.cs:5515-5532):
-    //   - channels field = negotiated requestChannels_ (1 or 2)
-    //   - length = useModernLengthSemantics ? samples * channels
-    //                                       : samples
-    //
-    // Modern flag flips true the moment a client sends
-    // AUDIO_STREAM_CHANNELS or AUDIO_STREAM_SAMPLE_TYPE during
-    // handshake (TCIServer.cs:5930 + 5946).  Legacy/JTDX-style
-    // clients leave it false; they expect length = samples
-    // scalars regardless of channels.  Both are protocol-correct.
-    //
-    // Earlier Lyra hardcoded channels=1 / length=samples
-    // regardless of negotiation — for MSHV-class clients that
-    // negotiated channels=2 this meant Lyra was asking MSHV for
-    // half-sized response frames, which MSHV may interpret as a
-    // "send me less" hint and reduce its TX-audio rate to match.
+    // by kTciTxMaxOutstanding.  Header stamp is the CLIENT-negotiated
+    // AUDIO_SAMPLERATE / AUDIO_STREAM_SAMPLES / CHANNELS / SAMPLE_TYPE
+    // (TCI v2 TX_CHRONO).  predictedPacketSamples stays in the
+    // request-count math only (host TXA is 48 kHz); putting that
+    // resampled size in the CHRONO length/rate fields asked the
+    // client for the wrong packet.
     const int chFld = (requestChannels_ == 2) ? 2 : 1;
     const quint32 lenFld =
         seenModernTxNeg_
-            ? quint32(predictedPacketSamples * chFld)
-            : quint32(predictedPacketSamples);
+            ? quint32(requestSamples * chFld)
+            : quint32(requestSamples);
+    const int chronoFmt = (requestFmt_ >= 0 && requestFmt_ <= 3)
+                              ? requestFmt_ : int(FMT_FLOAT32);
     while (requestsNeeded > 0
            && chronoOutstanding_ < kTciTxMaxOutstanding) {
         QByteArray hdr = streamHeader(0,
-                                      /*rate=*/quint32(targetRate),
-                                      /*fmt=*/FMT_FLOAT32,
+                                      /*rate=*/quint32(requestRate),
+                                      /*fmt=*/quint32(chronoFmt),
                                       /*length=*/lenFld,
                                       /*type=*/STREAM_TX_CHRONO,
                                       /*channels=*/quint32(chFld));
@@ -1161,16 +1145,6 @@ void TciServer::onMoxActiveChanged(bool on) {
     // Spec- AND operator-verified 2026-07-18 (MSHV vs WSJT-X).
     broadcastNow(QStringLiteral("trx:0,%1").arg(
         on ? QStringLiteral("true") : QStringLiteral("false")));
-
-    // TCI-tune mirror: if this key edge is a TCI `tune:` command, emit the
-    // tune: confirmation HERE, on the real wire edge — Thetis emits tune: from
-    // its TuneChange event on the edge (TCIServer.cs:1096-1099), never a pre-
-    // edge reply.  Clear the flag on the falling edge.
-    if (tciTuneActive_) {
-        broadcastNow(QStringLiteral("tune:0,%1").arg(
-            on ? QStringLiteral("true") : QStringLiteral("false")));
-        if (!on) tciTuneActive_ = false;
-    }
 
     // Task #33 — SyncTciPttToMox (working reference at TCIServer.cs:
     // 5560-5577, called from the MOX-change emit sites at :6884/6899).
@@ -1345,15 +1319,12 @@ void TciServer::sendInit(QWebSocket *ws) {
     sendTo(ws, QStringLiteral("iq_stop:0"));                    // sendIQStartStop(0,false)
     sendTo(ws, QStringLiteral("iq_samplerate:%1")               // sendIQSampleRate (clamp 48k..384k)
                    .arg(std::clamp(rate, 48000, 384000)));
-    // WSJT-X / JTDX latch "SDR switched on" from `start;` at `ready;`.
-    // Tell the truth: if the radio session is not running, send `stop`.
-    // Always advertising `start` made clients think IQ/audio were live
-    // while the HL2 was closed, then TUNE/timeout sent STOP and killed
-    // a later session. Operator Start broadcasts the real `start`.
-    if (stream_ && stream_->isRunning())
-        sendTo(ws, QStringLiteral("start"));
-    else
-        sendTo(ws, QStringLiteral("stop"));
+    // WSJT-X / JTDX latch "SDR switched on" from `start;` and evaluate
+    // that flag at `ready;`. Sending ready first (or sending stop) is
+    // exactly "TCI SDR is not switched on" even when the TCI checkbox
+    // is on. Advertise start in the connect burst; echo of a later
+    // client START is in dispatch(). READY last (spec).
+    sendTo(ws, QStringLiteral("start"));
     sendTo(ws, QStringLiteral("ready"));
 }
 
@@ -1489,20 +1460,12 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
     // ── lifecycle ────────────────────────────────────────────────
     if (cmd == QStringLiteral("START")) {
         sendTo(ws, QStringLiteral("start"));   // WSJT-X waits for this echo
-        if (!(stream_ && stream_->isRunning()))
-            emit startRequested();
+        emit startRequested();
         return;
     }
     if (cmd == QStringLiteral("STOP")) {
-        // Do NOT map TCI STOP onto Lyra Stop / HL2 close, and do NOT
-        // unkey. WSJT-X / JTDX send STOP when TCI RX audio goes silent
-        // (Lyra zeros the tap while MOX). Closing the radio there killed
-        // waterfall (0.25.11). Unkeying on that same STOP dropped MOX
-        // the instant a digital client went to TX.
-        if (stream_ && stream_->isRunning())
-            sendTo(ws, QStringLiteral("start"));
-        else
-            sendTo(ws, QStringLiteral("stop"));
+        sendTo(ws, QStringLiteral("stop"));
+        emit stopRequested();
         return;
     }
     if (cmd == QStringLiteral("SET_IN_FOCUS")) return;   // no-op
@@ -1900,9 +1863,9 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                     destroyRxResampler();
                 }
             } else if (cmd == QStringLiteral("AUDIO_STREAM_SAMPLES")) {
-                requestSamples_ = n;  // TX-CHRONO (unchanged)
-                // #180 — RX-out packet size, explicit operator choice.
-                // Spec range 100..2048 (TCI Protocol AUDIO_STREAM_SAMPLES).
+                // TX_CHRONO and RX-out share the spec range 100..2048.
+                requestSamples_ = std::clamp(n, 100, 2048);
+                seenModernTxNeg_ = true;
                 const int s = std::clamp(n, 100, 2048);
                 audioOutSamplesExplicit_ = true;
                 if (s != audioOutSamples_) {
@@ -1923,6 +1886,20 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                 bufferingMs_ = std::max(n, 50);   // reference floor
             }
         }
+        if (cmd == QStringLiteral("AUDIO_STREAM_SAMPLE_TYPE")) {
+            // Names, not integers — toInt("float32") fails so this
+            // cannot live inside the n>0 branch.  TX_CHRONO stamps
+            // this format in the binary header.
+            seenModernTxNeg_ = true;
+            const QString t = val.trimmed().toLower();
+            requestFmt_ = (t == QStringLiteral("int16")) ? int(FMT_INT16)
+                        : (t == QStringLiteral("int24")) ? int(FMT_INT24)
+                        : (t == QStringLiteral("int32")) ? int(FMT_INT32)
+                                                         : int(FMT_FLOAT32);
+            auto it = streams_.find(ws);
+            if (it != streams_.end())
+                it->fmt = requestFmt_;
+        }
         softSet(cmd, val);
         // Echo the APPLIED value for the RX-out params (reference echoes
         // m_audioSampleRate / m_audioStreamSamples, not the raw arg), and
@@ -1940,74 +1917,27 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         }
         return;
     }
-    // TUNE — TCI v1.9/v2 separate TX path for tune-carrier (operator
-    // hits a "TUNE" button in the client).  Working reference's
-    // handleTune (TCIServer.cs:4343-4364) sets a TUN flag distinct
-    // from MOX, but Lyra doesn't yet have a separate tune-carrier
-    // mode — treat tune like trx for MOX engagement so MSHV's TUNE
-    // button keys the rig.  Future v0.2.x: wire a real tune-carrier
-    // generator (Task #50/#52 chain) for proper TUN behaviour.
+    // TUNE — same as the TX panel Tune button.  Parsed RX index is
+    // accepted (0 or 1); SET does not reply.  Query reports the TUN
+    // flag, not MOX.
     if (cmd == QStringLiteral("TUNE")) {
         bool okc = false;
-        const int ch = args.size() >= 1 ? parseChannel(args[0], &okc) : -1;
-        if (!okc || ch != 0 || !stream_) {
-            sendTo(ws, QStringLiteral("tune:0,false"));
-            return;
-        }
-        if (!stream_->isRunning()) {
-            tciTuneActive_ = false;
-            sendTo(ws, QStringLiteral("tune:0,false"));
-            return;
-        }
+        (void)(args.size() >= 1 ? parseChannel(args[0], &okc) : -1);
         if (args.size() < 2) {
-            // 1-arg query — report current state (we don't track a
-            // separate TUN flag yet; report based on wire MOX).
+            if (!okc || !stream_) return;
             sendTo(ws, QStringLiteral("tune:0,%1").arg(
-                stream_->moxActive() ? QStringLiteral("true")
-                                     : QStringLiteral("false")));
+                stream_->tuneEnabled() ? QStringLiteral("true")
+                                       : QStringLiteral("false")));
             return;
         }
+        if (!okc || !stream_) return;
         const bool wantsTune = parseBool(args[1]);
+        if (stream_->tuneEnabled() == wantsTune) return;
         if (wantsTune) {
-            // Acquire TCI audio ownership IF operator has Mic source =
-            // tci (so the client's audio reaches the WDSP TXA chain;
-            // matches the trx:0,true behaviour below).
-            const bool wantTciAudio =
-                prefs_ && prefs_->micSource() == QStringLiteral("tci");
-            if (wantTciAudio) {
-                if (txAudioOwner_ != nullptr && txAudioOwner_ != ws) {
-                    sendTo(ws, QStringLiteral("tune:0,false"));
-                    return;
-                }
-                if (txAudioOwner_ == nullptr) {
-                    txAudioOwner_ = ws;
-                    chronoOutstanding_ = 0;
-                    chronoLastInboundMs_ =
-                        QDateTime::currentMSecsSinceEpoch();
-                    chronoTimer_->start();
-                    emit statusMessage(QStringLiteral(
-                        "TCI: TX-audio ownership ACQUIRED (tune)"));
-                }
-            }
-            // Mark this as a TCI-tune key so the wire-edge onMoxActiveChanged
-            // mirrors it on the tune: channel — NO pre-edge direct reply (same
-            // Thetis single-on-edge-authority model as TRX; handleTune sets TUN
-            // and returns, sendTune fires from TuneChange on the real edge —
-            // TCIServer.cs:4343-4362 → 7040 → 1096-1099).
-            tciTuneActive_ = true;
-            stream_->requestMoxFromTci(true);
+            stream_->setTuneEnabled(true);
+            stream_->requestMox(true);
         } else {
-            if (txAudioOwner_ == ws) {
-                txAudioOwner_ = nullptr;
-                chronoOutstanding_ = 0;
-                chronoTimer_->stop();
-                emit statusMessage(QStringLiteral(
-                    "TCI: TX-audio ownership RELEASED (tune)"));
-            }
-            // NO pre-edge direct reply — the tune: confirmation is mirrored on
-            // the real wire edge in onMoxActiveChanged (Thetis model).  Leave
-            // tciTuneActive_ set; the falling edge clears it after broadcasting.
-            stream_->requestMoxFromTci(false);
+            stream_->requestMox(false);
         }
         return;
     }
@@ -2024,18 +1954,8 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         const bool useTciAudio = args.size() >= 3
                               && args[2].compare(QStringLiteral("tci"),
                                                  Qt::CaseInsensitive) == 0;
-        if (!okc || ch != 0 || !stream_) {
-            const QString idx = args.isEmpty() ? QStringLiteral("0") : args[0];
-            sendTo(ws, QStringLiteral("trx:%1,false").arg(idx));
-            return;
-        }
-        // Thetis handleTRX: a 1-arg `trx:<rx>` is a QUERY — report current MOX,
-        // change NOTHING (TCIServer.cs:3555-3558 → sendMOX(rx, MOX,
-        // m_txUsesTCIAudio)).  sendMOX appends the `,tci` source token when the
-        // active TX is using TCI audio; Lyra's equivalent is "a TCI client owns
-        // the TX-audio path" (txAudioOwner_ set).  The old code let a bare
-        // `trx:0` fall through to the un-key path below and drop TX.
         if (args.size() < 2) {
+            if (!okc || !stream_) return;
             const bool mox = stream_->moxActive();
             const QString tok = (mox && txAudioOwner_) ? QStringLiteral(",tci")
                                                        : QString();
@@ -2044,10 +1964,9 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                            .arg(tok));
             return;
         }
-        if (wantsTx && !stream_->isRunning()) {
-            sendTo(ws, QStringLiteral("trx:0,false"));
+        if (!okc || !stream_) return;
+        if (ch != 0 && !(ch == 1 && stream_->subEnabled()))
             return;
-        }
         if (wantsTx) {
             // Thetis-faithful: ALWAYS key MOX on trx:0,true regardless
             // of source token.  Working reference TCIServer.cs:3536-3537
@@ -2074,10 +1993,7 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                     emit statusMessage(QStringLiteral(
                         "TCI: TX-audio acquire denied — another client "
                         "owns TX audio"));
-                    sendTo(ws, QStringLiteral("trx:0,false"));
-                    return;
-                }
-                if (txAudioOwner_ == nullptr) {
+                } else if (txAudioOwner_ == nullptr) {
                     txAudioOwner_ = ws;
                     chronoOutstanding_ = 0;
                     chronoLastInboundMs_ =
@@ -2134,9 +2050,11 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                         .arg(useTciAudio ? QStringLiteral("1")
                                          : QStringLiteral("0")));
             }
-            // Key MOX (Thetis-faithful) — records PttSource::Tci on
-            // the FSM since the request arrived via the TCI WebSocket.
-            stream_->requestMoxFromTci(true);
+            // If already transmitting, do not re-assert PTT (audio
+            // ownership above still refreshed).  Re-key while live
+            // overwrites the PTT source and can drop TUN/MOX.
+            if (!stream_->moxActive())
+                stream_->requestMoxFromTci(true);
             // NO direct/pre-edge trx reply here.  As Thetis (handleTrxMessage
             // sets TCIPTT and returns with NO reply, TCIServer.cs:3459-3559), the
             // SOLE trx confirmation to clients is the on-wire-edge broadcast from
