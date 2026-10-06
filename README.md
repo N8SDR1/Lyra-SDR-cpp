@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.13 Sheliak** — TCI STOP no longer drops MOX (WSJT-X / JTDX TX keying). Rec folder + 0.25.11 FFTW stay. WDSP 2.10 from 0.25.8.
+**v0.25.14 Sheliak** — TCI TUNE / TRX / CHRONO keying restored (MSHV, WSJT-X, JTDX, SDRLogger+). WDSP 2.10 from 0.25.8.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 

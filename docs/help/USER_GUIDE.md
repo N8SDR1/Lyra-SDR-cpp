@@ -20,6 +20,16 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.14
+
+- **TCI TUNE / TRX / CHRONO keying restored.** TUNE keys the same path as
+  the TX panel **TUN** button. TRX keys MOX the same way the **MOX**
+  button does. CHRONO TX-audio frames use the rate, sample count, format,
+  and channel count already negotiated with the client. A TCI socket
+  flicker no longer unkeys. Bench-checked with MSHV, WSJT-X, JTDX, and
+  SDRLogger+. TUNE/TRX still need **▶ Start**. STOP still does not drop
+  MOX (0.25.13).
+
 ## What's new in 0.25.13
 
 - **TCI STOP no longer drops MOX.** WSJT-X / JTDX send STOP when TCI RX
@@ -187,6 +197,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.14](#whats-new-in-02514)
 - [What's new in 0.25.13](#whats-new-in-02513)
 - [What's new in 0.25.12](#whats-new-in-02512)
 - [What's new in 0.25.11](#whats-new-in-02511)
@@ -4600,12 +4611,15 @@ cables, no host-side sound card needed.
 * The client tunes Lyra's VFO and sets the mode (typically **DIGU** for
   FT8 on the standard 14.074 / 7.074 / 21.074 / … MHz dial frequencies).
 * RX audio streams to the client continuously; its waterfall decodes the
-  band exactly as if the client were attached to a Thetis-class radio.
+  band exactly as if the client were attached to any other TCI radio.
 * When the client wants to transmit, it sends a TRX-on command. Lyra
-  engages MOX, the client's modulator audio is fed through the WDSP TXA
-  chain (with your **TX mic gain**, **ALC**, **leveler**, **TX bandpass**,
-  and any EQ active), and onto the HL2 wire. At keyup the client sends
-  TRX-off; Lyra returns to RX.
+  keys MOX the same way the TX-panel **MOX** button does. The client's
+  modulator audio is fed through the WDSP TXA chain (with your **TX mic
+  gain**, **ALC**, **leveler**, **TX bandpass**, and any EQ active), and
+  onto the radio. At keyup the client sends TRX-off; Lyra returns to RX.
+  A **TUNE** command keys the same path as the TX-panel **TUN** button.
+  TX-audio **CHRONO** headers use the rate / samples / format / channels
+  negotiated at connect — not a fixed 1024-sample assumption.
 
 > Lyra's TCI keying follows the Expert TCI protocol exactly: the
 > transmit/receive state is confirmed to the client on the **real key

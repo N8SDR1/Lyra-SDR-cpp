@@ -4,6 +4,17 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-06 — v0.25.14 Sheliak (patch)
+
+- Version bump **0.25.13 → 0.25.14**. Star name stays **Sheliak**.
+- TCI TUNE keys the host TUN path; TRX keys MOX (`requestMoxFromTci`).
+  CHRONO TX-audio headers use negotiated rate / samples / format /
+  channels. Socket flicker does not unkey. Bench: MSHV, WSJT-X, JTDX,
+  SDRLogger+.
+- Parked later idea: TX rack setup without RF (looped speech + BW).
+- USER_GUIDE / wiki / `docs/releases/v0.25.14.md`. Tag `v0.25.14`.
+  Do not merge `main`.
+
 ## 2026-10-05 — v0.25.13 Sheliak (patch)
 
 - Version bump **0.25.12 → 0.25.13**. Star name stays **Sheliak**.

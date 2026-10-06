@@ -213,6 +213,14 @@ emulate boxes on (default). Match Lyra's **port** (usually **40001**);
 WSJT templates often still say **50001**. Rig = **Expert Electronics
 (TCI)**, Network Server `127.0.0.1:<that port>`.
 
+**TCI connects but TUNE / TX does nothing, or TX audio is silent.**
+Press **▶ Start** first — TUNE and TRX are refused while the radio
+session is stopped. **TUNE** keys the host **TUN** path; **TRX** keys
+**MOX**. Set **Settings → TX → Mic source** to **TCI**. From **v0.25.14**,
+CHRONO TX-audio frames use the negotiated sample count (not a fixed 1024).
+STOP during TX does not drop MOX (v0.25.13). If an older 0.25.10–0.25.13
+build attached but would not key, install 0.25.14.
+
 ---
 
 ## Settings &amp; layout
