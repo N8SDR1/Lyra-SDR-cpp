@@ -420,23 +420,22 @@ Rectangle {
                     memories: root.memList
                     onRecalled: function(index) { Gen.deactivate(); Memory.recall(index) }
                 }
-                MouseArea {
-                    anchors.fill: parent
+                TapHandler {
                     acceptedButtons: Qt.RightButton
-                    onClicked: memManageMenu.popup()
-                    Menu {
-                        id: memManageMenu
-                        MenuItem {
-                            text: qsTr("Save current…")
-                            onTriggered: {
-                                memNameDialog.suggested = Memory.currentAutoName()
-                                memNameDialog.open()
-                            }
+                    onTapped: memManageMenu.popup()
+                }
+                Menu {
+                    id: memManageMenu
+                    MenuItem {
+                        text: qsTr("Save current…")
+                        onTriggered: {
+                            memNameDialog.suggested = Memory.currentAutoName()
+                            memNameDialog.open()
                         }
-                        MenuItem {
-                            text: qsTr("Manage presets…")
-                            onTriggered: Help.openSettings("memory")
-                        }
+                    }
+                    MenuItem {
+                        text: qsTr("Manage presets…")
+                        onTriggered: Help.openSettings("memory")
                     }
                 }
 

@@ -189,6 +189,48 @@ int main(int argc, char **argv) {
         txActive = false;
     }
 
+    // --- 4. Startup: binding → last active → Default (restored mode) ---
+    {
+        const QString iniPath3 = QDir::tempPath() + "/lyra_test_profile_startup.ini";
+        QFile::remove(iniPath3);
+        QSettings s3(iniPath3, QSettings::IniFormat);
+        ProfileStore st(&s3);
+        Profile live; live.micGainDb = 1.0;
+        ProfileBindings b;
+        b.capture    = [&] { return live; };
+        b.apply      = [&](const Profile &p) { const QString n = live.name; live = p; live.name = n; };
+        b.isTxActive = [] { return false; };
+        ProfileManager mgr(std::move(b), std::move(st));
+
+        live.micGainDb = 5.0; mgr.saveAs("SSB");
+        live.micGainDb = 8.0; mgr.saveAs("FMProf");
+        mgr.setDefault("SSB");
+        mgr.bindMode("FM", "FMProf");
+        live.micGainDb = 99.0;
+        mgr.applyDefaultAtStartup("FM");       // binding wins over Default
+        CHECK(mgr.activeName() == "FMProf");
+        CHECK(live.micGainDb == 8.0);
+
+        mgr.unbindMode("FM");
+        live.micGainDb = 99.0;
+        mgr.applyDefaultAtStartup("FM");       // last active (FMProf) beats Default
+        CHECK(mgr.activeName() == "FMProf");
+        CHECK(live.micGainDb == 8.0);
+
+        mgr.load("SSB");
+        // Forget last-active by removing it from the store after switching
+        // Default stays SSB; empty active after remove of... keep a third
+        // profile as last-active absence: load Default when active is empty.
+        mgr.remove("FMProf");                  // also clears active if it was FMProf
+        mgr.setDefault("SSB");
+        live.micGainDb = 99.0;
+        mgr.applyDefaultAtStartup("FM");       // no FM bind, no last-active → Default
+        CHECK(mgr.activeName() == "SSB");
+        CHECK(live.micGainDb == 5.0);
+
+        QFile::remove(iniPath3);
+    }
+
     QFile::remove(iniPath);
     QFile::remove(QDir::tempPath() + "/lyra_test_profile_mgr.ini");
     if (g_fail == 0) std::printf("test_profile: ALL PASS\n");

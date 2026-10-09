@@ -1970,32 +1970,19 @@ void HL2Stream::setRx1FreqHz(quint32 hz) {
     const quint32 prev = rx1FreqHz_.exchange(hz, std::memory_order_relaxed);
     if (prev != hz) {
         QSettings().setValue(QStringLiteral("rx/freqHz"), hz);
-        emit rx1FreqChanged();
-        emit logLine(QStringLiteral("RX1 -> %1 Hz (%2 MHz)")
-                     .arg(hz).arg(hz / 1.0e6, 0, 'f', 6));
-        // Band may have changed -> re-apply the filter-board OC pattern.
-        updateOcPattern();
-        // §5 control-plane mapping (RX side): the RX DDCs ALWAYS follow
-        // VFO A — RX stays on VFO A even in SPLIT.  pushEffectiveRxFreq is
-        // the single RX-NCO writer (RIT-adjusted): it tunes the DDCs from
-        // rx1FreqHz_ + the RIT offset.  It guards the pre-open window
-        // internally (a tune gesture before the wire layer is up is
-        // captured by the at-open seed in open()).
+        // NCOs first, then notify.  Protocol 2 mirrors DUC from txFreqHz_
+        // on rx1FreqChanged — if that fires before pushEffectiveTxFreq,
+        // TX stays on the previous dial (start is correct; any later VFO
+        // move leaves TX one step behind, including after returning).
         pushEffectiveRxFreq();
-        // TX-0c-tune — simplex: TX follows VFO A.  In SPLIT, VFO B owns the
-        // TX freq, so an RX1 dial gesture must NOT move TX — gate the
-        // mirror on !split.  pushEffectiveTxFreq() is the SINGLE TX-freq
-        // writer (PS-safe): it stores txFreqHz_ + pushes set_tx_freq
-        // (TX NCO + the DDC2/3 PS-feedback regs).  setRx1FreqHz is the only
-        // operator-facing tuner, so this captures every dial gesture, band
-        // button, memory recall, TCI spot click, etc.
         if (!splitEnabled_.load(std::memory_order_relaxed))
             pushEffectiveTxFreq();
         else
-            // SPLIT: VFO A (the panadapter centre) moved but the TX freq
-            // (VFO B) didn't — the TX-analyzer crop offset still shifted, so
-            // refresh it (pushEffectiveTxFreq isn't called on this path).
             emit txAnalyzerOffsetChanged(txAnalyzerOffsetHz());
+        emit rx1FreqChanged();
+        emit logLine(QStringLiteral("RX1 -> %1 Hz (%2 MHz)")
+                     .arg(hz).arg(hz / 1.0e6, 0, 'f', 6));
+        updateOcPattern();
     }
 }
 
@@ -2233,8 +2220,8 @@ void HL2Stream::setXitEnabled(bool on) {
     if (xitEnabled_.exchange(on, std::memory_order_relaxed) == on)
         return;
     QSettings().setValue(QStringLiteral("tx/xitEnabled"), on);
+    pushEffectiveTxFreq();   // store txFreqHz_ before Protocol 2 reads it
     emit xitChanged();
-    pushEffectiveTxFreq();   // re-point the TX NCO (+ PS DDCs)
 }
 
 void HL2Stream::setXitOffsetHz(int hz) {
@@ -2242,9 +2229,9 @@ void HL2Stream::setXitOffsetHz(int hz) {
     if (xitOffsetHz_.exchange(hz, std::memory_order_relaxed) == hz)
         return;
     QSettings().setValue(QStringLiteral("tx/xitOffsetHz"), hz);
-    emit xitChanged();
     if (xitEnabled_.load(std::memory_order_relaxed))
         pushEffectiveTxFreq();
+    emit xitChanged();
 }
 
 void HL2Stream::writeDdc1Hz(int ddc0Hz) {
@@ -2261,18 +2248,19 @@ void HL2Stream::setSplitEnabled(bool on) {
     if (prev == on)
         return;
     QSettings().setValue(QStringLiteral("tx/splitEnabled"), on);
-    emit splitEnabledChanged();
-    safetyLog(QStringLiteral("TX: SPLIT -> %1 (TX freq source = %2)")
-                  .arg(on ? QStringLiteral("ON") : QStringLiteral("off"))
-                  .arg(on ? QStringLiteral("VFO B") : QStringLiteral("VFO A")));
     if (!on && !subEnabled_.load(std::memory_order_relaxed)
         && focusedRx_.load(std::memory_order_relaxed) != 1) {
         focusedRx_.store(1, std::memory_order_relaxed);
         QSettings().setValue(QStringLiteral("rx/focusedRx"), 1);
         emit focusedRxChanged();
     }
-    // Re-point the TX NCO (+ PS-feedback DDCs) at the new source.
+    // Re-point TX before splitEnabledChanged — Protocol 2 DUC reads
+    // txFreqHz_ from that notify.
     pushEffectiveTxFreq();
+    emit splitEnabledChanged();
+    safetyLog(QStringLiteral("TX: SPLIT -> %1 (TX freq source = %2)")
+                  .arg(on ? QStringLiteral("ON") : QStringLiteral("off"))
+                  .arg(on ? QStringLiteral("VFO B") : QStringLiteral("VFO A")));
     // SUB + SPLIT: RX2 listens on VFO B (pile-up / hear-your-TX).
     if (on && subEnabled_.load(std::memory_order_relaxed)) {
         const quint32 b = vfoBHz_.load(std::memory_order_relaxed);
@@ -2289,12 +2277,11 @@ void HL2Stream::setVfoBHz(quint32 hz) {
     if (prev == hz)
         return;
     QSettings().setValue(QStringLiteral("tx/vfoBHz"), hz);
+    if (splitEnabled_.load(std::memory_order_relaxed))
+        pushEffectiveTxFreq();
     emit vfoBHzChanged();
     emit logLine(QStringLiteral("VFO B -> %1 Hz (%2 MHz)")
                      .arg(hz).arg(hz / 1.0e6, 0, 'f', 6));
-    // VFO B only affects the wire while split is on (it IS the TX freq then).
-    if (splitEnabled_.load(std::memory_order_relaxed))
-        pushEffectiveTxFreq();
     if (subEnabled_.load(std::memory_order_relaxed)
         && splitEnabled_.load(std::memory_order_relaxed)) {
         if (rx2FreqHz_.exchange(hz, std::memory_order_relaxed) != hz) {
@@ -5002,21 +4989,14 @@ void HL2Stream::setTxMode(int wdspMode) {
           fwd ? "forwarded to TxControl.setMode"
               : "NO-OP (TxControl.setMode not registered)");
     if (fwd) fwd(clamped);
-    // Re-push the TX NCO on every mode change: the CW carrier offset
-    // (cwTxCarrierOffsetHz) flips sign between CWU/CWL, and the TUN DDS offset
-    // (when tuning) flips too — keep the keyed/tune carrier on the marker.
-    // Benign during RX (TX NCO is consumed only while transmitting).
-    if (lyra::wire::prn != nullptr) {
+    // Re-push TX NCO on every mode change (CW/TUN offset sign).  Always
+    // go through pushEffectiveTxFreq so Protocol 2 DUC follows too
+    // (set_tx_freq is P1-only; txAnalyzerOffsetChanged is the P2 hook).
+    pushEffectiveTxFreq();
+    {
         const int dds = static_cast<int>(txFreqHz_.load(std::memory_order_relaxed));
         const int nco = ddsHzForRf(static_cast<quint32>(
             std::max(0, txDdsHzForTune(static_cast<quint32>(std::max(0, dds))))));
-        lyra::wire::set_tx_freq(nco);
-        // Display-honesty: re-tell the panadapter so the TX crop stays on
-        // the marker when the offset sign flips with the sideband.
-        emit txAnalyzerOffsetChanged(txAnalyzerOffsetHz());
-        // #105 CW carrier diagnostic — ground truth for the carrier-on-marker
-        // bench.  In CW the TX NCO should equal the carrier = DDS + offset
-        // (== the marker, which WdspEngine draws at DDS + cwMarkerOffset).
         qInfo("[tx] CW-carrier: mode=%d(CWL=3/CWU=4) dds=%d cwPitch=%d "
               "offset=%+d -> TX_NCO=%d (should == marker = dds+offset)",
               clamped, dds, cwPitchHz_.load(std::memory_order_relaxed),

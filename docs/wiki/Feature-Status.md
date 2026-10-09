@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.14 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
+**v0.25.15 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and the **BrickSDR2**
 (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
@@ -9,7 +9,8 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 ## Radio &amp; connection
 
 - ✅ HPSDR **Protocol 1** discovery (multi-NIC, subnet-directed broadcast) + **Add by IP** for fixed-IP / cross-subnet radios
-- ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator); discovery firmware shown as **v10.6**-style, not “fw v0”. **P1 Brick / P1 ANAN: Discover lists, Open refuses** (HL2 TX layout) — flash P2; Brick FPGA help: Anton (linoobs)
+- ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator); discovery firmware shown as **v10.6**-style, not “fw v0”. **TX DUC follows the VFO after retune** (v0.25.15). **P1 Brick / P1 ANAN: Discover lists, Open refuses** (HL2 TX layout) — flash P2; Brick FPGA help: Anton (linoobs)
+- ✅ **Keyboard VFO** (global arrows: 1 kHz / 10 Hz), **startup profile** (mode binding → last-used → Default), **Tuning Mem** left-click after idle (v0.25.15)
 - 🚧 **ANAN-10 / 10E / 100 / 100B / 100D / 200D** Protocol 2 — classic Alex HPF; TX dummy-load arm, not on-air validated; pick marketed model in Settings (Hermes discovery still defaults to Brick). Boxes that shipped P1 should use a P2 FPGA when they can.
 - ✅ **SUB / RX2 on HL2 and BrickSDR2** — second DDC (same ADC); orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2 overlay; band chips **red** (RX1) vs **green** (SUB); **Shift+click / right-click** hops SUB; off-span **◀ RX2** / **RX2 ▶**; N2ADR follows RX1 (cross-band drop). **SUB and SPLIT are independent** (SUB listening does not force VFO-B TX).
 - ✅ **SPLIT** pile-up — TX on VFO B independent of SUB; gray TX pips; right-click SPLIT 1/5/10 kHz shift; lime TX marker (red on key); **◀ TX** / **TX ▶** when TX is off-span
@@ -49,11 +50,11 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 ### Native TX audio rack (studio-in-the-radio)
 
 - ✅ **8-band parametric EQ** with draggable curve + live RTA
-- ✅ **5-band Combinator** (multiband compressor, X-Air-style)
+- ✅ **5-band Combinator** (multiband compressor — Lyra’s CFC equivalent)
 - ✅ **Plate reverb** for ESSB "air"
 - ✅ **Speech processing** — formant boost, sibilance/consonant emphasis, DX cut-through, de-esser, auto-AGC
 - ✅ **Voice keyer** (message memory) + **VOX** (with anti-VOX)
-- ✅ **TX profiles** — save/recall the whole chain (including VAC1 **and VAC2** knobs; audio device names stay global); a profile can even launch its companion app (VarAC / MSHV / WSJT-X)
+- ✅ **TX profiles** — save/recall the whole chain (including VAC1 **and VAC2** knobs; audio device names stay global); a profile can even launch its companion app (VarAC / MSHV / WSJT-X). Startup: mode-family binding → last-used → Default (v0.25.15). How to build one: in-app **Help → How to create a profile**.
 - ✅ **Hot-mic monitor** / SSB sidetone, separate monitor output device
 
 ### Metering &amp; TX safety

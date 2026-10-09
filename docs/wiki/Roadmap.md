@@ -57,6 +57,10 @@ these are real roadmap items, not "maybe someday."
 - ✅ **Session recorder** — RX WAV on P1 and P2; Vulkan snapshots (v0.25.10).
 - ✅ **First-run FFTW vs companion launch** — Hardware Startup waits until FFTW and the radio layer are up (v0.25.11).
 - ✅ **TCI STOP** does not close the radio (v0.25.11) and does not drop MOX (v0.25.13). **TUNE / TRX / CHRONO** key like the host panel (v0.25.14).
+- ✅ **Protocol 2 TX follows the VFO after retune** (v0.25.15; BrickSDR2).
+- ✅ **Keyboard VFO** Left/Right 1 kHz, Up/Down 10 Hz (v0.25.15).
+- ✅ **Startup profile** uses mode binding then last-used, not always Default (v0.25.15).
+- ✅ **Tuning Mem** left-click after idle (v0.25.15).
 - ✅ **Rec default folder** is `%USERPROFILE%\Lyra\Recordings`, never Program Files (v0.25.12).
 - ✅ **VAC2** — second independent virtual-audio cable (RX2 / SUB); enable,
   auto-digital, gains, and latency store in TX profiles (schema 6). Audio

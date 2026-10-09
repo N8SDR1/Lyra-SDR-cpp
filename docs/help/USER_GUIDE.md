@@ -20,6 +20,24 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.15
+
+- **Protocol 2 TX follows the VFO.** After the first QSO, moving the dial
+  (SSB, CW, AM, FM) now retunes the transmitter on BrickSDR2. Previously
+  TX stayed on the frequency you started on until you restarted the
+  stream. RIT / XIT / SPLIT were not required to see it.
+- **Arrow keys from the keyboard.** Left / Right = **1 kHz**, Up / Down =
+  **10 Hz**, on the focused VFO. Click a digit on the LED first if you
+  want the arrows to step that place instead.
+- **Startup profiles.** Lyra no longer always loads Default (SSB) on
+  launch when you last ran FM or another mode. A per-mode binding wins;
+  otherwise the last-used profile; Default is the first-run fallback.
+- **Tuning Mem.** Left-click on **Mem** still opens the recall list after
+  the radio has been idle.
+- **How to create a profile.** Help → Profiles now has a step-by-step:
+  dial the live chain, **Save As** / dock **Save** with a new name, optional
+  mode-family bind.
+
 ## What's new in 0.25.14
 
 - **TCI TUNE / TRX / CHRONO keying restored.** TUNE keys the same path as
@@ -197,6 +215,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.15](#whats-new-in-02515)
 - [What's new in 0.25.14](#whats-new-in-02514)
 - [What's new in 0.25.13](#whats-new-in-02513)
 - [What's new in 0.25.12](#whats-new-in-02512)
@@ -222,6 +241,7 @@ not programmers — if you can click a menu, you can use this.
 - [Getting around the window](#getting-around-the-window)
 - [The panadapter (spectrum display)](#the-panadapter-spectrum-display)
 - [Tuning panel](#tuning-panel)
+  - [Keyboard (VFO and PTT)](#keyboard-vfo-and-ptt)
   - [SUB — second receiver (HL2 and BrickSDR2)](#sub--second-receiver-hl2-and-bricksdr2)
   - [SPLIT — receive A, transmit B](#split--receive-a-transmit-b)
 - [Second receiver (SUB / RX2) — how it works](#second-receiver-sub--rx2--how-it-works)
@@ -249,6 +269,8 @@ not programmers — if you can click a menu, you can use this.
 - [Tuner (manual ATU memory)](#tuner-manual-atu-memory)
 - [Frequency calibration (WWV / time station)](#frequency-calibration-wwv--time-station)
 - [Profiles (TX/RX chain presets)](#profiles-txrx-chain-presets)
+  - [How to create a profile](#how-to-create-a-profile)
+  - [What happens at startup](#what-happens-at-startup)
 - [Auto-starting apps at launch](#auto-starting-apps-at-launch)
 - [Solar / Propagation panel](#solar--propagation-panel)
 - [Weather alerts](#weather-alerts)
@@ -876,7 +898,10 @@ Sets the **RX1 receive frequency** on a big amber **LED-style readout**
 
 - **Click a digit** to select it (a cyan underline marks it), then **roll
   the mouse wheel** over the display to tune that digit's place up/down;
-  the **arrow keys** also nudge it.
+  with the LED focused, the **arrow keys** also step that place (Left /
+  Right pick the digit, Up / Down change it).
+- **Arrow keys anywhere else** (not typing, not in a dialog): **Left /
+  Right = 1 kHz**, **Up / Down = 10 Hz** on the focused receiver.
 - **Roll the wheel** anywhere on the display to tune by the current
   **Step** (see below).
 - **Double-click** the display to type an exact frequency.
@@ -908,6 +933,28 @@ FM (repeaters); leave RPT alone if you are not on FM.
   (CWU/CWL): your preferred sidetone / beat-note pitch, **200–1500 Hz**.
   The receive filter centers on this pitch and the tuned-carrier marker
   offsets to match, so a signal you zero-beat lands at your chosen tone.
+
+### Keyboard (VFO and PTT)
+
+When you are **not** typing in a box, **not** in Settings, and **not**
+on a dropdown, the **arrow keys** move the **focused VFO** (the LED you
+last clicked — RX2 when SUB is on and that receiver has focus):
+
+| Keys | Step |
+|---|---|
+| **Left / Right** | **1 kHz** |
+| **Up / Down** | **10 Hz** |
+
+Hold a key for auto-repeat. Click a digit on the **frequency LED** first
+if you want the old place-step instead (Left / Right pick the digit, Up /
+Down change that place).
+
+**Space** is momentary PTT (same as holding MOX) when that toggle is on
+in **Settings → Hardware → Transmit**. It does not fire while a text
+field, dialog, or combo has focus.
+
+The **USB encoder / HID wheel** is separate — see
+[Navigation (USB encoder / HID wheel)](#navigation-usb-encoder--hid-wheel).
 
 ### SUB — second receiver (HL2 and BrickSDR2)
 
@@ -1270,7 +1317,8 @@ the same chip on the **Tuning** dock: **Settings → Bands → Band panel →
 Show memory recall on the Tuning panel**.
 
 - **Left-click Mem** to open the recall list — pick a preset and Lyra
-  tunes straight to it (mode first, then frequency).
+  tunes straight to it (mode first, then frequency). Works on both the
+  Tuning dock and Band → Mem, including after the radio has been idle.
 - **Right-click Mem** to **Save current frequency** (the VFO is stored with
   an auto-name like "14.074 USB") or open **Manage presets…**.
 - Full editing lives in **Settings → Bands → Memory**: **click a cell**
@@ -1315,6 +1363,11 @@ laid out in old Lyra's three-row arrangement:
   fully down). The mouse wheel nudges it in fine steps.
 - **MUTE** — silences or restores RX1 without disturbing the Vol slider;
   the button reads **MUTED** while engaged. (Lyra starts **unmuted**.)
+  **MUTE only cuts the speaker / HL2-jack path.** VAC Output and **MON TX**
+  can still play. If VAC Output is the same speakers (or a loop back into
+  the mic), unmute sounds like an echo or a second copy. Point VAC at a
+  dedicated cable (or turn it off), and turn **MON TX** off, so only one
+  path hits the speakers.
 - **Vol2 / MUTE2** — same pair for **RX2** when SUB is on (HL2 / BrickSDR2).
   MUTE2 does not change Vol2.
 - **LNA** — RF input gain on the HL2's AD9866 PGA (−12…+31 dB; slider or
@@ -2351,7 +2404,8 @@ until you enable a stage.
 The last native stage (after the EQ). It splits the mic into five bands
 with 24 dB/oct crossovers, compresses each independently, sums them, and
 optionally auto-balances the bands — the classic "broadcast / ESSB"
-multiband sound. **Default OFF.**
+multiband sound. **Default OFF.** Lyra does **not** expose a separate
+WDSP CFC control — the Combinator **is** the multiband compressor.
 
 - **ON** — engages the stage (top-bar button). Off = true pass-through.
 - **Global controls:** **Mix** (wet/dry — 100 % = fully processed),
@@ -2769,7 +2823,8 @@ set of saved points.
 **Live SWR.** The pill in the header shows your real **SWR** while you
 transmit, colour-coded — **green** ≤ 1.5, **amber** 1.6–2.4, **red** ≥ 2.5
 — so you can watch the match as you adjust the tuner. It reads "—" until
-you key up.
+you key up. The **Meter** panel also shows SWR on transmit (larger needle
+/ bar) if the Tuner pill is hard to read.
 
 **Reading the panel.** The big tiles show the **Input / Output / Inductor**
 settings for the nearest stored point to where you're tuned:
@@ -2894,10 +2949,10 @@ VAC/digital setup as a unit — see
 
 **What a profile deliberately does NOT store:**
 
-- **The operating mode / sideband.** Like the reference's TX profiles, a
-  profile is a pure signal chain — recalling one (manually *or* via
-  auto-recall) **never changes your mode or which sideband you're on**.
-  It applies the chain and leaves you exactly where you were tuned.
+- **The operating mode / sideband.** A profile is a pure signal chain —
+  recalling one (manually, at startup, *or* via auto-recall) **never
+  changes your mode or which sideband you're on**. It applies the chain
+  and leaves you exactly where you were tuned.
 - **Safety / input-method settings that are global by design:** PA enable,
   hardware-PTT-input enable, and the space-bar-PTT toggle all live in
   [Settings → Hardware](#settings--hardware) and are *never* swept by a
@@ -2936,8 +2991,9 @@ The complete manager lives in **Settings → Profiles**:
   the startup default is tagged `[default]`.
 - **Save** (overwrite active), **Save As…** (capture current settings to a
   new name), **Load** (recall the selected profile), **Rename…**,
-  **Delete**, and **Set Default** (apply this profile automatically every
-  time Lyra starts).
+  **Delete**, and **Set Default**. Bind FM / CW / … in the table below if
+  you want that family's chain every launch. **Set Default** is only the
+  last fallback — see [What happens at startup](#what-happens-at-startup).
 - A status line showing the active profile and a `● modified` flag.
 - **View & quick edit** — under the list, a panel shows the selected
   profile's core chain (**RX/TX bandwidth**, filter low, **Lock TX/RX BW**,
@@ -2968,15 +3024,70 @@ The complete manager lives in **Settings → Profiles**:
   written into the profile, and is never exported in a shared `.lyra` — a
   shared profile carries the DSP chain only, never "run this program."
 
+### How to create a profile
+
+A profile is a **snapshot of the chain that is on the air right now**.
+Set Lyra the way you want to operate, then save that snapshot under a
+name. Mode is **not** in the snapshot — pick USB / FM / DIGU first if
+you care which family you bind to.
+
+1. **Show the Profiles dock** (window dock menu — same place as TX /
+   Display) or open **Settings → Profiles**.
+2. **Dial the live chain** — mic source and gain, RX/TX bandwidth and
+   lock, AGC, VAC on/off and gains, Tune-drive, TX drive, auto-mute on
+   TX, safety timeout. Use a dummy load if you need to hear TX. EQ /
+   Speech / Combinator / Plating are **not** in the profile yet; leave
+   those as panel settings.
+3. **Give it a name:**
+   - Dock **Save** → type a **new name** (do not overwrite unless you
+     mean to replace the active profile). Optionally tick a **mode
+     family** so that family auto-recalls this chain.
+   - Or Settings → Profiles → **Save As…** (same capture, from the
+     full editor).
+4. **Bind it** (if you skipped the tick in step 3): in Settings →
+   Profiles, use **Auto-recall by mode family** — e.g. map **SSB** to
+   your Voice profile and **Digital** to your FT8 profile.
+5. **Optional:** **Set Default** only if this should be the first-run
+   fallback when nothing else applies. Day-to-day startup prefers a
+   family binding, then last-used — see below.
+6. **Check it:** change something on the air (the dock **●** goes
+   orange), then pick the profile from the dropdown or **Load**. The
+   chain should snap back. **Do not Load while keyed.**
+
+To **copy** an existing profile, Load it, tweak, **Save As…** under a
+new name. To **update** one you already use, Load it, tweak, dock
+**Save** → overwrite the active name (or Settings **Save**).
+
+First-time Voice vs Digital pair: build Voice on USB with your mic,
+save as `"Voice"` bound to **SSB**; switch to DIGU, set TCI/VAC and a
+wider filter, save as `"Digital"` bound to **Digital**. After that,
+USB ↔ DIGU swaps the whole chain and leaves your frequency alone.
+
+### What happens at startup
+
+Mode is restored from prefs first (USB, FM, …). Then Lyra loads **one**
+profile, in this order:
+
+1. **Mode-family binding** — if last session left you in FM and FM is
+   bound to an FM profile, that profile loads (Default can stay an SSB
+   chain; it does not override the binding).
+2. **Last used** — the profile you last loaded, if it still exists.
+3. **Set Default** — only when there is no binding and no last-used
+   name (typical first run).
+
+A mode-family binding also fires when you **change** mode during the
+session. It does **not** re-fire just because startup already restored
+that same mode.
+
 ### Good to know
 
 - **Recall is blocked while transmitting.** Loading a profile is a no-op
   while you're keyed — Lyra never switches mic source or bandwidth mid-TX
   (the same safety rule that governs every chain change). Drop PTT, then
   recall.
-- **Switching is always manual** *except* for the per-family auto-recall
-  table you configure above — nothing changes your profile on its own
-  (e.g. Lyra never picks a profile based on who you're working).
+- **Switching is always operator-driven** — you Load from the dock,
+  change mode into a bound family, or get the startup pick above.
+  Lyra never picks a profile based on who you're working.
 - A typical setup: a **"Voice"** profile bound to SSB (your mic, mic gain,
   speech bandwidth) and a **"Digital"** profile bound to Digital (TCI mic
   source, flat gain, wide filter) — then changing mode from USB to DIGU

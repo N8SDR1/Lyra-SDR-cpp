@@ -219,7 +219,26 @@ session is stopped. **TUNE** keys the host **TUN** path; **TRX** keys
 **MOX**. Set **Settings → TX → Mic source** to **TCI**. From **v0.25.14**,
 CHRONO TX-audio frames use the negotiated sample count (not a fixed 1024).
 STOP during TX does not drop MOX (v0.25.13). If an older 0.25.10–0.25.13
-build attached but would not key, install 0.25.14.
+build attached but would not key, install 0.25.14 or later.
+
+**BrickSDR2 TX stays on the old frequency after I move the VFO.**
+Fixed in **v0.25.15**. First key-up was on the dial; after any retune, TX
+stayed where you started until you restarted the stream. Install 0.25.15
+(SSB, CW, AM, FM share that path).
+
+**Lyra always loads the Default (SSB) profile even though I last used FM.**
+Fixed in **v0.25.15**. Startup order is: mode-family binding → last-used
+profile → Default (first-run fallback). Bind FM (or CW / Digital) in
+**Settings → Profiles**. Step-by-step: in-app **Help → How to create a
+profile**.
+
+**Tuning Mem left-click does nothing after idle; right-click still works.**
+Fixed in **v0.25.15**. Left-click opens the recall list again.
+
+**MUTE is quiet, unmute is an echo / loop.**
+MUTE only silences speakers / the HL2 jack. **VAC Output** and **MON TX**
+can still play. If VAC Output is the same speakers (or loops back), you
+hear two copies. Use a dedicated VAC device, or turn VAC / MON TX off.
 
 ---
 

@@ -10444,11 +10444,11 @@ QWidget *SettingsDialog::buildProfilesTab() {
     auto *outer = new QVBoxLayout(page);
 
     auto *intro = new QLabel(
-        tr("A profile bundles the operator TX/RX chain (mode, bandwidth + "
+        tr("A profile bundles the operator TX/RX chain (bandwidth + "
            "lock, mic source/gain, drive, TCI gains, AGC, auto-mute, TX "
-           "timeout) and is recalled as a unit.  Switching is manual; the "
-           "per-mode table at the bottom optionally auto-recalls a profile "
-           "when you change mode."), page);
+           "timeout) — not the operating mode.  Switching is manual; the "
+           "per-mode table at the bottom auto-recalls a profile when you "
+           "change mode, and also at startup for the restored mode."), page);
     intro->setWordWrap(true);
     outer->addWidget(intro);
 
@@ -10470,7 +10470,10 @@ QWidget *SettingsDialog::buildProfilesTab() {
                            "live settings."));
     saveAsBtn->setToolTip(tr("Capture the current live settings into a new "
                              "named profile."));
-    defaultBtn->setToolTip(tr("Apply this profile automatically at startup."));
+    defaultBtn->setToolTip(tr(
+        "Fallback at startup if the restored mode has no profile binding "
+        "and there is no last-used profile.  Bind FM/CW/… below if you "
+        "want that family's chain on every launch."));
     for (auto *b : {saveBtn, saveAsBtn, loadBtn, renameBtn, deleteBtn, defaultBtn})
         btnCol->addWidget(b);
     btnCol->addStretch(1);

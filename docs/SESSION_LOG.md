@@ -4,6 +4,24 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-09 — v0.25.15 Sheliak RELEASED
+
+- Same version **0.25.15** — one installer (not 0.25.16). DUC + startup
+  profiles + keyboard VFO + Tuning Mem. Help: How to create a profile,
+  MUTE vs VAC/MON echo, Combinator vs CFC, Tuner SWR vs Meter.
+- Brick3 Stage 0 and TCI stereo RX2 stay **uncommitted** (not this cut).
+- Tag `v0.25.15`, GitHub release, wiki. Do not merge `main`.
+
+## 2026-10-08 — v0.25.15 Sheliak (patch)
+
+- Version bump **0.25.14 → 0.25.15**. Star name stays **Sheliak**.
+- Protocol 2 TX DUC was one VFO step behind after the first retune
+  (Greg VK3KV BrickSDR2; same on-air 40 m chase here). RX1 NCO now
+  writes before the dial-changed notify; SPLIT / VFO B / XIT same
+  order; mode/CW-pitch re-pushes DUC. Local installer only until
+  Greg confirms — no GitHub tag yet.
+- USER_GUIDE / wiki / `docs/releases/v0.25.15.md`. Do not merge `main`.
+
 ## 2026-10-06 — v0.25.14 Sheliak (patch)
 
 - Version bump **0.25.13 → 0.25.14**. Star name stays **Sheliak**.

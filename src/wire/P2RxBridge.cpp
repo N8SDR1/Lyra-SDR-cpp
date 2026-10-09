@@ -249,6 +249,10 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 [this]() { pushDialToSession(); });
         connect(stream_, &lyra::ipc::HL2Stream::freqCorrectionChanged,
                 this, [this](double) { pushDialToSession(); });
+        // Fires after pushEffectiveTxFreq stores txFreqHz_ (mode / XIT /
+        // VFO).  Catches Protocol 2 DUC if a notify raced the store.
+        connect(stream_, &lyra::ipc::HL2Stream::txAnalyzerOffsetChanged,
+                this, [this](int) { pushDialToSession(); });
         // This fires synchronously inside requestMox(true), before the
         // FSM advances. Cancelling here prevents even a transient TXA
         // start when the P2 connection has not been deliberately armed.

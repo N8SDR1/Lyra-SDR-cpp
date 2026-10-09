@@ -39,6 +39,7 @@
 #include "logdialog.h"
 #include "hl2_discovery.h"
 #include "hl2_stream.h"
+#include "freqdisplay.h"
 #include "rig/RigRegistry.h"   // multi-rig — the Rig menu (switch active rig)
 #include "wdsp_engine.h"
 #include "prefs.h"
@@ -80,6 +81,8 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QKeyEvent>
+#include <QAbstractItemView>
+#include <QComboBox>
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPlainTextEdit>
@@ -104,6 +107,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <algorithm>
 #include <QStyle>
 #include <QToolBar>
 #include <QStatusBar>
@@ -4238,7 +4242,53 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             }
         }
     }
+    if (t == QEvent::KeyPress) {
+        auto *ke = static_cast<QKeyEvent *>(event);
+        const int k = ke->key();
+        int delta = 0;
+        if (k == Qt::Key_Left)       delta = -1000;
+        else if (k == Qt::Key_Right) delta =  1000;
+        else if (k == Qt::Key_Up)    delta =    10;
+        else if (k == Qt::Key_Down)  delta =   -10;
+        if (delta != 0) {
+            QWidget *fw = QApplication::focusWidget();
+            const bool inDialog = fw && qobject_cast<QDialog *>(fw->window());
+            const bool comboOrList = fw && (qobject_cast<QComboBox *>(fw)
+                || qobject_cast<QAbstractItemView *>(fw));
+            auto *fo = QGuiApplication::focusObject();
+            const bool onLed = qobject_cast<lyra::ui::FreqDisplay *>(fo);
+            if (!isEditableFocus(fw) && !inDialog && !comboOrList && !onLed
+                && !QApplication::activePopupWidget()) {
+                if (nudgeFocusedVfoHz(delta))
+                    return true;
+            }
+        }
+    }
     return QMainWindow::eventFilter(watched, event);
+}
+
+bool MainWindow::nudgeFocusedVfoHz(int deltaHz) {
+    auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+    if (!st) return false;
+    auto *eng = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+    const int off1 = eng ? eng->markerOffsetHz() : 0;
+    const int off2 = eng ? eng->markerOffsetHzRx2() : 0;
+    auto clampCarrier = [](qint64 hz) {
+        return quint32(std::clamp(hz, qint64(0), qint64(2'147'483'647)));
+    };
+    const bool rx2 = st->subEnabled() && st->focusedRx() == 2;
+    if (rx2) {
+        if (st->splitEnabled() || !st->subEnabled()) {
+            st->setVfoBHz(clampCarrier(qint64(st->vfoBHz()) + deltaHz));
+        } else {
+            const qint64 carrier = qint64(st->rx2FreqHz()) + off2 + deltaHz;
+            st->setRx2FreqHz(clampCarrier(carrier - off2));
+        }
+    } else {
+        const qint64 carrier = qint64(st->rx1FreqHz()) + off1 + deltaHz;
+        st->setRx1FreqHz(clampCarrier(carrier - off1));
+    }
+    return true;
 }
 
 void MainWindow::keyPressEvent(QKeyEvent *event) {

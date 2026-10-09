@@ -1469,7 +1469,9 @@ int main(int argc, char *argv[])
         QObject::connect(m, &lyra::ui::PlateModel::bypassChanged, profiles,
                          &lyra::profile::ProfileManager::refreshModified);
     }
-    profiles->applyDefaultAtStartup();   // no-op until a default profile exists
+    // Prefs already restored the last operating mode.  Apply a matching
+    // chain: mode-family binding → last active profile → Default.
+    profiles->applyDefaultAtStartup(prefs->mode());
 
     // Defer the WDSP load / wisdom / channel-open to the FIRST
     // event-loop iteration via a zero-delay single-shot.  These steps
