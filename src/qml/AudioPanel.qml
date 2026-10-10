@@ -119,8 +119,9 @@ Rectangle {
                 value: FrontEnd.value
                 onMoved: FrontEnd.setValue(value)
                 ToolTip.text: FrontEnd.p2Active
-                    ? qsTr("ATT — G2 ADC step attenuation, 0…31 dB, remembered per band.\n"
-                        + "Increase attenuation when the ADC overload indicator lights.")
+                    ? qsTr("ATT — Protocol 2 ADC step attenuation, 0…31 dB, remembered per band.\n"
+                        + "Higher = more pad (less ADC gain). Enable Auto Step to walk this pad.\n"
+                        + "The S-meter adds ATT so the reading stays true-to-source as the pad moves.")
                     : qsTr("LNA — RF input gain on the HL2's AD9866 PGA, −12…+48 dB.\n"
                         + "Higher = more sensitivity; back off on strong bands to avoid ADC overload.\n"
                         + "The S-meter compensates automatically, so changing LNA won't shift the reading.")
@@ -137,11 +138,11 @@ Rectangle {
             }
             Button {
                 id: autoBtn
-                text: qsTr("Auto")
+                text: FrontEnd.p2Active ? qsTr("Step") : qsTr("Auto")
                 checkable: true
                 checked: FrontEnd.autoEnabled
                 enabled: FrontEnd.autoAvailable
-                visible: !FrontEnd.p2Active
+                visible: true
                 onToggled: FrontEnd.setAutoEnabled(checked)
                 implicitWidth: 46; implicitHeight: 24
                 background: Rectangle {
@@ -159,9 +160,14 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("Auto-LNA — backs the LNA off on ADC overload and "
-                    + "creeps it back when the band clears (rides the overload edge).\n"
-                    + "Auto roams freely; your manual setting is restored when you turn it off.")
+                ToolTip.text: FrontEnd.p2Active
+                    ? qsTr("Auto Step — walks the 0…31 dB ADC pad on overload "
+                        + "(+3 dB after ~400 ms of clipping, −1 dB toward 0 when the band clears).\n"
+                        + "Frozen while transmitting. Turning Auto off leaves the pad where it settled.\n"
+                        + "Not Auto-LNA (that is Hermes Lite 2 only).")
+                    : qsTr("Auto-LNA — backs the LNA off on ADC overload and "
+                        + "creeps it back when the band clears (rides the overload edge).\n"
+                        + "Turning Auto off leaves the LNA where it settled.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
             LyraComboBox {
@@ -217,10 +223,11 @@ Rectangle {
                 }
 
                 ToolTip.text: FrontEnd.autoEnabled
-                    ? qsTr("A-ATT — the auto-attenuator is managing the front "
-                        + "end. It backs the LNA off on confirmed overload and "
-                        + "creeps it back as the band clears, so the overload "
-                        + "alarm is not shown while it is engaged.")
+                    ? (FrontEnd.p2Active
+                       ? qsTr("A-ATT — Auto Step is walking the 0…31 dB ADC pad. "
+                           + "Overload alarm is hidden while it is engaged.")
+                       : qsTr("A-ATT — Auto-LNA is managing the HL2 PGA. "
+                           + "Overload alarm is hidden while it is engaged."))
                     : (FrontEnd.p2Active
                        ? qsTr("G2 ADC overload — amber: clipped recently; red: "
                            + "sustained clipping. Selected ADC peak: %1 / 32768.")

@@ -44,9 +44,12 @@ int ActiveFrontEndModel::value() const {
 
 int ActiveFrontEndModel::minimum() const { return p2Active() ? 0 : -12; }
 int ActiveFrontEndModel::maximum() const { return p2Active() ? 31 : 48; }
-bool ActiveFrontEndModel::autoAvailable() const { return !p2Active(); }
+bool ActiveFrontEndModel::autoAvailable() const {
+    return p2Active() || p1_ != nullptr;
+}
 bool ActiveFrontEndModel::autoEnabled() const {
-    return !p2Active() && p1_ && p1_->autoLna();
+    if (p2Active()) return p2_->autoStep();
+    return p1_ && p1_->autoLna();
 }
 int ActiveFrontEndModel::overloadTier() const {
     return p2Active() ? p2_->adcOverloadTier()
@@ -69,7 +72,8 @@ void ActiveFrontEndModel::setValue(int value) {
 }
 
 void ActiveFrontEndModel::setAutoEnabled(bool on) {
-    if (!p2Active() && p1_) p1_->setAutoLna(on);
+    if (p2Active()) p2_->setAutoStep(on);
+    else if (p1_) p1_->setAutoLna(on);
 }
 
 void ActiveFrontEndModel::setAdcIndex(int index) {

@@ -40,10 +40,14 @@
 
 #pragma once
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QThread>
+#include <QTimer>
 #include <QVariant>
+#include <QVariantList>
 #include <limits>
 
 namespace lyra::ipc { class HL2Stream; }
@@ -69,6 +73,9 @@ class P2RxBridge : public QObject {
     // Hermes-class BrickSDR uses a fixed TX word — no ANT chips.
     Q_PROPERTY(bool hasAlexAntennaSelect READ hasAlexAntennaSelect
                NOTIFY runningChanged)
+    Q_PROPERTY(int trxAntennaCount READ trxAntennaCount NOTIFY runningChanged)
+    Q_PROPERTY(int rxJackMask READ rxJackMask NOTIFY runningChanged)
+    Q_PROPERTY(QString rxExt1Label READ rxExt1Label NOTIFY runningChanged)
     Q_PROPERTY(int adcOverloadTier READ adcOverloadTier NOTIFY telemetryChanged)
     Q_PROPERTY(int adcOverloadMask READ adcOverloadMask NOTIFY telemetryChanged)
     Q_PROPERTY(int adc1Peak READ adc1Peak NOTIFY telemetryChanged)
@@ -122,6 +129,9 @@ public:
     double supplyVolts() const { return supplyV_; }
     double paCurrentA() const { return paA_; }
     int rxAttenuationDb() const { return rxAttenuationDb_; }
+    // P2 Auto Step 0–31 (ADC pad walker). Not HL2 Auto-LNA. Master
+    // on/off lives on DSP+Audio Auto; persist `rx/autoStep`.
+    bool autoStep() const { return autoStepEnabled_; }
     int ddcAdc() const { return ddcAdc_; }
     int rxInput() const { return rxInput_; }
     bool hpfBypass() const { return hpfBypass_; }
@@ -129,6 +139,15 @@ public:
     bool hasAlexAntennaSelect() const {
         return running_ && alexAntennaSelect_;
     }
+    int trxAntennaCount() const;
+    int rxJackMask() const;
+    QString rxExt1Label() const;
+    Q_INVOKABLE QStringList mapBandNames() const;
+    Q_INVOKABLE QVariantList rxJackChoices() const;
+    Q_INVOKABLE int antennaForBand(const QString &band) const;
+    Q_INVOKABLE int rxInputForBand(const QString &band) const;
+    Q_INVOKABLE void setAntennaForBand(const QString &band, int ant);
+    Q_INVOKABLE void setRxInputForBand(const QString &band, int input);
     int adcOverloadTier() const { return adcOverloadTier_; }
     int adcOverloadMask() const { return adcOverloadMask_; }
     int adc1Peak() const { return adc1Peak_; }
@@ -168,6 +187,7 @@ public slots:
     // Tear down (HP run=0) and release the radio's controller lease.
     void close();
     void setRxAttenuationDb(int db);
+    void setAutoStep(bool on);
     void setDdcAdc(int adc);
     void setRxInput(int input);
     void setHpfBypass(bool on);
@@ -199,6 +219,11 @@ signals:
 
 private:
     QString modelLabel_;       // display name of the resolved marketed model
+    QString hardwareModelKey_;
+    int clampTrxAntenna(int ant) const;
+    int clampRxInput(int input) const;
+    void persistFrontEndForBand(const QString &band, const QString &name,
+                                const QVariant &value);
     quint16 chooseRateKhz();   // engine rate → legal P2 rate (may set engine rate)
     // Mirror the tuning state onto the session: DDC0 = effective RX carrier
     // (dial + RIT), and DUC = effective TX carrier (VFO B/XIT when enabled).
@@ -209,6 +234,7 @@ private:
     void persistFrontEndValue(const QString &name, const QVariant &value);
     void pushFrontEndToSession();
     void pushAttOnTxToSession();
+    void onAutoStepTick();
     void activateTxProducerSeam();
     void deactivateTxProducerSeam();
     void syncTxIntentToSession(bool on);
@@ -284,6 +310,12 @@ private:
     int        adc1Peak_ = 0;
     int        adc2Peak_ = 0;
     int        overloadDecayPackets_ = 0;
+    bool       autoStepEnabled_ = false;
+    bool       autoStepBandChange_ = false;
+    bool       adcOverflowSeen_ = false;
+    int        autoStepLevel_ = 0;     // 0..5 confirmation, 100 ms ticks
+    QTimer     autoStepTimer_;
+    QElapsedTimer autoStepHoldClock_;
     double     meterCalOffset_ = 0.0;
     double     displayCalOffset_ = 0.0;
 };

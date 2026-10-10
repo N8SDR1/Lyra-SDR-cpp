@@ -3429,27 +3429,22 @@ QWidget *SettingsDialog::buildHardwareTab() {
 
             hwRow->addWidget(new QLabel(tr("Antenna:"), radioBox));
             auto *antCombo = new QComboBox(radioBox);
-            antCombo->addItems({tr("ANT 1"), tr("ANT 2"), tr("ANT 3")});
-            antCombo->setCurrentIndex(
-                p2_ && p2_->isRunning()
-                    ? p2_->trxAntenna() - 1
-                    : qBound(1,
-                        QSettings().value(QStringLiteral("p2/trxAntenna"), 1)
-                            .toInt(), 3) - 1);
             connect(antCombo,
                     QOverload<int>::of(&QComboBox::currentIndexChanged),
-                    radioBox, [this, status, list](int idx) {
+                    radioBox, [this, antCombo, status, list](int) {
+                        const int ant = antCombo->currentData().toInt();
+                        if (ant < 1) return;
                         QSettings().setValue(
-                            QStringLiteral("p2/trxAntenna"), idx + 1);
+                            QStringLiteral("p2/trxAntenna"), ant);
                         if (p2_ && p2_->isRunning())
-                            p2_->setTrxAntenna(idx + 1);
+                            p2_->setTrxAntenna(ant);
                         if (auto *it = list->currentItem();
                             it && it->data(Qt::UserRole + 7).toInt() == 2) {
                             auto p = lyra::rig::registry::rig(
                                 lyra::rig::registry::rigIdForMac(
                                     it->data(Qt::UserRole + 1).toString()));
                             if (p.isValid()) {
-                                p.trxAntenna = idx + 1;
+                                p.trxAntenna = ant;
                                 lyra::rig::registry::upsertRig(p);
                             }
                         }
@@ -3537,8 +3532,6 @@ QWidget *SettingsDialog::buildHardwareTab() {
             auto *adcCombo = new QComboBox(radioBox);
             adcCombo->addItems({tr("ADC 1"), tr("ADC 2")});
             auto *inputCombo = new QComboBox(radioBox);
-            inputCombo->addItems({tr("TRX antenna"), tr("BYPS"),
-                                  tr("EXT 1"), tr("XVTR")});
             auto *hpfBypass = new QCheckBox(tr("HPF bypass"), radioBox);
             connect(adcCombo,
                     QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -3547,8 +3540,11 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     });
             connect(inputCombo,
                     QOverload<int>::of(&QComboBox::currentIndexChanged),
-                    radioBox, [this](int idx) {
-                        if (p2_ && p2_->isRunning()) p2_->setRxInput(idx);
+                    radioBox, [this, inputCombo](int) {
+                        const QVariant d = inputCombo->currentData();
+                        if (!d.isValid()) return;
+                        if (p2_ && p2_->isRunning())
+                            p2_->setRxInput(d.toInt());
                     });
             connect(hpfBypass, &QCheckBox::toggled, radioBox,
                     [this](bool on) {
@@ -3562,9 +3558,58 @@ QWidget *SettingsDialog::buildHardwareTab() {
             feRow->addStretch(1);
             rv->addLayout(feRow);
 
+            auto rebuildAntRx = [antCombo, inputCombo, modelCombo]() {
+                const QString key = modelCombo->currentData().toString();
+                const int n = lyra::hardware::trxAntennaCount(key);
+                const unsigned mask = lyra::hardware::rxJackMask(key);
+                const QString ext1 = lyra::hardware::rxExt1Label(key);
+                {
+                    const QSignalBlocker b(antCombo);
+                    const int cur = antCombo->currentData().isValid()
+                        ? antCombo->currentData().toInt()
+                        : QSettings().value(QStringLiteral("p2/trxAntenna"), 1)
+                              .toInt();
+                    antCombo->clear();
+                    for (int i = 1; i <= n; ++i)
+                        antCombo->addItem(QObject::tr("ANT %1").arg(i), i);
+                    int idx = antCombo->findData(cur);
+                    if (idx < 0 && antCombo->count() > 0)
+                        idx = 0;
+                    if (idx >= 0)
+                        antCombo->setCurrentIndex(idx);
+                }
+                {
+                    const QSignalBlocker b(inputCombo);
+                    const int cur = inputCombo->currentData().isValid()
+                        ? inputCombo->currentData().toInt() : 0;
+                    inputCombo->clear();
+                    const QString names[4] = {
+                        QObject::tr("TRX antenna"),
+                        QObject::tr("BYPS"),
+                        ext1,
+                        QObject::tr("XVTR"),
+                    };
+                    for (int i = 0; i < 4; ++i) {
+                        if (!(mask & (1u << static_cast<unsigned>(i))))
+                            continue;
+                        inputCombo->addItem(names[i], i);
+                    }
+                    int idx = inputCombo->findData(cur);
+                    if (idx < 0 && inputCombo->count() > 0)
+                        idx = 0;
+                    if (idx >= 0)
+                        inputCombo->setCurrentIndex(idx);
+                }
+            };
+            rebuildAntRx();
+            connect(modelCombo,
+                    QOverload<int>::of(&QComboBox::currentIndexChanged),
+                    radioBox, [rebuildAntRx](int) { rebuildAntRx(); });
+
         auto refresh = [this, scanBtn, openBtn, closeBtn, removeBtn,
                         list, status, markConnected, modelCombo, antCombo,
-                        feLabel, adcCombo, inputCombo, hpfBypass]() {
+                        feLabel, adcCombo, inputCombo, hpfBypass,
+                        rebuildAntRx]() {
             const bool p1Running = stream_ && stream_->isRunning();
             // isOpen(), not isRunning(): a P2 open() in flight but not
             // yet confirmed by the radio must still block a concurrent
@@ -3598,10 +3643,13 @@ QWidget *SettingsDialog::buildHardwareTab() {
             const bool dualAdc = hw && hw->adcCount > 1;
             const bool hasAlex = p2hw && !p2hw->fixedTxFrontEnd;
             antCombo->setEnabled(hasAlex);
+            rebuildAntRx();
             antCombo->setToolTip(
                 hasAlex
-                    ? tr("Alex TX jack (ANT 1 / 2 / 3). Saved now; on "
-                         "the wire after Open.")
+                    ? tr("Shared TX/RX ANT jack. Port count follows the "
+                         "selected model (Brick3SDR: ANT 1/2). Saved now; "
+                         "on the wire after Open. All-bands MAP is on "
+                         "the Band panel.")
                     : tr("This model has a single fixed antenna jack."));
             adcCombo->setEnabled(p2Running && dualAdc);
             feLabel->setEnabled(p2Running && dualAdc);
@@ -3619,8 +3667,9 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     ? tr("This model has a fixed RX jack (no Alex RX "
                          "select).")
                     : (p2Running
-                           ? tr("Alex RX path: TRX antenna, BYPS "
-                                "(bypass HPF/LPF), EXT 1, or XVTR.")
+                           ? tr("Alex RX path: TRX (the ANT jack) plus "
+                                "any extra RX-only jacks (Brick3SDR: "
+                                "RX2).")
                            : tr("Open this Protocol 2 radio first — then "
                                 "RX input is selectable.")));
             hpfBypass->setToolTip(
@@ -3634,10 +3683,11 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 const QSignalBlocker bh(hpfBypass);
                 const QSignalBlocker bt(antCombo);
                 adcCombo->setCurrentIndex(p2_->ddcAdc());
-                inputCombo->setCurrentIndex(p2_->rxInput());
+                const int ii = inputCombo->findData(p2_->rxInput());
+                if (ii >= 0) inputCombo->setCurrentIndex(ii);
                 hpfBypass->setChecked(p2_->hpfBypass());
-                antCombo->setCurrentIndex(
-                    qBound(0, p2_->trxAntenna() - 1, 2));
+                const int ai = antCombo->findData(p2_->trxAntenna());
+                if (ai >= 0) antCombo->setCurrentIndex(ai);
             }
             if (p1Running)
                 status->setText(tr("Connected to %1").arg(stream_->targetIp()));
@@ -3919,19 +3969,18 @@ QWidget *SettingsDialog::buildHardwareTab() {
     // "Filters / BCD" tab (buildFiltersBcdTab); the Hardware tab was full.
 
 
-    // --- Auto-LNA (overload-triggered front-end protection) ---
-    // On sustained ADC overload the LNA backs off; when the band clears
-    // it creeps gain back up, riding the overload edge.  The master
-    // on/off lives on the DSP+Audio panel (Row 1 "Auto"); these are the
-    // tuning knobs (mirrors the reference Ant/Filters Auto-ATT options).
+    // --- Auto-LNA (P1) / Auto Step (P2) recovery knobs ---
+    // Master on/off is DSP+Audio Row 1 "Auto". These hold/undo knobs
+    // are shared: Auto-LNA creeps PGA gain up; Auto Step creeps ATT down.
     {
         auto *undo = new QCheckBox(
             tr("Creep gain back up when the band clears (Undo)"), page);
         undo->setChecked(stream_ && stream_->autoLnaUndo());
         undo->setToolTip(tr(
-            "On: after backing off on overload, Auto-LNA raises the gain "
-            "1 dB per hold interval once clipping stops.\n"
-            "Off: Auto-LNA only ever backs the gain off and holds it there."));
+            "On: after backing off on overload, Auto creeps the front end "
+            "1 dB per hold interval once clipping stops "
+            "(HL2: LNA up; Protocol 2: ATT down toward 0).\n"
+            "Off: Auto only ever pads/backs off and holds it there."));
         if (stream_) {
             connect(undo, &QCheckBox::toggled, stream_,
                     &lyra::ipc::HL2Stream::setAutoLnaUndo);
@@ -3941,15 +3990,16 @@ QWidget *SettingsDialog::buildHardwareTab() {
                         if (undo->isChecked() != on) undo->setChecked(on);
                     });
         }
-        form->addRow(tr("Auto-LNA"), undo);
+        form->addRow(tr("Auto-LNA / Auto Step"), undo);
 
         auto *hold = new QSpinBox(page);
         hold->setRange(1, 60);
         hold->setSuffix(tr(" s"));
         hold->setValue(stream_ ? stream_->autoLnaHoldSec() : 4);
         hold->setToolTip(tr(
-            "How long to wait after clipping stops before creeping the gain "
-            "back up — and the interval between each +1 dB step."));
+            "How long to wait after clipping stops before creeping, "
+            "and the interval between each 1 dB step "
+            "(HL2 LNA +1 dB; Protocol 2 ATT −1 dB)."));
         if (stream_) {
             connect(hold, qOverload<int>(&QSpinBox::valueChanged), stream_,
                     &lyra::ipc::HL2Stream::setAutoLnaHoldSec);

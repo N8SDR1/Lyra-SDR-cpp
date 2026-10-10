@@ -22,6 +22,11 @@ not programmers — if you can click a menu, you can use this.
 
 ## What's new in 0.25.15
 
+- **Auto Step 0–31 on Protocol 2.** DSP+Audio **Step** walks the ADC pad
+  (Thetis Auto ATT: +3 dB on confirmed clip, −1 dB toward 0 when clear).
+  Frozen on TX. Default off. S-meter still **adds ATT** — Auto Step does
+  not subtract LNA on P2.
+
 - **Protocol 2 TX follows the VFO.** After the first QSO, moving the dial
   (SSB, CW, AM, FM) now retunes the transmitter on BrickSDR2. Previously
   TX stayed on the frequency you started on until you restarted the
@@ -1246,11 +1251,20 @@ Quick band switching, in four rows:
   [Xvtr (transverters)](#xvtr-transverters).
 - **Ant** — Protocol 2 radios with an Alex-style front-end (ANAN-100D
   class, Brick3SDR, G2 / Saturn — **not** Hermes-class BrickSDR and
-  **not** HL2). **1 / 2 / 3** pick the shared TX/RX jack; **RX TRX /
-  BYPS / EXT1 / XVTR** pick the receive input. Remembered **per band**.
-  Same controls as Settings → Hardware → Antenna. The row stays hidden
+  **not** HL2). ANT chips pick the **shared TX/RX jack** (Brick3SDR:
+  **1 / 2** only; 7000 / 8000 / G2: **1 / 2 / 3**). RX chips pick the
+  receive input: **TRX** (the selected ANT jack) plus any extra RX-only
+  jacks the box actually has. Brick3SDR rear **RX2** is that extra jack
+  (Alex Ext1). **MAP** opens a per-band grid of the same ANT + RX
+  choices (DeskHPSDR-style all-bands assignment). Remembered **per
+  band**. Same live ANT/RX as Settings → Hardware. The row stays hidden
   when the radio has no antenna ladder. Not on the TX dock — that strip
   is already full.
+
+  **Diversity** (Thetis / DeskHPSDR: two ADCs, same frequency, phase/gain
+  combine) is **not in Lyra**. SUB, MAP, and the Settings ADC combo are
+  not that. Parked as a future feature on dual-ADC radios (Brick3 /
+  ANAN-100D class). Brick2 and HL2 have one ADC and cannot.
 
 **SUB hops (HL2 / BrickSDR2).** **Shift+click** or **right-click** a Ham / BC /
 11m chip to park **SUB** on that band (turns SUB on if it was off, keeps
@@ -1383,6 +1397,12 @@ laid out in old Lyra's three-row arrangement:
   mouse-wheel). Higher = more sensitivity; back off on strong bands to
   avoid ADC overload. The S-meter compensates for it automatically, so
   changing LNA doesn't shift the signal reading.
+- **ATT** (Protocol 2) — ADC step pad 0…31 dB on ANAN / Brick / G2 class.
+  Higher = more pad (less ADC gain). Remembered per band. This is **not**
+  Auto-LNA: Hermes Lite 2 uses a PGA; Protocol 2 uses the LTC pad. The
+  S-meter **adds** ATT (loss) so walking the pad does not move the
+  reported signal — the previous Auto attempt subtracted LNA on P2 and
+  that is what broke the meter.
 - **AF** — audio makeup gain (0…+40 dB), applied **before** Vol. Use it to
   set a comfortable working level for your headphones/speakers once, then
   ride **Vol** on top of it for moment-to-moment changes. The value shows
@@ -1401,8 +1421,12 @@ laid out in old Lyra's three-row arrangement:
   goes — the **HL2 jack or selected output device** (the **Out** picker), and,
   when enabled, a **VAC** PC device **and** your **TCI** clients — all from the
   single MON TX toggle (matching the reference's monitor routing).
-- **Auto · Out** — **Auto** rides the LNA on the ADC-overload edge (see
-  **LNA** above). **Out** is a live output-device quick switch: click it for a
+- **Auto / Step · Out** — on Hermes Lite 2, **Auto** is Auto-LNA (PGA).
+  On Protocol 2 the same slot is **Step** (Auto Step 0–31): confirmed
+  ADC clip → ATT **+3 dB** (cap 31); when the band clears, ATT **−1 dB**
+  toward 0, frozen while transmitting. Turning it off leaves the pad
+  where it settled. Hold / Undo knobs in **Settings → Hardware** are
+  shared. **Out** is a live output-device quick switch: click it for a
   pop-up list of the **HL2 audio jack** + your **PC output devices** (the
   current one marked), and pick one to move RX audio — and the monitor — there
   live. The full audio setup (host API, exclusive mode, VAC) still lives in
@@ -1985,8 +2009,10 @@ receiving (press **▶ Start** first; it rests at S0 when idle).
 > **[Meter panel](#meter-panel)**: tune to a known reference
 > (WWV, or a signal generator at a known level) and adjust the **S-meter
 > calibration** offset until it matches. With this tap the trim is only a
-> few dB. The meter compensates for the **LNA gain** automatically, so the
-> reading stays put as you adjust LNA — you can calibrate at any setting.
+> few dB. On Hermes Lite 2 the meter subtracts **LNA gain**. On Protocol 2
+> it **adds ATT** plus the model's meter offset — never LNA, which is
+> inert on P2. Either way the reading stays true-to-source as you (or
+> Auto) move the front end; you can calibrate at any setting.
 > The relative movement, peak-hold, SNR, and
 > noise-floor behaviour are all live regardless.
 >
@@ -2184,6 +2210,17 @@ on that radio. BrickSDR2 uses the radio's Protocol-2 feedback path
 (ADC0 pad). **Do not** turn this on unless that hardware is actually
 installed — without a coupler you get garbage feedback and a worse
 signal.
+
+**PS input vs MAP Ext1 (station note).** DeskHPSDR/Thetis have a PureSignal
+menu input: **Internal** (T/R / relay-overspeak) vs **EXT1** (external
+coupler / sampler). Heiko’s Brick2 100 W B2: external coupler **with
+56 dB ATT after the PA**, PS menu **EXT1 — not Internal**; he believes
+the same on Brick 2/3 and HL2. Lyra’s PS dock does **not** yet expose
+that picker — while PS is live the analog RX bits stay **Internal
+(TRX)**. Brick3 MAP **RX2** (labeled Ext1 in the protocol) is the rear
+**RX2** jack, and Brick3 also has a **PS-A** jack; those are not
+automatically the same as the PS-menu EXT1. Do not retune MAP to “fix”
+PureSignal.
 
 **Dummy load first.** Bring PS up into a **dummy load**, not the
 antenna. You need enough RF for the coupler to see (on a bare HL2 that

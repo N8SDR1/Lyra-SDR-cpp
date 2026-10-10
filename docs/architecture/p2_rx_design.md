@@ -214,6 +214,32 @@ until the gate passes.
   — the Brick's STM32 wants extra DDCs (DDC2/DDC3) enabled in some modes,
   unlike a stock ANAN. Out of scope for single-RX P2-2 but note it so a
   future diversity/RX2 pass doesn't rediscover it.
+
+## Diversity (parked — future feature)
+
+**Operator lock 2026-10-10:** Thetis and DeskHPSDR offer diversity on
+ANAN-100D, Brick3, and other dual-ADC boxes. **Lyra does not.** Parked;
+do not implement until a dedicated pass (DeskHPSDR/Thetis Brick3 read
+first). Dummy-load only; no VK amp.
+
+Diversity is **not** SUB, **not** MAP, **not** the Settings ADC combo.
+
+| Surface | What it actually is |
+|---|---|
+| **SUB / RX2** | Second VFO (DDC1). On Brick2 / HL2 both DDCs sit on **one** ADC. |
+| **MAP / ANT / RX chips** | Front-end jack (TRX / Ext1 / XVTR). Brick3 Ext1 silk = **RX2**. |
+| **Settings ADC** | Which ADC RX1 listens on. Lyra still programs **DDC0–3 to that same ADC**. |
+| **Diversity** (reference) | Two ADCs, **same frequency**, operator phase/gain, WDSP `divEXT` combiner. |
+
+Hardware that *can* (adcCount>1): Brick3 / 100D / 200D / 7000 / 8000 / G2.
+`RadioCapabilities::diversityCapable` is **true** on AnanP2 and **unread**.
+Brick2 / HL2: one ADC → `diversityCapable=false`.
+
+When it lands: DDC0→ADC0 / DDC1→ADC1 at the same VFO, WDSP
+`create_divEXT` / `SetEXTDIV` (not bound today), phase/gain UI, P1
+`P1_en_diversity` stays 0 until then. DeskHPSDR Brick3 extra-DDC enable
+(`p2_diversity_brick3_mode_active`) must be read before coding. **Off
+while PureSignal is live** — PS owns the second ADC / coupler.
 - **Windows UDP flow-state (Jerry, Windows-only note).** Windows Firewall
   drops inbound UDP unless the host recently sent outbound to that exact
   remote port, so the HP-status stream (radio→PC `:1025`) goes silent

@@ -619,6 +619,17 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
         // DeskHPSDR: while TX+PS, analog RX bits come from
         // PS_RX_FEEDBACK->alex_antenna (create default 0 = Internal),
         // not RX1. Ext1=6 / ByPass=7 stay a later UI.
+        //
+        // Heiko (Brick2 100W B2, 2026-10, operator/firmware note — do
+        // NOT rewire from this comment): external RF coupler + 56 dB
+        // ATT after the PA; DeskHPSDR/Thetis PS menu input = EXT1, NOT
+        // Internal. Internal = "relais overspoke" (T/R / relay-overspeak
+        // path). EXT1 = external PureSignal tap / sampler. Heiko: same
+        // belief for Brick 2/3 and HL2. Tension: this block still forces
+        // Trx/Internal while PS is live. Brick3 MAP Ext1 is silk-screened
+        // RX2 (Alex bit 9) and the box also has a PS-A jack — do not
+        // collapse those with Heiko EXT1 without a DeskHPSDR/Thetis
+        // source read. See puresignal_hl2.md "PS analog input".
         const P2RxInput analogIn =
             isPureSignalLive() ? P2RxInput::Trx : rxInput_;
         const quint16 rxw =

@@ -176,4 +176,41 @@ QStringList p2ModelKeys() {
     return out;
 }
 
+namespace {
+bool keyIs(const QString &key, const char *lit) {
+    return key.compare(QLatin1String(lit), Qt::CaseInsensitive) == 0;
+}
+} // namespace
+
+int trxAntennaCount(const QString &modelKey) {
+    // Rear-panel count, not discovery board id. Brick3 is Angelia-class
+    // on the wire but only ANT1/ANT2 exist on the box.
+    if (keyIs(modelKey, "BRICK3-SDR"))
+        return 2;
+    if (keyIs(modelKey, "BRICK-SDR") || keyIs(modelKey, "BRICK-SDR2") ||
+        keyIs(modelKey, "HERMES-LITE") || keyIs(modelKey, "HPSDR"))
+        return 0;
+    if (modelByKey(modelKey))
+        return 3;
+    return 0;
+}
+
+unsigned rxJackMask(const QString &modelKey) {
+    constexpr unsigned kTrx  = 1u << 0;
+    constexpr unsigned kByps = 1u << 1;
+    constexpr unsigned kExt1 = 1u << 2;
+    constexpr unsigned kXvtr = 1u << 3;
+    if (keyIs(modelKey, "BRICK3-SDR"))
+        return kTrx | kExt1;  // Ext1 = rear RX2 jack (classic Alex bit 9)
+    if (trxAntennaCount(modelKey) <= 0)
+        return 0;
+    return kTrx | kByps | kExt1 | kXvtr;
+}
+
+QString rxExt1Label(const QString &modelKey) {
+    if (keyIs(modelKey, "BRICK3-SDR"))
+        return QStringLiteral("RX2");
+    return QStringLiteral("EXT1");
+}
+
 } // namespace lyra::hardware

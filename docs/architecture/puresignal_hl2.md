@@ -66,7 +66,45 @@ run PureSignal on Brick.
   lock **both** DDC0 and DDC1 to TX.
 - Brick3 / Angelia extras (`p2_diversity_brick3_mode_active`,
   `p2_angelia_ddc0_map`) **must not** override the PS TX DDC0/DDC1 lock
-  (`new_protocol.c` ~1548–1554).
+  (`new_protocol.c` ~1548–1554). Diversity itself is **parked** (Lyra has
+  no combiner; see `p2_rx_design.md` "Diversity (parked)"). Live PS and
+  diversity both want the second ADC — they conflict; PS wins while armed.
+
+## PS analog input — Internal vs EXT1 (Heiko, 2026-10)
+
+**Operator/firmware note from Heiko (Brick2 100 W B2).** Do **not** invent
+an ADC map or rewire Lyra from this paragraph. Source-read DeskHPSDR /
+Thetis `PS_RX_FEEDBACK->alex_antenna` before any code.
+
+Heiko’s station: **external RF coupler with 56 dB ATT after the PA
+output.** DeskHPSDR/Thetis **PS menu input = EXT1, not Internal.**
+
+N8SDR: is EXT1 the PS input on Brick 2/3? Heiko: **yes as far as he
+knows — and with the HL2 too.** Then:
+
+- **Internal** = “relais overspoke” (internal T/R / relay-overspeak path).
+- **EXT1** = **external PureSignal tap / sampler input**.
+
+**Lyra today (unchanged):** while PS is live, `P2Session` forces analog
+RX bits to **`P2RxInput::Trx` (Internal)** — DeskHPSDR create-default
+`alex_antenna=0`. Comments already say Ext1=6 / ByPass=7 are a later UI.
+That is the tension with Heiko’s working DeskHPSDR setup.
+
+**Do not collapse these without source:**
+
+| Name | What it is in Lyra today |
+|---|---|
+| MAP / BAND **Ext1** on Brick3 | Alex bit 9 (`_Rx_2_In`), silk-screened **RX2**. Receive jack, not proven = PS coupler. |
+| Brick3 rear **PS-A** | Separate jack. `ALEX_PS_BIT` (bit 18) is the P2 PS coupler *route* flag, not the MAP Ext1 bit. |
+| Heiko **PS menu EXT1** | DeskHPSDR/Thetis **PS_RX_FEEDBACK analog input**, not the MAP RX chip. |
+| Brick2 Alex RX word | `brickAlexRxWord` returns **0** (Hermes-class, no Alex). DeskHPSDR “EXT1” on Brick2 may be a different control than Lyra’s MAP Ext1. |
+| HL2 “EXT1” in Heiko’s wording | Likely the **coupler-mod / sampler** path, not an Alex Ext1 jack (HL2 has none). |
+
+Future (when locking a dummy-load A/B vs DeskHPSDR on the same box): an
+operator PS-input picker (Internal / EXT1 / Bypass) that drives
+`PS_RX_FEEDBACK` analog bits **instead of** forcing Trx while PS is live.
+Until then, keep the Internal force; record Heiko so we do not “fix” FB
+starvation by guessing a Brick3 ADC mux.
 
 **Thetis fallback policy (locked):**
 
