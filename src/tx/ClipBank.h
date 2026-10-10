@@ -82,6 +82,9 @@ public:
 signals:
     void clipsChanged();
     void clipsDirChanged();
+    // A clip could not be saved (folder unusable, disk nearly full, or the
+    // WAV write failed); `message` is operator-readable.
+    void clipError(const QString &message);
 
 private:
     struct Entry {

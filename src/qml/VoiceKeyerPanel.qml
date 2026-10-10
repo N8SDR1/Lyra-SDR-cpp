@@ -36,6 +36,13 @@ Rectangle {
     property bool collapsed: false
     property bool editMode: false
     property int  recSrc: 0        // REC source: 0 = Mic (voice message), 1 = RX audio
+    property string clipError: ""  // last failed clip save (cleared by a successful one)
+
+    Connections {
+        target: Clips
+        function onClipError(message) { root.clipError = message }
+        function onClipsChanged() { root.clipError = "" }
+    }
 
     readonly property bool voiceMode: {
         var m = WdspEngine.mode.toUpperCase()
@@ -433,6 +440,16 @@ Rectangle {
             background: Rectangle { radius: 8; color: "#16202a"; border.color: "#4a5a64" }
             contentItem: Text { text: parent.text; color: root.cMuted; font.pixelSize: 12
                 horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+        }
+
+        // A recording / import that couldn't be saved — say so instead of
+        // silently dropping it.
+        Text {
+            visible: !root.collapsed && root.clipError !== ""
+            Layout.fillWidth: true
+            text: root.clipError
+            color: "#ff8a80"; font.pixelSize: 11
+            wrapMode: Text.WordWrap
         }
 
         // ── Storage folder footer ───────────────────────────────────────
