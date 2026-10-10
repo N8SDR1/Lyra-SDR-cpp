@@ -1037,7 +1037,8 @@ Rectangle {
                 checked: WdspEngine.noiseApplyEnabled
                 onClicked: WdspEngine.setNoiseApply(!WdspEngine.noiseApplyEnabled)
                 note: qsTr("Apply the captured noise profile to RX audio (IQ-domain "
-                    + "spectral subtraction, before WDSP). Capture or load a profile first.")
+                    + "spectral subtraction, before WDSP). The panadapter stays uncleaned "
+                    + "so strong stations keep a sharp shape. Capture or load a profile first.")
             }
 
             // Tune button — Strength / Floor / Smoothing (visible when applying).
@@ -1105,7 +1106,11 @@ Rectangle {
                             LyraSlider { Layout.fillWidth: true
                                 from: -30; to: -3; stepSize: 1
                                 value: WdspEngine.noiseFloorDb
-                                onMoved: WdspEngine.setNoiseFloorDb(value) }
+                                onMoved: WdspEngine.setNoiseFloorDb(value)
+                                ToolTip.text: qsTr("Deepest any bin may drop, before AGC. "
+                                    + "More negative = more audible hiss cut. Default −24 dB.")
+                                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
+                                ToolTip.delay: 400 }
                             Label { text: Math.round(WdspEngine.noiseFloorDb) + qsTr(" dB")
                                     color: "#50d0ff"; font.family: "Consolas"
                                     Layout.preferredWidth: 44 }

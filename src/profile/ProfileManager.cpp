@@ -103,9 +103,16 @@ void ProfileManager::setDefault(const QString &name) {
     if (store_.contains(name)) store_.setDefault(name);
 }
 
-void ProfileManager::applyDefaultAtStartup() {
-    const QString d = store_.defaultName();
-    if (!d.isEmpty() && store_.contains(d)) load(d);
+void ProfileManager::applyDefaultAtStartup(const QString &restoredMode) {
+    auto tryLoad = [this](const QString &name) -> bool {
+        return !name.isEmpty() && store_.contains(name) && load(name);
+    };
+    if (!restoredMode.isEmpty()) {
+        const QString bound = store_.modeBinding(modeFamily(restoredMode));
+        if (tryLoad(bound)) return;
+    }
+    if (tryLoad(store_.active())) return;
+    tryLoad(store_.defaultName());
 }
 
 void ProfileManager::bindMode(const QString &mode, const QString &name) {

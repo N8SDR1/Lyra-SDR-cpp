@@ -177,13 +177,14 @@ flips the meter to forward power and reds the VFO on‑air. The panadapter
 stays on RX during CW so you still see the keyed carrier.
 
 **No analog band voltage for GP100 / GPA100 / M0AWS DB9.**
-Stock Pico PWM is **J4 pin 8**, not J3. Tick **Enable N2ADR / IO board**
-(Filters / BCD; default on) and **Start** the radio. Lyra writes TX Hz
-over I2C **0x1D** — same as Thetis/Quisk/SparkSDR; there is **no extra
-I2C/PWM checkbox**. OC bits (I2C **0x20**) only switch the LPF. **Leave
-HL2 Band Volts on J3 off** unless the amp is actually jumpered to the
-**fan header**. 0 V on J3 with that box off is expected when J3 is GND.
-Protocol 2 Brick/ANAN do not use the Pico 0x1D path.
+Stock Pico PWM is **J4 pin 8**, not J3. Analog follows TX frequency on
+Protocol 1 **without** needing **Enable N2ADR / IO board** — that box
+is OC / LPF relays only. Start the radio; Lyra writes TX Hz over I2C
+**0x1D** (same as Thetis/Quisk/SparkSDR). There is **no extra I2C/PWM
+checkbox**. **Leave HL2 Band Volts on J3 off** unless the amp is
+actually jumpered to the **fan header**. 0 V on J3 with that box off is
+expected when J3 is GND. Protocol 2 Brick/ANAN do not use the Pico 0x1D
+path.
 
 **I'm running an amplifier — anything to set first?**
 Yes — configure **TR‑sequencing** and the **RF‑delay / ATT‑on‑TX**
@@ -212,6 +213,33 @@ emulate boxes on (default). Match Lyra's **port** (usually **40001**);
 WSJT templates often still say **50001**. Rig = **Expert Electronics
 (TCI)**, Network Server `127.0.0.1:<that port>`.
 
+**TCI connects but TUNE / TX does nothing, or TX audio is silent.**
+Press **▶ Start** first — TUNE and TRX are refused while the radio
+session is stopped. **TUNE** keys the host **TUN** path; **TRX** keys
+**MOX**. Set **Settings → TX → Mic source** to **TCI**. From **v0.25.14**,
+CHRONO TX-audio frames use the negotiated sample count (not a fixed 1024).
+STOP during TX does not drop MOX (v0.25.13). If an older 0.25.10–0.25.13
+build attached but would not key, install 0.25.14 or later.
+
+**BrickSDR2 TX stays on the old frequency after I move the VFO.**
+Fixed in **v0.25.15**. First key-up was on the dial; after any retune, TX
+stayed where you started until you restarted the stream. Install 0.25.15
+(SSB, CW, AM, FM share that path).
+
+**Lyra always loads the Default (SSB) profile even though I last used FM.**
+Fixed in **v0.25.15**. Startup order is: mode-family binding → last-used
+profile → Default (first-run fallback). Bind FM (or CW / Digital) in
+**Settings → Profiles**. Step-by-step: in-app **Help → How to create a
+profile**.
+
+**Tuning Mem left-click does nothing after idle; right-click still works.**
+Fixed in **v0.25.15**. Left-click opens the recall list again.
+
+**MUTE is quiet, unmute is an echo / loop.**
+MUTE only silences speakers / the HL2 jack. **VAC Output** and **MON TX**
+can still play. If VAC Output is the same speakers (or loops back), you
+hear two copies. Use a dedicated VAC device, or turn VAC / MON TX off.
+
 ---
 
 ## Settings &amp; layout
@@ -229,7 +257,10 @@ Settings export/import writes a single profile file you can copy. See
 
 **First launch is stuck "optimizing".**
 That's the one‑time FFT plan‑cache build — let it finish (a few minutes).
-It only happens once (or after **Clear &amp; rebuild**).
+It only happens once (or after **Clear &amp; rebuild**). Companion apps
+(SDRLogger+ Hardware Startup) wait until that cache and the radio layer
+are up. If **0.25.10** vanished during optimizing, install **0.25.11** and
+close leftover SDRLogger+ in Task Manager before the first run.
 
 **Xvtr VFO stops at 55.999.999 Hz.**
 That was the old eight-digit LED cap. **v0.25.3+** uses ten digits so 2 m /

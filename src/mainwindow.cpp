@@ -39,6 +39,7 @@
 #include "logdialog.h"
 #include "hl2_discovery.h"
 #include "hl2_stream.h"
+#include "freqdisplay.h"
 #include "rig/RigRegistry.h"   // multi-rig — the Rig menu (switch active rig)
 #include "wdsp_engine.h"
 #include "prefs.h"
@@ -52,6 +53,7 @@
 #include "tx/VoiceKeyer.h"
 #include "wire/Ep6RecvThread.h"       // #89 B1 — ep6Thread().set_tx_clip_source(...)
 #include "wire/P2RxBridge.h"          // Saturn / ANAN G2 Protocol 2 RX path
+#include "wire/RadioNet.h"            // prn — refuse Start until create_rnet
 #include "hardware/ActiveFrontEndModel.h"
 #include "platform/app_activity.h"     // hold off App Nap / idle sleep while streaming
 #include "settingsdialog.h"
@@ -80,6 +82,8 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QKeyEvent>
+#include <QAbstractItemView>
+#include <QComboBox>
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPlainTextEdit>
@@ -96,12 +100,15 @@
 #include <QQuickWidget>
 #include <QQuickWindow>   // frameSwapped — crash-guard first-frame sentinel clear
 #include <QQuickItem>
+#include <QQuickItemGrabResult>
+#include <QScreen>
 #include <QSettings>
 #include <QVariant>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <algorithm>
 #include <QStyle>
 #include <QToolBar>
 #include <QStatusBar>
@@ -513,7 +520,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     connect(recorder_, &lyra::recorder::RecorderEngine::error, this,
             [this](const QString &m) { statusBar()->showMessage(m, 8000); });
     connect(recorder_, &lyra::recorder::RecorderEngine::snapshotDue, this,
-            [this] { captureRecorderSnapshot(); });
+            [this] { captureRecorderSnapshot(); }, Qt::QueuedConnection);
     // Panel ⚙ shortcut → open Settings → Recording.
     connect(recorder_, &lyra::recorder::RecorderEngine::settingsRequested, this,
             [this] { openSettingsTopic(QStringLiteral("recorder")); });
@@ -523,10 +530,12 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         const qint64 f = stream_ ? stream_->property("rx1FreqHz").toLongLong() : 0;
         return qMakePair(f, prefs_ ? prefs_->mode() : QString());
     });
-    // Refuse to record while the stream is stopped (would just capture silence).
+    // Refuse to record while the radio is stopped (would just capture silence).
     recorder_->setCanRecordProbe([this]() -> bool {
-        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-        return st && st->isRunning();
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+            if (st->isRunning()) return true;
+        if (p2Bridge_ && p2Bridge_->isRunning()) return true;
+        return stream_ && stream_->property("running").toBool();
     });
 
     // #201 Stage 5 — offline MP4 converter.  Runs a below-normal-priority
@@ -718,18 +727,22 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         auto *recorder = voiceKeyer_->recorder();
         st->ep6Thread().set_mic_record_tap(
             [recorder](int n, const double *iq) { recorder->feedMicPairs(iq, n); });
-        // #89 C2 — RX-record tap: the post-RX-DSP "what you heard" audio feeds
-        // the voice-keyer clip recorder while an RX clip records AND the #201
-        // session recorder while a session records (both lock-free no-ops
-        // otherwise — each gates on its own atomic).  One tap, two consumers.
-        if (auto *we = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
-            auto *sessionRec = recorder_;
-            we->setRxRecordTap(
-                [recorder, sessionRec](const double *audio, int n) {
-                    recorder->feedRxStereoDup(audio, n);
-                    if (sessionRec) sessionRec->feedAudioDoubles(audio, n, 2);
-                });
-        }
+        // #89 C2 — mic-path voice-keyer recorder is HL2-only (EP6 mic).
+        // The RX session-recorder tap is installed below for both P1 and P2.
+    }
+
+    // #201 session recorder + #89 RX-clip tap: post-RX-DSP "what you heard".
+    // Must live on WdspEngine regardless of Protocol 1 vs 2 — gating this
+    // behind HL2Stream left Protocol 2 with empty WAVs (and a silent tap
+    // if the stream object is not an HL2Stream).
+    if (auto *we = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
+        auto *clipRec = voiceKeyer_ ? voiceKeyer_->recorder() : nullptr;
+        auto *sessionRec = recorder_;
+        we->setRxRecordTap(
+            [clipRec, sessionRec](const double *audio, int n) {
+                if (clipRec) clipRec->feedRxStereoDup(audio, n);
+                if (sessionRec) sessionRec->feedAudioDoubles(audio, n, 2);
+            });
     }
 
     // #59 RX parametric EQ model (drives RxEqPanel.qml, "RxEq" context
@@ -864,8 +877,9 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     });
 
     // TCI server — lets loggers/cluster apps drive + read Lyra over a
-    // WebSocket (Settings → Network).  START/STOP from a client route
-    // through onStartStop, guarded so they only act when state differs.
+    // WebSocket (Settings → Network).  START may open a stopped radio;
+    // STOP must not close it or drop MOX (clients send STOP on silent
+    // TCI RX audio during TX).
     tci_ = new TciServer(prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_),
                          qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_),
                          spots_, this);
@@ -922,10 +936,9 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
         if (st && !st->isRunning()) onStartStop();
     });
-    connect(tci_, &TciServer::stopRequested, this, [this]() {
-        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-        if (st && st->isRunning()) onStartStop();
-    });
+    // TCI STOP must not close the radio. WSJT-X sends STOP when TCI
+    // RX audio drops (MOX zeros the tap). Mapping that to onStartStop
+    // closed the HL2 session and TCI never recovered.
     if (tci_->enabled()) tci_->start();
 
     // Solar / HF-propagation service — fetches HamQSL, derives per-band
@@ -1370,23 +1383,97 @@ void MainWindow::showEvent(QShowEvent *event) {
     }
 }
 
+void MainWindow::saveRecorderSnapshotImage(const QImage &img)
+{
+    if (!recorder_ || !recorder_->isRecording()) return;
+    if (img.isNull() || img.size().isEmpty()) return;
+    const QString path = recorder_->reserveSnapshotFile();
+    if (!img.save(path, "PNG")) {
+        statusBar()->showMessage(tr("Couldn't write the panadapter snapshot."), 4000);
+        return;
+    }
+    const qint64 freq = stream_ ? stream_->property("rx1FreqHz").toLongLong() : 0;
+    recorder_->noteSnapshot(path, freq, prefs_ ? prefs_->mode() : QString());
+}
+
+namespace {
+// QWidget::grab() / leftover OpenGL FBOs on a Vulkan QQuickWidget often
+// return a correctly-sized all-black image — not null.  Treat that as a
+// failed grab so we fall through to RHI readback / compositor capture.
+bool recorderSnapshotLooksLive(const QImage &img)
+{
+    if (img.isNull() || img.width() < 8 || img.height() < 8)
+        return false;
+    const int stepX = qMax(1, img.width() / 32);
+    const int stepY = qMax(1, img.height() / 32);
+    int lit = 0, n = 0;
+    for (int y = 0; y < img.height(); y += stepY) {
+        for (int x = 0; x < img.width(); x += stepX) {
+            ++n;
+            const QRgb p = img.pixel(x, y);
+            if (qRed(p) + qGreen(p) + qBlue(p) > 24)
+                ++lit;
+        }
+    }
+    return n > 0 && lit * 20 > n;
+}
+} // namespace
+
 void MainWindow::captureRecorderSnapshot() {
-    // #201 — fired by RecorderEngine::snapshotDue while recording.  Grabs the
-    // panadapter dock's QQuickWidget framebuffer (the spectrum + waterfall as
-    // displayed — RX signal on receive, TX on transmit) to a PNG in the
-    // session folder, then records the manifest entry.  A no-op if the panel
-    // is hidden / not yet rendered (grabFramebuffer returns a null image).
     if (!recorder_ || !recorder_->isRecording()) return;
     QDockWidget *dock = docks_.value(QStringLiteral("panadapter"));
     if (!dock) return;
     auto *qw = dock->findChild<QQuickWidget *>();
     if (!qw) return;
-    const QImage img = qw->grabFramebuffer();
-    if (img.isNull()) return;
-    const QString path = recorder_->reserveSnapshotFile();
-    if (!img.save(path, "PNG")) return;
-    const qint64 freq = stream_ ? stream_->property("rx1FreqHz").toLongLong() : 0;
-    recorder_->noteSnapshot(path, freq, prefs_ ? prefs_->mode() : QString());
+
+    QImage img;
+    if (QQuickWindow *win = qw->quickWindow())
+        img = win->grabWindow();
+    if (recorderSnapshotLooksLive(img)) {
+        saveRecorderSnapshotImage(img);
+        return;
+    }
+
+    // Compositor capture of the dock's on-screen pixels — works when the
+    // panadapter is Vulkan/RHI (no OpenGL FBO for grabFramebuffer()).
+    if (QScreen *scr = qw->screen() ? qw->screen()
+                                    : (window() ? window()->screen() : nullptr)) {
+        const QRect geo = scr->geometry();
+        const QPoint g = qw->mapToGlobal(QPoint(0, 0));
+        const QPixmap px = scr->grabWindow(0,
+                                           g.x() - geo.x(), g.y() - geo.y(),
+                                           qw->width(), qw->height());
+        img = px.toImage();
+        if (recorderSnapshotLooksLive(img)) {
+            saveRecorderSnapshotImage(img);
+            return;
+        }
+    }
+
+    QQuickItem *root = qw->rootObject();
+    if (!root) {
+        statusBar()->showMessage(tr("Couldn't capture a panadapter snapshot."), 4000);
+        return;
+    }
+    QSize sz = qw->size();
+    if (sz.width() < 8 || sz.height() < 8)
+        sz = QSize(qMax(8, int(root->width())), qMax(8, int(root->height())));
+    auto grab = root->grabToImage(sz);
+    if (!grab) {
+        statusBar()->showMessage(tr("Couldn't capture a panadapter snapshot."), 4000);
+        return;
+    }
+    connect(grab.data(), &QQuickItemGrabResult::ready, this,
+            [this, grab]() {
+                const QImage grabbed = grab ? grab->image() : QImage();
+                if (!recorderSnapshotLooksLive(grabbed)) {
+                    statusBar()->showMessage(
+                        tr("Couldn't capture a panadapter snapshot."), 4000);
+                    return;
+                }
+                saveRecorderSnapshotImage(grabbed);
+            },
+            Qt::SingleShotConnection);
 }
 
 void MainWindow::syncCollapsibleDock() {
@@ -2954,6 +3041,13 @@ void MainWindow::onStartStop() {
 void MainWindow::beginConnect(const QString &preferIp) {
     auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
     if (!st || st->isRunning() || connectInFlight_) return;
+    // FFTW / WDSP init calls create_rnet() after ensureWisdom(). A TCI
+    // START (or lastRadio) during that nested loop used to open() with
+    // prn still null.
+    if (!lyra::wire::prn) {
+        qWarning("[wire] beginConnect: radio layer not ready yet");
+        return;
+    }
     connectInFlight_ = true;
     // Arm the "radio never answered" watchdog for this attempt. It's cancelled
     // by updateConnState() the moment either wire path reports running, or by
@@ -4162,7 +4256,53 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             }
         }
     }
+    if (t == QEvent::KeyPress) {
+        auto *ke = static_cast<QKeyEvent *>(event);
+        const int k = ke->key();
+        int delta = 0;
+        if (k == Qt::Key_Left)       delta = -1000;
+        else if (k == Qt::Key_Right) delta =  1000;
+        else if (k == Qt::Key_Up)    delta =    10;
+        else if (k == Qt::Key_Down)  delta =   -10;
+        if (delta != 0) {
+            QWidget *fw = QApplication::focusWidget();
+            const bool inDialog = fw && qobject_cast<QDialog *>(fw->window());
+            const bool comboOrList = fw && (qobject_cast<QComboBox *>(fw)
+                || qobject_cast<QAbstractItemView *>(fw));
+            auto *fo = QGuiApplication::focusObject();
+            const bool onLed = qobject_cast<lyra::ui::FreqDisplay *>(fo);
+            if (!isEditableFocus(fw) && !inDialog && !comboOrList && !onLed
+                && !QApplication::activePopupWidget()) {
+                if (nudgeFocusedVfoHz(delta))
+                    return true;
+            }
+        }
+    }
     return QMainWindow::eventFilter(watched, event);
+}
+
+bool MainWindow::nudgeFocusedVfoHz(int deltaHz) {
+    auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+    if (!st) return false;
+    auto *eng = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+    const int off1 = eng ? eng->markerOffsetHz() : 0;
+    const int off2 = eng ? eng->markerOffsetHzRx2() : 0;
+    auto clampCarrier = [](qint64 hz) {
+        return quint32(std::clamp(hz, qint64(0), qint64(2'147'483'647)));
+    };
+    const bool rx2 = st->subEnabled() && st->focusedRx() == 2;
+    if (rx2) {
+        if (st->splitEnabled() || !st->subEnabled()) {
+            st->setVfoBHz(clampCarrier(qint64(st->vfoBHz()) + deltaHz));
+        } else {
+            const qint64 carrier = qint64(st->rx2FreqHz()) + off2 + deltaHz;
+            st->setRx2FreqHz(clampCarrier(carrier - off2));
+        }
+    } else {
+        const qint64 carrier = qint64(st->rx1FreqHz()) + off1 + deltaHz;
+        st->setRx1FreqHz(clampCarrier(carrier - off1));
+    }
+    return true;
 }
 
 void MainWindow::keyPressEvent(QKeyEvent *event) {

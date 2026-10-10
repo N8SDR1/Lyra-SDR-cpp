@@ -15,6 +15,7 @@
 #pragma once
 
 #include <QHash>
+#include <QImage>
 #include <QMainWindow>
 #include <QList>
 #include <QPoint>
@@ -155,6 +156,8 @@ protected:
     // to stream.requestMox(true), release to requestMox(false).  Suppressed
     // while typing (QLineEdit/QSpinBox/…), while a modal dialog or a combo
     // popup is open, and when space-bar PTT is disabled; auto-repeat ignored.
+    // Arrow keys (when not typing / not on the VFO LED) nudge the focused
+    // VFO: Left/Right ±1 kHz, Up/Down ±10 Hz.
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
@@ -173,6 +176,7 @@ private:
     // module, with the four service objects set as context properties
     // BEFORE the source loads.
     QQuickWidget *makeQuick(const QString &qmlFile);
+    bool nudgeFocusedVfoHz(int deltaHz);
     // setSource + min-height / collapse wiring.  Must NOT run inside the
     // MainWindow ctor: QQuickWidget::setSource on the software scene-graph
     // can block forever before the native window exists (Intel UHD hang,
@@ -182,6 +186,7 @@ private:
     // #201 — grab the panadapter+waterfall to a PNG in the active session
     // folder (driven by RecorderEngine::snapshotDue while recording).
     void captureRecorderSnapshot();
+    void saveRecorderSnapshotImage(const QImage &img);
     // Wrap a QML panel in a movable/floatable/closable QDockWidget,
     // register it in docks_, and dock it into <area>.  <topic> drives
     // the title-bar "?" badge (Help guide / Settings).

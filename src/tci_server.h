@@ -325,6 +325,10 @@ private:
     // CHRONO consumer).  Default 2 matches Lyra's outbound
     // advertisement on Connect (sendInit line ~949).
     int                    requestChannels_  = 2;
+    // Negotiated AUDIO_STREAM_SAMPLE_TYPE for TX_CHRONO (0 int16 / 1
+    // int24 / 2 int32 / 3 float32).  Default float32 matches the
+    // TCI v2 handshake default.
+    int                    requestFmt_       = 3;
     // Modern-length-semantics flag, mirrors the reference's
     // m_seenModernTxAudioNegotiation (TCIServer.cs:5528 + :5946).
     // Set true the moment any modern handshake command arrives
@@ -372,11 +376,6 @@ private:
     bool     emulateExpertSdr3_= true;
     bool     emulateSunSdr2_   = true;
     bool     cwluBecomesCw_    = true;
-    // Set true while a TCI `tune:` command holds the key, so the wire-edge
-    // onMoxActiveChanged mirrors the edge on the `tune:` channel (Thetis emits
-    // tune: from its TuneChange event on the real edge, never a pre-edge reply).
-    // Cleared on the falling edge.
-    bool     tciTuneActive_    = false;
     // Task #75 — TCI RX-out linear-gain multiplier.  Cached from
     // Prefs.tciRxGainDb on every tciRxGainDbChanged emit so the
     // hot path in onTciAudioBlock is one std::atomic load (or a

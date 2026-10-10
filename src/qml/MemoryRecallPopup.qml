@@ -13,7 +13,8 @@ Popup {
     padding: 4
     modal: false
     focus: true
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                 | Popup.CloseOnPressOutsideParent
     popupType: Popup.Window
 
     implicitHeight: Math.min(list.contentHeight + padding * 2, 380)

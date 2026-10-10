@@ -1193,12 +1193,10 @@ public slots:
     // (atomic).  Ignores 48 k (EP2 cadence, like old Lyra).
     void setSampleRate(int hz);
 
-    // Enable/disable N2ADR / IO-board (OC filters on I2C 0x20 + Pico
-    // analog via I2C 0x1D TX-Hz writes).  Protocol 1 / HL2 / HL2+ only.
-    // When on, per-band OC is driven on frame-0 C2 and the Pico gets
-    // TX RF Hz for stock n2adr_basic PWM on J4 pin 8.  When off, OC is
-    // cleared and Pico writes stop.  Default ON.  Persisted as
-    // hw/filterBoard.  Gateware analog on J3 is Band Volts, not this.
+    // Enable/disable N2ADR OC filters (frame-0 C2 → gateware I2C 0x20).
+    // Protocol 1 / HL2 / HL2+ only.  Pico analog (I2C2 0x1D TX-Hz) is
+    // not gated here — Thetis/Quisk send it whenever streaming.  Default
+    // ON.  Persisted as hw/filterBoard.  J3 Band Volts is a separate box.
     void setFilterBoardEnabled(bool on);
 
     // ---- TX-state C&C registers (TX-0b foundation) -----------------
@@ -2216,8 +2214,10 @@ private:
     // Last TX band applyTxPower_ ran for — so a freq dial tick only
     // re-applies the power when the band (gbb) actually changed.
     std::atomic<int>     lastTxBand_{-2};
-    // Last Pico 0x1D TX-Hz enqueue (RF, not DDS).  ~0 = never sent / force.
+    // Last IO-board 0x1D TX-Hz enqueue (RF, not DDS).  ~0 = never sent / force.
     std::atomic<quint64> lastIoboardTxHz_{~quint64{0}};
+    std::atomic<int>     lastIoboardBand_{-1};
+    std::atomic<qint64>  lastIoboardTxMs_{0};
     std::atomic<int>     txStepAttnDb_{0};      // 0..31 dB; 0x1C C3 (31-db)
     std::atomic<int>     txMode_{1};            // 0=LSB 1=USB; mirror of the WDSP TXA mode, for the TUN DDS-offset sign (txDdsHzForTune)
     std::atomic<bool>    psUiDigital_{false};   // focused RX DIG/DRM/CW/FM lock-out

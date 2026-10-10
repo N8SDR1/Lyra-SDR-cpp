@@ -4,6 +4,73 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-09 — v0.25.15 Sheliak RELEASED
+
+- Same version **0.25.15** — one installer (not 0.25.16). DUC + startup
+  profiles + keyboard VFO + Tuning Mem. Help: How to create a profile,
+  MUTE vs VAC/MON echo, Combinator vs CFC, Tuner SWR vs Meter.
+- Brick3 Stage 0 and TCI stereo RX2 stay **uncommitted** (not this cut).
+- Tag `v0.25.15`, GitHub release, wiki. Do not merge `main`.
+
+## 2026-10-08 — v0.25.15 Sheliak (patch)
+
+- Version bump **0.25.14 → 0.25.15**. Star name stays **Sheliak**.
+- Protocol 2 TX DUC was one VFO step behind after the first retune
+  (Greg VK3KV BrickSDR2; same on-air 40 m chase here). RX1 NCO now
+  writes before the dial-changed notify; SPLIT / VFO B / XIT same
+  order; mode/CW-pitch re-pushes DUC. Local installer only until
+  Greg confirms — no GitHub tag yet.
+- USER_GUIDE / wiki / `docs/releases/v0.25.15.md`. Do not merge `main`.
+
+## 2026-10-06 — v0.25.14 Sheliak (patch)
+
+- Version bump **0.25.13 → 0.25.14**. Star name stays **Sheliak**.
+- TCI TUNE keys the host TUN path; TRX keys MOX (`requestMoxFromTci`).
+  CHRONO TX-audio headers use negotiated rate / samples / format /
+  channels. Socket flicker does not unkey. Bench: MSHV, WSJT-X, JTDX,
+  SDRLogger+.
+- Parked later idea: TX rack setup without RF (looped speech + BW).
+- USER_GUIDE / wiki / `docs/releases/v0.25.14.md`. Tag `v0.25.14`.
+  Do not merge `main`.
+
+## 2026-10-05 — v0.25.13 Sheliak (patch)
+
+- Version bump **0.25.12 → 0.25.13**. Star name stays **Sheliak**.
+- TCI STOP no longer unkeys: WSJT-X / JTDX send STOP when the TCI RX tap
+  goes silent on MOX; 0.25.11 closed the radio (fixed) but also dropped
+  MOX. STOP still echoes `start` while the session is running.
+- USER_GUIDE / wiki / `docs/releases/v0.25.13.md`. Tag `v0.25.13`.
+  Do not merge `main`.
+
+## 2026-10-05 — v0.25.12 Sheliak (patch)
+
+- Version bump **0.25.11 → 0.25.12**. Star name stays **Sheliak**.
+- Rec default `%USERPROFILE%\Lyra\Recordings`; migrate empty / relative /
+  Program Files roots (Start-Menu cwd made Rec look dead).
+- 0.25.11 FFTW-before-companions + TCI STOP + analog skip stay in tree.
+- USER_GUIDE / wiki / `docs/releases/v0.25.12.md`. Tag `v0.25.12`.
+  Do not merge `main`.
+
+## 2026-10-05 — v0.25.11 Sheliak (patch)
+
+- Version bump **0.25.10 → 0.25.11**. Star name stays **Sheliak**.
+- Hardware Startup companions wait until FFTW + create_rnet (Phil
+  AG5EY 0.25.10 first-run vanish with Logger mid-wisdom).
+- beginConnect refuses until prn is allocated.
+- TCI STOP / handshake / prune unkey / TUNE-TRX-if-stopped.
+- Analog same-Hz skip (`e912417`) in this cut.
+- USER_GUIDE / wiki / `docs/releases/v0.25.11.md`. Tag `v0.25.11`.
+  Do not merge `main`. Rec default-path left uncommitted.
+
+## 2026-10-04 — v0.25.10 Sheliak (patch)
+
+- Version bump **0.25.9 → 0.25.10**. Star name stays **Sheliak**.
+- Analog: Protocol 1 always writes TX Hz; N2ADR checkbox is OC/LPF only.
+- NR-C: display Spectrum0 on uncleaned IQ (rectangular); Floor −24.
+- Rec: RX WAV on P1 and P2; Vulkan snapshot grab.
+- USER_GUIDE / wiki / `docs/releases/v0.25.10.md`. Tag `v0.25.10`. Do not
+  merge `main`.
+
 ## 2026-10-03 — v0.25.9 Sheliak (patch)
 
 - Version bump **0.25.8 → 0.25.9**. Star name stays **Sheliak**.

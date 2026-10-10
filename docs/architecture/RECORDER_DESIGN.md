@@ -180,7 +180,7 @@ does. Operator confirmed OK taking the encoder dependency for the MP4 payoff.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `recorder/path` | `Documents\Lyra\Recordings` | record root |
+| `recorder/path` | `%USERPROFILE%\Lyra\Recordings` | record root (never Program Files) |
 | `recorder/source` | `rx` | `rx` / `rx_tx` |
 | `recorder/snapshotsOn` | `true` | master snapshot toggle |
 | `recorder/snapshotPerMin` | `5` | snapshot rate |

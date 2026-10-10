@@ -39,6 +39,8 @@ const QHash<QString, QString> &topicHeads() {
          QStringLiteral("The panadapter (spectrum display)")},
         {QStringLiteral("visuals"),   QStringLiteral("Settings → Visuals")},
         {QStringLiteral("tuning"),    QStringLiteral("Tuning panel")},
+        {QStringLiteral("keyboard"),
+         QStringLiteral("Keyboard (VFO and PTT)")},
         {QStringLiteral("modes-filters"), QStringLiteral("Filters panel")},
         {QStringLiteral("audio"),     QStringLiteral("Audio panel")},
         {QStringLiteral("display"),   QStringLiteral("Display panel")},

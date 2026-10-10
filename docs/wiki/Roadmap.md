@@ -53,6 +53,15 @@ these are real roadmap items, not "maybe someday."
 ## Smaller items on the list
 
 - ✅ **WDSP 2.10** — Windows engine + NNR (v0.25.8; factory model Standard from v0.25.9). Mac/Linux binaries later.
+- ✅ **NR-C rectangular panadapter** — display on uncleaned IQ; Floor −24 (v0.25.10).
+- ✅ **Session recorder** — RX WAV on P1 and P2; Vulkan snapshots (v0.25.10).
+- ✅ **First-run FFTW vs companion launch** — Hardware Startup waits until FFTW and the radio layer are up (v0.25.11).
+- ✅ **TCI STOP** does not close the radio (v0.25.11) and does not drop MOX (v0.25.13). **TUNE / TRX / CHRONO** key like the host panel (v0.25.14).
+- ✅ **Protocol 2 TX follows the VFO after retune** (v0.25.15; BrickSDR2).
+- ✅ **Keyboard VFO** Left/Right 1 kHz, Up/Down 10 Hz (v0.25.15).
+- ✅ **Startup profile** uses mode binding then last-used, not always Default (v0.25.15).
+- ✅ **Tuning Mem** left-click after idle (v0.25.15).
+- ✅ **Rec default folder** is `%USERPROFILE%\Lyra\Recordings`, never Program Files (v0.25.12).
 - ✅ **VAC2** — second independent virtual-audio cable (RX2 / SUB); enable,
   auto-digital, gains, and latency store in TX profiles (schema 6). Audio
   device names stay global.
@@ -77,6 +86,17 @@ platform work (Linux / macOS, 7000/8000),
 and would only ship with **mandatory authentication, encryption,
 and fail-safe transmit** — a dropped or degraded link must never leave the
 transmitter keyed.
+
+### 💡 TX rack setup without RF (looped speech + bandwidth)
+
+Dial in EQ / speech / Combinator / Plate **without keying** — no MOX, no
+TX I/Q, PA stays off. Optional **20–30 s recorded speech**, looped into the
+same pre-rack mic funnel so rack knobs and **TX bandwidth (3 / 4 / 6 kHz
+and ESSB)** can be A/B'd on identical words.
+
+Today: **▶ Review** is raw WAV (no rack); **MON TX** is post-rack **before**
+ALC and TX bandpass, and only while keyed. Hearing 3 kHz vs 6 kHz needs a
+**post-bandpass listen tap**, not the current MON tap. Parked — later add-in.
 
 ## Want to influence it?
 

@@ -3,19 +3,21 @@
 // Takes a captured noise-power profile and subtracts it from the live IQ
 // in the STFT domain via a Wiener-from-profile gain, BEFORE WDSP's RXA
 // chain (the gain is installed on an IqStft frame hook; cleaned IQ goes
-// to fexchange0 + the analyzer).  This is the half that actually reduces
-// noise; CapturedProfile (slice 2) produced the numbers it consumes.
+// to fexchange0).  The panadapter is fed the pre-NR-C block so a strong
+// station does not paint a wide STFT slope.  This is the half that
+// actually reduces noise; CapturedProfile (slice 2) produced the numbers
+// it consumes.
 //
 // Per bin k, with live frame power |Y[k]|^2 and captured noise power
 // Pn[k], the amplitude gain is the standard power-subtraction form
 //     g = sqrt(max(0, 1 - alpha * Pn[k] / |Y[k]|^2))
-// clamped to [floor, 1] (floor = max attenuation, e.g. -12 dB → 0.25 so
-// noise is gently reduced, not gated — avoids musical-noise artifacts),
-// then mixed toward unity by a posteriori SNR γ = |Y|²/Pn so occupied
-// bins (signals) keep a brick-wall shape instead of Wiener-rounding
-// their skirts into a slope on the panadapter, then temporally smoothed
-// per bin (g = s*gPrev + (1-s)*g) to stop the mask fluttering
-// frame-to-frame.  Phase is preserved (gain scales the complex bin).
+// clamped to [floor, 1] (floor = max attenuation, e.g. -24 dB → 0.063 so
+// the pre-AGC cut is still audible after WDSP AGC makeup; -12 was too
+// gentle once the panadapter stopped showing the mask),
+// then temporally smoothed per bin (g = s*gPrev + (1-s)*g) to stop the
+// mask fluttering frame-to-frame.  Phase is preserved (gain scales the
+// complex bin).  Display is a separate uncleaned feed — do not mix
+// occupied bins toward unity here; that leak also lifts the audio floor.
 //
 // SAME-COUNT INTERFACE: process(in, n, out) writes exactly n cleaned
 // frames per n input frames.  The WOLA emits a hop at a time, so an
@@ -80,8 +82,8 @@ private:
     std::vector<double> profPower_;          // captured Pn[k] (length N)
     std::vector<double> gPrev_;              // smoothed mask state (length N)
     double              alpha_     = 1.0;
-    double              floorLin_  = 0.25118; // 10^(-12/20)
-    double              floorDb_   = -12.0;
+    double              floorLin_  = 0.063096; // 10^(-24/20)
+    double              floorDb_   = -24.0;
     double              smoothing_ = 0.6;
     std::deque<double>  outFifo_;            // primed interleaved output
     std::vector<double> scratch_;            // stft output staging

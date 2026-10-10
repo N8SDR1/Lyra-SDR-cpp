@@ -20,6 +20,78 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.15
+
+- **Protocol 2 TX follows the VFO.** After the first QSO, moving the dial
+  (SSB, CW, AM, FM) now retunes the transmitter on BrickSDR2. Previously
+  TX stayed on the frequency you started on until you restarted the
+  stream. RIT / XIT / SPLIT were not required to see it.
+- **Arrow keys from the keyboard.** Left / Right = **1 kHz**, Up / Down =
+  **10 Hz**, on the focused VFO. Click a digit on the LED first if you
+  want the arrows to step that place instead.
+- **Startup profiles.** Lyra no longer always loads Default (SSB) on
+  launch when you last ran FM or another mode. A per-mode binding wins;
+  otherwise the last-used profile; Default is the first-run fallback.
+- **Tuning Mem.** Left-click on **Mem** still opens the recall list after
+  the radio has been idle.
+- **How to create a profile.** Help → Profiles now has a step-by-step:
+  dial the live chain, **Save As** / dock **Save** with a new name, optional
+  mode-family bind.
+
+## What's new in 0.25.14
+
+- **TCI TUNE / TRX / CHRONO keying restored.** TUNE keys the same path as
+  the TX panel **TUN** button. TRX keys MOX the same way the **MOX**
+  button does. CHRONO TX-audio frames use the rate, sample count, format,
+  and channel count already negotiated with the client. A TCI socket
+  flicker no longer unkeys. Bench-checked with MSHV, WSJT-X, JTDX, and
+  SDRLogger+. TUNE/TRX still need **▶ Start**. STOP still does not drop
+  MOX (0.25.13).
+
+## What's new in 0.25.13
+
+- **TCI STOP no longer drops MOX.** WSJT-X / JTDX send STOP when TCI RX
+  audio goes silent during TX. 0.25.11 stopped closing the radio on that
+  command, but still unkeyed. STOP echoes `start` while the session is
+  running. TUNE/TRX still need **▶ Start**. Dropped TCI TX-audio owner
+  still unkeys.
+
+## What's new in 0.25.12
+
+- **Rec default folder is writable.** Sessions go to
+  `%USERPROFILE%\Lyra\Recordings`. A Start-Menu launch used to land Rec
+  under Program Files (not writable) so Rec looked like it did nothing.
+  An old empty / relative / install-folder path is migrated on load.
+
+## What's new in 0.25.11
+
+- **First-run FFTW and companion apps no longer overlap.** Hardware
+  Startup (SDRLogger+, Apps auto-start, the two generic slots) waits until
+  the FFT plan cache and the radio layer are up. A 0.25.10 first launch
+  could fire Logger while FFTW was still building and then vanish. Let
+  optimizing finish — Lyra stays open, then Logger starts.
+- **TCI STOP does not close the radio.** Handshake sends `start` only when
+  the session is running; otherwise `stop` then `ready`. Dropped TCI TX
+  audio unkeys. TUNE/TRX are refused until you press **▶ Start**.
+- **HL2 analog IO** skips a redundant same-Hz write on a fast return to
+  the same band (under half a second).
+
+## What's new in 0.25.10
+
+- **HL2 analog band-follow is independent of N2ADR OC.** Protocol 1
+  always writes TX frequency to the IO board so analog filters follow
+  the band. **Enable N2ADR / IO board** only drives OC / LPF relays.
+  See [Settings → Filters](#settings--filters).
+- **NR-C keeps the panadapter rectangular.** The reducer still cleans RX
+  audio. The spectrum stays on uncleaned IQ, so a strong station does not
+  paint a 70–90 kHz slope. The audio mask is full Wiener again (no
+  occupied-bin mix) so the speaker floor drop matches pre-split NR-C.
+  Floor default is **−24 dB** (older −12 migrates). See
+  [Captured noise profile (NR-C)](#captured-noise-profile-nr-c--lyras-signature-noise-reduction).
+- **Session recorder** — RX WAV on Protocol 1 and Protocol 2. Panadapter
+  snapshots work on Vulkan (then screen, then widget). See
+  [Session recorder](#session-recorder-rx-audio--snapshots--mp4).
+
 ## What's new in 0.25.9
 
 - **NNR starts on Standard.** A fresh install picks the lighter
@@ -71,10 +143,10 @@ not programmers — if you can click a menu, you can use this.
 
 ## What's new in 0.25.6
 
-- **HL2 analog band-follow** — with **Enable N2ADR / IO board** on (the
-  default), stock IO-board analog voltage now tracks **TX frequency** the
-  same way Thetis / Quisk / SparkSDR do. Start the radio after enabling it.
-  Protocol 2 Brick/ANAN is unchanged. See
+- **HL2 analog band-follow** — Protocol 1 always writes TX Hz to the IO
+  board (I2C2 / 0x1D). That is **not** gated on **Enable N2ADR / IO
+  board** (that box is OC / LPF relays). Protocol 2 Brick/ANAN is
+  unchanged. See
   [Settings → Filters / BCD](#settings--filters--bcd).
 
 ## What's new in 0.25.5
@@ -131,8 +203,9 @@ not programmers — if you can click a menu, you can use this.
 
 ## What's new in 0.25.1
 
-- **NR-C** leaves occupied bins (signals) at full scale so the RX passband
-  stays brick-wall at the edges.
+- **NR-C** tried an occupied-bin mix so voice/CW edges stayed brick-wall
+  in audio. That mix also lifted the audio noise floor; 0.25.10 dropped it
+  once the panadapter used uncleaned IQ.
 - **Xvtr** chips on the Band row — four transverter slots; VFO stays in RF;
   right-click the slot editor. See [Band panel](#band-panel).
 - **Anti-aliasing (MSAA)** — Settings → Visuals **Off / 2× / 4× / 8×**
@@ -142,6 +215,12 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.15](#whats-new-in-02515)
+- [What's new in 0.25.14](#whats-new-in-02514)
+- [What's new in 0.25.13](#whats-new-in-02513)
+- [What's new in 0.25.12](#whats-new-in-02512)
+- [What's new in 0.25.11](#whats-new-in-02511)
+- [What's new in 0.25.10](#whats-new-in-02510)
 - [What's new in 0.25.9](#whats-new-in-0259)
 - [What's new in 0.25.8](#whats-new-in-0258)
 - [What's new in 0.25.7](#whats-new-in-0257)
@@ -162,6 +241,7 @@ not programmers — if you can click a menu, you can use this.
 - [Getting around the window](#getting-around-the-window)
 - [The panadapter (spectrum display)](#the-panadapter-spectrum-display)
 - [Tuning panel](#tuning-panel)
+  - [Keyboard (VFO and PTT)](#keyboard-vfo-and-ptt)
   - [SUB — second receiver (HL2 and BrickSDR2)](#sub--second-receiver-hl2-and-bricksdr2)
   - [SPLIT — receive A, transmit B](#split--receive-a-transmit-b)
 - [Second receiver (SUB / RX2) — how it works](#second-receiver-sub--rx2--how-it-works)
@@ -189,6 +269,8 @@ not programmers — if you can click a menu, you can use this.
 - [Tuner (manual ATU memory)](#tuner-manual-atu-memory)
 - [Frequency calibration (WWV / time station)](#frequency-calibration-wwv--time-station)
 - [Profiles (TX/RX chain presets)](#profiles-txrx-chain-presets)
+  - [How to create a profile](#how-to-create-a-profile)
+  - [What happens at startup](#what-happens-at-startup)
 - [Auto-starting apps at launch](#auto-starting-apps-at-launch)
 - [Solar / Propagation panel](#solar--propagation-panel)
 - [Weather alerts](#weather-alerts)
@@ -816,7 +898,10 @@ Sets the **RX1 receive frequency** on a big amber **LED-style readout**
 
 - **Click a digit** to select it (a cyan underline marks it), then **roll
   the mouse wheel** over the display to tune that digit's place up/down;
-  the **arrow keys** also nudge it.
+  with the LED focused, the **arrow keys** also step that place (Left /
+  Right pick the digit, Up / Down change it).
+- **Arrow keys anywhere else** (not typing, not in a dialog): **Left /
+  Right = 1 kHz**, **Up / Down = 10 Hz** on the focused receiver.
 - **Roll the wheel** anywhere on the display to tune by the current
   **Step** (see below).
 - **Double-click** the display to type an exact frequency.
@@ -848,6 +933,28 @@ FM (repeaters); leave RPT alone if you are not on FM.
   (CWU/CWL): your preferred sidetone / beat-note pitch, **200–1500 Hz**.
   The receive filter centers on this pitch and the tuned-carrier marker
   offsets to match, so a signal you zero-beat lands at your chosen tone.
+
+### Keyboard (VFO and PTT)
+
+When you are **not** typing in a box, **not** in Settings, and **not**
+on a dropdown, the **arrow keys** move the **focused VFO** (the LED you
+last clicked — RX2 when SUB is on and that receiver has focus):
+
+| Keys | Step |
+|---|---|
+| **Left / Right** | **1 kHz** |
+| **Up / Down** | **10 Hz** |
+
+Hold a key for auto-repeat. Click a digit on the **frequency LED** first
+if you want the old place-step instead (Left / Right pick the digit, Up /
+Down change that place).
+
+**Space** is momentary PTT (same as holding MOX) when that toggle is on
+in **Settings → Hardware → Transmit**. It does not fire while a text
+field, dialog, or combo has focus.
+
+The **USB encoder / HID wheel** is separate — see
+[Navigation (USB encoder / HID wheel)](#navigation-usb-encoder--hid-wheel).
 
 ### SUB — second receiver (HL2 and BrickSDR2)
 
@@ -1210,7 +1317,8 @@ the same chip on the **Tuning** dock: **Settings → Bands → Band panel →
 Show memory recall on the Tuning panel**.
 
 - **Left-click Mem** to open the recall list — pick a preset and Lyra
-  tunes straight to it (mode first, then frequency).
+  tunes straight to it (mode first, then frequency). Works on both the
+  Tuning dock and Band → Mem, including after the radio has been idle.
 - **Right-click Mem** to **Save current frequency** (the VFO is stored with
   an auto-name like "14.074 USB") or open **Manage presets…**.
 - Full editing lives in **Settings → Bands → Memory**: **click a cell**
@@ -1255,6 +1363,11 @@ laid out in old Lyra's three-row arrangement:
   fully down). The mouse wheel nudges it in fine steps.
 - **MUTE** — silences or restores RX1 without disturbing the Vol slider;
   the button reads **MUTED** while engaged. (Lyra starts **unmuted**.)
+  **MUTE only cuts the speaker / HL2-jack path.** VAC Output and **MON TX**
+  can still play. If VAC Output is the same speakers (or a loop back into
+  the mic), unmute sounds like an echo or a second copy. Point VAC at a
+  dedicated cable (or turn it off), and turn **MON TX** off, so only one
+  path hits the speakers.
 - **Vol2 / MUTE2** — same pair for **RX2** when SUB is on (HL2 / BrickSDR2).
   MUTE2 does not change Vol2.
 - **LNA** — RF input gain on the HL2's AD9866 PGA (−12…+31 dB; slider or
@@ -1401,14 +1514,16 @@ much sits where it was.
    noise; press it again to cancel.
 4. Press **Save**, give the profile a name (e.g. `40m-night`, `20m-ESSB`) in
    the box that pops up. It's now in the picker.
-5. Flip **NR-C** on. The captured noise is subtracted from RX. The panadapter
-   shows the cleaned spectrum too, so you can watch the floor drop. Occupied
-   bins (signals) are left alone, so the RX passband stays brick-wall rather
-   than sloping at the edges.
+5. Flip **NR-C** on. The captured noise is subtracted from RX audio. The
+   panadapter stays on the uncleaned IQ so strong stations keep a sharp
+   rectangular shape (the reducer STFT would otherwise slope 70–90 kHz
+   around a loud signal). You hear the floor drop; the display does not
+   follow the mask.
 6. Fine-tune with the **⚙** button (appears next to NR-C while it's on):
    - **Strength** (1–5×) — how hard to subtract. Higher = more cut.
-   - **Floor** (−3 to −30 dB) — the deepest any bin is allowed to drop.
-     More negative = more aggressive.
+   - **Floor** (−3 to −30 dB, default −24) — the deepest any bin is allowed
+     to drop before WDSP AGC. More negative = more audible hiss cut. −12
+     is too gentle once the panadapter no longer follows the mask.
    - **Smoothing** (0–95%) — steadies the gain so it doesn't "twinkle."
      Raise it if deeper Strength/Floor starts to sound watery.
 
@@ -1434,8 +1549,10 @@ on). Set the picker to **None**, or turn the toggles off before closing, for a
 clean start.
 
 Notes: NR-C adds about one FFT window of RX latency (≈21 ms at 4096) *only
-while it's on*; off, the path is unchanged. It's independent of the WDSP
-**NR** denoiser — you can run either, both, or neither.
+while it's on*; off, the path is unchanged. The panadapter does not take
+that delay — it stays on the uncleaned IQ so the trace stays rectangular.
+It's independent of the WDSP **NR** denoiser — you can run either, both, or
+neither.
 
 ---
 
@@ -2287,7 +2404,8 @@ until you enable a stage.
 The last native stage (after the EQ). It splits the mic into five bands
 with 24 dB/oct crossovers, compresses each independently, sums them, and
 optionally auto-balances the bands — the classic "broadcast / ESSB"
-multiband sound. **Default OFF.**
+multiband sound. **Default OFF.** Lyra does **not** expose a separate
+WDSP CFC control — the Combinator **is** the multiband compressor.
 
 - **ON** — engages the stage (top-bar button). Off = true pass-through.
 - **Global controls:** **Mix** (wet/dry — 100 % = fully processed),
@@ -2410,12 +2528,14 @@ click it to reopen the panel, where **Stop** lives.
 > **You have to be on the air to record.** Recording needs live receive
 > audio, so **Record does nothing while the radio stream is stopped** — press
 > **▶ Start** in the header first. (Otherwise you'd just capture silence.)
+> RX WAV works on Protocol 1 and Protocol 2. Snapshots try a Vulkan
+> framebuffer grab first, then a screen grab, then a widget grab.
 
 ### Settings → Recording
 
 - **Recordings folder** — where sessions are saved (default
-  `Documents\Lyra\Recordings`). **Browse** to pick your own, **Default** to
-  go back.
+  `%USERPROFILE%\Lyra\Recordings`, never the install folder under Program
+  Files). **Browse** to pick your own, **Default** to go back.
 - **Snapshots** — master on/off and the capture **rate** (per minute).
 - **Auto-split** — start a fresh audio file every **N minutes** and/or every
   **N MB** (both default **off**). Useful for very long sessions.
@@ -2703,7 +2823,8 @@ set of saved points.
 **Live SWR.** The pill in the header shows your real **SWR** while you
 transmit, colour-coded — **green** ≤ 1.5, **amber** 1.6–2.4, **red** ≥ 2.5
 — so you can watch the match as you adjust the tuner. It reads "—" until
-you key up.
+you key up. The **Meter** panel also shows SWR on transmit (larger needle
+/ bar) if the Tuner pill is hard to read.
 
 **Reading the panel.** The big tiles show the **Input / Output / Inductor**
 settings for the nearest stored point to where you're tuned:
@@ -2828,10 +2949,10 @@ VAC/digital setup as a unit — see
 
 **What a profile deliberately does NOT store:**
 
-- **The operating mode / sideband.** Like the reference's TX profiles, a
-  profile is a pure signal chain — recalling one (manually *or* via
-  auto-recall) **never changes your mode or which sideband you're on**.
-  It applies the chain and leaves you exactly where you were tuned.
+- **The operating mode / sideband.** A profile is a pure signal chain —
+  recalling one (manually, at startup, *or* via auto-recall) **never
+  changes your mode or which sideband you're on**. It applies the chain
+  and leaves you exactly where you were tuned.
 - **Safety / input-method settings that are global by design:** PA enable,
   hardware-PTT-input enable, and the space-bar-PTT toggle all live in
   [Settings → Hardware](#settings--hardware) and are *never* swept by a
@@ -2870,8 +2991,9 @@ The complete manager lives in **Settings → Profiles**:
   the startup default is tagged `[default]`.
 - **Save** (overwrite active), **Save As…** (capture current settings to a
   new name), **Load** (recall the selected profile), **Rename…**,
-  **Delete**, and **Set Default** (apply this profile automatically every
-  time Lyra starts).
+  **Delete**, and **Set Default**. Bind FM / CW / … in the table below if
+  you want that family's chain every launch. **Set Default** is only the
+  last fallback — see [What happens at startup](#what-happens-at-startup).
 - A status line showing the active profile and a `● modified` flag.
 - **View & quick edit** — under the list, a panel shows the selected
   profile's core chain (**RX/TX bandwidth**, filter low, **Lock TX/RX BW**,
@@ -2902,15 +3024,70 @@ The complete manager lives in **Settings → Profiles**:
   written into the profile, and is never exported in a shared `.lyra` — a
   shared profile carries the DSP chain only, never "run this program."
 
+### How to create a profile
+
+A profile is a **snapshot of the chain that is on the air right now**.
+Set Lyra the way you want to operate, then save that snapshot under a
+name. Mode is **not** in the snapshot — pick USB / FM / DIGU first if
+you care which family you bind to.
+
+1. **Show the Profiles dock** (window dock menu — same place as TX /
+   Display) or open **Settings → Profiles**.
+2. **Dial the live chain** — mic source and gain, RX/TX bandwidth and
+   lock, AGC, VAC on/off and gains, Tune-drive, TX drive, auto-mute on
+   TX, safety timeout. Use a dummy load if you need to hear TX. EQ /
+   Speech / Combinator / Plating are **not** in the profile yet; leave
+   those as panel settings.
+3. **Give it a name:**
+   - Dock **Save** → type a **new name** (do not overwrite unless you
+     mean to replace the active profile). Optionally tick a **mode
+     family** so that family auto-recalls this chain.
+   - Or Settings → Profiles → **Save As…** (same capture, from the
+     full editor).
+4. **Bind it** (if you skipped the tick in step 3): in Settings →
+   Profiles, use **Auto-recall by mode family** — e.g. map **SSB** to
+   your Voice profile and **Digital** to your FT8 profile.
+5. **Optional:** **Set Default** only if this should be the first-run
+   fallback when nothing else applies. Day-to-day startup prefers a
+   family binding, then last-used — see below.
+6. **Check it:** change something on the air (the dock **●** goes
+   orange), then pick the profile from the dropdown or **Load**. The
+   chain should snap back. **Do not Load while keyed.**
+
+To **copy** an existing profile, Load it, tweak, **Save As…** under a
+new name. To **update** one you already use, Load it, tweak, dock
+**Save** → overwrite the active name (or Settings **Save**).
+
+First-time Voice vs Digital pair: build Voice on USB with your mic,
+save as `"Voice"` bound to **SSB**; switch to DIGU, set TCI/VAC and a
+wider filter, save as `"Digital"` bound to **Digital**. After that,
+USB ↔ DIGU swaps the whole chain and leaves your frequency alone.
+
+### What happens at startup
+
+Mode is restored from prefs first (USB, FM, …). Then Lyra loads **one**
+profile, in this order:
+
+1. **Mode-family binding** — if last session left you in FM and FM is
+   bound to an FM profile, that profile loads (Default can stay an SSB
+   chain; it does not override the binding).
+2. **Last used** — the profile you last loaded, if it still exists.
+3. **Set Default** — only when there is no binding and no last-used
+   name (typical first run).
+
+A mode-family binding also fires when you **change** mode during the
+session. It does **not** re-fire just because startup already restored
+that same mode.
+
 ### Good to know
 
 - **Recall is blocked while transmitting.** Loading a profile is a no-op
   while you're keyed — Lyra never switches mic source or bandwidth mid-TX
   (the same safety rule that governs every chain change). Drop PTT, then
   recall.
-- **Switching is always manual** *except* for the per-family auto-recall
-  table you configure above — nothing changes your profile on its own
-  (e.g. Lyra never picks a profile based on who you're working).
+- **Switching is always operator-driven** — you Load from the dock,
+  change mode into a bound family, or get the startup pick above.
+  Lyra never picks a profile based on who you're working.
 - A typical setup: a **"Voice"** profile bound to SSB (your mic, mic gain,
   speech bandwidth) and a **"Digital"** profile bound to Digital (TCI mic
   source, flat gain, wide filter) — then changing mode from USB to DIGU
@@ -2922,8 +3099,9 @@ The complete manager lives in **Settings → Profiles**:
 ## Auto-starting apps at launch
 
 **Settings → Hardware → "Startup — launch apps when Lyra opens"** lets you
-have companion programs open automatically a few seconds after Lyra starts
-(long enough for Lyra's CAT and TCI servers to come up first).
+have companion programs open automatically after Lyra is ready (FFTW
+cache loaded, radio layer up, CAT / TCI listening). They do **not**
+launch during the first-run "optimizing" splash.
 
 - **SDRLogger+** — Lyra's companion logger. If it's installed, the status
   reads *installed* and you can tick **Auto-start with Lyra**; the button
@@ -3547,10 +3725,10 @@ paths** plus OC filters — they are not the same pin. Protocol 2 radios
 | Path | Pin | How Lyra turns it on | Same as |
 |------|-----|----------------------|---------|
 | Gateware Band Volts | **J3** (fan PWM / GPIO04_Fan) | **HL2 Band Volts on J3** checkbox | DeskHPSDR RX → *HL2 Band Volts / Dither Bit*; MI0BOT Thetis *HL2 Band Volts* |
-| Pico analog (stock `n2adr_basic`) | **J4 pin 8** | **Enable N2ADR / IO board** (default on) — Lyra writes TX Hz over I2C **0x1D** | Thetis / Quisk / SparkSDR (same Pico TX-freq writes; OC is filters only) |
-| N2ADR LPF relays | J16 → I2C **0x20** | same checkbox | DeskHPSDR `filter_board = N2ADR` |
+| Pico analog (stock `n2adr_basic`) | **J4 pin 8** | Always on Protocol 1 — Lyra writes TX Hz over I2C **0x1D** (I2C2) | Thetis / Quisk / SparkSDR (same Pico TX-freq writes; OC is filters only) |
+| N2ADR LPF relays | J16 → I2C **0x20** | **Enable N2ADR / IO board** | DeskHPSDR `filter_board = N2ADR` |
 
-USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no board.
+USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no filter board (analog still follows).
 
 ### Filter board — OC Control (J16 pins)
 
@@ -3562,10 +3740,10 @@ nearby AM broadcaster, say). Gateware relays those bits over I2C
 on **J4 pin 8** follows **TX frequency** written over I2C **0x1D** — not
 the OC bits. Analog on **J3** is the separate Band Volts checkbox.
 
-- **Enable N2ADR / IO board (filters + Pico analog, not J3)** —
-  turns OC band-switching on **and** Pico TX-Hz writes (HL2 / HL2+ only;
-  default on). Off = OC idle and no Pico analog updates. Harmless with
-  no board. **J3** analog is Band Volts, further down.
+- **Enable N2ADR / IO board (OC / LPF relays, not analog)** —
+  turns OC band-switching on (HL2 / HL2+ only; default on). Off = OC
+  idle. Pico TX-Hz analog still runs on Protocol 1. Harmless with no
+  board. **J3** analog is Band Volts, further down.
 - **Live pins** (top-right) — the seven cells light to show which J16
   pins are being driven **right now**, on the wire. They follow the band
   as you tune and flip to the transmit pattern while you're keyed.
@@ -3626,8 +3804,9 @@ instead — install the FTDI D2XX driver to use USB-BCD.)
 ### Band Volts on J3 (fan PWM) — leave off for Pico / J4
 
 **Do not tick this** for stock Pico analog, M0AWS DB9 BAND, or a
-GP100/GPA100 on **J4 pin 8**. That path is **Enable N2ADR / IO board**
-(I2C **0x1D**) — no extra Hardware box, matching Thetis/Quisk.
+GP100/GPA100 on **J4 pin 8**. That path is Protocol 1 TX-Hz on I2C
+**0x1D** (always sent) — matching Thetis/Quisk. The N2ADR checkbox is
+OC/LPF only.
 
 Use this checkbox **only** if the amp is jumpered to **IO-board J3**
 (the fan header / GPIO04_Fan). Tick **HL2 Band Volts on J3 / fan-PWM
@@ -4543,12 +4722,15 @@ cables, no host-side sound card needed.
 * The client tunes Lyra's VFO and sets the mode (typically **DIGU** for
   FT8 on the standard 14.074 / 7.074 / 21.074 / … MHz dial frequencies).
 * RX audio streams to the client continuously; its waterfall decodes the
-  band exactly as if the client were attached to a Thetis-class radio.
+  band exactly as if the client were attached to any other TCI radio.
 * When the client wants to transmit, it sends a TRX-on command. Lyra
-  engages MOX, the client's modulator audio is fed through the WDSP TXA
-  chain (with your **TX mic gain**, **ALC**, **leveler**, **TX bandpass**,
-  and any EQ active), and onto the HL2 wire. At keyup the client sends
-  TRX-off; Lyra returns to RX.
+  keys MOX the same way the TX-panel **MOX** button does. The client's
+  modulator audio is fed through the WDSP TXA chain (with your **TX mic
+  gain**, **ALC**, **leveler**, **TX bandpass**, and any EQ active), and
+  onto the radio. At keyup the client sends TRX-off; Lyra returns to RX.
+  A **TUNE** command keys the same path as the TX-panel **TUN** button.
+  TX-audio **CHRONO** headers use the rate / samples / format / channels
+  negotiated at connect — not a fixed 1024-sample assumption.
 
 > Lyra's TCI keying follows the Expert TCI protocol exactly: the
 > transmit/receive state is confirmed to the client on the **real key
