@@ -1501,6 +1501,9 @@ private:
         int    vacSize  = 2048;
         int    latencyMs = 120;
         std::atomic<bool> active_{false};
+        // false = transmit-only VAC (Output device "(none)"): the stream is
+        // opened input-only and RX audio is not fed to it.
+        std::atomic<bool> hasOutput_{true};
         std::mutex        mtx_;
         std::atomic<bool> muteWillMuteVac_{true};
         std::vector<double> rxScaled_;

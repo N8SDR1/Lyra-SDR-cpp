@@ -662,11 +662,15 @@ QWidget *SettingsDialog::buildAudioTab() {
                                    "overflow / underflow."));
                 return;
             }
-            vacMon->setText(tr("TO VAC: %1%% full · %2 ovf / %3 unf      "
-                               "FROM VAC: %4%% full · %5 ovf / %6 unf")
-                .arg(d.value(QStringLiteral("outPct")).toInt())
-                .arg(d.value(QStringLiteral("outOver")).toInt())
-                .arg(d.value(QStringLiteral("outUnder")).toInt())
+            // Output "(none)" = transmit-only: there is no RX ring to show.
+            const QString toVac = d.value(QStringLiteral("hasOutput"), true).toBool()
+                ? tr("TO VAC: %1%% full · %2 ovf / %3 unf")
+                      .arg(d.value(QStringLiteral("outPct")).toInt())
+                      .arg(d.value(QStringLiteral("outOver")).toInt())
+                      .arg(d.value(QStringLiteral("outUnder")).toInt())
+                : tr("TO VAC: off (output “(none)” — transmit only)");
+            vacMon->setText(tr("%1      FROM VAC: %2%% full · %3 ovf / %4 unf")
+                .arg(toVac)
                 .arg(d.value(QStringLiteral("inPct")).toInt())
                 .arg(d.value(QStringLiteral("inOver")).toInt())
                 .arg(d.value(QStringLiteral("inUnder")).toInt()));
@@ -963,11 +967,15 @@ QWidget *SettingsDialog::buildAudioTab() {
                                    "underflow."));
                 return;
             }
-            vacMon->setText(tr("TO VAC: %1%% full · %2 ovf / %3 unf      "
-                               "FROM VAC: %4%% full · %5 ovf / %6 unf")
-                .arg(d.value(QStringLiteral("outPct")).toInt())
-                .arg(d.value(QStringLiteral("outOver")).toInt())
-                .arg(d.value(QStringLiteral("outUnder")).toInt())
+            // Output "(none)" = transmit-only: there is no RX ring to show.
+            const QString toVac = d.value(QStringLiteral("hasOutput"), true).toBool()
+                ? tr("TO VAC: %1%% full · %2 ovf / %3 unf")
+                      .arg(d.value(QStringLiteral("outPct")).toInt())
+                      .arg(d.value(QStringLiteral("outOver")).toInt())
+                      .arg(d.value(QStringLiteral("outUnder")).toInt())
+                : tr("TO VAC: off (output “(none)” — transmit only)");
+            vacMon->setText(tr("%1      FROM VAC: %2%% full · %3 ovf / %4 unf")
+                .arg(toVac)
                 .arg(d.value(QStringLiteral("inPct")).toInt())
                 .arg(d.value(QStringLiteral("inOver")).toInt())
                 .arg(d.value(QStringLiteral("inUnder")).toInt()));
