@@ -11,6 +11,9 @@
 //   left                centre                              right
 //   [TX label]  [Drive ──●── 25 %]                              [ MOX ]
 //
+// Antenna jacks (ANT 1/2/3 + RX TRX/BYPS/EXT1/XVTR) live on the Band
+// dock — this strip is already packed.
+//
 // The MOX button is the largest, sits on the right (away from the LED
 // on the Tuning dock if they're docked side-by-side), and is lit red
 // whenever the wire-MOX bit is high (Stream.moxActive — the post-TR-
@@ -148,9 +151,16 @@ Rectangle {
             HoverHandler { id: driveLblHov }
             ToolTip.visible: (driveLblHov.hovered) && Prefs.tooltipsEnabled
             ToolTip.delay: 600
-            ToolTip.text: qsTr("How hard the HL2 drives its PA.  0 % = no carrier "
-                + "even with PA + MOX.  Start LOW (5–10 %) on a dummy load; raise "
-                + "gradually while watching the watt-meter.  Wheel adjusts (Shift = 5 %).")
+            ToolTip.text: {
+                var t = qsTr("How hard the radio drives its PA.  0 % = no carrier "
+                    + "even with PA + MOX.  Start LOW (5–10 %) on a dummy load; raise "
+                    + "gradually while watching the watt-meter.  Wheel adjusts (Shift = 5 %).")
+                if (P2Bridge.running && !P2Bridge.txOnAirValidated)
+                    t += qsTr("\n\nP2 bench drive ceiling is %1% (Settings → TX). "
+                              + "Drive 100% still emits only that analog byte until you raise it.")
+                         .arg(P2Bridge.txDriveLimitPercent)
+                return t
+            }
         }
         LyraSlider {
             id: driveSlider
@@ -171,11 +181,24 @@ Rectangle {
         Label {
             // Live readback from the wire atomic — so an external
             // change (CAT, persistence reload) updates the readout.
-            text: root.rawToPct(Stream.txDriveLevel) + qsTr(" %")
-            color: cText
+            // Unvalidated P2 clamps analog drive to the bench ceiling
+            // (Settings → TX; default 50%): show that, not the slider,
+            // when the slider is above the cap.
+            readonly property int sliderPct: root.rawToPct(Stream.txDriveLevel)
+            readonly property bool p2Capped: P2Bridge.running
+                && !P2Bridge.txOnAirValidated
+                && P2Bridge.txDriveLimitPercent < sliderPct
+            text: (p2Capped ? P2Bridge.txDriveLimitPercent : sliderPct)
+                  + qsTr(" %")
+            color: p2Capped ? root.cOn : cText
             font.family: "Consolas"
             font.bold: true
             Layout.preferredWidth: 44
+            HoverHandler { id: drivePctHov }
+            ToolTip.visible: drivePctHov.hovered && Prefs.tooltipsEnabled && p2Capped
+            ToolTip.delay: 400
+            ToolTip.text: qsTr("Slider %1% — P2 bench ceiling %2% (Settings → TX)")
+                .arg(sliderPct).arg(P2Bridge.txDriveLimitPercent)
         }
 
         // ── Mic Gain (dB) — operator tunes between QSOs ────────────
@@ -435,12 +458,10 @@ Rectangle {
             ToolTip.visible: (tuneLblHov.hovered) && Prefs.tooltipsEnabled
             ToolTip.delay: 600
             ToolTip.text: qsTr("Drive %% applied while TUN is armed. "
-                + "Per-band remembered (tune-into-amp on 80 m vs tune-"
-                + "into-tuner on 10 m get their own settings).  Lyra "
-                + "swaps to this on tune-arm and restores your main "
-                + "TX Drive %% on tune-release.  Wheel adjusts "
-                + "(Shift = 5 %%); Settings → TX → Tune Drive offers "
-                + "typed entry.")
+                + "Does nothing until TUN is keyed — otherwise use Drive. "
+                + "Per-band remembered. Lyra swaps to this on tune-arm "
+                + "and restores TX Drive %% on release. Watch the status "
+                + "line drv= / iq= while you drag; both should move.")
         }
         // Slider matches the Drive/Mic idiom — drag for fast set,
         // wheel-tunes (Shift = 5 %) for fine, Settings → TX provides

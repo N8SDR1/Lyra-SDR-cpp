@@ -109,7 +109,8 @@ quint16 saturnAlexRxWord(quint32 hz, P2RxInput input, bool hpfBypass) {
 quint16 classicAlexRxWord(quint32 hz, P2RxInput input, bool hpfBypass) {
     quint16 w = 0;
     switch (input) {
-        case P2RxInput::Bypass: w |= 1u << 10; break;
+        // DeskHPSDR alex.h: Bypass = K36 bit 11, not EXT2 bit 10.
+        case P2RxInput::Bypass: w |= 1u << 11; break;
         case P2RxInput::Ext1:   w |= 1u << 9;  break;
         case P2RxInput::Xvtr:   w |= 1u << 8;  break;
         case P2RxInput::Trx:                         break;
@@ -157,10 +158,17 @@ const P2HardwareProfile kSaturnProfile = {
 const P2HardwareProfile kHermesAlexP2 = {
     "ANAN-100", "Hermes-class ANAN (classic Alex)", 1, 10, 1,
     &classicAlexRxWord, &saturnAlexTxWord,
+    false, false, 0x01,  // Alex0 enable — PA/LPF/TR live on the filter board
 };
 const P2HardwareProfile kAngeliaOrionAlexP2 = {
     "ANAN-100D", "Angelia/Orion ANAN (classic Alex)", 3, 10, 2,
     &classicAlexRxWord, &saturnAlexTxWord,
+    false, false, 0x01, true,  // Alex0 only + DDC2/DDC3 HP (deskHPSDR Angelia)
+};
+const P2HardwareProfile kBrick3Profile = {
+    "BRICK3-SDR", "Brick3SDR", 3, 10, 2,
+    &classicAlexRxWord, &saturnAlexTxWord,
+    false, false, 0x01, true,
 };
 
 // BrickSDR (Hermes-class P2) has NO Alex front end -- its onboard LPF
@@ -209,6 +217,8 @@ const P2HardwareProfile *p2ProfileForModel(const QString &modelKey) {
         modelKey.compare(QLatin1String("ANAN-100B"), Qt::CaseInsensitive) == 0 ||
         modelKey.compare(QLatin1String("HERMES"), Qt::CaseInsensitive) == 0)
         return &kHermesAlexP2;
+    if (modelKey.compare(QLatin1String("BRICK3-SDR"), Qt::CaseInsensitive) == 0)
+        return &kBrick3Profile;
     if (modelKey.compare(QLatin1String("ANAN-100D"), Qt::CaseInsensitive) == 0 ||
         modelKey.compare(QLatin1String("ANAN-200D"), Qt::CaseInsensitive) == 0)
         return &kAngeliaOrionAlexP2;
@@ -442,20 +452,23 @@ QByteArray P2Session::buildGeneralPacket() const {
     // [58] bit0 is PA enable. The safety gate returns false unless every
     // live prerequisite is healthy and the operator bench arm is set.
     pkt[58] = tx.paEnabled ? char{0x01} : char{0x00};
-    // No Apollo. [59] Alex enable remains 0.
+    // [59] = Alex-board enable. Classic-Alex profiles set bit0; BrickSDR
+    // and Saturn leave 0 (no SPI Alex / onboard filters already clocked).
+    pkt[59] = profile_ ? static_cast<char>(profile_->alexEnableBits) : char{0};
     return pkt;
 }
 
 QByteArray P2Session::buildDdcSpecificPacket() const {
     // Layout per p2app protocol2_command.c P2DecodeDDCSpecificCommand:
-    // [4] = ADC count (Saturn: 2), [5]/[6] = dither/random bits,
+    // [4] = ADC count, [5]/[6] = dither/random bits,
     // [7..8] = DDC enable bitmap (LITTLE-endian u16; bytes 9..16 are
     // the P2 wire bitmap for DDC16..79 and MUST stay zero — Saturn
     // rejects the packet otherwise), then per-DDC config at
-    // [17 + 6*n]: +0 source (0 = ADC1), +1..2 sample rate in kHz
+    // [17 + 6*n]: +0 source, +1..2 sample rate in kHz
     // (BE u16, one of 48/96/192/384/768/1536), +5 sample size (24).
-    // Interleave sync [1363+2p] is zero in RX. Live PS TX: pair 0 = 0x02
-    // so DDC1 rides DDC0 on one IQ UDP (enable mask bit 0 only).
+    // Live PS (DeskHPSDR receive_specific, Hermes and Angelia): DDC0
+    // coupler + DDC1 TX replica, 192 kHz, [1363]=0x02, enable DDC0
+    // only. Same packet for Brick2 and Brick3.
     QByteArray pkt(kDdcSpecificLen, char{0});
     pkt[4] = static_cast<char>(profile_ ? profile_->adcCount : 1);
     quint16 mask = 0;
@@ -465,32 +478,56 @@ QByteArray P2Session::buildDdcSpecificPacket() const {
     const int fillSlots = 2;
     const int nAdc = profile_ ? profile_->adcCount : 1;
     const bool psTx = isPureSignalLive();
+    const bool angeliaSlots =
+        profile_ && profile_->angeliaRxDdcSlots;
+    auto writeDdcSlot = [&](int i, quint8 adc, quint16 rate) {
+        const int off = 17 + 6 * i;
+        pkt[off]     = static_cast<char>(adc);
+        pkt[off + 1] = static_cast<char>(rate >> 8);
+        pkt[off + 2] = static_cast<char>(rate & 0xFF);
+        pkt[off + 5] = char{24};                       // 24-bit samples
+    };
     for (int i = 0; i < kNumDdc; ++i) {
         const auto n = static_cast<std::size_t>(i);
         if (ddcEnabled_[n])
             mask |= static_cast<quint16>(1u << i);
         if (i >= fillSlots && !ddcEnabled_[n])
             continue;
-        const int off = 17 + 6 * i;
         quint8 adc = ddcAdc_[n];
         quint16 rate = ddcRateKhz_[n];
         if (psTx) {
             rate = 192;
+            // DeskHPSDR: DDC0 ADC = PS_RX_FEEDBACK->adc (create default 0);
+            // DDC1 ADC = n_adc (Hermes 1, Angelia/Brick3 2).
             if (i == 0)
                 adc = 0;
             else
-                adc = static_cast<quint8>(nAdc);  // TX replica; not ADC0
+                adc = static_cast<quint8>(nAdc);
         } else if (nAdc <= 1) {
             adc = 0;
         }
         if (rate == 0)
             rate = ddcRateKhz_[0] ? ddcRateKhz_[0] : quint16{192};
-        pkt[off]     = static_cast<char>(adc);
-        pkt[off + 1] = static_cast<char>(rate >> 8);
-        pkt[off + 2] = static_cast<char>(rate & 0xFF);
-        pkt[off + 5] = char{24};                       // 24-bit samples
+        writeDdcSlot(i, adc, rate);
+    }
+    // DeskHPSDR receive_specific first loop (Angelia/Orion/Saturn):
+    // receiver[i] programs DDC(i+2) ADC/rate/24-bit, then the PS
+    // overlay ORs DDC0. Hermes/Brick2 skip this (RX is DDC0).
+    if (angeliaSlots) {
+        const quint16 rx1Rate = ddcRateKhz_[0] ? ddcRateKhz_[0]
+                                               : quint16{192};
+        const quint8 rx1Adc = (nAdc <= 1) ? quint8{0} : ddcAdc_[0];
+        writeDdcSlot(2, rx1Adc, rx1Rate);
+        if (ddcEnabled_[1]) {
+            const quint16 rx2Rate = ddcRateKhz_[1] ? ddcRateKhz_[1]
+                                                   : rx1Rate;
+            const quint8 rx2Adc = (nAdc <= 1) ? quint8{0} : ddcAdc_[1];
+            writeDdcSlot(3, rx2Adc, rx2Rate);
+        }
     }
     if (psTx) {
+        // DeskHPSDR: [1363]=0x02, [7] |= 1 (DDC0). Duplex can also
+        // keep DDC2/DDC3; Lyra is not duplex during PS.
         mask = 0x0001;
         pkt[1363] = 0x02;
     }
@@ -545,23 +582,32 @@ void P2Session::sendDdcSpecificToRadio(bool logConfig) {
 QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     QByteArray pkt(kHpLen, char{0});
     const auto tx = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
-    // [0..3] sequence 0 (control). [4]: bit0 run, bit1 gated transmit,
-    // bit7 PureSignal (DeskHPSDR new_protocol.c — only when armed).
+    // [0..3] sequence 0 (control). [4]: bit0 run, bit1 MOX.
+    // DeskHPSDR high_priority does not set bit7 for PureSignal.
     const bool transmit = run && tx.transmit;
     pkt[4] = static_cast<char>((run ? 0x01 : 0x00) |
-                               (transmit ? 0x02 : 0x00) |
-                               (psArmed_ ? 0x80 : 0x00));
+                               (transmit ? 0x02 : 0x00));
     // [5] CWX off; [6..8] must be zero (hardened p2app rejects the
     // packet otherwise — protocol2_command.c validation).
-    for (std::size_t i = 0; i < ddcFreqHz_.size(); ++i)
-        wrBeU32(pkt.data() + 9 + i * 4,
-                phaseWord(ddcFreqHz_[i]));      // DDC freq, phase word (BE)
+    if (profile_ && profile_->angeliaRxDdcSlots) {
+        const quint32 rx2 = ddcEnabled_[1] ? ddcFreqHz_[1] : ddcFreqHz_[0];
+        wrBeU32(pkt.data() + 9, phaseWord(ddcFreqHz_[0]));   // DDC0 STM32
+        wrBeU32(pkt.data() + 13, phaseWord(rx2));            // DDC1 STM32
+        wrBeU32(pkt.data() + 17, phaseWord(ddcFreqHz_[0]));  // DDC2 RX1
+        wrBeU32(pkt.data() + 21, phaseWord(rx2));            // DDC3 RX2
+        for (std::size_t i = 4; i < ddcFreqHz_.size(); ++i)
+            wrBeU32(pkt.data() + 9 + i * 4, phaseWord(ddcFreqHz_[i]));
+    } else {
+        for (std::size_t i = 0; i < ddcFreqHz_.size(); ++i)
+            wrBeU32(pkt.data() + 9 + i * 4,
+                    phaseWord(ddcFreqHz_[i]));
+    }
     wrBeU32(pkt.data() + 329, phaseWord(ducFreqHz_));  // DUC (TX) phase word
     pkt[345] = static_cast<char>(analogDriveByte_(tx));
     // [1396..99] client control word + CAT port 0.
     // [1400..03] xvtr/mute/OC/user outputs 0.
-    // [1428..31] Alex1 words 0 (no second Alex; the fw>=12 TXANT
-    // branch in p2app then applies Alex0 to both filter registers).
+    // [1428..31] Alex1 TX/RX. Classic-Alex copies Alex0 TX here (Thetis
+    // bit-inherit). BrickSDR overlay below replaces these on key.
     // [1432..35] Alex0 TX + RX halfwords from the hardware profile —
     // the RF front end (BPF/LPF select + TRX antenna route).  Derived
     // from the independent DUC/DDC carriers every build, so band changes
@@ -570,12 +616,31 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     if (profile_) {
         const quint16 txw =
             profile_->alexTxWord(ducFreqHz_, trxAntenna_);
+        // DeskHPSDR: while TX+PS, analog RX bits come from
+        // PS_RX_FEEDBACK->alex_antenna (create default 0 = Internal),
+        // not RX1. Ext1=6 / ByPass=7 stay a later UI.
+        const P2RxInput analogIn =
+            isPureSignalLive() ? P2RxInput::Trx : rxInput_;
         const quint16 rxw =
-            profile_->alexRxWord(ddcFreqHz_[0], rxInput_, hpfBypass_);
+            profile_->alexRxWord(ddcFreqHz_[0], analogIn, hpfBypass_);
         pkt[1432] = static_cast<char>(txw >> 8);
         pkt[1433] = static_cast<char>(txw & 0xFF);
         pkt[1434] = static_cast<char>(rxw >> 8);
         pkt[1435] = static_cast<char>(rxw & 0xFF);
+        // saturnAlexTxWord is LPF+ANT only. The T/R relay is Alex word
+        // bit 27 → TX halfword bit 11 → [1432]|=0x08. Without it the
+        // PA never sees the antenna (driver leak / tenths of a watt).
+        // Skip Saturn/G2 (alexEnableBits==0) and BrickSDR (fixed overlay
+        // below). Do NOT also set [1433]|=0x04: that is Alex bit 18, the
+        // PureSignal coupler route. Forcing it on a normal key keeps the
+        // PA at milliwatts while DeskHPSDR (same Brick3) puts ~15 W on
+        // the dummy. PS already ORs bit 18 in the psArmed_ block below.
+        if (transmit && profile_->alexEnableBits != 0) {
+            pkt[1432] = static_cast<char>(
+                static_cast<unsigned char>(pkt[1432]) | 0x08);
+            pkt[1428] = pkt[1432];
+            pkt[1429] = pkt[1433];
+        }
     }
     // S-T1 BrickSDR fixed TX front-end + T/R assertion.  Band-independent
     // constant captured verbatim from a working reference->Brick P2 keydown
@@ -597,10 +662,9 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
         // DDC0 stays disabled; only the phase word is overlaid.
         wrBeU32(pkt.data() + 9, phaseWord(ducFreqHz_));
     }
-    // P7 scaffold: DeskHPSDR ALEX_PS_BIT (bit 18). Alex1 whenever PS
-    // is on; Alex0 TX halfword + DDC0/DDC1 lock to DUC while keyed.
-    // After Brick overlay so they compose. brick_ddc0_fix stays for
-    // non-PS TX. Thetis mux only if DeskHPSDR and hardware disagree.
+    // DeskHPSDR ALEX_PS_BIT (bit 18): alex1 whenever PS on; alex0 when TX.
+    // Analog RX bits (EXT1 / K36 / HPF) are NOT set for default Internal
+    // (PS_RX_FEEDBACK alex_antenna=0). Ext1=6 / ByPass=7 are a later UI.
     if (psArmed_)
         pkt[1429] = static_cast<char>(
             static_cast<unsigned char>(pkt[1429]) | 0x04);
@@ -611,8 +675,9 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
             static_cast<unsigned char>(pkt[1433]) | 0x04);
     }
     const bool keyedWithPa = transmit && tx.paEnabled;
-    pkt[1442] = static_cast<char>(overlayAdcAttByte(1, keyedWithPa));
-    pkt[1443] = static_cast<char>(overlayAdcAttByte(0, keyedWithPa));
+    // HP ATT: DeskHPSDR PA→both 31, then PS overwrites ADC1 [1442] only.
+    pkt[1442] = static_cast<char>(overlayHpAdcAttByte(1, keyedWithPa));
+    pkt[1443] = static_cast<char>(overlayHpAdcAttByte(0, keyedWithPa));
     return pkt;
 }
 
@@ -647,6 +712,10 @@ void P2Session::setPureSignalArmed(bool on) {
 
 bool P2Session::isPureSignalLive() const {
     return psArmed_ && P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit;
+}
+
+bool P2Session::psccUsesSeparateDdcStreams() const {
+    return false;
 }
 
 void P2Session::clearPsccIq() {
@@ -711,9 +780,22 @@ void P2Session::setAttOnTx(bool enabled, int db) {
 }
 
 quint8 P2Session::overlayAdcAttByte(int adcIndex, bool keyedWithPa) const {
-    // Live PS: coupler is ADC0. ATT-on-TX 31 would mute feedback.
-    // Auto-att writes psFeedbackAttnDb_ (starts at 0 = full coupler).
+    // DUC-specific (DeskHPSDR transmit_specific [59]/[58]): PA both 31,
+    // then PS writes transmitter->attenuation onto ADC0 ([59]).
     if (isPureSignalLive() && adcIndex == 0)
+        return static_cast<quint8>(std::clamp(psFeedbackAttnDb_, 0, 31));
+    if (keyedWithPa && attOnTxEnabled_)
+        return static_cast<quint8>(std::clamp(attOnTxDb_, 0, 31));
+    if (adcIndex < 0 ||
+        adcIndex >= static_cast<int>(adcAttenuation_.size()))
+        return 0;
+    return adcAttenuation_[static_cast<std::size_t>(adcIndex)];
+}
+
+quint8 P2Session::overlayHpAdcAttByte(int adcIndex, bool keyedWithPa) const {
+    // HP (DeskHPSDR high_priority [1442]/[1443]): PA both 31, then PS
+    // writes transmitter->attenuation onto ADC1 ([1442]) only.
+    if (isPureSignalLive() && adcIndex == 1)
         return static_cast<quint8>(std::clamp(psFeedbackAttnDb_, 0, 31));
     if (keyedWithPa && attOnTxEnabled_)
         return static_cast<quint8>(std::clamp(attOnTxDb_, 0, 31));
@@ -776,7 +858,11 @@ void P2Session::setTxOperatorArmed(bool armed) {
 }
 
 int P2Session::analogDriveByte_(const P2TxEffectiveState &tx) const {
-    if (!tx.transmit || !tx.paEnabled)
+    // Analog HP [345] is the P2 DAC scale, independent of the PA-bias bit.
+    // Zeroing it whenever PA is off left a full-scale IQ carrier at ~0.9 W
+    // with Drive/Tune dead (Brick3). Send the operator byte on every keyed
+    // frame; [58] still gates PA bias.
+    if (!tx.transmit)
         return 0;
     int drive = static_cast<int>(tx.drive);
     if (wireDriveProvider_) {

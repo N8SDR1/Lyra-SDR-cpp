@@ -79,8 +79,6 @@ const HardwareModelDescriptor kCatalog[] = {
     // the classic ANAN HPF ladder). Telemetry/PA constants are Hermes-class
     // placeholders pending Brick bench calibration.  Generic name: this ONE
     // row covers the P2 Hermes-class Brick line (Brick2 bench-validated).
-    // Brick3 is Angelia/ANAN-100D-class (deskHPSDR ties it to ANAN-100D) --
-    // a Brick3 uses the ANAN-100D model, NOT this Hermes-class row.
     {"BRICK-SDR",    "BrickSDR",        mHERMES,      bHermes,    WireSupport::P2Only, 1, false, 33, true,
      // rxMeterOffset 1.98: the Hermes-class 0.98 default + a WWV-derived
      // +1 dB (N8SDR BrickSDR2 S-meter calibrated on 10 MHz WWV against a
@@ -88,6 +86,13 @@ const HardwareModelDescriptor kCatalog[] = {
      // changes). A fresh Brick now starts here -- the per-rig meter/calDb
      // trim is only a residual.
      false, false, 360.f, 120.f, 0.2899, 1.98f,      -2.1f,    false, false, PA_CLASSIC, 56.2f},
+    // Brick3SDR — Protocol 2 only, Angelia-class (2 ADC, classic Alex).
+    // Discovery MAC 02:B3:xx names the board Brick3. Not the Hermes-class
+    // BrickSDR row above (1 ADC, onboard LPF, no Alex). PA/meter numbers
+    // match ANAN-100D until a Brick3-specific cal exists. TX stays
+    // dummy-load + Arm P2 TX (not on-air validated).
+    {"BRICK3-SDR",   "Brick3SDR",       mANAN100D,    bAngelia,   WireSupport::P2Only, 2, false, 33, false,
+     false, false, 360.f, 120.f, 0.2899, 0.98f,      -2.1f,    false, true,  PA_100D,    56.2f},
 };
 
 #undef PA_CLASSIC
@@ -150,8 +155,9 @@ const HardwareModelDescriptor *defaultModelForBoardName(
         return modelByKey(QStringLiteral("ANAN-100B"));
     if (boardName == QLatin1String("Hermes"))
         return modelByKey(QStringLiteral("ANAN-100"));
-    if (boardName == QLatin1String("Angelia") ||
-        boardName.startsWith(QLatin1String("Brick3")))
+    if (boardName.startsWith(QLatin1String("Brick3")))
+        return modelByKey(QStringLiteral("BRICK3-SDR"));
+    if (boardName == QLatin1String("Angelia"))
         return modelByKey(QStringLiteral("ANAN-100D"));
     if (boardName == QLatin1String("OrionMKII"))
         return modelByKey(QStringLiteral("ANAN-7000DLE"));

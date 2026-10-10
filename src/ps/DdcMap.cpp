@@ -27,7 +27,8 @@ DdcRoute ddc_map(bool mox, bool ps_armed, bool /*rx2_enabled*/,
     if (family == lyra::rig::RadioFamily::Hl2) {
         r.adcCntrl1 = 4;  // Thetis cntrl1=4
     }
-    if (family == lyra::rig::RadioFamily::BrickP2) {
+    if (family == lyra::rig::RadioFamily::BrickP2 ||
+        family == lyra::rig::RadioFamily::AnanP2) {
         r.alexPsBit = true;
         r.adcCntrl1 = 0;  // P2 uses ALEX_PS_BIT, not P1 C&C
     }

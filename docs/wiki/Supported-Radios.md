@@ -37,6 +37,7 @@ as testers come on board.
 
 | Radio | Notes |
 |---|---|
+| **Brick3SDR** (Protocol 2) | 🚧 Angelia-class (2 ADC, classic Alex). Discovery MAC `02:B3:xx` shows as **Brick3**. Pick **Brick3SDR** in **Settings → Hardware** (not Hermes-class BrickSDR). TX **not on-air validated** — dummy-load + Arm P2 TX. |
 | **ANAN-10 / 10E / 100 / 100B / 100D / 200D** (Protocol 2) | 🚧 RX + TX **arm** using classic Alex HPF/LPF words. **Not on-air validated** — dummy-load + Arm P2 TX. These radios often shipped Protocol 1; **use the P2 FPGA** if the box can run it — that is Lyra's path. Discovery **Hermes** still defaults to BrickSDR2 (same board id); pick the marketed ANAN model in **Settings → Hardware**. A leftover Protocol 1 discovery row is refused (wrong HL2 TX layout). |
 | **ANAN-G2 / G2-1K** | 🚧 Saturn BPF profile; TX dummy-load arm until on-air validated. |
 

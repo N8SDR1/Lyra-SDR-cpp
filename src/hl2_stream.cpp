@@ -356,9 +356,17 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         QStringLiteral("tx/psArmed"), false).toBool();
     psFsm_ = std::make_unique<lyra::ps::PsFsm>();
     psFsm_->setAttnWriter([this](int db) { setTxStepAttnDb(db); });
-    psFsm_->setHwPeak(std::clamp(
-        QSettings().value(QStringLiteral("tx/psHwPeak"), 0.233).toDouble(),
-        0.05, 1.0));
+    {
+        QSettings qs;
+        const QString scoped = lyra::rig::scope::rigKey(
+            QStringLiteral("tx/psHwPeak"));
+        double peak = 0.233;
+        if (qs.contains(scoped))
+            peak = qs.value(scoped).toDouble();
+        else if (qs.contains(QStringLiteral("tx/psHwPeak")))
+            peak = qs.value(QStringLiteral("tx/psHwPeak")).toDouble();
+        psFsm_->setHwPeak(std::clamp(peak, 0.05, 1.0));
+    }
     connect(psFsm_.get(), &lyra::ps::PsFsm::telemetryChanged, this, [this]() {
         emit psFeedbackLevelChanged(psFeedbackLevel());
         emit psAutoAttDbChanged(psAutoAttDb());
@@ -2686,13 +2694,11 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
     if (lyra::wire::prn != nullptr)
         lyra::wire::set_drive_level(emitted);
     lyra::wire::SetTXFixedGainRun(0, 1);
-    // P2: analog drive [345] is the watts lever. Keep IQ gain at unity so
-    // the cap/PA-gain byte is not fighting a second scaler (and so a later
-    // PureSignal tap can own this stage without a dual-path fight).
-    if (p2Path)
-        lyra::wire::SetTXFixedGain(0, 1.0, 1.0);
-    else
-        lyra::wire::SetTXFixedGain(0, rv, rv);
+    // Analog HP [345] still carries the byte. Brick3 (and any P2 FPGA that
+    // does not scale the DAC from [345]) sat at ~0.9 W across Drive 0–100 %
+    // while IQ was pinned at unity. Scale IQ with Drive like P1 so 0 % is
+    // silence and the slider is live; at 100 % rv=1 (same as the old pin).
+    lyra::wire::SetTXFixedGain(0, rv, rv);
 
     // Amp-cap live indicator for the TX-panel CAP chip.  Recomputed here
     // because this is the one chokepoint every drive / PA-gain / band / cap
@@ -3291,7 +3297,22 @@ void HL2Stream::setPsHwPeak(double peak) {
     peak = std::clamp(peak, 0.05, 1.0);
     if (psFsm_)
         psFsm_->setHwPeak(peak);
-    QSettings().setValue(QStringLiteral("tx/psHwPeak"), peak);
+    QSettings().setValue(
+        lyra::rig::scope::rigKey(QStringLiteral("tx/psHwPeak")), peak);
+    emit psHwPeakChanged(psHwPeak());
+}
+
+void HL2Stream::applyPsHwPeakDefault(double catalogPeak) {
+    catalogPeak = std::clamp(catalogPeak, 0.05, 1.0);
+    QSettings qs;
+    const QString scoped = lyra::rig::scope::rigKey(
+        QStringLiteral("tx/psHwPeak"));
+    double peak = catalogPeak;
+    if (qs.contains(scoped))
+        peak = qs.value(scoped).toDouble();
+    peak = std::clamp(peak, 0.05, 1.0);
+    if (psFsm_)
+        psFsm_->setHwPeak(peak);
     emit psHwPeakChanged(psHwPeak());
 }
 
@@ -3376,7 +3397,11 @@ void HL2Stream::refreshPsWire() {
     if (psFsm_) {
         psFsm_->setArmed(liveArmed);
         psFsm_->setMox(mox && liveArmed);
-        const int rate = 48000 << sampleRateBits_.load();
+        // P2 live PS locks the PS DDCs at 192 kHz; do not feed WDSP the
+        // RX panadapter rate (HL2 P1 still tracks SampleRateIn2Bits).
+        const int rate = p2DrivePath_.load(std::memory_order_relaxed)
+            ? 192000
+            : (48000 << sampleRateBits_.load());
         psFsm_->setFeedbackRateHz(rate);
     }
 }

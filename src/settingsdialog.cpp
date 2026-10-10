@@ -7,6 +7,7 @@
 #include "mainwindow.h"   // Share-a-layout buttons call MainWindow export/import
 #include "hl2_stream.h"
 #include "wire/P2RxBridge.h"
+#include "wire/P2Session.h"
 #include "hardware/HardwareCatalog.h"
 #include "palettes.h"
 #include "prefs.h"
@@ -3191,7 +3192,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
     // discovery is a hardware/connection concern, and relocating it frees
     // the main-window real estate for actual control panels.
     if (discovery_ || stream_) {
-        auto *radioBox = new QGroupBox(tr("Radio (Hermes Lite 2 / 2+)"), page);
+        auto *radioBox = new QGroupBox(tr("Radio"), page);
         auto *rv = new QVBoxLayout(radioBox);
 
         auto *status = new QLabel(tr("Click \"Discover\" to scan the LAN."),
@@ -3384,12 +3385,10 @@ QWidget *SettingsDialog::buildHardwareTab() {
         rv->addLayout(manualRow);
         rv->addLayout(btnRow);
 
-        // ── P2 hardware profile (Saturn / ANAN family) ──────────────
-        // Layer-1 hardware-catalog selection — the Thetis
-        // comboRadioModel equivalent — plus the TRX antenna port.
-        // Both persist immediately and take effect at the next Open
-        // of a Protocol 2 radio.  (The HL2 path ignores these.)
-        {
+        // ── P2 hardware profile (Saturn / ANAN family / Brick) ─────
+        // Layer-1 hardware-catalog selection plus TRX antenna / RX
+        // jack / ADC. Persist immediately; live wire apply needs an
+        // open Protocol 2 session.  (The HL2 path ignores these.)
             auto *hwRow = new QHBoxLayout();
             hwRow->addWidget(new QLabel(tr("P2 radio model:"), radioBox));
             auto *modelCombo = new QComboBox(radioBox);
@@ -3526,28 +3525,21 @@ QWidget *SettingsDialog::buildHardwareTab() {
             // (Rig menu, or Open it here → "Switch to X?").
             rv->addLayout(hwRow);
 
-            // Live G2 front-end state.  These settings are rig- and
-            // band-scoped by P2RxBridge; they are intentionally disabled
-            // unless a P2 session is active, so editing an undiscovered
-            // radio can never write state under the wrong rig.
+            // Live front-end state. Rig- and band-scoped by P2RxBridge.
+            // ADC 2 / RX jacks / HPF only apply on radios that have them
+            // (Brick3SDR / ANAN-100D class = 2 ADC + classic Alex; G2 =
+            // 2 ADC + MkII BPF). Hermes-class BrickSDR has a fixed jack
+            // and one ADC — those widgets stay off. Live writes stay
+            // gated on an open P2 session so an undiscovered row cannot
+            // poke the wrong rig.
             auto *feRow = new QHBoxLayout();
-            auto *feLabel = new QLabel(tr("Active G2 band:"), radioBox);
+            auto *feLabel = new QLabel(tr("RX ADC:"), radioBox);
             auto *adcCombo = new QComboBox(radioBox);
             adcCombo->addItems({tr("ADC 1"), tr("ADC 2")});
             auto *inputCombo = new QComboBox(radioBox);
             inputCombo->addItems({tr("TRX antenna"), tr("BYPS"),
                                   tr("EXT 1"), tr("XVTR")});
             auto *hpfBypass = new QCheckBox(tr("HPF bypass"), radioBox);
-            const bool p2Active = p2_ && p2_->isRunning();
-            feLabel->setEnabled(p2Active);
-            adcCombo->setEnabled(p2Active);
-            inputCombo->setEnabled(p2Active);
-            hpfBypass->setEnabled(p2Active);
-            if (p2Active) {
-                adcCombo->setCurrentIndex(p2_->ddcAdc());
-                inputCombo->setCurrentIndex(p2_->rxInput());
-                hpfBypass->setChecked(p2_->hpfBypass());
-            }
             connect(adcCombo,
                     QOverload<int>::of(&QComboBox::currentIndexChanged),
                     radioBox, [this](int idx) {
@@ -3569,10 +3561,10 @@ QWidget *SettingsDialog::buildHardwareTab() {
             feRow->addWidget(hpfBypass);
             feRow->addStretch(1);
             rv->addLayout(feRow);
-        }
 
         auto refresh = [this, scanBtn, openBtn, closeBtn, removeBtn,
-                        list, status, markConnected]() {
+                        list, status, markConnected, modelCombo, antCombo,
+                        feLabel, adcCombo, inputCombo, hpfBypass]() {
             const bool p1Running = stream_ && stream_->isRunning();
             // isOpen(), not isRunning(): a P2 open() in flight but not
             // yet confirmed by the radio must still block a concurrent
@@ -3587,12 +3579,66 @@ QWidget *SettingsDialog::buildHardwareTab() {
             // passive (its own sockets; radios answer even when busy)
             // and the operator needs the list populated to SEE the
             // other radio before Close-then-Open switching.  Open
-            // itself stays gated on !running below.
+            // stays clickable while another radio is live so the
+            // status line can say "Close first" instead of looking
+            // like Brick3 itself is unsupported.
             scanBtn->setEnabled(discovery_ != nullptr);
-            openBtn->setEnabled(stream_ && !running &&
-                                list->currentItem() != nullptr);
+            openBtn->setEnabled(stream_ && list->currentItem() != nullptr);
+            openBtn->setToolTip(
+                running
+                    ? tr("A radio is already open. Click Close first, "
+                         "then Open.")
+                    : tr("Open the selected radio."));
             closeBtn->setEnabled(running);
             removeBtn->setEnabled(list->currentItem() != nullptr);
+
+            const QString key = modelCombo->currentData().toString();
+            const auto *hw = lyra::hardware::modelByKey(key);
+            const auto *p2hw = lyra::wire::p2ProfileForModel(key);
+            const bool dualAdc = hw && hw->adcCount > 1;
+            const bool hasAlex = p2hw && !p2hw->fixedTxFrontEnd;
+            antCombo->setEnabled(hasAlex);
+            antCombo->setToolTip(
+                hasAlex
+                    ? tr("Alex TX jack (ANT 1 / 2 / 3). Saved now; on "
+                         "the wire after Open.")
+                    : tr("This model has a single fixed antenna jack."));
+            adcCombo->setEnabled(p2Running && dualAdc);
+            feLabel->setEnabled(p2Running && dualAdc);
+            adcCombo->setToolTip(
+                !dualAdc
+                    ? tr("This model has one ADC.")
+                    : (p2Running
+                           ? tr("Which ADC the receivers listen to. "
+                                "Brick3SDR / ANAN-100D class have two.")
+                           : tr("Open this Protocol 2 radio first.")));
+            inputCombo->setEnabled(p2Running && hasAlex);
+            hpfBypass->setEnabled(p2Running && hasAlex);
+            inputCombo->setToolTip(
+                !hasAlex
+                    ? tr("This model has a fixed RX jack (no Alex RX "
+                         "select).")
+                    : (p2Running
+                           ? tr("Alex RX path: TRX antenna, BYPS "
+                                "(bypass HPF/LPF), EXT 1, or XVTR.")
+                           : tr("Open this Protocol 2 radio first — then "
+                                "RX input is selectable.")));
+            hpfBypass->setToolTip(
+                hasAlex
+                    ? tr("Bypass the Alex high-pass filter on the RX "
+                         "path.")
+                    : tr("This model has no Alex HPF."));
+            if (p2Running) {
+                const QSignalBlocker ba(adcCombo);
+                const QSignalBlocker bi(inputCombo);
+                const QSignalBlocker bh(hpfBypass);
+                const QSignalBlocker bt(antCombo);
+                adcCombo->setCurrentIndex(p2_->ddcAdc());
+                inputCombo->setCurrentIndex(p2_->rxInput());
+                hpfBypass->setChecked(p2_->hpfBypass());
+                antCombo->setCurrentIndex(
+                    qBound(0, p2_->trxAntenna() - 1, 2));
+            }
             if (p1Running)
                 status->setText(tr("Connected to %1").arg(stream_->targetIp()));
             else if (p2Running)
@@ -3614,6 +3660,9 @@ QWidget *SettingsDialog::buildHardwareTab() {
             discovery_->probe(p2_->targetIp());
         connect(list, &QListWidget::currentRowChanged, radioBox,
                 [refresh](int) { refresh(); });
+        connect(modelCombo,
+                QOverload<int>::of(&QComboBox::currentIndexChanged),
+                radioBox, [refresh](int) { refresh(); });
 
         if (discovery_) {
             connect(scanBtn, &QPushButton::clicked, discovery_,
@@ -4090,9 +4139,12 @@ QWidget *SettingsDialog::buildHardwareTab() {
             limit->setRange(1, 100);
             limit->setSuffix(tr(" %"));
             limit->setToolTip(tr(
-                "Independent ceiling over the front-panel Drive slider. "
-                "Defaults to 5% and is hard-limited to 25% until G2 TX "
-                "completes dummy-load validation."));
+                "Independent ceiling over the front-panel Drive slider for "
+                "radios whose TX is not yet on-air validated (Brick3SDR / "
+                "classic ANAN). Default is 50% on a dummy load so the PA can "
+                "show watts (DeskHPSDR ~15 W on Brick3 is the hardware check). "
+                "Raise this if you want more Drive on the dummy. This is not "
+                "the watts CAP or Max Protect. Dummy load only."));
             p2Grid->addWidget(limitLabel, 2, 0);
             p2Grid->addWidget(limit, 2, 1, Qt::AlignLeft);
 

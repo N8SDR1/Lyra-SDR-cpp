@@ -1297,6 +1297,10 @@ public slots:
     Q_INVOKABLE void capturePsGetPk();
     Q_INVOKABLE void setPsAmpPlotHeld(bool on);
     void setPsHwPeak(double peak);
+    // Seed SetPSHWPeak from this radio's catalog (P2) or 0.233 (HL2).
+    // A per-rig Amp View SetPk spin wins if already saved; do not copy the
+    // unscoped HL2 0.233 onto a P2 radio that publishes a different peak.
+    void applyPsHwPeakDefault(double catalogPeak);
 
     // ---- TX-0c-fsm: MOX/PTT sequencer (single funnel) ----------------
     // Operator/CAT/PTT/TUN intent gets funneled here.  Internally drives

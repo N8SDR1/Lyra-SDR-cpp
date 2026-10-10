@@ -4,6 +4,19 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-09 — Brick3 PureSignal saved locally (FB still unchanged)
+
+- Catalog **Brick3SDR** (`BRICK3-SDR`) is back: Angelia/100D class
+  (2 ADC, Alex), discover `02:B3`. Dummy-load + Arm P2 TX only.
+- P2 PS aligned to DeskHPSDR Brick3/Angelia: Internal analog default,
+  no HP `[4]` `0x80`, HP vs DUC ATT split, ALEX_PS_BIT, DDC0-only PS
+  overlay, Angelia receive_specific DDC2/DDC3 slots programmed, analog
+  forced Internal while live PS (not RX1 Ext1). RX stays on DDC0.
+- **Bench (dummy load, 2026-10-09 night):** FB still ~22, Amp View
+  still linear — same as before these wire changes. Coupler FB did
+  **not** rise. Stop here overnight; do not invent ADC maps or switch
+  to Thetis two-stream. Not in v0.25.15. Do not merge `main`.
+
 ## 2026-10-09 — v0.25.15 Sheliak RELEASED
 
 - Same version **0.25.15** — one installer (not 0.25.16). DUC + startup

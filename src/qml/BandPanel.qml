@@ -5,6 +5,8 @@
 //   2. BC       — shortwave broadcast meter bands (120m … 13m)
 //   3. GEN      — GEN1/2/3 general-coverage slots (TIME + Mem join here)
 //   4. XVTR     — transverter slots (RF on the dial; radio IF = RF − LO)
+//   5. ANT      — Alex ANT 1/2/3 + RX jack (P2 radios with a front-end
+//                 ladder only; hidden on HL2 and Hermes-class BrickSDR)
 // All built from the shared C++ band tables (Bands context property),
 // so the lists never drift from the protocol/DSP side.
 //
@@ -531,6 +533,71 @@ Rectangle {
                         }
                     }
                 }
+            }
+            Item { Layout.fillWidth: true }
+        }
+
+        // ── Row 5: Alex antenna / RX jack (P2 only) ──────────────────
+        // Remembered per band. TX dock is too tight for this; Band already
+        // has chip rows and the selection is band-scoped.
+        RowLayout {
+            visible: P2Bridge.running && P2Bridge.hasAlexAntennaSelect
+            spacing: 4
+            RowLabel { text: qsTr("Ant") }
+            ChipButton {
+                text: "1"
+                chipActive: P2Bridge.trxAntenna === 1
+                onClicked: P2Bridge.trxAntenna = 1
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("ANT 1 — shared TX/RX jack 1 (per band)")
+            }
+            ChipButton {
+                text: "2"
+                chipActive: P2Bridge.trxAntenna === 2
+                onClicked: P2Bridge.trxAntenna = 2
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("ANT 2 — shared TX/RX jack 2 (per band)")
+            }
+            ChipButton {
+                text: "3"
+                chipActive: P2Bridge.trxAntenna === 3
+                onClicked: P2Bridge.trxAntenna = 3
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("ANT 3 — shared TX/RX jack 3 (per band)")
+            }
+            Item { Layout.preferredWidth: 10 }
+            RowLabel { text: qsTr("RX") }
+            ChipButton {
+                text: qsTr("TRX")
+                Layout.preferredWidth: 44
+                chipActive: P2Bridge.rxInput === 0
+                onClicked: P2Bridge.rxInput = 0
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("Receive on the selected ANT jack")
+            }
+            ChipButton {
+                text: qsTr("BYPS")
+                Layout.preferredWidth: 48
+                chipActive: P2Bridge.rxInput === 1
+                onClicked: P2Bridge.rxInput = 1
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("RX Bypass jack (RX-only, front-end bypassed)")
+            }
+            ChipButton {
+                text: qsTr("EXT1")
+                Layout.preferredWidth: 48
+                chipActive: P2Bridge.rxInput === 2
+                onClicked: P2Bridge.rxInput = 2
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("EXT1 RX-only jack")
+            }
+            ChipButton {
+                text: qsTr("XVTR")
+                Layout.preferredWidth: 48
+                chipActive: P2Bridge.rxInput === 3
+                onClicked: P2Bridge.rxInput = 3
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("Transverter RX jack")
             }
             Item { Layout.fillWidth: true }
         }

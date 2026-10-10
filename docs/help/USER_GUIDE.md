@@ -373,6 +373,7 @@ Lyra **opens** these today:
 |---|---|---|
 | **Hermes Lite 2 / 2+** | Protocol 1 | Full RX + TX. HL2+ adds the on-board mic / headphone jacks. |
 | **BrickSDR2** | **Protocol 2 only** | Full RX + TX, SUB / SPLIT, PureSignal. |
+| **Brick3SDR** | **Protocol 2 only** | Angelia-class (2 ADC, Alex). Pick **Brick3SDR** in **Settings → Hardware**. TX dummy-load + Arm P2 TX until on-air validated. |
 
 A Brick (or classic ANAN) that still answers **Protocol 1** can show in
 **Discover**. Lyra **will not Open** that row. Protocol 1 TX in Lyra is the
@@ -590,6 +591,7 @@ exact build.
 
 Lyra can manage more than one radio — a Hermes Lite 2 / 2+ on **Protocol 1**
 and a **Protocol-2** radio such as a **BrickSDR2** (P2 FPGA required),
+**Brick3SDR** (Angelia / ANAN-100D class — 2 ADC + Alex),
 **ANAN G2**, or classic **ANAN-10 / 100 / 200** series on P2 (pick the
 marketed model) — and keep
 **separate settings for each**. Every saved radio is a **"rig,"** and each
@@ -1242,6 +1244,13 @@ Quick band switching, in four rows:
 - **Xvtr** — four transverter chips (defaults **2m / 70cm / 23cm** plus a
   spare). Click a chip to tune RX1 to that slot’s last RF. Full detail:
   [Xvtr (transverters)](#xvtr-transverters).
+- **Ant** — Protocol 2 radios with an Alex-style front-end (ANAN-100D
+  class, Brick3SDR, G2 / Saturn — **not** Hermes-class BrickSDR and
+  **not** HL2). **1 / 2 / 3** pick the shared TX/RX jack; **RX TRX /
+  BYPS / EXT1 / XVTR** pick the receive input. Remembered **per band**.
+  Same controls as Settings → Hardware → Antenna. The row stays hidden
+  when the radio has no antenna ladder. Not on the TX dock — that strip
+  is already full.
 
 **SUB hops (HL2 / BrickSDR2).** **Shift+click** or **right-click** a Ham / BC /
 11m chip to park **SUB** on that band (turns SUB on if it was off, keeps
@@ -2258,7 +2267,9 @@ plot (live `GetPSDisp` curve).
 
 - The plot **keeps moving** while you transmit (plasma-style trace).
 - **Snap** — captures the peak marker (`GetPk`). It is **not** a
-  retune of SetPk; Lyra's SetPk stays **0.233**. Use Snap to mark
+  retune of SetPk. SetPk follows the radio (HL2 **0.233**, Hermes-class
+  P2 / 100D / Brick3 **0.2899**, G2 **0.6121**) and is stored per-rig;
+  Amp View can still nudge it. Use Snap to mark
   where the peaks sat; the plot still runs.
 - **Hold** — **freezes the plot only**. Telemetry chips still update.
 - Extra chips (same GetPSInfo words as the compact dock, plus more):
@@ -3499,13 +3510,19 @@ Turn it on in **Settings → Bands → SW Database**:
 ### Radio
 
 Find and connect to your radio — an HL2 / HL2+ (Protocol 1) or a Protocol-2
-radio (BrickSDR2 / ANAN G2 / ANAN-10–200D P2). **Discover** scans the LAN, **Open**
-connects to the selected radio (or just **double-click** it), **Close**
-disconnects, and the status line shows what you're connected to. The
-**connected radio is shown green and bold** in the list, so with several
-radios it's obvious which one is live. Lyra remembers the last radio and
-shows it here on launch. (The toolbar **▶ Start / ■ Stop** does the same
-thing.)
+radio (BrickSDR2 / **Brick3SDR** / ANAN G2 / ANAN-10–200D P2). **Discover**
+scans the LAN, **Open** connects to the selected radio (or just
+**double-click** it), **Close** disconnects, and the status line shows what
+you're connected to. The **connected radio is shown green and bold** in the
+list, so with several radios it's obvious which one is live. Lyra remembers
+the last radio and shows it here on launch. (The toolbar **▶ Start / ■ Stop**
+does the same thing.)
+
+**One radio at a time.** If the HL2 (or any other row) is already open,
+**Open** will not start Brick3 until you **Close** the live radio first.
+That is not a Brick3 limitation — Lyra has a single RX/TX path. Hover Open
+while another radio is live: the tooltip says so; clicking Open repeats it
+in the status line.
 
 **Protocol 1 Hermes (not HermesLite)** is a Brick or classic ANAN still on
 the old FPGA. **Open is refused** — that is not a bug. Flash **Protocol 2**
@@ -3531,6 +3548,20 @@ audio path, band memory, calibration…) use the **Rig** menu — see
   Lyra connects to the last radio automatically at startup (the historical
   behaviour). Untick it to have Lyra open without connecting; you then
   click **▶ Start** when you're ready.
+
+- **P2 radio model** — pick the marketed model for the selected Protocol 2
+  row. **Brick3SDR** is the ANAN-100D / Angelia class (2 ADC, classic Alex
+  ANT 1/2/3). **BrickSDR** is Hermes-class (one ADC, fixed jack — hide the
+  Alex row). **ANAN-100D** in the list is the same wire class as Brick3SDR
+  if you prefer the Apache name.
+
+- **Antenna / RX ADC / RX input / HPF bypass** — live on an **open**
+  Protocol 2 radio that actually has those jacks. **RX input** (TRX /
+  BYPS / EXT 1 / XVTR) **is** selectable on Brick3SDR and ANAN-100D once
+  that radio is Open; it stays grey while an HL2 session is still running
+  or on Hermes-class BrickSDR. **RX ADC 1 / 2** is the same: two converters
+  on Brick3 / 100D / G2, one on BrickSDR. Antenna 1/2/3 can be saved before
+  Open. Same ANT / RX chips live on the **Band** panel after Open.
 
 ### Transmit (PA enable + safety timeout + hardware PTT)
 

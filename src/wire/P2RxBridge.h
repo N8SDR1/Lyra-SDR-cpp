@@ -64,6 +64,11 @@ class P2RxBridge : public QObject {
                NOTIFY frontEndChanged)
     Q_PROPERTY(int trxAntenna READ trxAntenna WRITE setTrxAntenna
                NOTIFY frontEndChanged)
+    // True while a P2 session is live on a radio whose front-end word
+    // actually muxes ANT1/2/3 + RX-only jacks (classic Alex / Saturn).
+    // Hermes-class BrickSDR uses a fixed TX word — no ANT chips.
+    Q_PROPERTY(bool hasAlexAntennaSelect READ hasAlexAntennaSelect
+               NOTIFY runningChanged)
     Q_PROPERTY(int adcOverloadTier READ adcOverloadTier NOTIFY telemetryChanged)
     Q_PROPERTY(int adcOverloadMask READ adcOverloadMask NOTIFY telemetryChanged)
     Q_PROPERTY(int adc1Peak READ adc1Peak NOTIFY telemetryChanged)
@@ -79,6 +84,8 @@ class P2RxBridge : public QObject {
                NOTIFY txStateChanged)
     Q_PROPERTY(int txDriveLimitPercent READ txDriveLimitPercent
                WRITE setTxDriveLimitPercent NOTIFY txStateChanged)
+    Q_PROPERTY(bool txOnAirValidated READ txOnAirValidated
+               NOTIFY txStateChanged)
     Q_PROPERTY(bool txTransportReady READ txTransportReady
                NOTIFY txStateChanged)
     Q_PROPERTY(bool txTransmitting READ txTransmitting NOTIFY txStateChanged)
@@ -119,6 +126,9 @@ public:
     int rxInput() const { return rxInput_; }
     bool hpfBypass() const { return hpfBypass_; }
     int trxAntenna() const { return trxAntenna_; }
+    bool hasAlexAntennaSelect() const {
+        return running_ && alexAntennaSelect_;
+    }
     int adcOverloadTier() const { return adcOverloadTier_; }
     int adcOverloadMask() const { return adcOverloadMask_; }
     int adc1Peak() const { return adc1Peak_; }
@@ -225,12 +235,13 @@ private:
     bool       txAutoArm_ = false;
     bool       txHardwareSupported_ = false;
     bool       txOnAirValidated_ = false;
+    bool       alexAntennaSelect_ = false;
     bool       txTransportReady_ = false;
     bool       txTransmitting_ = false;
     bool       txPaEnabled_ = false;
     bool       txFaultLatched_ = false;
     int        txEffectiveDrive_ = 0;
-    int        txDriveLimitPercent_ = 5;
+    int        txDriveLimitPercent_ = 50;
     QString    txStateDetail_ = QStringLiteral("Disconnected");
     QString    ip_;
     // P2 rigs are selectable identities but are not the active rig in the

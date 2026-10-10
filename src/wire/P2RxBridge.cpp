@@ -475,6 +475,7 @@ void P2RxBridge::resetTxUiState() {
     txStateDetail_ = QStringLiteral("Disconnected");
     ducFifoSamples_ = 0;
     lastHardwarePtt_ = false;
+    alexAntennaSelect_ = false;
 }
 
 void P2RxBridge::activateTxProducerSeam() {
@@ -720,7 +721,17 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
         // stays BRICK-SDR; AnanP2 seeds from the discovery board name
         // (never a hardcoded Saturn board-10 default).
         bool seeded = false;
-        if (prof.hardwareModelKey.isEmpty()) {
+        const bool brick3Board =
+            boardName.startsWith(QLatin1String("Brick3"), Qt::CaseInsensitive);
+        // Brick3 was briefly auto-seeded as ANAN-100D (same wire class).
+        // Promote empty or that auto default to the Brick3SDR picker row.
+        if (brick3Board &&
+            (prof.hardwareModelKey.isEmpty() ||
+             prof.hardwareModelKey.compare(
+                 QLatin1String("ANAN-100D"), Qt::CaseInsensitive) == 0)) {
+            prof.hardwareModelKey = QStringLiteral("BRICK3-SDR");
+            seeded = true;
+        } else if (prof.hardwareModelKey.isEmpty()) {
             // BrickSDR2 reports P2 board Hermes. Seed the Hermes-class
             // Brick catalog row — never Saturn, never ANAN-100 Alex.
             if (prof.family == lyra::rig::RadioFamily::BrickP2) {
@@ -745,10 +756,23 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     // Read the limit only after resolving this radio's identity. P2 rigs
     // are not the active rig, so RigScope alone would load another radio's
     // TX ceiling.
-    txDriveLimitPercent_ = std::clamp(
-        QSettings().value(
-            rigScopedKey(rigId_, QStringLiteral("p2/txDriveLimitPct")),
-            5).toInt(), 1, 100);
+    {
+        QSettings qs;
+        const QString limitKey =
+            rigScopedKey(rigId_, QStringLiteral("p2/txDriveLimitPct"));
+        const QString migratedKey =
+            rigScopedKey(rigId_, QStringLiteral("p2/txDriveLimitPctV2"));
+        int stored = qs.value(limitKey, 50).toInt();
+        // v1 defaulted this to 5% so first contact was milliwatts even
+        // with Drive at 100%. One-shot lift of an untouched 5% store
+        // to 50% (dummy-load bench). Operator-set 50% stays 50%.
+        if (stored == 5 && !qs.value(migratedKey, false).toBool()) {
+            stored = 50;
+            qs.setValue(limitKey, stored);
+            qs.setValue(migratedKey, true);
+        }
+        txDriveLimitPercent_ = std::clamp(stored, 1, 100);
+    }
     // Per-rig auto-arm preference (default off): re-applies the transient
     // bench interlock automatically once the transport reports Ready.
     txAutoArm_ = QSettings().value(
@@ -864,6 +888,10 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     txHardwareSupported_ = p2hw != nullptr;
     // On-air-validated models (BrickSDR) key like HL2 — no transient arm.
     txOnAirValidated_ = p2hw && p2hw->txOnAirValidated;
+    // ANT1/2/3 + RX-only jacks (BYPS / EXT1 / XVTR) only exist when the
+    // front-end word is the per-band Alex ladder — not the BrickSDR
+    // fixed TX constant.
+    alexAntennaSelect_ = p2hw && !p2hw->fixedTxFrontEnd;
     if (!p2hw)
         emit logLine(QStringLiteral(
             "P2: no verified antenna/filter profile for %1 — front end "
@@ -896,6 +924,8 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
                 });
             },
             0, 31, 0);
+        if (hw)
+            st->applyPsHwPeakDefault(hw->psDefaultPeakP2);
     }
     const bool subOn = st && st->subEnabled();
     const bool psOn = st && st->psLiveArmed();
