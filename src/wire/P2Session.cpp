@@ -616,20 +616,12 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     if (profile_) {
         const quint16 txw =
             profile_->alexTxWord(ducFreqHz_, trxAntenna_);
-        // DeskHPSDR: while TX+PS, analog RX bits come from
-        // PS_RX_FEEDBACK->alex_antenna (create default 0 = Internal),
-        // not RX1. Ext1=6 / ByPass=7 stay a later UI.
-        //
-        // Heiko (Brick2 100W B2, 2026-10, operator/firmware note — do
-        // NOT rewire from this comment): external RF coupler + 56 dB
-        // ATT after the PA; DeskHPSDR/Thetis PS menu input = EXT1, NOT
-        // Internal. Internal = "relais overspoke" (T/R / relay-overspeak
-        // path). EXT1 = external PureSignal tap / sampler. Heiko: same
-        // belief for Brick 2/3 and HL2. Tension: this block still forces
-        // Trx/Internal while PS is live. Brick3 MAP Ext1 is silk-screened
-        // RX2 (Alex bit 9) and the box also has a PS-A jack — do not
-        // collapse those with Heiko EXT1 without a DeskHPSDR/Thetis
-        // source read. See puresignal_hl2.md "PS analog input".
+        // While TX+PS, analog RX bits stay Trx/Internal (create-default
+        // alex_antenna=0). LOCKED 2026-10-10: no Internal/EXT1/ByPass
+        // picker — Thetis has none; Brick3 rear PS-A is already the
+        // coupler via ALEX_PS_BIT (bit 18) below. DeskHPSDR's PS-menu
+        // EXT1 is a DeskHPSDR-only analog-bit combo. Do not collapse
+        // that with MAP Ext1 (Brick3 silk RX2, Alex bit 9).
         const P2RxInput analogIn =
             isPureSignalLive() ? P2RxInput::Trx : rxInput_;
         const quint16 rxw =
@@ -673,9 +665,8 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
         // DDC0 stays disabled; only the phase word is overlaid.
         wrBeU32(pkt.data() + 9, phaseWord(ducFreqHz_));
     }
-    // DeskHPSDR ALEX_PS_BIT (bit 18): alex1 whenever PS on; alex0 when TX.
-    // Analog RX bits (EXT1 / K36 / HPF) are NOT set for default Internal
-    // (PS_RX_FEEDBACK alex_antenna=0). Ext1=6 / ByPass=7 are a later UI.
+    // ALEX_PS_BIT (bit 18): alex1 whenever PS on; alex0 when TX.
+    // Analog RX bits stay Internal. No PS-input picker (Thetis has none).
     if (psArmed_)
         pkt[1429] = static_cast<char>(
             static_cast<unsigned char>(pkt[1429]) | 0x04);

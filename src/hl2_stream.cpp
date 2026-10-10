@@ -25,6 +25,7 @@
 #include "wire/FrameComposer.h" // §5 control-plane mapping: set_rx_freq / set_tx_freq / set_rx_step_attn_db (P4.b RX side)
 #include "wire/TxGain.h"        // SetTXFixedGain/Run — TX power model Stage 2 fine drive
 #include "bands.h"              // amateurBands / bandIndexForFreq — TX power model Stage 3
+#include "bandmemory.h"
 #include "rig/RigScope.h"       // multi-rig Stage 3 — per-rig key routing (cal/)
 #include "rig/RigRegistry.h"    // multi-rig — keep the active rig's lastIp current
 
@@ -355,7 +356,12 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     psArmed_ = psAttestation_ && QSettings().value(
         QStringLiteral("tx/psArmed"), false).toBool();
     psFsm_ = std::make_unique<lyra::ps::PsFsm>();
-    psFsm_->setAttnWriter([this](int db) { setTxStepAttnDb(db); });
+    psAttMoxSeed_ = 31;
+    psFsm_->setAttnWriter([this](int db) {
+        setTxStepAttnDb(db);
+        persistPsTxAtt(db);
+    });
+    syncPsAttToTxBand();
     {
         QSettings qs;
         const QString scoped = lyra::rig::scope::rigKey(
@@ -2050,6 +2056,7 @@ void HL2Stream::pushEffectiveTxFreq() {
     const int newBand = lyra::paPowerBandIndexForFreq(ddsHzForRf(eff));
     if (newBand != lastTxBand_.exchange(newBand, std::memory_order_relaxed))
         applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+    syncPsAttToTxBand();
     // The TX-analyzer crop offset (NCO − RX centre) changed — refresh the
     // panadapter so the TX signal paints at the new VFO-B position.
     emit txAnalyzerOffsetChanged(txAnalyzerOffsetHz());
@@ -2401,6 +2408,7 @@ void HL2Stream::setTxFreqHz(quint32 hz) {
             lyra::wire::set_tx_freq(ddsHzForRf(static_cast<quint32>(
                 std::max(0, txDdsHzForTune(hz)))));
         pushIoboardTxFreq();
+        syncPsAttToTxBand();
         emit logLine(QStringLiteral("TX freq -> %1 Hz (%2 MHz)")
                      .arg(hz).arg(hz / 1.0e6, 0, 'f', 6));
     }
@@ -2923,11 +2931,51 @@ void HL2Stream::setTxStepAttnDb(int db) {
     if (lyra::wire::prn != nullptr) lyra::wire::set_tx_step_attn_db(clamped);
 }
 
+QString HL2Stream::psTxAttBandKey() const {
+    const QString name = lyra::ui::BandMemory::bandNameFor(
+        static_cast<int>(txFreqHz_.load(std::memory_order_relaxed)));
+    return name.isEmpty() ? QStringLiteral("other") : name;
+}
+
+QString HL2Stream::psTxAttSettingsKey(const QString &band) const {
+    return lyra::rig::scope::rigKey(
+        QStringLiteral("ps/txAtt/%1").arg(band));
+}
+
+void HL2Stream::persistPsTxAtt(int db) {
+    if (psAttBand_.isEmpty()) return;
+    QSettings().setValue(psTxAttSettingsKey(psAttBand_), db);
+}
+
+void HL2Stream::syncPsAttToTxBand() {
+    if (!psFsm_) return;
+    const QString band = psTxAttBandKey();
+    if (band == psAttBand_) return;
+    if (!psAttBand_.isEmpty())
+        persistPsTxAtt(psFsm_->autoAttDb());
+    psAttBand_ = band;
+    QSettings qs;
+    const QString key = psTxAttSettingsKey(band);
+    const int db = qs.contains(key)
+        ? qs.value(key).toInt()
+        : psAttMoxSeed_;
+    psFsm_->restoreLastAtt(db);
+    if (moxActive() && psArmed_)
+        psFsm_->writeLastAtt();
+    emit psAutoAttDbChanged(psAutoAttDb());
+}
+
 void HL2Stream::bindPsAttnWriter(std::function<void(int)> fn,
                                  int minDb, int maxDb, int moxSeed) {
     if (!psFsm_) return;
+    psAttMoxSeed_ = moxSeed;
     psFsm_->setAttnRange(minDb, maxDb, moxSeed);
-    psFsm_->setAttnWriter(std::move(fn));
+    psFsm_->setAttnWriter([this, fn = std::move(fn)](int db) {
+        if (fn) fn(db);
+        persistPsTxAtt(db);
+    });
+    psAttBand_.clear();
+    syncPsAttToTxBand();
 }
 
 void HL2Stream::setPaEnabled(bool on) {

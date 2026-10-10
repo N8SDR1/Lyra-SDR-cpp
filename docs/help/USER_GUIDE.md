@@ -2211,16 +2211,11 @@ on that radio. BrickSDR2 uses the radio's Protocol-2 feedback path
 installed — without a coupler you get garbage feedback and a worse
 signal.
 
-**PS input vs MAP Ext1 (station note).** DeskHPSDR/Thetis have a PureSignal
-menu input: **Internal** (T/R / relay-overspeak) vs **EXT1** (external
-coupler / sampler). Heiko’s Brick2 100 W B2: external coupler **with
-56 dB ATT after the PA**, PS menu **EXT1 — not Internal**; he believes
-the same on Brick 2/3 and HL2. Lyra’s PS dock does **not** yet expose
-that picker — while PS is live the analog RX bits stay **Internal
-(TRX)**. Brick3 MAP **RX2** (labeled Ext1 in the protocol) is the rear
-**RX2** jack, and Brick3 also has a **PS-A** jack; those are not
-automatically the same as the PS-menu EXT1. Do not retune MAP to “fix”
-PureSignal.
+**PS jack vs MAP RX2.** Plug the sampler return into the Brick3 rear
+**PS** jack. Lyra already uses that port when PureSignal is on. There
+is **no** Internal/EXT1 switch (Thetis does not have one either).
+MAP **RX2** is a receive jack, not the PS coupler. Do not retune MAP
+to “fix” PureSignal.
 
 **Dummy load first.** Bring PS up into a **dummy load**, not the
 antenna. You need enough RF for the coupler to see (on a bare HL2 that
@@ -2284,8 +2279,9 @@ still uses the mic rack, but PureSignal stays off.
 - **ATT** chip — the **auto-att pad** Lyra last used (dB). On **HL2**
   this is the **TX step attenuator** (same writer as ATT-on-TX). On
   **Brick** this is the **ADC0** receive pad (0–31), **not** the
-  ATT-31 PROT lamp. Lyra **keeps the last pad across PTT** so the next
-  keyup does not re-hunt from zero.
+  ATT-31 PROT lamp. Lyra **keeps the last pad across PTT and per TX
+  band** (20 m can sit at 8 dB while 40 m stays 0) so the next key
+  on that band does not re-hunt from the seed.
 - **st / cal / correcting / D0 / D1** — engine state, calibration
   count, “correcting” flag, and the two sample magnitudes (TX vs
   feedback). **D0/D1 both ~0** with drive up usually means **not

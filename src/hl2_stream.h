@@ -1267,6 +1267,7 @@ public slots:
     // HL2: TX step-att. Brick/Hermes P2: ADC0 coupler pad (0..31, seed 0).
     void bindPsAttnWriter(std::function<void(int)> fn,
                           int minDb, int maxDb, int moxSeed);
+    void syncPsAttToTxBand();
     void setPaEnabled(bool on);
     void setXvtrSlots(lyra::ui::XvtrSlots *xvtrSlots);
     // Display RF → radio IF/DDS (identity when no Xvtr slot matches).
@@ -2243,6 +2244,12 @@ private:
     bool                 psArmed_{false};
     bool                 subPausedForPs_{false};
     std::unique_ptr<lyra::ps::PsFsm> psFsm_;
+    QString              psAttBand_;
+    int                  psAttMoxSeed_{0};
+
+    QString psTxAttBandKey() const;
+    QString psTxAttSettingsKey(const QString &band) const;
+    void persistPsTxAtt(int db);
 
     // Task #36 — Hardware PTT input forwarder.
     //

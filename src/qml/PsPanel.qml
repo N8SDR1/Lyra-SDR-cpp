@@ -140,12 +140,12 @@ Rectangle {
             Label {
                 id: attTxt
                 anchors.centerIn: parent
-                text: qsTr("ATT %1 dB").arg(Stream.psAutoAttDb)
+                text: qsTr("ATT %1 dB").arg(Number(Stream.psAutoAttDb))
                 color: Stream.moxActive && root.liveOn ? root.cOn : root.cMuted
                 font.bold: Stream.moxActive && root.liveOn
                 font.pixelSize: 12
             }
-            ToolTip.text: qsTr("Auto-att while PS is keyed. Brick/Hermes: ADC0 coupler pad 0…31 dB. HL2: TX step-att −28…+31 dB.")
+            ToolTip.text: qsTr("PS auto-att, remembered per TX band. 0 dB is normal when FB is already 129–181 (no extra pad). Brick/Hermes: ADC0 coupler 0…31 dB. HL2: TX step-att −28…+31 dB.")
             ToolTip.delay: 800
             ToolTip.visible: attHover.hovered && Prefs.tooltipsEnabled
         }
@@ -214,7 +214,7 @@ Rectangle {
                 color: root.cText
                 font: resetBtn.font
             }
-            ToolTip.text: qsTr("Restart the WDSP calibrator (SetPSControl).")
+            ToolTip.text: qsTr("Restart the calibrator. Works in RX and in TX. st / cal / correcting and the Amp View graph clear until a new collection. The ATT pad is left as-is. FB is a live coupler reading — ~0 in RX, back if you are still keyed.")
             ToolTip.delay: 800
             ToolTip.visible: hovered && Prefs.tooltipsEnabled
         }

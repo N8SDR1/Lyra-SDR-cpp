@@ -20,6 +20,10 @@ public:
     // HL2 TX step-att: min -28 max 31, MOX seed 31 (ATT-on-TX floor).
     // Brick/Hermes P2 ADC0: min 0 max 31, MOX seed 0 (coupler not muted).
     void setAttnRange(int minDb, int maxDb, int moxSeed);
+    // Reload a saved pad without reseeding the range (per-band ps_tx_att).
+    void restoreLastAtt(int db);
+    void writeLastAtt();
+    int  moxSeedAttDb() const { return moxSeedAttDb_; }
     void setFeedbackRateHz(int hz);
 
     void setArmed(bool on);
@@ -55,6 +59,8 @@ private:
     void pushArm();
     void pushDisarm();
     void pollAmpPlot();
+    void resumeAfterReset();
+    void wipeOperatorUi();
 
     QTimer timer_;
     std::function<void(int)> attnWriter_;
@@ -70,6 +76,10 @@ private:
     bool correcting_ = false;
     int  lastAttDb_ = 0;
     int  prevCalCount_ = -1;
+    int  resetGen_ = 0;
+    int  calBaseline_ = 0;
+    int  wipeTicksLeft_ = 0;
+    bool waitingNewCal_ = false;
     int  info_[16] = {};
     int  ddc0Dbfs_ = -999;
     int  ddc1Dbfs_ = -999;
