@@ -51,7 +51,7 @@
 #include "recorder/SessionConverter.h" // #201 — offline MP4 converter
 #include <QImage>                    // #201 — panadapter snapshot grab
 #include "tx/VoiceKeyer.h"
-#include "wire/Ep6RecvThread.h"       // #89 B1 — ep6Thread().set_tx_clip_source(...)
+#include "wire/CMaster.h"             // #89 — SendpTxClipInject / SendpTxMicRecordTap
 #include "wire/P2RxBridge.h"          // Saturn / ANAN G2 Protocol 2 RX path
 #include "wire/RadioNet.h"            // prn — refuse Start until create_rnet
 #include "hardware/ActiveFrontEndModel.h"
@@ -135,11 +135,33 @@
 #include <QSystemTrayIcon>
 
 #include <memory>
+#include <atomic>
 #include <utility>
 
 namespace lyra::ui {
 
 namespace {
+// #89 voice keyer ↔ CMaster TX hooks (plain C function pointers, so the
+// objects are reached through these).  Called on the cm (TX) thread.
+std::atomic<lyra::tx::ClipRecorderPlayer *> g_keyerPlayer{nullptr};
+std::atomic<lyra::tx::ClipRecorder *>       g_keyerRecorder{nullptr};
+
+void keyerMicRecordTap(int nsamples, double *buff)
+{
+    if (auto *r = g_keyerRecorder.load(std::memory_order_acquire))
+        r->feedMicPairs(buff, nsamples);   // no-op unless a Mic record is running
+}
+
+// 0 = no clip, 1 = clip written, 2 = clip written + skip the native rack.
+int keyerClipInject(int nsamples, double *buff)
+{
+    auto *p = g_keyerPlayer.load(std::memory_order_acquire);
+    if (!p || !p->active()) return 0;   // no lock on the idle path
+    const bool bypass = p->activeBypassDsp();
+    if (!p->fillBlock(nsamples, buff)) return 0;
+    return bypass ? 2 : 1;
+}
+
 // Standard feature set for an UNlocked dock: drag, float, close.
 constexpr QDockWidget::DockWidgetFeatures kUnlockedFeatures =
     QDockWidget::DockWidgetMovable |
@@ -695,11 +717,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     clipBank_   = new lyra::tx::ClipBank(this);
     voiceKeyer_ = new lyra::tx::VoiceKeyer(clipBank_, this);
 
-    // #89 B1 — wire the injector into the live TX path.  Done ONCE here, in the
-    // ctor, which runs before any connect starts the Ep6 reader thread, so
-    // Ep6RecvThread::set_tx_clip_source satisfies its set-once-before-start
-    // contract (the sink persists across reconnects; never cleared).  All three
-    // seams are ALWAYS installed — but nothing keys until the operator opts in
+    // #89 B1 — keying seams.  Nothing keys until the operator opts in
     // (VoiceKeyer.live, default OFF) AND deliberately triggers OTA / an F-key.
     if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
         auto *player = voiceKeyer_->player();
@@ -713,23 +731,25 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         player->setBlockedFn([st]() {
             return st->moxActive() && st->pttSource() != PttSource::Keyer;
         });
-        // Mic-funnel injection: while a clip transmits, feed its samples in
-        // place of the live mic at the reference's mic→TX hand-off, so the clip
-        // runs the full TXA chain (PS-safe).  Idle → the lock-free gate returns
-        // false and the live mic flows unchanged (RX byte-identical to pre-#89).
-        st->ep6Thread().set_tx_clip_source(
-            [player](int n, double *buf) -> bool {
-                if (!player->active()) return false;   // no lock on the idle path
-                return player->fillBlock(n, buf);
-            });
-        // #89 Stage C — mic-record tap: read-only observer of the real mic
-        // (before injection), feeds the recorder while a voice message records.
-        auto *recorder = voiceKeyer_->recorder();
-        st->ep6Thread().set_mic_record_tap(
-            [recorder](int n, const double *iq) { recorder->feedMicPairs(iq, n); });
-        // #89 C2 — mic-path voice-keyer recorder is HL2-only (EP6 mic).
-        // The RX session-recorder tap is installed below for both P1 and P2.
     }
+    // #89 — record tap + clip injector on the TX path (xcmaster), right after
+    // the mic-source selection, so REC captures and OTA replaces whichever
+    // source is live: codec mic, VAC (PC / USB / Bluetooth mic) or TCI.  They
+    // used to sit on the HL2 EP6 mic, upstream of the VAC/TCI override, so
+    // with a VAC mic REC recorded the idle codec jack and OTA was overwritten
+    // by the VAC audio.  Idle → lock-free early return, mic flows unchanged.
+    g_keyerPlayer.store(voiceKeyer_->player(), std::memory_order_release);
+    g_keyerRecorder.store(voiceKeyer_->recorder(), std::memory_order_release);
+    lyra::wire::SendpTxMicRecordTap(&keyerMicRecordTap);
+    lyra::wire::SendpTxClipInject(&keyerClipInject);
+    // Unhook before the keyer objects go away.  At quit destroy_cmaster()
+    // has already stopped the cm threads, so no call can be in flight.
+    connect(voiceKeyer_, &QObject::destroyed, this, []() {
+        lyra::wire::SendpTxClipInject(nullptr);
+        lyra::wire::SendpTxMicRecordTap(nullptr);
+        g_keyerPlayer.store(nullptr, std::memory_order_release);
+        g_keyerRecorder.store(nullptr, std::memory_order_release);
+    });
 
     // #201 session recorder + #89 RX-clip tap: post-RX-DSP "what you heard".
     // Must live on WdspEngine regardless of Protocol 1 vs 2 — gating this

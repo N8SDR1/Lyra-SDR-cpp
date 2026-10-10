@@ -108,6 +108,8 @@ typedef struct _cmaster
 	void (*TxPlateProcess)(int nsamples, double* buff);				// #52 in-place plate reverb, runs AFTER the combinator (no-op when unset / bypassed)
 	void (*TxBurstProcess)(int nsamples, double* buff);				// FM 1750 Hz access burst — mix after the rack, before the monitor tap / fexchange0
 	void (*TxMonitorTap)(int nsamples, double* buff);				// #90 READ-ONLY TX-monitor tap on the post-rack mic (== fexchange0 input), captured for the operator monitor; MUST NOT write buff
+	void (*TxMicRecordTap)(int nsamples, double* buff);				// #89 READ-ONLY voice-keyer record tap on the SELECTED mic source (after the VAC/TCI override, before the rack); MUST NOT write buff
+	int (*TxClipInject)(int nsamples, double* buff);				// #89 voice-keyer clip injector, same point: 0 = no clip (buff untouched or zeroed), 1 = clip written, 2 = clip written + skip the native rack (keyer Bypass DSP)
 	volatile long tx_rack_bypass;									// #50 — when set, skip the ENTIRE native rack (EQ + Speech + …); driven by mode (DIGU/DIGL → bypass so digital audio is never voice-shaped)
 	volatile long tci_run;											// run TCI RX IQ/audio callbacks
 	int	audioCodecId;
@@ -179,6 +181,13 @@ extern PORT void SendpTxBurstProcessor (void (*Process)(int nsamples, double* bu
 // only READS pcm->in (copies the mono I-lane into the monitor ring); it must
 // never write the buffer.  Pass nullptr to clear.
 extern PORT void SendpTxMonitorTap (void (*Tap)(int nsamples, double* buff));
+// #89 — register the voice keyer's record tap and clip injector.  Both run
+// per TX block on pcm->in right after the mic-source selection (codec / VAC /
+// TCI), so the keyer records and replaces whichever source is live.  The tap
+// only READS the buffer.  The injector's return value is documented on
+// pcm->TxClipInject.  Pass nullptr to clear.
+extern PORT void SendpTxMicRecordTap (void (*Tap)(int nsamples, double* buff));
+extern PORT void SendpTxClipInject (int (*Inject)(int nsamples, double* buff));
 // #50 — bypass the whole native TX rack (EQ + future Speech/Combinator/Plate).
 // Set 1 for digital modes (DIGU/DIGL) so the mic DSP never touches FT8/JS8/etc.
 extern PORT void SetTxRackBypass (int bypass);

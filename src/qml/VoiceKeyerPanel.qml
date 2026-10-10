@@ -360,9 +360,10 @@ Rectangle {
                     font.pixelSize: 11; leftPadding: 8; rightPadding: 8
                     verticalAlignment: Text.AlignVCenter }
                 ToolTip.visible: hovered
-                ToolTip.text: qsTr("Play clips as recorded — skip the TX taste stages "
-                                   + "(EQ / Comp / Combinator / PHROT). ALC + bandpass "
-                                   + "stay on. Off = run the full TX chain.")
+                ToolTip.text: qsTr("Play clips as recorded — skip Lyra's TX rack "
+                                   + "(Speech / EQ / Combinator / Plating). WDSP stages "
+                                   + "(Leveler, PHROT, ALC) and the bandpass stay on. "
+                                   + "Off = run the full TX chain.")
             }
             Item { Layout.fillWidth: true }
             Button {
