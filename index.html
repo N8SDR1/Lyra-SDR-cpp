@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lyra — Modern SDR transceiver for HPSDR (Hermes Lite 2 / 2+ · BrickSDR2)</title>
-<meta name="description" content="Lyra — a modern, GPU-accelerated SDR transceiver console for HPSDR radios: the Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 (Protocol 2). Full RX/TX SSB, CW, AM/SAM and FM, a Vulkan panadapter, a studio TX chain, CW decoder, DX spots and an SDRLogger+ link.">
+<title>Lyra — Modern SDR transceiver for HPSDR (Hermes Lite 2 / 2+ · BrickSDR2 · Brick3SDR)</title>
+<meta name="description" content="Lyra — a modern, GPU-accelerated SDR transceiver console for HPSDR radios: the Hermes Lite 2 / 2+ (Protocol 1) and BrickSDR2 / Brick3SDR (Protocol 2). Full RX/TX SSB, CW, AM/SAM and FM, a Vulkan panadapter, a studio TX chain, CW decoder, DX spots and an SDRLogger+ link.">
 <link rel="icon" type="image/png" href="logo.png">
 <style>
   :root {
@@ -156,15 +156,15 @@
     <header>
       <img class="logo" src="logo.png" alt="Lyra logo">
       <div class="wordmark">LYRA<span class="accent"> SDR</span></div>
-      <p class="tagline">A modern, GPU-accelerated SDR transceiver for HPSDR radios — the Hermes&nbsp;Lite&nbsp;2 / 2+ and the BrickSDR2.</p>
-      <div><span class="badge">v0.25.8 Sheliak · Free &amp; open source · GPL v3</span></div>
+      <p class="tagline">A modern, GPU-accelerated SDR transceiver for HPSDR radios — the Hermes&nbsp;Lite&nbsp;2 / 2+, BrickSDR2, and Brick3SDR.</p>
+      <div><span class="badge">v0.25.16 Sheliak · Brick3 Beta Testing · GPL v3</span></div>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases">⬇ Download</a>
+        <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest">⬇ Download</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki">📖 Docs</a>
         <a class="btn btn-ghost" href="https://discord.gg/BwjsQvjcSc">💬 Join the Discord</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp">★ GitHub</a>
       </div>
-      <p class="platforms">Windows 10 / 11 · Hermes Lite 2 / 2+ (Protocol 1) &amp; BrickSDR2 (Protocol 2) · 1600 × 900 display or larger</p>
+      <p class="platforms">Windows 10 / 11 · Hermes Lite 2 / 2+ (Protocol 1) &amp; BrickSDR2 / Brick3SDR (Protocol 2) · 1600 × 900 display or larger</p>
       <p class="platforms" style="margin-top:8px;">Protocol 1 is Hermes Lite 2 / 2+ only. Brick and ANAN are Protocol 2 only — Lyra does not open those radios on Protocol 1.</p>
     </header>
 
@@ -232,7 +232,7 @@
 
     <section id="puresignal">
       <h2>PureSignal — adaptive predistortion</h2>
-      <p class="marquee-sub">Live on coupler-mod HL2 / HL2+ and BrickSDR2. Amp View is the live GetPSDisp plot.</p>
+      <p class="marquee-sub">Live on coupler-mod HL2 / HL2+, BrickSDR2, and Brick3SDR. Amp View is the live GetPSDisp plot.</p>
       <div style="display:flex; gap:22px; align-items:flex-start; flex-wrap:wrap; justify-content:center;">
         <div class="shot" style="width:min(480px,100%); flex:1 1 320px;">
           <img src="feat-puresignal.jpg" alt="Lyra PureSignal dock and Amp View on the console — FB in the green zone" loading="lazy">
@@ -244,7 +244,7 @@
         </div>
       </div>
       <p class="shot-note" style="margin-top:18px;">
-        Attestation is off by default in Settings → TX. HL2 / HL2+ needs the coupler mod; BrickSDR2 uses ADC0 feedback.
+        Attestation is off by default in Settings → TX. HL2 / HL2+ needs the coupler mod; BrickSDR2 uses ADC0 feedback; Brick3 uses the rear PS jack.
         Operator detail is in the <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/User-Guide#puresignal">User Guide</a>.
       </p>
     </section>
@@ -252,9 +252,9 @@
     <section>
       <h2>What it does</h2>
       <div class="grid">
-        <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on the Hermes&nbsp;Lite&nbsp;2 / 2+ (Protocol 1) and BrickSDR2 (Protocol 2). Protocol 1 is HL2-only; Brick and ANAN are Protocol 2 only. See <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Supported-Radios">Supported Radios</a>.</p></div>
+        <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on the Hermes&nbsp;Lite&nbsp;2 / 2+ (Protocol 1) and BrickSDR2 / Brick3SDR (Protocol 2). Brick3 is beta testing. Protocol 1 is HL2-only; Brick and ANAN are Protocol 2 only. See <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Supported-Radios">Supported Radios</a>.</p></div>
         <div class="card"><h3><span class="ico">📊</span> GPU panadapter</h3><p>A Vulkan-accelerated spectrum and waterfall with click-to-tune, centre-tune (CTUN), RIT / XIT, peak hold and eight colour palettes.</p></div>
-        <div class="card"><h3><span class="ico">✨</span> PureSignal</h3><p>Adaptive TX predistortion on coupler-mod HL2 / HL2+ and BrickSDR2, with a compact dock and an Amp View plot (Snap / Hold). <a href="#puresignal">See it up close</a>.</p></div>
+        <div class="card"><h3><span class="ico">✨</span> PureSignal</h3><p>Adaptive TX predistortion on coupler-mod HL2 / HL2+, BrickSDR2, and Brick3SDR, with a compact dock and an Amp View plot (Snap / Hold). <a href="#puresignal">See it up close</a>.</p></div>
         <div class="card"><h3><span class="ico">🎚️</span> Studio TX chain</h3><p>8-band parametric EQ, a multiband combinator, tube-plate reverb, speech processing, a voice keyer and VOX — shape your audio like a broadcast desk, saved as recallable profiles.</p></div>
         <div class="card"><h3><span class="ico">🔇</span> Noise reduction</h3><p>WDSP classic NR (Modes 1–4) or neural NNR (Standard / Premium + mask slider), plus noise blanker, auto-notch, LMS, and a captured-noise profile of your own band.</p></div>
         <div class="card"><h3><span class="ico">📡</span> CW</h3><p>An on-screen CW decoder with a choice of engine — the classic fldigi reader or the <a href="#deepfist">DeepFist neural decoder</a> — plus click-to-send macros, an internal / Winkeyer keyer, and a callsign ID rendered right into your waterfall.</p></div>
@@ -269,7 +269,7 @@
       <h2>On the roadmap</h2>
       <p class="marquee-sub">Where Lyra is headed &mdash; planned for future releases.</p>
       <div class="grid">
-        <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">📡</span> More radios</h3><p>HPSDR <strong style="color:var(--head)">Protocol 2</strong> is live — the <strong style="color:var(--head)">BrickSDR2</strong> runs on it with full RX/TX. Next up: the <strong style="color:var(--head)">ANAN</strong> family (G2, G2-1K, 7000DLE, 8000) on that same P2 path.</p></div>
+        <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">📡</span> More radios</h3><p>HPSDR <strong style="color:var(--head)">Protocol 2</strong> is live on <strong style="color:var(--head)">BrickSDR2</strong> and <strong style="color:var(--head)">Brick3SDR</strong> (beta testing). Next up: the <strong style="color:var(--head)">ANAN</strong> family (G2, G2-1K, 7000DLE, 8000) on that same P2 path.</p></div>
         <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">💻</span> macOS &amp; Linux</h3><p>Native cross-platform builds so Lyra runs beyond Windows.</p></div>
       </div>
     </section>
