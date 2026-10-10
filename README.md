@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.15 Sheliak** — Protocol 2 TX follows the VFO after retune (BrickSDR2). WDSP 2.10 from 0.25.8.
+**v0.25.16 Sheliak** — Brick3 Beta Testing (Protocol 2). WDSP 2.10 from 0.25.8.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 
@@ -61,20 +61,21 @@ up rewrite using the architecture the project should have started with.
 ## Features
 
 A full receive **and transmit** SDR transceiver for HPSDR radios — the
-Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 (**Protocol 2 only**) —
+Hermes Lite 2 / 2+ (Protocol 1) and BrickSDR2 / **Brick3SDR** (**Protocol 2 only**) —
 native C++ end to end. A Brick still on Protocol 1 may appear in Discover;
 **Open is refused** (HL2 TX layout). Flash P2; Brick FPGA help: Anton
 (linoobs) on Discord.  Lyra transmits every voice mode (SSB / AM / DSB /
 SAM / FM) plus CW and digital via TCI, and ships a complete native TX audio
 processing rack. Dual receive (**SUB / RX2**) and **SPLIT** pile-up
 (VFO B TX, independent of SUB) are live on **Hermes Lite 2** (Protocol 1)
-and **BrickSDR2** (Protocol 2) — one ADC; N2ADR follows RX1 (cross-band
-SUB is much weaker). **PureSignal** (coupler-mod HL2 / HL2+, BrickSDR2
-ADC0 feedback) is live — dummy-load first; see the User Guide.
+and **BrickSDR2 / Brick3SDR** (Protocol 2). Brick2 is one ADC; Brick3 is
+Angelia-class (2 ADC, MAP ANT / RX2). **PureSignal** (coupler-mod HL2 /
+HL2+; Brick2 ADC0 pad; Brick3 rear **PS** jack) is live — dummy-load first;
+see the User Guide. Brick3 is **beta testing**.
 
 * **Radio** — HPSDR Protocol 1 + Protocol 2 discovery (multi-NIC, dual
   limited + subnet-directed broadcast) + **Add by IP** unicast probe for
-  fixed-IP / cross-subnet radios; live RX off the HL2 / HL2+ and BrickSDR2
+  fixed-IP / cross-subnet radios; live RX off the HL2 / HL2+, BrickSDR2, and Brick3SDR
   on dedicated OS threads;
   multi-radio list (double-click to Open, connected radio marked);
   auto-connect to the last radio.  The installer adds the firewall rules so
@@ -126,7 +127,7 @@ ADC0 feedback) is live — dummy-load first; see the User Guide.
   an SS amp.  The on-screen watts are calibrated per band so the meter, the
   cap, and your external watt-meter all agree.  PureSignal-safe.
 * **PureSignal** — adaptive TX predistortion when the radio has a
-  coupler (HL2 / HL2+ hardware mod; BrickSDR2 Protocol-2 feedback).
+  coupler (HL2 / HL2+ hardware mod; BrickSDR2 ADC0 pad; Brick3 rear PS jack).
   Compact **PureSignal** dock plus **Amp View** plot (Snap / Hold),
   FB colour window (teal / green / red), auto-att that **persists
   across PTT**. Attestation in Settings → TX (default off).

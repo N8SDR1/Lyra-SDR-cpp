@@ -3,7 +3,7 @@
 This page gets you from a downloaded installer to hearing your first
 signal. For the full reference, see the **[User Guide](User-Guide)**.
 
-> **You need:** a Hermes Lite 2 / 2+ **or a BrickSDR2 on Protocol 2** on your
+> **You need:** a Hermes Lite 2 / 2+ **or a BrickSDR2 / Brick3SDR on Protocol 2** on your
 > network, a Windows 10 (1809+) or 11 PC (64‑bit, a GPU with OpenGL 3.3+), and
 > the two connected to the same LAN (a dedicated NIC‑to‑radio cable works
 > great). A Brick still on **Protocol 1** can appear in Discover and **will

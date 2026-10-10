@@ -20,6 +20,22 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.16
+
+**Brick3 Beta Testing.** Protocol 2 RX + TX on **Brick3SDR** (Angelia
+class). Discover MAC `02:B3`, pick **Brick3SDR** in Settings → Hardware.
+Dummy load first.
+
+- **MAP** — per-band ANT + RX jack chips. Brick3: 2 ANT; rear **RX2** is
+  Ext1 (receive jack).
+- **Auto Step** — Protocol 2 ADC pad 0–31, frozen while keyed, unwind
+  toward 0. Overflow is gated on the selected ADC.
+- **Per-band PureSignal pad** — last ATT remembered per TX band.
+- **PS Reset** — restarts the calibrator in RX or TX. Clears st / cal /
+  correcting and Amp View until a new collection. ATT is left as-is.
+- Plug the sampler into the Brick3 rear **PS** jack (the coupler path).
+  There is no Internal / EXT1 picker.
+
 ## What's new in 0.25.15
 
 - **Auto Step 0–31 on Protocol 2.** DSP+Audio **Step** walks the ADC pad
@@ -220,6 +236,7 @@ not programmers — if you can click a menu, you can use this.
 
 ## Contents
 
+- [What's new in 0.25.16](#whats-new-in-02516)
 - [What's new in 0.25.15](#whats-new-in-02515)
 - [What's new in 0.25.14](#whats-new-in-02514)
 - [What's new in 0.25.13](#whats-new-in-02513)
@@ -378,7 +395,7 @@ Lyra **opens** these today:
 |---|---|---|
 | **Hermes Lite 2 / 2+** | Protocol 1 | Full RX + TX. HL2+ adds the on-board mic / headphone jacks. |
 | **BrickSDR2** | **Protocol 2 only** | Full RX + TX, SUB / SPLIT, PureSignal. |
-| **Brick3SDR** | **Protocol 2 only** | Angelia-class (2 ADC, Alex). Pick **Brick3SDR** in **Settings → Hardware**. TX dummy-load + Arm P2 TX until on-air validated. |
+| **Brick3SDR** | **Protocol 2 only** | **Brick3 Beta Testing.** Angelia-class (2 ADC, Alex, 2 ANT, RX2 jack). Pick **Brick3SDR** in **Settings → Hardware**. Dummy-load + Arm P2 TX on first key. |
 
 A Brick (or classic ANAN) that still answers **Protocol 1** can show in
 **Discover**. Lyra **will not Open** that row. Protocol 1 TX in Lyra is the

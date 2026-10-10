@@ -4,6 +4,16 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-10 — v0.25.16 Sheliak RELEASED (Brick3 Beta Testing)
+
+- Full GitHub release (not prerelease) so the in-app updater and
+  `/releases/latest` see it. Tag `v0.25.16`. Title mentions Brick3
+  Beta Testing. Do not merge `main`.
+- Since v0.25.15: Brick3SDR P2 RX+TX (discover 02:B3), MAP chips,
+  Auto Step 0–31, per-band PS pad, PS Reset wipe, catalog ANT/RX
+  jacks. Sampler on Brick3 rear **PS**. No Internal/EXT1 picker.
+- Dummy-load first. Dual-ADC panes and diversity still parked.
+
 ## 2026-10-09 — Brick3 PureSignal saved locally (FB still unchanged)
 
 - Catalog **Brick3SDR** (`BRICK3-SDR`) is back: Angelia/100D class
