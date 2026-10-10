@@ -470,6 +470,7 @@ qt_add_executable(lyra
     src/waterfall.cpp
     src/freqdisplay.h
     src/freqdisplay.cpp
+    src/wheel_steps.h
     src/autoscale.h
     src/mainwindow.h
     src/mainwindow.cpp
@@ -1329,4 +1330,18 @@ if(APPLE)
     )
     target_include_directories(test_wdsp_posix_semaphore PRIVATE
         third_party/wdsp_posix/include)
+endif()
+
+# VFO frequency-display wheel stepping (src/wheel_steps.h): one digit step per
+# notch for macOS smooth-scrolling mice, 120 units per step elsewhere and for
+# trackpad gestures.  Qt Core only; EXCLUDE_FROM_ALL.
+# Build + run:  cmake --build build --target test_wheel_steps
+add_executable(test_wheel_steps EXCLUDE_FROM_ALL
+    scratch/test_wheel_steps.cpp
+    src/wheel_steps.h
+)
+target_include_directories(test_wheel_steps PRIVATE src)
+target_link_libraries(test_wheel_steps PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_wheel_steps PRIVATE /utf-8 /Zc:preprocessor)
 endif()

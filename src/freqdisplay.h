@@ -72,6 +72,7 @@ private:
     int  freqHz_         = 7'074'000;
     int  selected_       = 3;            // default = 1 kHz place
     int  externalStepHz_ = 0;
+    int  wheelAccum_     = 0;            // partial wheel delta (wheel_steps.h)
     // (placeValue, on-screen rect) per painted digit, for hit-testing.
     std::vector<std::pair<int, QRectF>> digitRects_;
 };

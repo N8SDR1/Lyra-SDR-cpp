@@ -2,6 +2,7 @@
 // Lyra's led_freq.py (FrequencyDisplay) — same look + interactions.
 
 #include "freqdisplay.h"
+#include "wheel_steps.h"
 
 #include <QColor>
 #include <QFont>
@@ -219,7 +220,13 @@ void FreqDisplay::mouseDoubleClickEvent(QMouseEvent *e) {
 }
 
 void FreqDisplay::wheelEvent(QWheelEvent *e) {
-    const int units = e->angleDelta().y() / 120;
+#if defined(Q_OS_MACOS)
+    constexpr bool kNotchIsOneStep = true;
+#else
+    constexpr bool kNotchIsOneStep = false;
+#endif
+    const int units = wheelDigitSteps(e->angleDelta().y(), e->phase(),
+                                      kNotchIsOneStep, wheelAccum_);
     if (units == 0) {
         e->ignore();
         return;
