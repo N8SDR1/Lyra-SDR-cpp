@@ -719,14 +719,14 @@ int main(int argc, char *argv[])
     //      can be inside the lambda once close() returns).
     lyra::dsp::Hl2Ep6MicSource *micSource = nullptr;
     // P0.d (2026-06-12) — create_xmtr()/destroy_xmtr() gate flag at
-    // outer scope for the aboutToQuit handler-1.5.  The reference
+    // outer scope for the aboutToQuit handler-4.  The reference
     // calls create_xmtr() inside create_cmaster (cmaster.c:288);
     // Lyra-cpp's DEFERRED-CALLSITE accommodation (documented in
     // wire/CMaster.cpp's preamble) invokes it from the QTimer block
     // below AFTER wdsp->load() + resolve_wdsp_calls() succeed — the
     // verbatim body's OpenChannel/XCreateAnalyzer calls resolve
     // through the wire/wdspcalls.h seam and need the loaded DLL.
-    // The flag gates the matching destroy_xmtr() (handler-1.5) so a
+    // The flag gates the matching destroy_xmtr() (handler-4) so a
     // failed/never-run create never tears down through unresolved
     // seam pointers.
     //
@@ -815,43 +815,12 @@ int main(int argc, char *argv[])
         qWarning("[shutdown] handler-1 EXIT");
     });
 
-    // P0.d (2026-06-12) — handler-1.5: destroy_xmtr().
-    //
-    // Reference cmaster.c:255-271 `destroy_xmtr` — destroys the ILV
-    // (destroy_ilv), the TX analyzer (DestroyAnalyzer), closes the
-    // WDSP TXA channel (CloseChannel at cmaster.c:265, NO preceding
-    // SetChannelState dmode=1 per the reference design; the blocking-
-    // flush stop belongs at keyup not at destroy-time) and frees the
-    // xmtr[i].out[0..2] buffers — the verbatim P0.d port in
-    // wire/CMaster.cpp does all four (the dexp/eer/txgain/sidetone
-    // lines stay DEFERRED with their subsystems).
-    //
-    // Lyra ordering: between handler-1 (clears stream->registerTx{
-    // IqSource,Control}({}) -- no more callbacks fire after this point)
-    // and handler-2 (stream->close -- joins EP6 thread).  This window
-    // is when the xmtr is safe to tear down: no producer can fire
-    // SendpOutboundTx (handler-1 cleared), no consumer can pull
-    // TxIqSource (handler-1 cleared).  Running BEFORE handler-4's
-    // destroy_cmaster() preserves the reference's relative teardown
-    // order (destroy_xmtr before the per-stream cmbuffs teardown,
-    // cmaster.c:322-337) — see the DEFERRED-CALLSITE note in
-    // wire/CMaster.cpp.
-    //
-    // Gated on xmtrCreated: if wdsp->load() failed or the operator
-    // closed before the QTimer fired, create_xmtr() never ran and
-    // the verbatim teardown (no null guards, reference posture) must
-    // not run against unresolved seam pointers / a never-opened
-    // channel.
-    QObject::connect(&app, &QCoreApplication::aboutToQuit,
-                     [&xmtrCreated, wdspEngine]() {
-        qWarning("[shutdown] handler-1.5 ENTRY (destroy_xmtr)");
-        if (xmtrCreated) {
-            wdspEngine->setTxaChannelOpen(false);   // #159 — txa[1] gone
-            lyra::wire::destroy_xmtr();
-            xmtrCreated = false;
-        }
-        qWarning("[shutdown] handler-1.5 EXIT");
-    });
+    // P0.d — destroy_xmtr() runs in handler-4 below, after
+    // destroy_cmaster() has stopped the cm pump threads.  It used to run
+    // here (between handler-1 and handler-2), but the stream-1 cm thread
+    // keeps running xcmaster -> xeer/xtxgain/xilv on pcm->xmtr[0] for as
+    // long as the EP6 / P2 mic producer feeds Inbound(1,...), so freeing
+    // the xmtr here crashed on quit (SIGSEGV in xeer on the cm thread).
 
     // Task #26 — auto-mute RX1 audio while the wire MOX bit is live so
     // the operator doesn't self-deafen off their own TX coupling.
@@ -970,9 +939,34 @@ int main(int argc, char *argv[])
     // order and fires aboutToQuit handlers in that same order, so this
     // lambda runs after handler-2 and the Stage-2b2c micSource-delete
     // handler-3.
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, []() {
+    //
+    // Then, in this order:
+    //   - destroy_xmtr() (reference cmaster.c:255-271).  Only now is no
+    //     xcmaster() in flight: destroy_cmbuffs() has trapped every cm
+    //     thread.  The reference calls it inside destroy_cmaster before
+    //     the cmbuffs loop, which relies on the radio already being
+    //     stopped AND the cm queue drained; here a queued mic buffer can
+    //     still wake the stream-1 thread after handler-2, so it waits for
+    //     the threads to die.  Gated on xmtrCreated: if wdsp->load()
+    //     failed or the operator quit before the init QTimer fired,
+    //     create_xmtr() never ran and the verbatim teardown (no null
+    //     guards) must not run against unresolved seam pointers.
+    //   - wdspEngine->shutdown() — closes RX1/RX2/VAC and destroys the
+    //     id-0 audio mixer.  Must follow destroy_xmtr's cm-thread stop
+    //     (xcmaster mixes TX monitor audio into that mixer via xMixAudio),
+    //     must precede handler-PA (VAC teardown uses PortAudio), and must
+    //     run here rather than from ~WdspEngine: WdspNative is an earlier
+    //     child of the app, so it unloads libwdsp before ~WdspEngine runs.
+    QObject::connect(&app, &QCoreApplication::aboutToQuit,
+                     [&xmtrCreated, wdspEngine]() {
         qWarning("[shutdown] handler-4 ENTRY (destroy_cmaster)");
         lyra::wire::destroy_cmaster();
+        if (xmtrCreated) {
+            wdspEngine->setTxaChannelOpen(false);   // #159 — txa[1] gone
+            lyra::wire::destroy_xmtr();
+            xmtrCreated = false;
+        }
+        wdspEngine->shutdown();
         qWarning("[shutdown] handler-4 EXIT");
     });
 

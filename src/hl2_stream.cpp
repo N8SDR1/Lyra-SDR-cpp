@@ -1551,6 +1551,7 @@ void HL2Stream::open(const QString &ip) {
         (lyra::wire::prn->hsendIQSem = ::CreateSemaphore(nullptr, 0, 1, nullptr));
     lyra::wire::prn->hobbuffsRun[0] = ::CreateSemaphore(nullptr, 0, 1, nullptr);
     lyra::wire::prn->hobbuffsRun[1] = ::CreateSemaphore(nullptr, 0, 1, nullptr);
+    _InterlockedExchange(&lyra::wire::prn->obStopWait, 0);   // close() set it
 
     // Stage 2b2-fix: timer consumers START LAST — only after
     // create_rnet() above has allocated `prn` and the EP6/TX
@@ -1681,7 +1682,7 @@ void HL2Stream::close() {
         qWarning("[shutdown] HL2Stream::close socket shutdown (wake EP6)");
     }
     qWarning("[shutdown] HL2Stream::close ep6Thread_.stop() - start");
-    ep6Thread_.stop();   // ref: wait the read thread (producers quiesce; ob_main parks on Sem_BuffReady)
+    ep6Thread_.stop();   // ref: wait the read thread
     qWarning("[shutdown] HL2Stream::close ep6Thread_.stop() - done");
     if (lyra::wire::prn != nullptr) {
         // Wake the parked writer (the accommodation the reference omits)
@@ -1699,18 +1700,18 @@ void HL2Stream::close() {
             lyra::wire::prn->hWriteThreadMain = nullptr;
         }
         qWarning("[shutdown] HL2Stream::close EP2 writer join - done");
-        // Close the 4 P1 sems (ref network.c:1464-1467).  Safe here —
-        // BEFORE destroy_obbuffs as in the reference — because
-        // ep6Thread_.stop() + the writer join above quiesced every
-        // producer, so ob_main is parked on Sem_BuffReady and will not
-        // ReleaseSemaphore a closed handle.  Null-cleared for a clean
-        // re-open (open() recreates them).
-        if (lyra::wire::prn->hsendIQSem)     { ::CloseHandle(lyra::wire::prn->hsendIQSem);     lyra::wire::prn->hsendIQSem = nullptr; }
-        if (lyra::wire::prn->hsendLRSem)     { ::CloseHandle(lyra::wire::prn->hsendLRSem);     lyra::wire::prn->hsendLRSem = nullptr; }
-        if (lyra::wire::prn->hobbuffsRun[0]) { ::CloseHandle(lyra::wire::prn->hobbuffsRun[0]); lyra::wire::prn->hobbuffsRun[0] = nullptr; }
-        if (lyra::wire::prn->hobbuffsRun[1]) { ::CloseHandle(lyra::wire::prn->hobbuffsRun[1]); lyra::wire::prn->hobbuffsRun[1] = nullptr; }
-        lyra::wire::prn->hsendEventHandles[0] = nullptr;
-        lyra::wire::prn->hsendEventHandles[1] = nullptr;
+        // The ob_main pumps are NOT necessarily parked on Sem_BuffReady
+        // here: the cm (TX I/Q) and aamix (RX audio) producers keep
+        // feeding the obbuffs rings, and a pump that handed a buffer to
+        // the writer just before it exited is blocked in sendOutbound()
+        // on hobbuffsRun[], which only the writer releases.  Stop those
+        // waits and wake any current waiter, so destroy_obbuffs() below
+        // can trap both pumps.
+        _InterlockedExchange(&lyra::wire::prn->obStopWait, 1);
+        if (lyra::wire::prn->hobbuffsRun[0])
+            ::ReleaseSemaphore(lyra::wire::prn->hobbuffsRun[0], 1, nullptr);
+        if (lyra::wire::prn->hobbuffsRun[1])
+            ::ReleaseSemaphore(lyra::wire::prn->hobbuffsRun[1], 1, nullptr);
     }
 
     // Both workers stopped — main thread sends STOP, then closes
@@ -1756,6 +1757,19 @@ void HL2Stream::close() {
     // obp aliases after free — P1 verbatim).
     lyra::wire::destroy_obbuffs(0);
     lyra::wire::destroy_obbuffs(1);
+    if (lyra::wire::prn != nullptr) {
+        // Close the 4 P1 sems (ref network.c:1464-1467) — AFTER
+        // destroy_obbuffs, unlike the reference: until the pumps are
+        // gone, sendOutbound() still releases hsend*Sem and could have
+        // been waiting on hobbuffsRun[] (see obStopWait above).  Null-
+        // cleared for a clean re-open (open() recreates them).
+        if (lyra::wire::prn->hsendIQSem)     { ::CloseHandle(lyra::wire::prn->hsendIQSem);     lyra::wire::prn->hsendIQSem = nullptr; }
+        if (lyra::wire::prn->hsendLRSem)     { ::CloseHandle(lyra::wire::prn->hsendLRSem);     lyra::wire::prn->hsendLRSem = nullptr; }
+        if (lyra::wire::prn->hobbuffsRun[0]) { ::CloseHandle(lyra::wire::prn->hobbuffsRun[0]); lyra::wire::prn->hobbuffsRun[0] = nullptr; }
+        if (lyra::wire::prn->hobbuffsRun[1]) { ::CloseHandle(lyra::wire::prn->hobbuffsRun[1]); lyra::wire::prn->hobbuffsRun[1] = nullptr; }
+        lyra::wire::prn->hsendEventHandles[0] = nullptr;
+        lyra::wire::prn->hsendEventHandles[1] = nullptr;
+    }
 
     statsTimer_.stop();
     autoLnaTimer_.stop();

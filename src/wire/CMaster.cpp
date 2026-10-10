@@ -367,10 +367,10 @@ void destroy_cmaster()
 	// WdspEngine::closeRx1:
 	//   destroy_aamix  (0, 0);
 	// DEFERRED-CALLSITE [runtime-loaded wdsp.dll — see file
-	// preamble]: main.cpp's aboutToQuit handler-1.5 invokes
-	// destroy_xmtr() (gated on create_xmtr() having run) BEFORE
-	// this function fires in handler-4 — the reference's relative
-	// order (destroy_xmtr before the per-stream teardown) holds:
+	// preamble]: main.cpp's aboutToQuit handler-4 invokes
+	// destroy_xmtr() (gated on create_xmtr() having run) right AFTER
+	// this function — once destroy_cmbuffs() has stopped the cm
+	// threads, so no xcmaster() can still be using pcm->xmtr[]:
 	//   destroy_xmtr();
 	destroy_rcvr();
 	for (i = 0; i < pcm->cmSTREAM; i++)

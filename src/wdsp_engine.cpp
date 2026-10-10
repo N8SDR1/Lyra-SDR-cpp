@@ -701,6 +701,11 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
 
 WdspEngine::~WdspEngine()
 {
+    shutdown();
+}
+
+void WdspEngine::shutdown()
+{
     // Reverse-destruction-order hazard: neuralCw_ is declared (wdsp_engine.h)
     // BEFORE cwArbiter_ and the cwHarvest*/cwHarvester_ members, so members
     // destruct in the OPPOSITE order — cwHarvester_, cwHarvestDecim_,

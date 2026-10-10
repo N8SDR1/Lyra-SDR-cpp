@@ -52,6 +52,15 @@
 
 namespace lyra::wire {
 
+// Lyra deviation: the reference waits INFINITE here unconditionally.
+// Skipped once HL2Stream::close() has set prn->obStopWait (see
+// RadioNet.h) so the ob_main pumps can reach destroy_obbuffs' trap.
+static void waitObbuffsRun(int i)
+{
+	if (!_InterlockedAnd(&prn->obStopWait, 1))
+		WaitForSingleObject(prn->hobbuffsRun[i], INFINITE);
+}
+
 // Reference network.c:1237-1341 (verbatim; the ETH branch carried
 // as DEFERRED reference text, marked inline):
 
@@ -138,7 +147,7 @@ void sendOutbound(int id, double* out)
 					// release semaphore, indicating IQ data received and complete.
 					ReleaseSemaphore(prn->hsendIQSem, 1, 0);
 					// wait to refill 'outIQbuffp' until the packet is sent
-					WaitForSingleObject(prn->hobbuffsRun[0], INFINITE);
+					waitObbuffsRun(0);
 				}
 			}
 			else			// RX L-R data arriving
@@ -147,7 +156,7 @@ void sendOutbound(int id, double* out)
 				// release semaphore indicating L-R data ready
 				ReleaseSemaphore(prn->hsendLRSem, 1, 0);
 				// wait to refill 'outLRbufp' until the packet is sent
-				WaitForSingleObject(prn->hobbuffsRun[1], INFINITE);
+				waitObbuffsRun(1);
 			}
 		}
 		else					// eer/etr is NOT running
@@ -156,13 +165,13 @@ void sendOutbound(int id, double* out)
 			{
 				memcpy(prn->outIQbufp, out, sizeof(complex) * 126);
 				ReleaseSemaphore(prn->hsendIQSem, 1, 0);
-				WaitForSingleObject(prn->hobbuffsRun[0], INFINITE);
+				waitObbuffsRun(0);
 			}
 			else
 			{
 				memcpy(prn->outLRbufp, out, sizeof(complex) * 126);
 				ReleaseSemaphore(prn->hsendLRSem, 1, 0);
-				WaitForSingleObject(prn->hobbuffsRun[1], INFINITE);
+				waitObbuffsRun(1);
 			}
 		}
 	}
