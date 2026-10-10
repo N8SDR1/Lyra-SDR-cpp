@@ -1000,6 +1000,15 @@ Item {
                               * Prefs.panScrollStepHz
                     return c
                 }
+                // Wheel step.  With the 100 Hz grid on, a step under 100 Hz
+                // is rounded straight back by snapCarrier (+1/+10 Hz never
+                // leave the grid line; -50 Hz rounds back up), so the wheel
+                // did nothing.  Step at least one grid line in that mode.
+                function wheelStepHz() {
+                    return Prefs.panRound100
+                        ? Math.max(100, Prefs.panScrollStepHz)
+                        : Prefs.panScrollStepHz
+                }
                 function currentCarrierHz(rx) {
                     if (rx === 2) {
                         if (root.splitOn)
@@ -1212,7 +1221,7 @@ Item {
                         var dir = wheel.angleDelta.y > 0 ? 1 : -1
                         var rx = root.panTuneRx
                         tuneCarrier(currentCarrierHz(rx)
-                                    + dir * Prefs.panScrollStepHz, rx)
+                                    + dir * wheelStepHz(), rx)
                     }
                     wheel.accepted = true
                 }
@@ -2251,7 +2260,7 @@ Item {
                         var rx = root.panTuneRx
                         specMouse.tuneCarrier(
                             specMouse.currentCarrierHz(rx)
-                            + dir * Prefs.panScrollStepHz, rx)
+                            + dir * specMouse.wheelStepHz(), rx)
                     }
                     wheel.accepted = true
                 }
