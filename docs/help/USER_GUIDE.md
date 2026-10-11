@@ -787,7 +787,7 @@ control panels in a row beneath).
   until you unlock.
 - **Grouped DSP Rack** (Settings → Visuals → Panel layout): pull a panel
   out of the rack with its **⧉** button, a title-bar double-click, or by
-  dragging it off the rack (RX EQ stays in the rack). It appears under your cursor and docks into
+  dragging it off the rack. It appears under your cursor and docks into
   Lyra if you drop it on a highlighted spot. A popped-out panel is
   reopened from the **View** menu, and the next time Lyra starts it is
   back in the DSP Rack — the rack always opens with all its panels in it.

@@ -1972,12 +1972,10 @@ lyra::ui::PanelRack *MainWindow::buildRack(const QString &objName,
                                            const QString &title,
                                            const QStringList &members) {
     auto *rack = new lyra::ui::PanelRack(objName, title, this);
-    // Speech / TX EQ / Combinator / Plating pop out of the DSP rack and can
-    // then dock into the main window.  RX EQ stays in the rack; Options stays
-    // sealed.
+    // Speech / TX EQ / RX EQ / Combinator / Plating pop out of the DSP rack
+    // and can then dock into the main window.  Options stays sealed.
     if (objName == QLatin1String("dsprack")) {
         rack->setAllowTearOut(true);
-        rack->setFixedMember(QStringLiteral("rxeq"));
         // Dragged off the rack: the panel appears under the cursor where it
         // was grabbed, and docks only if released on one of this window's
         // drop zones (edge band, or beside / tabbed with a panel).
