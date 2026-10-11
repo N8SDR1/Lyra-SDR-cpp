@@ -80,6 +80,7 @@ Item {
     }
 
     Canvas {   // the Lyra constellation — static, painted once per size
+        renderStrategy: Canvas.Cooperative
         x: parent.width - 66
         y: 4
         width: 56

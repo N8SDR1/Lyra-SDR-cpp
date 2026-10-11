@@ -255,6 +255,20 @@ are compatible with Lyra-cpp's GPL v3+.
 
 ---
 
+## Bundled fonts (SIL Open Font License 1.1)
+
+Lyra bundles four fonts under `src/assets/fonts/`, each
+distributed under the SIL Open Font License 1.1 with its licence text
+alongside the font file:
+
+- **Share Tech Mono** — © 2012 Carrois Type Design, Ralph du Carrois
+  (`OFL-ShareTechMono.txt`)
+- **Nixie One** — © 2011 Jovanny Lemonad (`OFL-NixieOne.txt`)
+- **Inter** — © 2020 The Inter Project Authors (`OFL-Inter.txt`)
+- **DSEG7 Classic** — © 2017 keshikan (`LICENSE-DSEG.txt`)
+
+---
+
 ## Project author
 
 **Lyra-cpp** is N8SDR (Rick Langford)'s project, building on

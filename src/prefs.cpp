@@ -5,6 +5,7 @@
 #include "palettes.h"
 #include "grid.h"
 #include "rig/RigScope.h"   // multi-rig Stage 4d — per-rig panadapter dB-scale keys
+#include "vfo_style_migrate.h"  // saved VFO-style id of a removed style
 #include "win_perf.h"       // process-priority apply (Settings → Hardware → Performance)
 
 #include <QSettings>
@@ -350,7 +351,7 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     // always-on space-bar keying for existing operators.
     spaceBarPttEnabled_ = s.value(kSpaceBarPttEnabled, true).toBool();
     tooltipsEnabled_    = s.value(kTooltipsEnabled, true).toBool();
-    vfoStyle_           = s.value(kVfoStyle, QString()).toString();
+    vfoStyle_           = lyra::ui::migrateVfoStyleId(s.value(kVfoStyle, QString()).toString());
     autoStartOnLaunch_  = s.value(kAutoStartOnLaunch, true).toBool();
     // Process priority (per-PC).  Clamp to the valid 0..2 range, then apply
     // to the running process so the persisted choice takes effect at launch.

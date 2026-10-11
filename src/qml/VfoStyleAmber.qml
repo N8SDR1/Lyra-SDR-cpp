@@ -3,8 +3,9 @@
 // A port of FreqDisplay's old QPainter readout: amber digits on near-black
 // with a ghost "8" behind each (unlit-segment look), dimmed leading MHz
 // zeros, cyan selected-digit underline and MHz/kHz/Hz labels, in the
-// original 360×108 bordered box.  Digits are Courier New Bold, as the
-// original readout rendered.  Style contract: see VfoBox.qml.
+// original 360×108 bordered box.  Digits are Consolas Bold where installed,
+// else Courier New Bold, as the original readout rendered per platform.
+// Style contract: see VfoBox.qml.
 import QtQuick
 
 Item {
@@ -44,7 +45,7 @@ Item {
         return list[list.length - 1]
     }
     readonly property string digitFamily:
-        pickFamily(["Courier New", "Consolas", "Share Tech Mono"])
+        pickFamily(["Consolas", "Courier New"])
 
     width: naturalWidth
     height: naturalHeight
@@ -87,7 +88,7 @@ Item {
 
         FontMetrics {
             id: unitFm
-            font.family: "Consolas"
+            font.family: st.digitFamily
             font.pixelSize: Math.max(11, Math.floor(area.height * 0.19))
             font.bold: true
         }

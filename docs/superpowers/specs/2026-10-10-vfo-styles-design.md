@@ -1,6 +1,6 @@
 # Selectable VFO Styles — Tuning Panel
 
-**Status:** Design approved in chat (2026-10-10) — pending spec review, then implementation plan
+**Status:** Phase 1 implemented (framework, Lyra (Mac), Amber LED, Classic LCD, Nixie, VFD, Widget); Phases 2–3 pending
 **Branch context:** `macos-port` (Qt 6.11 / macOS arm64; must stay buildable on Linux/Windows)
 **Author:** Brent Crier (N9BC)
 
@@ -271,3 +271,12 @@ Where these conflict with the sections above, these win.
 6. **`LyraComboBox` theme properties.** It gains optional `fieldColor`,
    `fieldBorderColor`, `textColor` and `accentColor`. Their defaults equal
    today's colours, so every other combo stays unchanged.
+7. **Post-implementation notes (Phase 1).**
+   - `digitString` was dropped from the style contract in favour of
+     `digitRects`: styles report one rect per digit place and `VfoBox` hit-tests
+     against those, so proportional and stacked layouts need no per-style
+     digit arithmetic.
+   - The bundled fonts landed in the styles commit, not the framework commit.
+   - Aluminum was removed. A saved `aluminum` id migrates to `lyraMac` on load
+     (`src/vfo_style_migrate.h`).
+   - VFD (`VfoStyleVfd.qml`, stroked tube segments — no DSEG font) was added to the Classic group.

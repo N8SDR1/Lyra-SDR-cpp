@@ -15,8 +15,8 @@ var styles = [
     { id: "amber",   name: "Amber LED",  group: "Classic", file: "VfoStyleAmber.qml" },
     { id: "classicLcd", name: "Classic LCD", group: "Classic", file: "VfoStyleClassicLcd.qml" },
     { id: "nixie", name: "Nixie", group: "Classic", file: "VfoStyleNixie.qml" },
-    { id: "widget", name: "Widget", group: "Modern", file: "VfoStyleWidget.qml" },
-    { id: "aluminum", name: "Aluminum", group: "Modern", file: "VfoStyleAluminum.qml" }
+    { id: "vfd", name: "VFD", group: "Classic", file: "VfoStyleVfd.qml" },
+    { id: "widget", name: "Widget", group: "Modern", file: "VfoStyleWidget.qml" }
 ]
 
 function byId(id) {

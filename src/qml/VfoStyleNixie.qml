@@ -25,9 +25,9 @@ Item {
     readonly property rect stepModeRect: Qt.rect(14, 104, 392, 24)
     readonly property rect txPipRect: Qt.rect(378, 6, 28, 15)
     readonly property var theme: ({
-        label: "#d9b48a", field: "#21180f", fieldBorder: "#4a3522",
+        label: "#d9b48a", field: "#1b2a3a", fieldBorder: "#3a5a78",
         text: "#f0d6b4", accent: "#ff8a2b",
-        pipIdle: "#21180f", pipIdleBorder: "#4a3522", pipIdleText: "#8a6a4a",
+        pipIdle: "#22303e", pipIdleBorder: "#4a6078", pipIdleText: "#8aa0b4",
         compact: false
     })
 
@@ -53,28 +53,13 @@ Item {
     width: naturalWidth
     height: naturalHeight
 
-    Rectangle {   // case
+    Rectangle {   // rim only — the panel color shows through
         anchors.fill: parent
         radius: 8
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "#1a1410" }
-            GradientStop { position: 1.0; color: "#0b0806" }
-        }
+        color: "transparent"
         border.width: 2
         border.color: st.vfoState === "tx" ? "#ff4136"
                     : st.vfoState === "armed" ? "#3a4250" : "#34c759"
-    }
-    Canvas {   // fine mesh — static
-        anchors.fill: parent
-        anchors.margins: 3
-        onPaint: {
-            var c = getContext("2d")
-            c.reset()
-            c.fillStyle = "rgba(255,255,255,0.04)"
-            for (var y = 2; y < height; y += 5)
-                for (var x = 2; x < width; x += 5)
-                    c.fillRect(x, y, 1, 1)
-        }
     }
 
     Repeater {   // tube glass
@@ -89,14 +74,9 @@ Item {
             topRightRadius: 15
             bottomLeftRadius: 6
             bottomRightRadius: 6
-            gradient: Gradient {
-                orientation: Gradient.Horizontal
-                GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.07) }
-                GradientStop { position: 0.4; color: Qt.rgba(1, 1, 1, 0.0) }
-                GradientStop { position: 1.0; color: Qt.rgba(1, 1, 1, 0.04) }
-            }
-            border.width: 1
-            border.color: Qt.rgba(1, 200 / 255, 150 / 255, 0.18)
+            color: "transparent"
+            border.width: 1.5
+            border.color: "#ff8a2b"
         }
     }
 

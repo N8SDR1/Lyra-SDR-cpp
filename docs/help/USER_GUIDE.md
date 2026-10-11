@@ -588,8 +588,9 @@ a CPU change.)
 
 ### 5. Tune and listen
 
-- **Tuning panel** — set the **RX1** frequency on the LED readout, and pick
-  the **mode** (USB/LSB/CW/…) and **step** right under the VFO; see
+- **Tuning panel** — set the **RX1** frequency on the VFO readout (right-click it to pick a
+  **VFO style**), and pick the **mode** (USB/LSB/CW/…) and **step** right
+  under the VFO; see
   [Tuning panel](#tuning-panel).
 - **Filters panel** — set the **RX/TX filter bandwidth** and sample rate;
   see [Filters panel](#filters-panel).
@@ -920,7 +921,7 @@ node).
 Sets the **RX1 receive frequency** on a big **readout**
 (megahertz · kilohertz · hertz). Its look is selectable: **right-click either
 VFO → VFO style** and choose **Lyra (Mac)** (default), **Amber LED** (the
-original look), **Classic LCD**, **Nixie**, **Widget**, or **Aluminum**. The
+original look), **Classic LCD**, **Nixie**, **VFD**, or **Widget**. The
 choice is shared by VFO A and B and remembered.
 
 - **Click a digit** to select it (a cyan underline marks it), then **roll

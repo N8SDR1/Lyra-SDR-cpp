@@ -193,12 +193,6 @@ Rectangle {
         }
     }
 
-    // Indication palette (matches the locked VFO indication model).
-    readonly property color cRx:   "#34c759"   // receiving (green border)
-    readonly property color cTx:   "#ff4136"   // transmitting now (red border)
-    readonly property color cArm:  "#3a4250"   // armed TX, not keyed (gray)
-    readonly property color cRole: "#efb340"   // amber RX/TX role tag
-
     readonly property var modeList: ["LSB", "USB", "CWL", "CWU",
                                      "DSB", "AM", "SAM", "FM", "DIGU", "DIGL"]
     readonly property bool cwMode: Prefs.mode === "CWU" || Prefs.mode === "CWL"
@@ -510,7 +504,7 @@ Rectangle {
                     Stream.splitEnabled || Stream.subEnabled || root.width >= 900
                 Layout.preferredWidth: reserve ? vfoBoxB.naturalWidth : 0
                 Layout.maximumWidth: reserve ? vfoBoxB.naturalWidth : 0
-                Layout.minimumWidth: (Stream.splitEnabled || Stream.subEnabled)
+                Layout.minimumWidth: reserve
                                      ? Math.round(vfoBoxB.naturalWidth * 5 / 6) : 0
                 Layout.fillHeight: true
                 Layout.alignment: Qt.AlignVCenter

@@ -471,6 +471,7 @@ qt_add_executable(lyra
     src/freqdisplay.h
     src/freqdisplay.cpp
     src/wheel_steps.h
+    src/vfo_style_migrate.h
     src/autoscale.h
     src/mainwindow.h
     src/mainwindow.cpp
@@ -579,11 +580,11 @@ qt_add_qml_module(lyra
         src/qml/VfoStepMode.qml
         src/qml/VfoTxPip.qml
         src/qml/VfoStyles.js
-        src/qml/VfoStyleAluminum.qml
         src/qml/VfoStyleAmber.qml
         src/qml/VfoStyleClassicLcd.qml
         src/qml/VfoStyleLyraMac.qml
         src/qml/VfoStyleNixie.qml
+        src/qml/VfoStyleVfd.qml
         src/qml/VfoStyleWidget.qml
         src/qml/LyraSpinBox.qml
         src/qml/LyraComboBox.qml
@@ -1383,6 +1384,19 @@ target_include_directories(test_wheel_steps PRIVATE src)
 target_link_libraries(test_wheel_steps PRIVATE Qt6::Core)
 if(MSVC)
     target_compile_options(test_wheel_steps PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# VFO saved-style id migration (src/vfo_style_migrate.h): a removed style's id
+# maps to its successor on load.  Qt Core only; EXCLUDE_FROM_ALL.
+# Build + run:  cmake --build build --target test_vfo_style_migrate
+add_executable(test_vfo_style_migrate EXCLUDE_FROM_ALL
+    scratch/test_vfo_style_migrate.cpp
+    src/vfo_style_migrate.h
+)
+target_include_directories(test_vfo_style_migrate PRIVATE src)
+target_link_libraries(test_vfo_style_migrate PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_vfo_style_migrate PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # VFO style digit hit-testing (src/vfo_digit_hit.h) — which digit place a
