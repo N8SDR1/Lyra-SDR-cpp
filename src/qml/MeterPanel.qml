@@ -1,9 +1,9 @@
 // Lyra — Meter dock panel (RX/TX meter).
 //
-// Hosts one of three GPU-flavoured renderers — Horizon Arc (default),
-// Plasma Bar, or Vertical Ladder (Multi-source) — all fed by the C++
-// `Meter` context property (MeterModel).  A tiny Arc|Bar|Ladder toggle
-// in the corner flips the style live; the choice persists.
+// Hosts the meter faces — Horizon Arc (default), Plasma Bar, Vertical
+// Ladder, and the later single-source faces — all fed by the C++
+// `Meter` context property (MeterModel).  A header chip opens the
+// style list; the choice persists.
 //
 // Arc and Bar are single-source views (one needle / bar, peak pip,
 // glow, secondary digital readouts).  Ladder is the Multi view — N
@@ -31,41 +31,87 @@ Rectangle {
     readonly property int lyraMinWidth:  220
     readonly property int lyraMinHeight: 150
 
-    // ── Style toggle (top-right): Arc | Bar | Ladder ──
-    Row {
-        id: styleToggle
+    // Short names, same order as MeterModel style indices.
+    readonly property var styleNames: [
+        "Arc", "Bar", "Ladder",
+        "Porthole", "Fader", "Nixie", "Numitron", "VFD", "Dekatron", "Panaplex",
+        "Drum", "Iris", "Sonar", "Ingot"
+    ]
+
+    function openStyleMenu() {
+        var p = styleBtn.mapToItem(Overlay.overlay, 0, styleBtn.height + 2)
+        stylePop.x = Math.max(4, p.x + styleBtn.width - stylePop.width)
+        stylePop.y = p.y
+        stylePop.open()
+    }
+
+    // ── Style chip (top-right). The list would not fit as Arc|Bar|Ladder. ──
+    Rectangle {
+        id: styleBtn
         anchors.top: parent.top
         anchors.right: parent.right
         anchors.topMargin: 6
         anchors.rightMargin: 8
-        spacing: 0
         z: 10
+        width: Math.min(112, Math.max(72, styleLabel.implicitWidth + 16))
+        height: 18
+        color: "#0c1218"
+        border.color: "#00e5ff"
+        border.width: 1
+        Text {
+            id: styleLabel
+            anchors.centerIn: parent
+            text: (root.styleNames[Meter.activeStyle] || "Arc") + "  ▾"
+            color: "#00e5ff"
+            font.pixelSize: 10
+            font.bold: true
+        }
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.openStyleMenu()
+        }
+    }
 
-        Repeater {
-            model: [
-                { t: "Arc",    s: 0 },
-                { t: "Bar",    s: 1 },
-                { t: "Ladder", s: 2 }
-            ]
+    Popup {
+        id: stylePop
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        padding: 4
+        width: 148
+        height: Math.min(300, root.styleNames.length * 22 + 8)
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle {
+            color: "#0c1218"
+            border.color: "#2a4a5a"
+            radius: 2
+        }
+        contentItem: ListView {
+            clip: true
+            model: root.styleNames
             delegate: Rectangle {
-                width: 44; height: 18
-                readonly property bool sel: Meter.activeStyle === modelData.s
-                color: sel ? "#15435a" : "#0c1218"
-                border.color: sel ? "#00e5ff" : "#2a4a5a"
-                border.width: 1
+                required property int index
+                required property string modelData
+                width: ListView.view.width
+                height: 22
+                color: Meter.activeStyle === index ? "#15435a" : "transparent"
                 Text {
-                    anchors.centerIn: parent
-                    text: modelData.t
-                    color: sel ? "#00e5ff" : "#7790a0"
-                    font.pixelSize: 10
-                    font.bold: sel
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    anchors.leftMargin: 8
+                    text: (Meter.activeStyle === index ? "✓  " : "    ") + modelData
+                    color: Meter.activeStyle === index ? "#00e5ff" : "#cdd9e5"
+                    font.pixelSize: 12
+                    font.family: "Menlo"
                 }
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    // Overrides the style of whatever state is showing now
-                    // (TX style on TX when Separate RX/TX style is on).
-                    onClicked: Meter.setActiveStyle(modelData.s)
+                    onClicked: {
+                        Meter.setActiveStyle(index)
+                        stylePop.close()
+                    }
                 }
             }
         }
@@ -80,14 +126,36 @@ Rectangle {
             switch (Meter.activeStyle) {
             case 1:  return barFace
             case 2:  return ladderFace
+            case 3:  return portholeFace
+            case 4:  return faderFace
+            case 5:  return nixieFace
+            case 6:  return numitronFace
+            case 7:  return vfdFace
+            case 8:  return dekatronFace
+            case 9:  return panaplexFace
+            case 10: return drumFace
+            case 11: return irisFace
+            case 12: return sonarFace
+            case 13: return ingotFace
             default: return arcFace
             }
         }
     }
 
-    Component { id: arcFace;    HorizonArc {} }
-    Component { id: barFace;    PlasmaBar {} }
-    Component { id: ladderFace; VerticalLadder {} }
+    Component { id: arcFace;      HorizonArc {} }
+    Component { id: barFace;      PlasmaBar {} }
+    Component { id: ladderFace;   VerticalLadder {} }
+    Component { id: portholeFace; MeterPorthole {} }
+    Component { id: faderFace;    MeterFader {} }
+    Component { id: nixieFace;    MeterNixie {} }
+    Component { id: numitronFace; MeterNumitron {} }
+    Component { id: vfdFace;      MeterVfd {} }
+    Component { id: dekatronFace; MeterDekatron {} }
+    Component { id: panaplexFace; MeterPanaplex {} }
+    Component { id: drumFace;     MeterDrum {} }
+    Component { id: irisFace;     MeterIris {} }
+    Component { id: sonarFace;    MeterSonar {} }
+    Component { id: ingotFace;    MeterIngot {} }
 
     // ── Click-to-cycle source picker (task #35 / FEATURES.md §6) ──
     // Click on the meter face cycles the source through the wired
@@ -105,7 +173,7 @@ Rectangle {
     // there don't fall through to the source cycle.
     MouseArea {
         anchors.fill: face
-        z: 1                              // below the styleToggle (z:10)
+        z: 1                              // below the style chip (z:10)
         // Disabled on the Ladder style — Multi shows all sources at
         // once, so there's no primary to cycle.  Operator picks per-
         // state preference from Settings → Meter as usual.
@@ -125,5 +193,14 @@ Rectangle {
                            + "the radio is keyed) — Settings → Meter "
                            + "also picks each one explicitly.")
         hoverEnabled: true
+    }
+
+    // Right-click anywhere on the face opens the style list, including
+    // on the Ladder where left-click does not cycle the source.
+    MouseArea {
+        anchors.fill: face
+        z: 2
+        acceptedButtons: Qt.RightButton
+        onClicked: root.openStyleMenu()
     }
 }

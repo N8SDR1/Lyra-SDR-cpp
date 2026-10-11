@@ -164,7 +164,8 @@ private:
     // on a P2 rig.  Refreshes on the meter tick (NOTIFY updated).
     Q_PROPERTY(double liveSwr READ liveSwr NOTIFY updated)
     // Operator-selectable visual style: 0 = Horizon Arc (default),
-    // 1 = Plasma Bar, 2 = Vertical Ladder.  `style` is the RX (default)
+    // 1 = Plasma Bar, 2 = Vertical Ladder, 3..13 later single-source
+    // faces.  `style` is the RX (default)
     // style; `txStyle` is used on TX when `separateStyle` is on.  The
     // renderer + header toggle read `activeStyle`, which swaps on the MOX
     // edge (mirrors the panadapter dB-range swap).

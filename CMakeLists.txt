@@ -602,6 +602,18 @@ qt_add_qml_module(lyra
         src/qml/HorizonArc.qml
         src/qml/PlasmaBar.qml
         src/qml/VerticalLadder.qml
+        src/qml/MeterPorthole.qml
+        src/qml/MeterFader.qml
+        src/qml/MeterTubeRow.qml
+        src/qml/MeterNixie.qml
+        src/qml/MeterNumitron.qml
+        src/qml/MeterVfd.qml
+        src/qml/MeterDekatron.qml
+        src/qml/MeterPanaplex.qml
+        src/qml/MeterDrum.qml
+        src/qml/MeterIris.qml
+        src/qml/MeterSonar.qml
+        src/qml/MeterIngot.qml
     RESOURCES
         src/assets/watermarks/lyra-watermark.jpg
         src/assets/logo/lyra-icon-128.png
