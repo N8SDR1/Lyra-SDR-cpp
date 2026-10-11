@@ -776,12 +776,15 @@ control panels in a row beneath).
   everything — panels can't be moved, floated, closed, **or resized** —
   so you can't disturb your arrangement by accident during operating.
   The move cursor disappears on locked title bars as a reminder.
-- **TX audio panels (Speech / EQ / Combinator / Plating) and the Tuner**
-  dock like any other panel. A floating one only docks where the cyan highlight
+- **Panels you open from the header chips** (TX Speech / EQ / Combinator /
+  Plating, RX EQ, Tuner, CW, CW Dec, Voice Keyer, Recorder, Freq Cal,
+  PureSignal, Amp View) open as floating windows, and dock like any other
+  panel. A floating one only docks where the cyan highlight
   shows — an edge, or onto another panel; let go anywhere else and it stays
   a floating window. Its **⧉** button docks it straight into the window.
-  With panels locked, a floating one can still be moved and closed,
-  but it won't dock or pop out until you unlock.
+  Docked, it locks with the rest of the layout. With panels locked, a
+  floating one can still be moved and closed, but it won't dock or pop out
+  until you unlock.
 - **Grouped DSP Rack** (Settings → Visuals → Panel layout): pull a panel
   out of the rack with its **⧉** button, a title-bar double-click, or by
   dragging it off the rack (RX EQ stays in the rack). It appears under your cursor and docks into
@@ -2591,10 +2594,11 @@ slideshow over the audio, handy for sharing a band opening or an unusual
 signal.
 
 **Open it from the `⏺ Recorder` chip in the header**, between the *RX DSP* and
-*Options* groups. Click it to pop out the **Recorder** panel (a floating tool
-window). While a recording is running, that same chip turns into a red
-**`● REC hh:mm:ss`** timer so you always know at a glance that it's rolling —
-click it to reopen the panel, where **Stop** lives.
+*Options* groups. Click it to pop out the **Recorder** panel (it opens
+floating; drop it on a highlighted spot to dock it). While a recording is
+running, that same chip turns into a red **`● REC hh:mm:ss`** timer so you
+always know at a glance that it's rolling — click it to reopen the panel,
+where **Stop** lives.
 
 **The Recorder panel**
 
@@ -2699,7 +2703,8 @@ is best for a straight key or a keyer that times itself.
 
 **2 — Keyboard + macros (the CW console).** Click the **CW** chip on the
 top toolbar to pop open the floating **CW Console** (it floats by default
-and remembers where you put it — only open it when you want it). It works
+and remembers where you put it — drop it on a highlighted spot to dock it,
+and only open it when you want it). It works
 only in CWU/CWL; outside CW the send controls dim, so switch to CW first.
 The **WPM** slider sets the speed; **Esc** or the red **Stop · Esc** button
 aborts whatever is sending. The bottom **type-and-send** line keys a line
@@ -2779,8 +2784,8 @@ used for SSB.
 Lyra has a built-in CW reader — this stays in Lyra (it is **not** an Apps
 companion). Click the **CW Dec** chip on the top toolbar
 to pop open the floating **CW Decoder** (it floats and remembers where you
-put it). It reads **only in CWU/CWL** — outside CW the detector controls
-dim and a "switch to CW to decode" note shows.
+put it, or dock it like any panel). It reads **only in CWU/CWL** — outside
+CW the detector controls dim and a "switch to CW to decode" note shows.
 
 The decoder is a faithful port of **fldigi's** CW receiver (the W1HKJ
 open-source Morse engine), so if you know fldigi's CW behaviour, this is it.
@@ -2962,7 +2967,8 @@ you like:
 
 ### The guided panel (Freq Cal chip)
 
-Open **Options: → Freq Cal** in the header. A floating instrument appears:
+Open **Options: → Freq Cal** in the header. A floating instrument appears
+(drop it on a highlighted spot to dock it):
 
 1. **Tap a time station chip** (only the ones your region can actually hear
    are shown — see [Band plan (Region)](#band-plan-region)). Lyra saves your

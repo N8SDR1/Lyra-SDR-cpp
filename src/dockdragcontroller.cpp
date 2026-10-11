@@ -306,10 +306,9 @@ bool DockDragController::eventFilter(QObject *obj, QEvent *event) {
                 return true;   // not past threshold yet
             state_ = State::Dragging;
             if (floatOnly) {
-                // Chip-summoned tool window (TX/RX DSP racks, CW console,
-                // CW decoder): a pure free-move that NEVER docks — no drop
-                // overlay, no hit-testing.  Self-heal one a prior build may
-                // have left docked so it can be dragged out again.
+                // Float-only panel (see setFloatOnlyPredicate): a pure
+                // free-move that NEVER docks — no drop overlay, no
+                // hit-testing.  A docked one is popped out so it can move.
                 if (!dragDock_->isFloating()) {
                     dragDock_->setFloating(true);
                     dragWasFloating_ = true;
@@ -370,7 +369,7 @@ bool DockDragController::eventFilter(QObject *obj, QEvent *event) {
         auto *me = static_cast<QMouseEvent *>(event);
         const QPoint gpos = me->globalPosition().toPoint();
         if (isFloatOnly(dragDock_)) {
-            // Float-only tool window: leave it floating where dropped, never
+            // Float-only panel: leave it floating where dropped, never
             // dock.  (endDrag hides the overlay if a previous non-float drag
             // created it.)
             QDockWidget *dropped = dragDock_;

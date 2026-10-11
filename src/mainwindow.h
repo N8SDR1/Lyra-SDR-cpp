@@ -405,9 +405,9 @@ private:
     // `target` (global; invalid = where it is now), so it can dock into the
     // main layout or stay floating.
     void adoptFloatedRackMember(QDockWidget *dock, const QRect &target = QRect());
-    // ⧉ on a floating audio panel: dock it beside the panel at `globalPos`,
+    // ⧉ on a floating chip panel: dock it beside the panel at `globalPos`,
     // or onto the nearest edge when no panel is there.
-    void dockAudioPanelIntoMain(QDockWidget *dock, const QPoint &globalPos);
+    void dockChipPanelIntoMain(QDockWidget *dock, const QPoint &globalPos);
 
     SettingsDialog             *settingsDlg_ = nullptr;
     Help                       *help_    = nullptr;   // QML→C++ help bridge

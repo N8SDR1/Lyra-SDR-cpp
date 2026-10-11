@@ -48,10 +48,9 @@ public:
                        QObject *parent = nullptr);
     ~DockDragController() override;
 
-    // Float-only panels (the header-chip-summoned TX/RX DSP + CW tool windows)
-    // must NEVER dock: dragging them is a pure free-move with no drop zones and
-    // no commit-to-dock on release.  MainWindow sets this to its
-    // isChipSummonedPanel() test so the two stay in lockstep.
+    // Float-only panels must NEVER dock: dragging them is a pure free-move with
+    // no drop zones and no commit-to-dock on release.  MainWindow uses it for
+    // a floating chip-summoned panel while panels are locked.
     void setFloatOnlyPredicate(std::function<bool(const QString &)> pred) {
         floatOnly_ = std::move(pred);
     }
@@ -96,7 +95,7 @@ private:
     };
 
     QDockWidget *dockOf(QWidget *w) const;
-    bool         isFloatOnly(QDockWidget *d) const;   // chip-summoned tool window?
+    bool         isFloatOnly(QDockWidget *d) const;   // free-move only, never docks?
     bool         canTearOut(QDockWidget *d) const;    // host allows it + floatable
     QRect        dockRegionLocal() const;     // win_-local content rect
     Zone         hitTest(const QPoint &globalPos) const;
@@ -106,7 +105,7 @@ private:
     QMainWindow                         *win_     = nullptr;
     const QHash<QString, QDockWidget *> *docks_   = nullptr;
     DropOverlay                         *overlay_ = nullptr;
-    std::function<bool(const QString &)> floatOnly_;   // chip-summoned → float-only
+    std::function<bool(const QString &)> floatOnly_;   // name → float-only
     TearOutHandler                       tearOut_;
     bool                                 noTearOut_ = false;   // rack: None = no-op
 
