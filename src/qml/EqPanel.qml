@@ -203,7 +203,7 @@ Rectangle {
 
             // Makeup output trim.
             Label { text: qsTr("Makeup"); color: root.cMuted }
-            RoundButton {
+            LyraButton {
                 text: "−"; implicitWidth: 24; implicitHeight: 24
                 onClicked: eq.makeupDb = eq.makeupDb - 1
             }
@@ -216,7 +216,7 @@ Rectangle {
                 Layout.preferredWidth: 52
                 horizontalAlignment: Text.AlignHCenter
             }
-            RoundButton {
+            LyraButton {
                 text: "+"; implicitWidth: 24; implicitHeight: 24
                 onClicked: eq.makeupDb = eq.makeupDb + 1
             }

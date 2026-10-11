@@ -59,7 +59,7 @@ Rectangle {
                     NumberAnimation { from: 0.25; to: 1.0; duration: 700 }
                 }
             }
-            ToolButton {
+            LyraButton {
                 text: "⚙"
                 font.pixelSize: 15
                 implicitWidth: 26; implicitHeight: 26

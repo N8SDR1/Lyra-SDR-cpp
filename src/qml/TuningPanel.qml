@@ -1029,19 +1029,19 @@ Rectangle {
             }
 
             // VFO copy / swap.  1→2 = A→B, 2→1 = B→A, ⇄ = swap.
-            Button {
+            LyraButton {
                 implicitHeight: 26; implicitWidth: 40; font.pixelSize: 12
                 text: qsTr("1→2")
                 onClicked: root.copyAtoB()
                 ToolTip.text: qsTr("Copy VFO A → VFO B"); ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
-            Button {
+            LyraButton {
                 implicitHeight: 26; implicitWidth: 40; font.pixelSize: 12
                 text: qsTr("2→1")
                 onClicked: root.copyBtoA()
                 ToolTip.text: qsTr("Copy VFO B → VFO A"); ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
-            Button {
+            LyraButton {
                 implicitHeight: 26; implicitWidth: 36; font.pixelSize: 14
                 text: qsTr("⇄")
                 onClicked: root.swapAB()
@@ -1116,7 +1116,7 @@ Rectangle {
             }
             // Quick-zero — a reliable button (double-click on the spin fought
             // the SpinBox's own input handling and killed the arrows).
-            Button {
+            LyraButton {
                 visible: ritBtn.checked
                 implicitHeight: 26; implicitWidth: 26
                 text: qsTr("0"); font.pixelSize: 12
@@ -1182,7 +1182,7 @@ Rectangle {
                     + "wheel = 10 Hz (Shift = 100 Hz).  '0' clears it.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 800
             }
-            Button {
+            LyraButton {
                 visible: xitBtn.checked
                 implicitHeight: 26; implicitWidth: 26
                 text: qsTr("0"); font.pixelSize: 12
@@ -1292,7 +1292,7 @@ Rectangle {
                 text: qsTr("Offset"); color: "#cccccc"; font.bold: true
                 visible: root.fmMode && Stream.splitEnabled
             }
-            Button {
+            LyraButton {
                 visible: root.fmMode && Stream.splitEnabled
                 implicitHeight: 26; implicitWidth: 30; font.pixelSize: 15
                 text: root.rptDirSign < 0 ? "−" : "+"

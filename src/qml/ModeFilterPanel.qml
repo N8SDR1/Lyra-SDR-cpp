@@ -180,7 +180,7 @@ Rectangle {
         // Prefs::setRxBandwidth / setTxBandwidth).  Toggling ON pulls
         // RX into TX so the operator's audible RX BW becomes the TX BW
         // — matches old-Lyra's lock-on direction.
-        Button {
+        LyraButton {
             id: bwLockBtn
             Layout.preferredWidth: 32
             checkable: true

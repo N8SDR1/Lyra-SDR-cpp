@@ -144,7 +144,7 @@ Rectangle {
             // control and swallowed clicks.  "Panafall" label + values are
             // self-explanatory; details are in the User Guide.
         }
-        Button {
+        LyraButton {
             Layout.row: 1; Layout.column: 2
             Layout.preferredWidth: 64
             checkable: true
@@ -221,7 +221,7 @@ Rectangle {
                 enabled: Prefs.peakHoldSecs > 0
                 onActivated: Prefs.peakDecayDbps = root.peakDecayVals[currentIndex]
             }
-            Button {
+            LyraButton {
                 text: qsTr("Clear")
                 Layout.preferredWidth: 52
                 // Off has nothing to clear; Live re-seeds itself every tick.

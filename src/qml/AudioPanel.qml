@@ -275,7 +275,7 @@ Rectangle {
                 color: root.cText; font.family: "Consolas"
                 Layout.preferredWidth: 44
             }
-            Button {
+            LyraButton {
                 text: WdspEngine.muted ? qsTr("MUTED") : qsTr("MUTE")
                 checkable: true
                 checked: WdspEngine.muted
@@ -308,7 +308,7 @@ Rectangle {
                 color: root.cText; font.family: "Consolas"
                 Layout.preferredWidth: 44
             }
-            Button {
+            LyraButton {
                 text: WdspEngine.mutedRx2 ? qsTr("MUTED") : qsTr("MUTE2")
                 checkable: true
                 checked: WdspEngine.mutedRx2
@@ -1169,7 +1169,7 @@ Rectangle {
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 400
             }
 
-            Button {
+            LyraButton {
                 text: qsTr("Save"); implicitHeight: 24; implicitWidth: 50
                 font.pixelSize: 11
                 enabled: WdspEngine.noiseProfileValid
@@ -1178,7 +1178,7 @@ Rectangle {
                 ToolTip.text: qsTr("Save the just-captured profile under a name.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 400
             }
-            Button {
+            LyraButton {
                 text: qsTr("Del"); implicitHeight: 24; implicitWidth: 44
                 font.pixelSize: 11
                 enabled: WdspEngine.noiseActiveProfile.length > 0

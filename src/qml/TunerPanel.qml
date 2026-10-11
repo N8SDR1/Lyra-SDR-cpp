@@ -279,7 +279,7 @@ Rectangle {
                             Tuner.fmtFreq(Tuner.matchFreqHz) + qsTr(", ") +
                             root.fmtDelta(Tuner.matchDeltaHz) + qsTr(")")
                     color: root.cText }
-                Button {
+                LyraButton {
                     text: qsTr("Store this freq")
                     implicitHeight: 24; font.pixelSize: 11
                     onClicked: {
@@ -313,9 +313,9 @@ Rectangle {
                 RowLayout {
                     Layout.fillWidth: true; spacing: 6
                     Item { Layout.fillWidth: true }
-                    Button { text: qsTr("Cancel"); implicitHeight: 24; font.pixelSize: 11
+                    LyraButton { text: qsTr("Cancel"); implicitHeight: 24; font.pixelSize: 11
                              onClicked: root.editingNew = false }
-                    Button {
+                    LyraButton {
                         text: qsTr("Save"); implicitHeight: 24; font.pixelSize: 11
                         highlighted: true
                         onClicked: {
@@ -480,7 +480,7 @@ Rectangle {
             // Add-current-freq affordance.
             RowLayout {
                 Layout.fillWidth: true; Layout.topMargin: 8; spacing: 8
-                Button {
+                LyraButton {
                     text: qsTr("Add current freq"); implicitHeight: 24; font.pixelSize: 11
                     onClicked: {
                         inF.text = ""; outF.text = ""; indF.text = ""; noteF.text = ""

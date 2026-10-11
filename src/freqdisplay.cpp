@@ -20,7 +20,7 @@ namespace lyra::ui {
 namespace {
 const QColor kBg      {4, 4, 6};
 const QColor kAmber   {255, 171, 71};
-const QColor kAmberDim {60, 40, 15};      // unlit-segment ghost
+const QColor kAmberDim {24, 16, 6};       // unlit-segment ghost — kept faint so lit digits read cleanly
 const QColor kSelect  {0, 229, 255};      // cyan selected-digit
 const QColor kFaint   {185, 202, 220};    // unit labels (MHz/kHz/Hz) — bright + readable
 
