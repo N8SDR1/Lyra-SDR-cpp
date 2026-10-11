@@ -795,8 +795,9 @@ Rectangle {
                     text: WdspEngine.nrMode; color: "#50d0ff"
                     font.family: "Consolas"; font.bold: true
                     Layout.preferredWidth: 16
+                    HoverHandler { id: nrModeValHov }
                     ToolTip.text: qsTr("EMNR Mode %1").arg(WdspEngine.nrMode)
-                    ToolTip.visible: (hovered) && Prefs.tooltipsEnabled }
+                    ToolTip.visible: nrModeValHov.hovered && Prefs.tooltipsEnabled }
 
             Label { text: qsTr("NNR Model:"); color: root.cText; font.pixelSize: 11
                     visible: WdspEngine.nnrEnabled }
@@ -835,7 +836,8 @@ Rectangle {
                     Layout.preferredWidth: 32
                     ToolTip.text: qsTr("NNR mask floor %1 dB")
                                   .arg(Math.round(WdspEngine.nnrMaskFloorDb))
-                    ToolTip.visible: (hovered) && Prefs.tooltipsEnabled }
+                    HoverHandler { id: nnrMaskValHov }
+                    ToolTip.visible: nnrMaskValHov.hovered && Prefs.tooltipsEnabled }
 
             Item { width: 8; visible: !WdspEngine.nnrEnabled }
             CheckBox {
