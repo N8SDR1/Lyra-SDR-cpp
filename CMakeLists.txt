@@ -618,7 +618,6 @@ qt_add_qml_module(lyra
         src/qml/MeterInk.js
         src/qml/MeterPorthole.qml
         src/qml/MeterTubeRow.qml
-        src/qml/MeterNixie.qml
         src/qml/MeterVfd.qml
         src/qml/MeterDrum.qml
         src/qml/MeterIris.qml

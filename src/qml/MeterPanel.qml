@@ -38,7 +38,6 @@ Rectangle {
         { "sid": 1,  "name": "Bar" },
         { "sid": 2,  "name": "Ladder" },
         { "sid": 3,  "name": "Porthole" },
-        { "sid": 5,  "name": "Nixie" },
         { "sid": 7,  "name": "VFD" },
         { "sid": 10, "name": "Drum" },
         { "sid": 11, "name": "Iris" },
@@ -173,7 +172,6 @@ Rectangle {
             case 1:  return barFace
             case 2:  return ladderFace
             case 3:  return portholeFace
-            case 5:  return nixieFace
             case 7:  return vfdFace
             case 10: return drumFace
             case 11: return irisFace
@@ -189,7 +187,6 @@ Rectangle {
     Component { id: barFace;      PlasmaBar {} }
     Component { id: ladderFace;   VerticalLadder {} }
     Component { id: portholeFace; MeterPorthole {} }
-    Component { id: nixieFace;    MeterNixie {} }
     Component { id: vfdFace;      MeterVfd {} }
     Component { id: drumFace;     MeterDrum {} }
     Component { id: irisFace;     MeterIris {} }

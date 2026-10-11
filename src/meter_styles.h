@@ -21,7 +21,7 @@ enum Style : int {
     VerticalLadder = 2,
     Porthole       = 3,
     // 4 Fader (retired)
-    Nixie          = 5,
+    // 5 Nixie (retired)
     // 6 Numitron (retired)
     Vfd            = 7,
     // 8 Dekatron, 9 Panaplex (retired)
@@ -48,9 +48,10 @@ constexpr int keptStyle(int s)
 {
     switch (s) {
     case 4:  return Porthole;      // Fader
+    case 5:                        // Nixie
     case 6:                        // Numitron
     case 8:                        // Dekatron
-    case 9:  return Nixie;         // Panaplex
+    case 9:  return Vfd;           // Panaplex — the remaining tube face
     case 13: return PlasmaBar;     // Ingot — the closest bar face
     case 14:                       // Sunburst
     case 15: return Phosphor;      // Lamps

@@ -24,7 +24,7 @@ int main()
     std::printf("test_meter_styles\n");
 
     // Kept faces load as themselves.
-    for (int s : {0, 1, 2, 3, 5, 7, 10, 11, 12, 16}) {
+    for (int s : {0, 1, 2, 3, 7, 10, 11, 12, 16}) {
         char name[48];
         std::snprintf(name, sizeof name, "kept %d", s);
         check(name, keptStyle(s), s);
@@ -35,9 +35,10 @@ int main()
 
     // Retired faces.
     check("4 Fader -> Porthole",         keptStyle(4), 3);
-    check("6 Numitron -> Nixie",         keptStyle(6), 5);
-    check("8 Dekatron -> Nixie",         keptStyle(8), 5);
-    check("9 Panaplex -> Nixie",         keptStyle(9), 5);
+    check("5 Nixie -> VFD",              keptStyle(5), 7);
+    check("6 Numitron -> VFD",           keptStyle(6), 7);
+    check("8 Dekatron -> VFD",           keptStyle(8), 7);
+    check("9 Panaplex -> VFD",           keptStyle(9), 7);
     check("13 Ingot -> Plasma Bar",      keptStyle(13), 1);
     check("14 Sunburst -> Phosphor",     keptStyle(14), 16);
     check("15 Lamps -> Phosphor",        keptStyle(15), 16);

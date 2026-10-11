@@ -5108,7 +5108,6 @@ QWidget *SettingsDialog::buildMeterTab() {
             cb->addItem(tr("Plasma Bar"),      ms::PlasmaBar);
             cb->addItem(tr("Vertical Ladder"), ms::VerticalLadder);
             cb->addItem(tr("Porthole"),        ms::Porthole);
-            cb->addItem(tr("Nixie"),           ms::Nixie);
             cb->addItem(tr("VFD"),             ms::Vfd);
             cb->addItem(tr("Drum"),            ms::Drum);
             cb->addItem(tr("Iris"),            ms::Iris);

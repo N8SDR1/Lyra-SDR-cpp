@@ -33,7 +33,7 @@ function clusterInk(v, danger) {
     return clusterPalette[zone(v, danger)]
 }
 
-// Glass faces (Nixie, VFD) keep their tube colour and carry a separate red
+// Glass faces (VFD) keep their tube colour and carry a separate red
 // "OVER" lamp, like a rig's HI-SWR LED: it lights in the over zone, where
 // the other faces turn red.
 var lampOff = "#2a0c0c"
