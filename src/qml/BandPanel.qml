@@ -5,6 +5,8 @@
 //   2. BC       — shortwave broadcast meter bands (120m … 13m)
 //   3. GEN      — GEN1/2/3 general-coverage slots (TIME + Mem join here)
 //   4. XVTR     — transverter slots (RF on the dial; radio IF = RF − LO)
+//   5. ANT      — Alex ANT 1/2/3 + RX jack (P2 radios with a front-end
+//                 ladder only; hidden on HL2 and Hermes-class BrickSDR)
 // All built from the shared C++ band tables (Bands context property),
 // so the lists never drift from the protocol/DSP side.
 //
@@ -533,6 +535,219 @@ Rectangle {
                 }
             }
             Item { Layout.fillWidth: true }
+        }
+
+        // ── Row 5: Alex antenna / RX jack (P2 only) ──────────────────
+        // Remembered per band. TX dock is too tight for this; Band already
+        // has chip rows and the selection is band-scoped.
+        RowLayout {
+            visible: P2Bridge.running && P2Bridge.hasAlexAntennaSelect
+            spacing: 4
+            RowLabel { text: qsTr("Ant") }
+            ChipButton {
+                visible: P2Bridge.trxAntennaCount >= 1
+                text: "1"
+                chipActive: P2Bridge.trxAntenna === 1
+                onClicked: P2Bridge.trxAntenna = 1
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("ANT 1 — shared TX/RX jack 1 (per band)")
+            }
+            ChipButton {
+                visible: P2Bridge.trxAntennaCount >= 2
+                text: "2"
+                chipActive: P2Bridge.trxAntenna === 2
+                onClicked: P2Bridge.trxAntenna = 2
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("ANT 2 — shared TX/RX jack 2 (per band)")
+            }
+            ChipButton {
+                visible: P2Bridge.trxAntennaCount >= 3
+                text: "3"
+                chipActive: P2Bridge.trxAntenna === 3
+                onClicked: P2Bridge.trxAntenna = 3
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("ANT 3 — shared TX/RX jack 3 (per band)")
+            }
+            Item { Layout.preferredWidth: 10 }
+            RowLabel { text: qsTr("RX") }
+            ChipButton {
+                visible: (P2Bridge.rxJackMask & 1) !== 0
+                text: qsTr("TRX")
+                Layout.preferredWidth: 44
+                chipActive: P2Bridge.rxInput === 0
+                onClicked: P2Bridge.rxInput = 0
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("Receive on the selected ANT jack")
+            }
+            ChipButton {
+                visible: (P2Bridge.rxJackMask & 2) !== 0
+                text: qsTr("BYPS")
+                Layout.preferredWidth: 48
+                chipActive: P2Bridge.rxInput === 1
+                onClicked: P2Bridge.rxInput = 1
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("RX Bypass jack (RX-only, front-end bypassed)")
+            }
+            ChipButton {
+                visible: (P2Bridge.rxJackMask & 4) !== 0
+                text: P2Bridge.rxExt1Label
+                Layout.preferredWidth: 48
+                chipActive: P2Bridge.rxInput === 2
+                onClicked: P2Bridge.rxInput = 2
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: P2Bridge.rxExt1Label === "RX2"
+                        ? qsTr("RX2 RX-only jack (rear panel)")
+                        : qsTr("EXT1 RX-only jack")
+            }
+            ChipButton {
+                visible: (P2Bridge.rxJackMask & 8) !== 0
+                text: qsTr("XVTR")
+                Layout.preferredWidth: 48
+                chipActive: P2Bridge.rxInput === 3
+                onClicked: P2Bridge.rxInput = 3
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("Transverter RX jack")
+            }
+            ChipButton {
+                text: qsTr("MAP")
+                Layout.preferredWidth: 48
+                chipActive: antMapPopup.visible
+                onClicked: antMapPopup.open()
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("Assign ANT and RX jack for every amateur band")
+            }
+            Item { Layout.fillWidth: true }
+        }
+    }
+
+    Popup {
+        id: antMapPopup
+        popupType: Popup.Window
+        modal: true
+        dim: false
+        focus: true
+        width: 420
+        padding: 14
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        x: Math.round((parent.width - width) / 2)
+        y: 12
+        property int feRev: 0
+        Connections {
+            target: P2Bridge
+            function onFrontEndChanged() { antMapPopup.feRev++ }
+        }
+        background: Rectangle {
+            color: "#0d141b"
+            radius: 8
+            border.color: "#2a4a5a"
+        }
+        contentItem: ColumnLayout {
+            spacing: 8
+            Label {
+                text: qsTr("Antenna map")
+                color: "#50d0ff"
+                font.bold: true
+                font.pixelSize: 13
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: qsTr("Same ANT jack for TX and RX. RX-only jacks are the extra column — not a second TX antenna.")
+                color: "#8a9aac"
+                font.pixelSize: 11
+            }
+            Repeater {
+                model: P2Bridge.running ? P2Bridge.mapBandNames() : []
+                delegate: RowLayout {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Label {
+                        text: modelData
+                        color: "#cdd9e5"
+                        font.pixelSize: 12
+                        font.bold: true
+                        Layout.preferredWidth: 40
+                    }
+                    // Chips, not ComboBox: a LyraComboBox Window popup
+                    // nested inside this MAP Window never paints on Win32.
+                    Repeater {
+                        model: P2Bridge.trxAntennaCount
+                        ChipButton {
+                            required property int index
+                            text: (index + 1).toString()
+                            Layout.preferredWidth: 28
+                            chipActive: {
+                                var _ = antMapPopup.feRev
+                                return P2Bridge.antennaForBand(modelData)
+                                       === (index + 1)
+                            }
+                            onClicked: P2Bridge.setAntennaForBand(
+                                           modelData, index + 1)
+                        }
+                    }
+                    Item { Layout.preferredWidth: 8 }
+                    ChipButton {
+                        visible: (P2Bridge.rxJackMask & 1) !== 0
+                        text: qsTr("TRX")
+                        Layout.preferredWidth: 40
+                        chipActive: {
+                            var _ = antMapPopup.feRev
+                            return P2Bridge.rxInputForBand(modelData) === 0
+                        }
+                        onClicked: P2Bridge.setRxInputForBand(modelData, 0)
+                    }
+                    ChipButton {
+                        visible: (P2Bridge.rxJackMask & 2) !== 0
+                        text: qsTr("BYPS")
+                        Layout.preferredWidth: 44
+                        chipActive: {
+                            var _ = antMapPopup.feRev
+                            return P2Bridge.rxInputForBand(modelData) === 1
+                        }
+                        onClicked: P2Bridge.setRxInputForBand(modelData, 1)
+                    }
+                    ChipButton {
+                        visible: (P2Bridge.rxJackMask & 4) !== 0
+                        text: P2Bridge.rxExt1Label
+                        Layout.preferredWidth: 44
+                        chipActive: {
+                            var _ = antMapPopup.feRev
+                            return P2Bridge.rxInputForBand(modelData) === 2
+                        }
+                        onClicked: P2Bridge.setRxInputForBand(modelData, 2)
+                    }
+                    ChipButton {
+                        visible: (P2Bridge.rxJackMask & 8) !== 0
+                        text: qsTr("XVTR")
+                        Layout.preferredWidth: 44
+                        chipActive: {
+                            var _ = antMapPopup.feRev
+                            return P2Bridge.rxInputForBand(modelData) === 3
+                        }
+                        onClicked: P2Bridge.setRxInputForBand(modelData, 3)
+                    }
+                }
+            }
+            Button {
+                Layout.alignment: Qt.AlignRight
+                text: qsTr("Close")
+                implicitHeight: 26
+                onClicked: antMapPopup.close()
+                background: Rectangle {
+                    radius: 4
+                    color: parent.down ? "#1a3040"
+                         : parent.hovered ? "#1f4655" : "#161e28"
+                    border.color: "#50d0ff"
+                }
+                contentItem: Text {
+                    text: parent.text
+                    color: "#eaf2f7"
+                    font.pixelSize: 12
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
         }
     }
 

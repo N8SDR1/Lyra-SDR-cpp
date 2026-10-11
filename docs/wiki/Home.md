@@ -2,9 +2,9 @@
 
 <img src="https://n8sdr1.github.io/Lyra-SDR-cpp/logo.png" width="120" alt="Lyra logo">
 
-# Lyra — Hermes Lite 2 / 2+ and BrickSDR2 SDR Transceiver
+# Lyra — Hermes Lite 2 / 2+, BrickSDR2, and Brick3SDR
 
-**A native C++23 / Qt 6 SDR transceiver for the Hermes Lite 2 / 2+ (Protocol 1) and BrickSDR2 (Protocol 2) — full receive *and* transmit, a GPU-accelerated panadapter, and a studio-grade TX audio rack. No Python, no GIL, nothing in the signal path but native code.**
+**A native C++23 / Qt 6 SDR transceiver for the Hermes Lite 2 / 2+ (Protocol 1) and BrickSDR2 / Brick3SDR (Protocol 2) — full receive *and* transmit, a GPU-accelerated panadapter, and a studio-grade TX audio rack. No Python, no GIL, nothing in the signal path but native code.**
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D6?logo=windows&logoColor=white)](PC-Requirements)
 [![Latest release](https://img.shields.io/github/v/release/N8SDR1/Lyra-SDR-cpp?label=latest&color=2f81f7)](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest)
@@ -45,6 +45,7 @@ wired Ethernet link to the radio.
 | **Hermes Lite 2** | ✅ Supported (Protocol 1) |
 | **Hermes Lite 2+ (AK4951)** | ✅ Supported (Protocol 1) |
 | **BrickSDR2** | ✅ Supported (**Protocol 2**). A P1 discovery row is listed but **not opened**. |
+| **Brick3SDR** | ✅ **Brick3 Beta Testing** (**Protocol 2**). Dummy-load first; pick Brick3SDR in Settings → Hardware. |
 | **ANAN-10 / 10E / 100 / 100B / 100D / 200D** (P2) | 🚧 Dummy-load TX arm (classic Alex; pick model in Settings) |
 | ANAN-G2 / G2-1K | 🚧 Dummy-load TX arm (Saturn BPF) |
 | ANAN-7000DLE / 8000 | 🗺️ Locked (OrionMkII BPF not in this pass) |
@@ -64,7 +65,7 @@ Full detail (why Open is refused, what TX would do, Brick flash help) on the **[
 
 ✅ Full **receive** (all modes, WDSP 2.10 NR or NNR, RX EQ,
 captured-noise reduction, CTUN, RIT) · ✅ Full **transmit** — SSB / AM / SAM /
-DSB / FM / CW plus digital over TCI, VAC, and the **Apps** launcher · ✅ **SUB / RX2 + SPLIT on HL2 and BrickSDR2** ·
+DSB / FM / CW plus digital over TCI, VAC, and the **Apps** launcher · ✅ **SUB / RX2 + SPLIT on HL2, BrickSDR2, and Brick3SDR** ·
 ✅ a **native TX audio rack**
 (8-band EQ, multiband Combinator, plate reverb, speech processing, voice
 keyer, VOX, TX profiles) · ✅ **CW** send + on-screen **CW decode** · ✅

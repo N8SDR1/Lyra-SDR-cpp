@@ -65,7 +65,11 @@ struct RadioCapabilities {
     int         nRx = 1;                 // operator receivers (SUB/RX2), not wire DDC count
     bool        independentBand = false; // true = two ADCs (ANAN). Brick:
                                          // two VFOs on one ADC via SUB/DDC1.
-    bool        diversityCapable = false;
+    bool        diversityCapable = false;  // dual-ADC hardware (AnanP2 / Brick3 /
+                                           // 100D class). Flag is unread: Lyra has
+                                           // no diversity combiner. Future feature
+                                           // — see docs/architecture/p2_rx_design.md
+                                           // "Diversity (parked)".
     bool        psDdcReserved = false;   // DDC2/DDC3 (or P2 PS DDC) reserved for PureSignal
     int         psDdcFirst = 2;          // DeskHPSDR idle RX3/RX4 index; live Thetis HL2 MOX+PS is DDC0+DDC1 + cntrl1=4
     int         psDdcCount = 2;          // consecutive reserved DDC count

@@ -131,6 +131,18 @@ struct P2HardwareProfile {
     // healthy connect and no per-P2 drive ceiling is applied.  A model whose
     // TX is not yet proven on the air keeps the manual arm interlock.
     bool txOnAirValidated = false;
+    // General packet byte [59]: Alex-board enable (bit0=Alex0, bit1=Alex1).
+    // deskHPSDR enables Alex1 (0x03) only for Orion2/Saturn. Angelia /
+    // Brick3SDR / ANAN-100D match that tree's else-path: Alex0 only (0x01).
+    // Enabling Alex1 on Angelia-class hardware can leave the PA on the
+    // unused board (fixed ~1 W, Drive dead). Hermes BrickSDR = 0. Saturn
+    // clocks onboard filters from HP words without this bit (leave 0).
+    quint8 alexEnableBits = 0;
+    // Angelia / Brick3: FPGA RX1/RX2 sit on DDC2/DDC3; DDC0/DDC1 HP words
+    // are still written so the STM32 band decoder sees the same carriers
+    // (deskHPSDR p2_angelia_ddc0_map). Without DDC2 tracking the dial the
+    // PA LPF stays on the 14.1 MHz seed and Drive cannot raise watts.
+    bool angeliaRxDdcSlots = false;
 };
 
 // The selected/saved marketed model chooses runtime front-end policy.
@@ -167,9 +179,10 @@ public:
     bool shouldFeedRx2(int ddc);
     // True while PS is armed and the safety gate authorises transmit.
     bool isPureSignalLive() const;
+    // Live PS IQ is always the interleaved DDC0 UDP (even=coupler,
+    // odd=TX replica). Two-stream ingest on adcCount>1 did not move FB.
+    bool psccUsesSeparateDdcStreams() const;
     // DDC0 coupler + DDC1 TX replica → pscc. Session thread only.
-    // RX: separate UDP streams, pair by sample count. Live PS TX: one
-    // DDC0 UDP with even samples = coupler, odd = TX replica.
     void ingestPsccIq(int ddc, const double *iq, int nComplex);
     void ingestPsccInterleaved(const double *iq, int nComplex);
     void clearPsccIq();
@@ -187,8 +200,9 @@ public:
     void setRxInput(P2RxInput input) { rxInput_ = input; }
     void setHpfBypass(bool on) { hpfBypass_ = on; }
     void setAdcAttenuation(int adc, int db);
-    // Live-PS coupler pad on ADC0 (0..31). Independent of RX ATT so
-    // auto-att can walk FB toward ~152 without slamming ATT-on-TX 31.
+    // Live-PS coupler pad (0..31). DeskHPSDR: DUC [59] ADC0 and
+    // HP [1442] ADC1. Independent of RX ATT so auto-att can walk
+    // FB without slamming ATT-on-TX 31.
     void setPsFeedbackAttn(int db);
     // Same operator ATT-on-TX toggle as the P1 path (Settings → TX).
     // Overlay is applied at packet-build time; the stored RX attenuation
@@ -321,6 +335,7 @@ private:
     QByteArray buildDucSpecificPacket() const;
     void sendDucSpecificIfOpen();
     quint8 overlayAdcAttByte(int adcIndex, bool keyedWithPa) const;
+    quint8 overlayHpAdcAttByte(int adcIndex, bool keyedWithPa) const;
     void parseStatus(const QByteArray &d);
     void parseIqFrame(int ddc, const QByteArray &d);
     void parseMic(const QByteArray &d);

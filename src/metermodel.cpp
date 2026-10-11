@@ -1179,8 +1179,16 @@ void MeterModel::computeSMeter() {
         if (lastFrontEndDb_ < -1e8) {
             lastFrontEndDb_ = frontEnd;          // first read: adopt, no hold
         } else if (std::abs(frontEnd - lastFrontEndDb_) > 0.01) {
+            const double delta = std::abs(frontEnd - lastFrontEndDb_);
             lastFrontEndDb_ = frontEnd;
-            frontEndHoldTicks_ = kFrontEndSettleTicks;
+            // Hold only on a real pad jump (manual slider / Auto +3 dB
+            // backoff). Auto Step's 1 dB creep would otherwise retrigger
+            // this ~1.2 s freeze every 100 ms and pin the S-meter for the
+            // whole acquire — that was the last Auto/S-meter interaction
+            // to get wrong. Comp still tracks every 1 dB via
+            // calibratedSMeterDbm (add ATT, never subtract LNA on P2).
+            if (delta >= 2.0)
+                frontEndHoldTicks_ = kFrontEndSettleTicks;
         }
     } else {
         frontEndHoldTicks_ = 0;

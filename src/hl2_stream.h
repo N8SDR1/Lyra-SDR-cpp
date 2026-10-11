@@ -1267,6 +1267,7 @@ public slots:
     // HL2: TX step-att. Brick/Hermes P2: ADC0 coupler pad (0..31, seed 0).
     void bindPsAttnWriter(std::function<void(int)> fn,
                           int minDb, int maxDb, int moxSeed);
+    void syncPsAttToTxBand();
     void setPaEnabled(bool on);
     void setXvtrSlots(lyra::ui::XvtrSlots *xvtrSlots);
     // Display RF → radio IF/DDS (identity when no Xvtr slot matches).
@@ -1297,6 +1298,10 @@ public slots:
     Q_INVOKABLE void capturePsGetPk();
     Q_INVOKABLE void setPsAmpPlotHeld(bool on);
     void setPsHwPeak(double peak);
+    // Seed SetPSHWPeak from this radio's catalog (P2) or 0.233 (HL2).
+    // A per-rig Amp View SetPk spin wins if already saved; do not copy the
+    // unscoped HL2 0.233 onto a P2 radio that publishes a different peak.
+    void applyPsHwPeakDefault(double catalogPeak);
 
     // ---- TX-0c-fsm: MOX/PTT sequencer (single funnel) ----------------
     // Operator/CAT/PTT/TUN intent gets funneled here.  Internally drives
@@ -2239,6 +2244,12 @@ private:
     bool                 psArmed_{false};
     bool                 subPausedForPs_{false};
     std::unique_ptr<lyra::ps::PsFsm> psFsm_;
+    QString              psAttBand_;
+    int                  psAttMoxSeed_{0};
+
+    QString psTxAttBandKey() const;
+    QString psTxAttSettingsKey(const QString &band) const;
+    void persistPsTxAtt(int db);
 
     // Task #36 — Hardware PTT input forwarder.
     //

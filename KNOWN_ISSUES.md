@@ -1,12 +1,12 @@
 # Lyra — Known issues & what's not built yet
 
 Lyra is in **active development**. It's a capable daily-driver transceiver
-for the Hermes Lite 2 / 2+ (Protocol 1) and the **BrickSDR2** (Protocol 2)
+for the Hermes Lite 2 / 2+ (Protocol 1) and **BrickSDR2 / Brick3SDR** (Protocol 2)
 — full receive *and* transmit — but it isn't finished. This page sets
 expectations so you know what's a real bug versus a feature that simply
 hasn't landed yet. (Pin or link this in Discord.)
 
-Current tree: **v0.25.15 Sheliak**. Always grab the latest from the
+Current tree: **v0.25.16 Sheliak** (Brick3 Beta Testing). Always grab the latest from the
 [Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases).
 
 > **What already works** (so you don't wonder): full RX DSP, and **transmit

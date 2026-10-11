@@ -92,4 +92,15 @@ const HardwareModelDescriptor *defaultModelForBoardName(
 // Keys of every model that can run Protocol 2 (for the Settings combo).
 QStringList p2ModelKeys();
 
+// Physical Alex ANT jacks for the marketed model (0 = no operator ANT mux).
+// Brick3SDR rear: ANT1 + ANT2 only. 7000 / 8000 / G2 / 100D class: 3.
+int trxAntennaCount(const QString &modelKey);
+
+// Bit i set ⇒ P2RxInput i is a real jack (0=TRX, 1=BYPS, 2=Ext1, 3=XVTR).
+// Brick3SDR: TRX + Ext1 (silkscreen RX2). Not a second TX ANT column.
+unsigned rxJackMask(const QString &modelKey);
+
+// Ext1 chip / combo label. Brick3SDR rear jack is silk-screened RX2.
+QString rxExt1Label(const QString &modelKey);
+
 } // namespace lyra::hardware

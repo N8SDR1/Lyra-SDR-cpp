@@ -6,7 +6,7 @@ listening — and talking — fast. This same guide is built into the app
 
 > **Currently supported:** Windows 10 (64-bit, v1809+) or Windows 11, a
 > DirectX 11 / OpenGL 3.3 GPU (built-in graphics are fine), and a **wired
-> Ethernet** link to a Hermes Lite 2 / 2+ (**Protocol 1**) or a **BrickSDR2
+> Ethernet** link to a Hermes Lite 2 / 2+ (**Protocol 1**) or a **BrickSDR2 / Brick3SDR
 > on Protocol 2**. A Brick or ANAN still on Protocol 1 may **show in Discover**
 > and **will not Open** — flash P2. See [Supported Radios](Supported-Radios).
 > Full PC detail: [PC Requirements](PC-Requirements). *(Not on Windows? Linux

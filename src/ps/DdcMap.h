@@ -15,7 +15,7 @@ struct DdcRoute {
     bool puresignalRun = false;  // C2 bit 6 frames 11/16
     int  psRxDdc = 0;            // coupler → pscc rx
     int  psTxDdc = 1;            // TX replica → pscc tx
-    bool alexPsBit = false;      // P7 Brick P2 ALEX_PS_BIT
+    bool alexPsBit = false;      // P2 Alex coupler (Hermes + Angelia/100D)
 };
 
 // State product, not a static DDC2/3 table.

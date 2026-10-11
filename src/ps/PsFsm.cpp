@@ -43,8 +43,16 @@ void PsFsm::setAttnRange(int minDb, int maxDb, int moxSeed) {
     attMinDb_ = minDb;
     attMaxDb_ = maxDb;
     moxSeedAttDb_ = std::clamp(moxSeed, minDb, maxDb);
-    lastAttDb_ = moxSeedAttDb_;
+    lastAttDb_ = std::clamp(lastAttDb_, attMinDb_, attMaxDb_);
     prevCalCount_ = -1;
+}
+
+void PsFsm::restoreLastAtt(int db) {
+    lastAttDb_ = std::clamp(db, attMinDb_, attMaxDb_);
+}
+
+void PsFsm::writeLastAtt() {
+    if (attnWriter_) attnWriter_(lastAttDb_);
 }
 
 void PsFsm::setFeedbackRateHz(int hz) {
@@ -64,8 +72,8 @@ void PsFsm::setArmed(bool on) {
 void PsFsm::setMox(bool on) {
     mox_ = on;
     if (on) {
-        // Keep last pad (Thetis ATTOnTX / DeskHPSDR band ps_tx_att). Do not
-        // reseed to 0/31 on every PTT — that dumps FB to 300+ then hunts.
+        // Keep last pad (DeskHPSDR per-band ps_tx_att). Do not reseed
+        // to 0/31 on every PTT — that dumps FB to 300+ then hunts.
         prevCalCount_ = calCount_;
         if (attnWriter_)
             attnWriter_(lastAttDb_);
@@ -75,11 +83,61 @@ void PsFsm::setMox(bool on) {
         lyra::wire::SetPSMox(kTxa, on ? 1 : 0);
 }
 
+void PsFsm::wipeOperatorUi() {
+    correcting_ = false;
+    calCount_ = 0;
+    prevCalCount_ = -1;
+    fsmState_ = 0;
+    feedbackLevel_ = 0;
+    maxTx_ = 0.0;
+    getPkHold_ = 0.0;
+    plotHeld_ = false;
+    std::memset(info_, 0, sizeof(info_));
+    ampMagX_.clear();
+    ampMagY_.clear();
+    ampCorrX_.clear();
+    ampCorrY_.clear();
+    magEwma_.clear();
+    corrEwma_.clear();
+}
+
 void PsFsm::reset() {
-    if (!lyra::wire::SetPSControl) return;
-    lyra::wire::SetPSControl(kTxa, 1, 0, 0, 0);
-    if (armed_)
-        lyra::wire::SetPSControl(kTxa, 0, 0, 1, 0);
+    using namespace lyra::wire;
+    if (!SetPSControl) return;
+    // Snapshot WDSP's cumulative cal counter so the operator-facing
+    // "cal" starts at 0. info[5] does not go back to 0 on reset.
+    if (GetPSInfo) {
+        int live[16] = {};
+        GetPSInfo(kTxa, live);
+        calBaseline_ = live[5];
+    }
+    // Hold reset alone. A same-call or next-line automode write
+    // overwrites reset=1 before the cal thread samples it.
+    SetPSControl(kTxa, 1, 0, 0, 0);
+    if (SetPSReset)
+        SetPSReset(kTxa, 1);
+    if (SetPSRunCal)
+        SetPSRunCal(kTxa, 0);
+
+    wipeOperatorUi();
+    waitingNewCal_ = true;
+    wipeTicksLeft_ = 4;  // ~1 s at 250 ms — stay blank until a new cal
+    emit telemetryChanged();
+
+    ++resetGen_;
+    const int gen = resetGen_;
+    QTimer::singleShot(250, this, [this, gen]() {
+        if (gen != resetGen_) return;
+        resumeAfterReset();
+    });
+}
+
+void PsFsm::resumeAfterReset() {
+    using namespace lyra::wire;
+    if (!armed_ || !SetPSControl) return;
+    SetPSControl(kTxa, 0, 0, 1, 0);
+    if (SetPSRunCal)
+        SetPSRunCal(kTxa, 1);
 }
 
 void PsFsm::setHwPeak(double peak) {
@@ -106,11 +164,15 @@ void PsFsm::pushArm() {
     if (SetPSHWPeak) SetPSHWPeak(kTxa, hwPeak_);
     if (SetPSMoxDelay) SetPSMoxDelay(kTxa, 0.2);
     if (SetPSFeedbackRate) SetPSFeedbackRate(kTxa, feedbackRateHz_);
-    if (SetPSControl) {
+    if (SetPSControl)
         SetPSControl(kTxa, 1, 0, 0, 0);
-        SetPSControl(kTxa, 0, 0, 1, 0);
-    }
-    if (SetPSRunCal) SetPSRunCal(kTxa, 1);
+    if (SetPSRunCal) SetPSRunCal(kTxa, 0);
+    ++resetGen_;
+    const int gen = resetGen_;
+    QTimer::singleShot(250, this, [this, gen]() {
+        if (gen != resetGen_ || !armed_) return;
+        resumeAfterReset();
+    });
     timer_.start();
 }
 
@@ -132,6 +194,9 @@ void PsFsm::pushDisarm() {
     magEwma_.clear();
     corrEwma_.clear();
     plotHeld_ = false;
+    waitingNewCal_ = false;
+    wipeTicksLeft_ = 0;
+    calBaseline_ = 0;
     emit telemetryChanged();
 }
 
@@ -139,21 +204,49 @@ void PsFsm::onTick() {
     if (!armed_ || !lyra::wire::GetPSInfo) return;
     int info[16] = {};
     lyra::wire::GetPSInfo(kTxa, info);
-    std::memcpy(info_, info, sizeof(info_));
-    feedbackLevel_ = info[4];
-    calCount_ = info[5];
-    correcting_ = info[14] != 0;
-    fsmState_ = info[15];
+
     const auto d = PsCalcThread::instance().takeFeedDiag();
     feedSpr_   = d.spr;
     ddc0Dbfs_  = peakToDbfs(d.peakDdc0, d.spr);
     ddc1Dbfs_  = peakToDbfs(d.peakDdc1, d.spr);
+
+    if (wipeTicksLeft_ > 0) {
+        --wipeTicksLeft_;
+        emit telemetryChanged();
+        return;
+    }
+
+    const int rawCal = info[5];
+    if (waitingNewCal_ && rawCal > calBaseline_)
+        waitingNewCal_ = false;
+
+    feedbackLevel_ = info[4];
     if (lyra::wire::GetPSMaxTX)
         lyra::wire::GetPSMaxTX(kTxa, &maxTx_);
+
+    if (waitingNewCal_) {
+        // Keep the panel/graph blank until WDSP starts a new collection.
+        // FB is a live coupler reading — restore that one so the operator
+        // can still see whether the sampler is present.
+        std::memset(info_, 0, sizeof(info_));
+        info_[4] = feedbackLevel_;
+        calCount_ = 0;
+        correcting_ = false;
+        fsmState_ = 0;
+        emit telemetryChanged();
+        return;
+    }
+
+    std::memcpy(info_, info, sizeof(info_));
+    calCount_ = std::max(0, rawCal - calBaseline_);
+    info_[5] = calCount_;
+    correcting_ = info[14] != 0;
+    info_[14] = correcting_ ? 1 : 0;
+    fsmState_ = info[15];
     pollAmpPlot();
     emit telemetryChanged();
 
-    if (!mox_ || !attnWriter_) return;
+    if (!mox_ || !attnWriter_ || waitingNewCal_) return;
     // Thetis only steps auto-att when info[5] (cal attempts) changes — not
     // on every 250 ms FB sample. SSB voice otherwise walks ATT with the
     // envelope (300 on peaks, ~0 in pauses).

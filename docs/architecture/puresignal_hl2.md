@@ -23,7 +23,7 @@ auto-att + UI.
 | Captured-profile | Bypass Wiener apply on `(mox && ps_armed)` without clearing the operator `applyEnabled_` flag. |
 | sip1 | TX panadapter (`TXASetSipDisplay`). **Not** the calcc feed. |
 | Host `SetTXAiqc*` | **Do not call.** DeskHPSDR never does; WDSP 2.0 dropped the public iqc wrappers. `pscc` drives the engine. |
-| Auto-att writer | **HL2:** `setTxStepAttnDb` (−28…+31). **Brick/Hermes P2:** ADC0 coupler pad (0…31). Last pad **persists across PTT** (Thetis `ATTOnTX` / DeskHPSDR `ps_tx_att`). Seed is first bind only, not every MOX. Recal only when `info[5]` (cal attempts) **changes** and FB is outside 129–181. Delta `round(20·log10(FB/152.293))`; FB>256 uses a coarse +10/+15 step. Target ~152. FB is coupler ADC counts, not watts. |
+| Auto-att writer | **HL2:** `setTxStepAttnDb` (−28…+31). **Brick/Hermes P2:** ADC0 coupler pad (0…31). Last pad **persists across PTT and per TX band** (QSettings `ps/txAtt/<band>`, DeskHPSDR `ps_tx_att`). Seed is first bind / unknown band only, not every MOX. Recal only when `info[5]` (cal attempts) **changes** and FB is outside 129–181. Delta `round(20·log10(FB/152.293))`; FB>256 uses a coarse +10/+15 step. Target ~152. FB is coupler ADC counts, not watts. |
 
 `ddc_map(mox, ps_armed, rx2, family)` is the state-product helper. Live HL2
 row: `adcCntrl1=4`, `feedPsccFromDdc0Ddc1`, `pauseSub`, `bypassCapturedProfile`.
@@ -66,7 +66,30 @@ run PureSignal on Brick.
   lock **both** DDC0 and DDC1 to TX.
 - Brick3 / Angelia extras (`p2_diversity_brick3_mode_active`,
   `p2_angelia_ddc0_map`) **must not** override the PS TX DDC0/DDC1 lock
-  (`new_protocol.c` ~1548–1554).
+  (`new_protocol.c` ~1548–1554). Diversity itself is **parked** (Lyra has
+  no combiner; see `p2_rx_design.md` "Diversity (parked)"). Live PS and
+  diversity both want the second ADC — they conflict; PS wins while armed.
+
+## PS analog input — no Internal/EXT1 switch (LOCKED 2026-10-10)
+
+Thetis has **no** Internal/EXT1 combo on the PS Form. Lyra does **not**
+add one. Brick3 rear **PS / PS-A** is already the live coupler via
+`ALEX_PS_BIT` (bit 18) — operator-confirmed: unplug that return and FB
+drops about half or more. Analog RX bits stay **`P2RxInput::Trx`**.
+
+DeskHPSDR’s PS-menu Internal/EXT1 is a DeskHPSDR-only analog-bit picker
+Heiko uses on Brick2 (coupler + 56 dB after the PA). That is **not** a
+Lyra requirement. Do **not** invent an ADC map or “fix” FB by flipping
+analogIn to Ext1.
+
+**Do not collapse these names:**
+
+| Name | What it is |
+|---|---|
+| MAP / BAND **Ext1** on Brick3 | Alex bit 9, silk-screened **RX2**. Receive jack, not the PS coupler. |
+| Brick3 rear **PS-A** | Coupler jack. Routed by `ALEX_PS_BIT` (bit 18), already on when PS is armed. |
+| DeskHPSDR **PS menu EXT1** | DeskHPSDR `PS_RX_FEEDBACK` analog input. Thetis does not label this. |
+| Heiko **EXT1** on HL2 | Coupler-mod / sampler path. HL2 has no Alex Ext1 jack. |
 
 **Thetis fallback policy (locked):**
 

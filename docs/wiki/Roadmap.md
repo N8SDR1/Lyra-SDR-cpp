@@ -22,18 +22,19 @@ SPLIT VFO B; `vfo:1,0` / `dds:1` is SUB. Logger Combo RST still uses
 
 ### ✅ PureSignal — adaptive predistortion
 
-Live on **HL2 / HL2+** (coupler hardware mod) and **BrickSDR2** (Protocol-2
-feedback / ADC0 pad). Compact **PureSignal** dock plus **Amp View** plot
+Live on **HL2 / HL2+** (coupler hardware mod), **BrickSDR2** (Protocol-2
+ADC0 pad), and **Brick3SDR** (rear **PS** jack). Compact **PureSignal** dock plus **Amp View** plot
 (Snap / Hold). Feedback glance chip (teal below 129, green 129–181, red
 above). Auto-att **persists across PTT** so SSB does not re-hunt every
 keyup. Attestation in **Settings → TX** (default off). **2-tone** on the
 TX panel is the usual tune-up carrier.
 Operator detail: **[User Guide → PureSignal](User-Guide#puresignal)**.
 
-### ✅ Protocol 2 on BrickSDR2 · 🚧 Classic ANAN P2 dummy-load · 🗺️ 7000/8000
+### ✅ Protocol 2 on BrickSDR2 / Brick3SDR · 🚧 Classic ANAN P2 dummy-load · 🗺️ 7000/8000
 
-HPSDR **Protocol 2** is live on the **BrickSDR2** (RX + TX, including radio
-mic → modulator, analog drive, watts-cap, ATT-on-TX). A Brick that still
+HPSDR **Protocol 2** is live on **BrickSDR2** and **Brick3SDR** (RX + TX,
+including radio mic → modulator, analog drive, watts-cap, ATT-on-TX).
+Brick3 is **beta testing** (v0.25.16) — dummy load first. A Brick that still
 answers **Protocol 1** is **discovered but not opened** — P1 TX in Lyra is
 HL2-only. Flash **P2** (Anton / linoobs for Brick images). **ANAN-10 / 10E /
 100 / 100B / 100D / 200D** have classic-Alex P2 profiles; TX stays dummy-load
@@ -57,6 +58,7 @@ these are real roadmap items, not "maybe someday."
 - ✅ **Session recorder** — RX WAV on P1 and P2; Vulkan snapshots (v0.25.10).
 - ✅ **First-run FFTW vs companion launch** — Hardware Startup waits until FFTW and the radio layer are up (v0.25.11).
 - ✅ **TCI STOP** does not close the radio (v0.25.11) and does not drop MOX (v0.25.13). **TUNE / TRX / CHRONO** key like the host panel (v0.25.14).
+- ✅ **Brick3 Beta Testing** — Protocol 2 RX+TX, MAP, Auto Step, per-band PS pad, Reset wipe (v0.25.16).
 - ✅ **Protocol 2 TX follows the VFO after retune** (v0.25.15; BrickSDR2).
 - ✅ **Keyboard VFO** Left/Right 1 kHz, Up/Down 10 Hz (v0.25.15).
 - ✅ **Startup profile** uses mode binding then last-used, not always Default (v0.25.15).

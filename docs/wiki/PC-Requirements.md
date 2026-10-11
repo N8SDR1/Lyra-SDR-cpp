@@ -5,7 +5,7 @@ render on the GPU, so graphics capability matters a little more here than in a
 typical desktop app — but Lyra runs comfortably on modest hardware, and
 **built-in / integrated graphics are fine**.
 
-> **Radios:** Hermes Lite 2 / 2+ (Protocol 1) or **BrickSDR2 on Protocol 2**.
+> **Radios:** Hermes Lite 2 / 2+ (Protocol 1) or **BrickSDR2 / Brick3SDR on Protocol 2**.
 > A Brick still on Protocol 1 may list in Discover and **will not Open** —
 > see [Supported Radios](Supported-Radios).
 
