@@ -46,6 +46,10 @@ constexpr double kNoiseLeak     = 0.05;   // floor leaks up ~1 dB/s
 constexpr double kSmooth        = 0.55;
 constexpr int    kHistory       = 90;     // ~4.5 s trail
 
+// Visual styles. 0–2 are the original faces and must stay those faces.
+// 3+ are later single-source faces. A saved 0, 1, or 2 still loads as
+// Horizon Arc, Plasma Bar, or Vertical Ladder.
+constexpr int kStyleMax = 13;
 constexpr auto kKeyStyle    = "meter/style";
 constexpr auto kKeyTxStyle  = "meter/txStyle";     // TX visual style
 constexpr auto kKeySepStyle = "meter/separateStyle"; // swap style on MOX
@@ -132,9 +136,9 @@ MeterModel::MeterModel(lyra::ipc::HL2Stream *stream,
     : QObject(parent), stream_(stream), wdsp_(wdsp) {
     QSettings s;
     style_ = std::clamp(s.value(QString::fromLatin1(kKeyStyle), 0).toInt(),
-                        0, 2);
+                        0, kStyleMax);
     txStyle_ = std::clamp(s.value(QString::fromLatin1(kKeyTxStyle), 0).toInt(),
-                          0, 2);
+                          0, kStyleMax);
     separateStyle_ = s.value(QString::fromLatin1(kKeySepStyle), false).toBool();
     // Seeds from the global active-rig scope; setP2Bridge() re-reads through
     // rxCalKey() and reloadRxCal() switches it to the live P2 rig's own scope.
@@ -359,9 +363,9 @@ int MeterModel::activeStyle() const {
 }
 
 void MeterModel::setStyle(int s) {
-    // 0=HorizonArc (default), 1=PlasmaBar, 2=VerticalLadder (Multi).
-    // This is the RX / default style.
-    s = std::clamp(s, 0, 2);
+    // 0=HorizonArc (default), 1=PlasmaBar, 2=VerticalLadder (Multi),
+    // 3..=kStyleMax later single-source faces. This is the RX / default style.
+    s = std::clamp(s, 0, kStyleMax);
     if (s == style_) return;
     const int prevActive = activeStyle();
     style_ = s;
@@ -374,7 +378,7 @@ void MeterModel::setStyle(int s) {
 }
 
 void MeterModel::setTxStyle(int s) {
-    s = std::clamp(s, 0, 2);
+    s = std::clamp(s, 0, kStyleMax);
     if (s == txStyle_) return;
     const int prevActive = activeStyle();
     txStyle_ = s;
