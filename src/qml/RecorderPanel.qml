@@ -19,7 +19,7 @@ Rectangle {
     id: root
     implicitWidth: 300
     implicitHeight: 138
-    color: "#0d141b"
+    color: "#101820"
     border.color: "#2a4a5a"
 
     readonly property color cAccent: "#00e5ff"

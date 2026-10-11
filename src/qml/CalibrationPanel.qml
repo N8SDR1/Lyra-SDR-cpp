@@ -25,7 +25,7 @@ Rectangle {
     // dock never visibly opens.
     implicitWidth: 560
     implicitHeight: 380
-    color: "#0d141b"
+    color: "#101820"
     border.color: "#2a4a5a"
 
     readonly property color cAccent: "#00e5ff"
@@ -253,8 +253,8 @@ Rectangle {
                 font.pixelSize: 13
             }
             Item { Layout.fillWidth: true }
-            Button { text: "Apply"; enabled: root.valid; onClicked: root.applySuggested() }
-            Button { text: "Stop";  onClicked: root.stopMeasure() }
+            LyraButton { text: "Apply"; enabled: root.valid; onClicked: root.applySuggested() }
+            LyraButton { text: "Stop";  onClicked: root.stopMeasure() }
         }
 
         Text {

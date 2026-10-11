@@ -24,7 +24,7 @@ Rectangle {
     id: root
     implicitWidth: 470
     implicitHeight: collapsed ? 40 : (body.implicitHeight + 16)
-    color: "#0d141b"
+    color: "#101820"
     border.color: "#2a4a5a"
 
     readonly property color cAccent: "#00e5ff"
