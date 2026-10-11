@@ -3231,8 +3231,8 @@ A compact strip showing current **HF propagation** conditions from
   filters and PA/relay outputs, so during transmit (including CW keying) a
   click on the heat-map or on any Band-panel band chip does nothing except
   post "Band change ignored while transmitting" in the status bar. The other
-  one-click jumps (GEN, TIME, Mem recall, XVTR chips, and the band-plan, CB
-  and broadcast markers on the panadapter) are blocked the same way only when
+  one-click jumps (GEN, TIME, Mem recall, XVTR chips, DX spot labels, and the
+  band-plan, CB and broadcast markers on the panadapter) are blocked the same way only when
   they would **leave the current amateur band**; a jump within the same band
   still works. The same rule covers the VFO itself: the **1→2**, **2→1** and
   **⇄** (copy/swap) buttons and a typed frequency are ignored if they would

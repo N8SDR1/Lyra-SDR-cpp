@@ -280,7 +280,6 @@ void SpotStore::activate(const QString &call) {
     if (idx < 0) return;
     const Spot sp = spots_[idx];
     const QString lyraMode = lyraModeFor(sp.mode, sp.freqHz);
-    if (prefs_ && !lyraMode.isEmpty()) prefs_->setMode(lyraMode);
     // A spot's frequency is the CARRIER.  In CW the DDS (tuned centre) must
     // sit pitch Hz off the carrier so the operator hears the signal at their
     // CW pitch instead of zero-beat: DDS = carrier − (VFO−DDS offset).
@@ -289,6 +288,10 @@ void SpotStore::activate(const QString &call) {
     qint64 dds = sp.freqHz;
     if (engine_ && !lyraMode.isEmpty())
         dds -= engine_->cwMarkerOffsetForMode(lyraMode);
+    // While transmitting, a spot on another band is ignored outright (no mode
+    // change, no echo): a band change switches filters / OC / PA under power.
+    if (stream_ && stream_->txBlocksBandJump(quint32(dds))) return;
+    if (prefs_ && !lyraMode.isEmpty()) prefs_->setMode(lyraMode);
     if (stream_) stream_->setRx1FreqHz(quint32(dds));
     // Echo the original CARRIER frequency so the logger logs the right QSO.
     emit spotActivated(sp.call, sp.mode, sp.freqHz, sp.argb);
