@@ -242,6 +242,12 @@ private:
     void saveLayout();                 // session auto-save (on close)
     void restoreLayout();              // session auto-restore (on launch)
     void fitWindowToScreen();          // clamp a restored window onto its screen
+    void storeSessionForExit();        // layout + racks, once, before windows close
+    // Chip docks (TX/RX EQ, Speech, Combinator, Plating) can restore as
+    // "visible" — the View check stays on — while macOS has the window
+    // ordered out.  Force the native window on screen at a usable size.
+    void presentChipDock(QDockWidget *dock, int slot);
+    void resurrectOpenChipDocks();
     void dumpDockMinimums();           // LYRA_DUMP_MINS=1 → lyra_min_sizes.txt
     void flushLayoutToSettings();      // persist live geometry+dock state now
                                        // (so export/snapshot reflect the screen)
@@ -383,6 +389,9 @@ private:
     // Closing a rack HIDES it (its members go with it — nothing spills onto the
     // screen); the rack chip re-summons it.  Individual mode is byte-identical
     // to the classic chip-per-panel behaviour.
+    bool         chipDockPresenting_ = false;
+    bool         adoptingRackDock_   = false;
+    bool         exitStored_         = false;   // storeSessionForExit() ran
     PanelRack   *dspRack_          = nullptr;
     PanelRack   *optionsRack_      = nullptr;
     QToolButton *dspRackChip_      = nullptr;   // header chip toggling the DSP rack
@@ -392,6 +401,13 @@ private:
     // wire its close→hide + a header chip.  Returns the rack (owned by `this`).
     PanelRack *buildRack(const QString &objName, const QString &title,
                          const QStringList &members);
+    // A DSP-rack member popped out.  Move it onto this window, floating at
+    // `target` (global; invalid = where it is now), so it can dock into the
+    // main layout or stay floating.
+    void adoptFloatedRackMember(QDockWidget *dock, const QRect &target = QRect());
+    // ⧉ on a floating audio panel: dock it beside the panel at `globalPos`,
+    // or onto the nearest edge when no panel is there.
+    void dockAudioPanelIntoMain(QDockWidget *dock, const QPoint &globalPos);
 
     SettingsDialog             *settingsDlg_ = nullptr;
     Help                       *help_    = nullptr;   // QML→C++ help bridge

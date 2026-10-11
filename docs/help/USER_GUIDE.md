@@ -776,6 +776,19 @@ control panels in a row beneath).
   everything — panels can't be moved, floated, closed, **or resized** —
   so you can't disturb your arrangement by accident during operating.
   The move cursor disappears on locked title bars as a reminder.
+- **Audio panels (TX Speech / EQ / Combinator / Plating, RX EQ)** dock
+  like any other panel. A floating one only docks where the cyan highlight
+  shows — an edge, or onto another panel; let go anywhere else and it stays
+  a floating window. Its **⧉** button docks it straight into the window.
+  With panels locked, a floating audio panel can still be moved and closed,
+  but it won't dock or pop out until you unlock.
+- **Grouped DSP Rack** (Settings → Visuals → Panel layout): pull a panel
+  out of the rack with its **⧉** button, a title-bar double-click, or by
+  dragging it off the rack. It appears under your cursor and docks into
+  Lyra if you drop it on a highlighted spot. A popped-out panel is
+  reopened from the **View** menu, and the next time Lyra starts it is
+  back in the DSP Rack — the rack always opens with all five panels in it.
+  Locked panels can't be pulled out of the rack.
 
 **Undo a bad drag.** Dropped a panel somewhere you didn't mean to?
 **View → Layouts → Undo layout change** puts it back where it came from.
