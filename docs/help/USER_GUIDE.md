@@ -810,7 +810,9 @@ one click:
   like.
 - **Recall a slot** — snaps the window back to that arrangement.
 - **Lyra default** — returns to the built-in factory arrangement. (Use
-  this if a layout ever gets scrambled.)
+  this if a layout ever gets scrambled.) Any header-chip panel you had
+  docked into the main window goes back to a floating window — still open
+  if it was open — so it can't crowd the factory rows.
 
 Recalling a layout restores only your main panels — it won't pop open the
 TX/RX DSP-rack or CW tool windows you reach from the header chips.

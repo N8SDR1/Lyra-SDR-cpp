@@ -4241,10 +4241,23 @@ void MainWindow::applyDefaultLayout() {
     QDockWidget *tx  = dock("tx");
 
     // Clean slate — but only for the always-on panels.  Chip-summoned rack/CW
-    // tool windows keep whatever state they're in, so a reset doesn't pop all
-    // of them open in the operator's face.
+    // tool windows keep their open/closed state, so a reset doesn't pop all
+    // of them open in the operator's face.  One docked into the main window
+    // goes back to floating (its default) so it can't wedge into the rebuilt
+    // rows; an open one is placed on screen like a chip click would.  Rack
+    // members live in their rack's window and are left alone.
+    int chipSlot = 0;
     for (auto *d : std::as_const(docks_)) {
-        if (isChipSummonedPanel(d->objectName())) continue;
+        if (isChipSummonedPanel(d->objectName())) {
+            if (d->window() == this && !d->isFloating()) {
+                // Not isVisible(): a tab behind another tab is open but hidden.
+                const bool open = d->toggleViewAction()->isChecked();
+                d->setFloating(true);
+                if (open) presentChipDock(d, chipSlot++);
+                else      d->hide();
+            }
+            continue;
+        }
         d->setFloating(false);
         removeDockWidget(d);   // also hides it; re-shown below if it's in the set
     }
