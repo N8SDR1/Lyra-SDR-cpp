@@ -1942,8 +1942,11 @@ void MainWindow::buildDocks() {
     // Solar / Propagation — HamQSL SFI/A/K + 10-band day/night heat-map.
     // A plain QtWidgets strip (not QML); docks at the bottom like the
     // other control panels.
+    auto *solarPanel = new SolarPanel(solar_, ncdxfFollow_,
+                                      qobject_cast<lyra::ipc::HL2Stream *>(stream_),
+                                      bandMemory_, gen_, this);
     addWidgetDock(QStringLiteral("propagation"), tr("Solar / Propagation"),
-                  new SolarPanel(solar_, ncdxfFollow_, this),
+                  solarPanel,
                   QStringLiteral("propagation"), Qt::BottomDockWidgetArea);
 }
 

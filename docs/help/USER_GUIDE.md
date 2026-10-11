@@ -3212,6 +3212,11 @@ A compact strip showing current **HF propagation** conditions from
 - **A 10-band heat-map** — `160` through `6` m, each tinted **green
   (Good)**, **amber (Fair)**, **red (Poor)**, or **gray (no prediction)**.
   Hover a band for its rating.
+- **Click a band to tune it.** A left click goes where a Band-panel chip
+  would: the main receiver (VFO A), or the SUB receiver / VFO B when that is
+  the focused one. **Right-click** or **Shift+click** parks the SUB receiver
+  on that band instead. Band memory is honoured, so you land on the
+  frequency you last used there.
 
 The ratings are shown for **your current day or night** — Lyra works out
 whether it's daylight at your location and picks HamQSL's day or night
