@@ -136,6 +136,8 @@ public:
     // onPaint after a spectrumChanged().
     Q_INVOKABLE QVariantList spectrumPost() const { return postList_; }
     Q_INVOKABLE QVariantList spectrumPre() const { return preList_; }
+    // Post-EQ time waveform: kWaveCols min/max pairs, oldest first.
+    Q_INVOKABLE QVariantList waveform() const { return waveList_; }
 
 signals:
     void bandsChanged();        // any band edit → redraw the curve + nodes
@@ -166,7 +168,8 @@ private:
     lyra::dsp::EqAnalyzer   analyzer_;
     QTimer                 *pollTimer_ = nullptr;
     QVariantList            preList_, postList_;   // cached dBFS bins for QML
-    std::vector<float>      preBins_, postBins_;   // scratch snapshot buffers
+    QVariantList            waveList_;             // min/max waveform columns
+    std::vector<float>      preBins_, postBins_, waveBins_;
     bool   bypass_      = false;
     double makeupDb_    = 0.0;
     int    selected_    = 0;

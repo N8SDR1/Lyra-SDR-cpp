@@ -2438,6 +2438,16 @@ A draggable response curve over a live spectrum analyzer.
   runs, so the analyzer animates on receive too — you can shape your EQ
   while just listening, no need to key up (it's analysed, not
   transmitted, until you actually key).
+- **Waveform strip** — a live post-EQ time waveform above the graph, sharing
+  its width (the graph's right edge is the RX or TX audio bandwidth, or the
+  highest EQ band if that is higher). A flat-topped waveform means the
+  level is riding one peak value. A grey hint appears when the signal is
+  loud enough: **very even level — heavy compression or a steady tone**,
+  **compressed**, or **peaky — room to compress**. It compares the loudest
+  peak with the average peak level, so it is a rough guide only: it is not a
+  measured crest factor, a steady tone or sustained vowel also reads
+  "even", and it does not detect clipping. The strip is idle (midline only)
+  while the analyzer is **Off**. The RX EQ shows the same strip.
 
 ### RX EQ — receive parametric EQ
 

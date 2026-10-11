@@ -103,7 +103,7 @@ void EqModel::setPeakDecayMode(int mode) {
 }
 
 void EqModel::pollSpectrum() {
-    if (!analyzer_.snapshot(preBins_, postBins_)) return;   // no new frame
+    if (!analyzer_.snapshot(preBins_, postBins_, waveBins_)) return;
     const int nb = static_cast<int>(postBins_.size());
     preList_.clear();  postList_.clear();
     preList_.reserve(nb);  postList_.reserve(nb);
@@ -111,6 +111,10 @@ void EqModel::pollSpectrum() {
         preList_.append(static_cast<double>(preBins_[i]));
         postList_.append(static_cast<double>(postBins_[i]));
     }
+    waveList_.clear();
+    waveList_.reserve(static_cast<int>(waveBins_.size()));
+    for (float v : waveBins_)
+        waveList_.append(static_cast<double>(v));
     emit spectrumChanged();
 }
 
