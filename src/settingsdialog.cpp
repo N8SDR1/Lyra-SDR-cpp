@@ -106,6 +106,7 @@
 #include "spothole_feeder.h"
 #include "dxcluster_feeder.h"
 #include "metermodel.h"
+#include "meter_styles.h"
 #include "tunermemory.h"
 #include "tx/VoiceKeyer.h"   // #89 recording options
 #include "recorder/RecorderEngine.h"   // #201 session recorder
@@ -5087,9 +5088,10 @@ QWidget *SettingsDialog::buildMeterTab() {
             "takes effect on the next ~50 ms tick."));
         form->addRow(tr("TX source (on MOX):"), txCb);
 
-        // Separate RX/TX meter STYLE (Arc/Bar/Ladder per state) — auto-swaps
-        // on the MOX edge, mirroring the panadapter dB-range swap.  The
-        // header Arc|Bar|Ladder buttons stay a live quick override.
+        // Separate RX/TX meter STYLE (any face per state) — auto-swaps on
+        // the MOX edge, mirroring the panadapter dB-range swap.  The Meter
+        // panel's style chip stays a live quick override; the combos below
+        // follow it.
         auto *sepStyle = new QCheckBox(tr("Separate RX / TX meter style"), page);
         sepStyle->setChecked(meter_->separateStyle());
         sepStyle->setToolTip(tr(
@@ -5100,22 +5102,21 @@ QWidget *SettingsDialog::buildMeterTab() {
         form->addRow(sepStyle);
 
         auto buildStyleCombo = [page](int cur) {
+            namespace ms = meterstyle;
             auto *cb = new QComboBox(page);
-            cb->addItem(tr("Horizon Arc"),     0);
-            cb->addItem(tr("Plasma Bar"),      1);
-            cb->addItem(tr("Vertical Ladder"), 2);
-            cb->addItem(tr("Porthole"),        3);
-            cb->addItem(tr("Fader"),           4);
-            cb->addItem(tr("Nixie"),           5);
-            cb->addItem(tr("Numitron"),        6);
-            cb->addItem(tr("VFD"),             7);
-            cb->addItem(tr("Dekatron"),        8);
-            cb->addItem(tr("Panaplex"),        9);
-            cb->addItem(tr("Drum"),            10);
-            cb->addItem(tr("Iris"),            11);
-            cb->addItem(tr("Sonar"),           12);
-            cb->addItem(tr("Ingot"),           13);
-            cb->setCurrentIndex(std::clamp(cur, 0, 13));
+            cb->addItem(tr("Horizon Arc"),     ms::HorizonArc);
+            cb->addItem(tr("Plasma Bar"),      ms::PlasmaBar);
+            cb->addItem(tr("Vertical Ladder"), ms::VerticalLadder);
+            cb->addItem(tr("Porthole"),        ms::Porthole);
+            cb->addItem(tr("Nixie"),           ms::Nixie);
+            cb->addItem(tr("VFD"),             ms::Vfd);
+            cb->addItem(tr("Drum"),            ms::Drum);
+            cb->addItem(tr("Iris"),            ms::Iris);
+            cb->addItem(tr("Sonar"),           ms::Sonar);
+            cb->addItem(tr("Cluster"),         ms::Cluster);
+            cb->addItem(tr("Phosphor"),        ms::Phosphor);
+            const int idx = cb->findData(cur);
+            cb->setCurrentIndex(idx >= 0 ? idx : 0);
             return cb;
         };
         auto *rxStyleCb = buildStyleCombo(meter_->style());
@@ -5140,6 +5141,29 @@ QWidget *SettingsDialog::buildMeterTab() {
         connect(txStyleCb, &QComboBox::currentIndexChanged, this,
                 [this, txStyleCb](int) {
             if (meter_) meter_->setTxStyle(txStyleCb->currentData().toInt());
+        });
+        // Follow changes made elsewhere (the Meter panel's style chip).
+        // Signals are blocked while syncing so the combo does not write
+        // the same value straight back.
+        auto syncStyleCombo = [](QComboBox *cb, int style) {
+            const int idx = cb->findData(style);
+            if (idx < 0 || idx == cb->currentIndex()) return;
+            const QSignalBlocker block(cb);
+            cb->setCurrentIndex(idx);
+        };
+        connect(meter_, &MeterModel::styleChanged, rxStyleCb,
+                [this, rxStyleCb, syncStyleCombo]() {
+            syncStyleCombo(rxStyleCb, meter_->style());
+        });
+        connect(meter_, &MeterModel::txStyleChanged, txStyleCb,
+                [this, txStyleCb, syncStyleCombo]() {
+            syncStyleCombo(txStyleCb, meter_->txStyle());
+        });
+        connect(meter_, &MeterModel::separateStyleChanged, sepStyle,
+                [this, sepStyle, txStyleCb]() {
+            const QSignalBlocker block(sepStyle);
+            sepStyle->setChecked(meter_->separateStyle());
+            txStyleCb->setEnabled(meter_->separateStyle());
         });
 
         // §15.28 — switch to the second group (Power Calibration).

@@ -11,6 +11,7 @@
 // the model owns all peak-hold / smoothing decisions.
 
 import QtQuick
+import "MeterInk.js" as MeterInk
 
 Item {
     id: ladder
@@ -27,11 +28,10 @@ Item {
     // Arc/Bar use — but each row carries its own `danger` threshold,
     // so a row goes red when ITS source is hot, not when the primary
     // is).  level + danger both 0..1.
+    // Thresholds from MeterInk.zone(); cyan / green / amber / deep red.
+    readonly property var zonePalette: ["#36d6ff", "#5dff9a", "#ff9a3c", "#ff4d4d"]
     function zoneColor(level, danger) {
-        if (level >= danger + 0.16) return "#ff4d4d"   // deep red
-        if (level >= danger)        return "#ff9a3c"   // amber
-        if (level >= danger * 0.55) return "#5dff9a"   // green
-        return "#36d6ff"                                // cyan
+        return zonePalette[MeterInk.zone(level, danger)]
     }
 
     // Row spacing dynamically scaled by row count so a TX 5-row stack

@@ -1,5 +1,5 @@
 import QtQuick
 Item {
     anchors.fill: parent
-    MeterTubeRow { anchors.fill: parent; kind: "vfd" }
+    MeterTubeRow { anchors.fill: parent }
 }

@@ -523,6 +523,7 @@ qt_add_executable(lyra
     src/dxcc.h
     src/dxcc.cpp
     src/metermodel.h
+    src/meter_styles.h
     src/metermodel.cpp
     # Tuner panel — native manual-ATU tuning memory (Tuner Reminder, built in).
     src/tunermemory.h
@@ -613,18 +614,16 @@ qt_add_qml_module(lyra
         src/qml/HorizonArc.qml
         src/qml/PlasmaBar.qml
         src/qml/VerticalLadder.qml
+        src/qml/MeterInk.js
         src/qml/MeterPorthole.qml
-        src/qml/MeterFader.qml
         src/qml/MeterTubeRow.qml
         src/qml/MeterNixie.qml
-        src/qml/MeterNumitron.qml
         src/qml/MeterVfd.qml
-        src/qml/MeterDekatron.qml
-        src/qml/MeterPanaplex.qml
         src/qml/MeterDrum.qml
         src/qml/MeterIris.qml
         src/qml/MeterSonar.qml
-        src/qml/MeterIngot.qml
+        src/qml/MeterCluster.qml
+        src/qml/MeterPhosphor.qml
     RESOURCES
         src/assets/watermarks/lyra-watermark.jpg
         src/assets/logo/lyra-icon-128.png
@@ -1358,6 +1357,18 @@ if(APPLE)
     )
     target_include_directories(test_wdsp_posix_semaphore PRIVATE
         third_party/wdsp_posix/include)
+endif()
+
+# Meter face style indices (src/meter_styles.h): retired faces remap to the
+# nearest kept face and indices stay append-only.  Header-only, no Qt.
+# Build + run:  cmake --build build --target test_meter_styles
+add_executable(test_meter_styles EXCLUDE_FROM_ALL
+    scratch/test_meter_styles.cpp
+    src/meter_styles.h
+)
+target_include_directories(test_meter_styles PRIVATE src)
+if(MSVC)
+    target_compile_options(test_meter_styles PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # VFO frequency-display wheel stepping (src/wheel_steps.h): one digit step per

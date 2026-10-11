@@ -11,6 +11,7 @@
 // would starve the panadapter).
 
 import QtQuick
+import "MeterInk.js" as MeterInk
 
 Item {
     id: arc
@@ -72,12 +73,11 @@ Item {
     readonly property real topClear: lw * 0.82 + tickFont * 0.6
     readonly property real ccy: mm + topClear + rad
 
+    // Cyan / green / amber / red by MeterInk.zone() — the thresholds are
+    // shared with every face; this palette is the original faces' own.
+    readonly property var zonePalette: ["#36d6ff", "#5dff9a", "#ff9a3c", "#ff4d4d"]
     function zoneColor(v) {
-        var s9 = Meter.normAtS9
-        if (v >= s9 + 0.16) return "#ff4d4d"
-        if (v >= s9)        return "#ff9a3c"
-        if (v >= s9 * 0.55) return "#5dff9a"
-        return "#36d6ff"
+        return zonePalette[MeterInk.zone(v, Meter.normAtS9)]
     }
 
     Canvas {

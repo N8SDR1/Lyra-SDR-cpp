@@ -2004,9 +2004,10 @@ both receive and transmit. Tick **Separate RX / TX meter style** in
 **Settings → Meter** to use a different look on each — for example
 **Horizon Arc** while receiving and **Vertical Ladder** for a clean
 PWR/SWR read on transmit. Just like the source swap below, the style then
-changes automatically the instant you key up and back on unkey. The header
-**Arc | Bar | Ladder** buttons stay a live override for whichever state is
-showing at that moment.
+changes automatically the instant you key up and back on unkey. The style
+chip in the panel's top-right corner (or a right-click on the meter) stays a
+live override for whichever state is showing at that moment, and the
+Settings combos follow it.
 
 What the meter shows:
 

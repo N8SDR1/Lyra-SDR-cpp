@@ -31,21 +31,59 @@ Rectangle {
     readonly property int lyraMinWidth:  220
     readonly property int lyraMinHeight: 150
 
-    // Short names, same order as MeterModel style indices.
-    readonly property var styleNames: [
-        "Arc", "Bar", "Ladder",
-        "Porthole", "Fader", "Nixie", "Numitron", "VFD", "Dekatron", "Panaplex",
-        "Drum", "Iris", "Sonar", "Ingot"
+    // sid is the MeterModel style index (src/meter_styles.h — append-only,
+    // retired faces are not listed).  SettingsDialog lists the same ids.
+    readonly property var styleChoices: [
+        { "sid": 0,  "name": "Arc" },
+        { "sid": 1,  "name": "Bar" },
+        { "sid": 2,  "name": "Ladder" },
+        { "sid": 3,  "name": "Porthole" },
+        { "sid": 5,  "name": "Nixie" },
+        { "sid": 7,  "name": "VFD" },
+        { "sid": 10, "name": "Drum" },
+        { "sid": 11, "name": "Iris" },
+        { "sid": 12, "name": "Sonar" },
+        { "sid": 17, "name": "Cluster" },
+        { "sid": 16, "name": "Phosphor" }
     ]
 
+    function styleName(id) {
+        for (var i = 0; i < styleChoices.length; ++i)
+            if (styleChoices[i].sid === id) return styleChoices[i].name
+        return "Arc"
+    }
+
+    function styleRow(id) {
+        for (var i = 0; i < styleChoices.length; ++i)
+            if (styleChoices[i].sid === id) return i
+        return 0
+    }
+
+    // The overlay is this panel, which can be ~150 px tall, so the list
+    // never grows past it: it is capped to the overlay (less the popup
+    // margins) and scrolls inside.  It opens below the chip when it fits,
+    // else above, else pinned to the bottom margin.
     function openStyleMenu() {
-        var p = styleBtn.mapToItem(Overlay.overlay, 0, styleBtn.height + 2)
-        stylePop.x = Math.max(4, p.x + styleBtn.width - stylePop.width)
-        stylePop.y = p.y
+        var m = stylePop.margins
+        var oh = Overlay.overlay.height
+        var ow = Overlay.overlay.width
+        var listH = root.styleChoices.length * 22 + stylePop.padding * 2
+        stylePop.height = Math.max(22 + stylePop.padding * 2, Math.min(listH, oh - 2 * m))
+        var anchor = styleBtn.mapToItem(Overlay.overlay, 0, 0)
+        stylePop.x = Math.max(m, Math.min(anchor.x + styleBtn.width - stylePop.width,
+                                          ow - stylePop.width - m))
+        var below = anchor.y + styleBtn.height + 2
+        var above = anchor.y - stylePop.height - 2
+        if (below + stylePop.height <= oh - m)
+            stylePop.y = below
+        else if (above >= m)
+            stylePop.y = above
+        else
+            stylePop.y = Math.max(m, oh - m - stylePop.height)
         stylePop.open()
     }
 
-    // ── Style chip (top-right). The list would not fit as Arc|Bar|Ladder. ──
+    // ── Style chip (top-right). Too many faces for a row of buttons. ──
     Rectangle {
         id: styleBtn
         anchors.top: parent.top
@@ -61,7 +99,7 @@ Rectangle {
         Text {
             id: styleLabel
             anchors.centerIn: parent
-            text: (root.styleNames[Meter.activeStyle] || "Arc") + "  ▾"
+            text: root.styleName(Meter.activeStyle) + "  ▾"
             color: "#00e5ff"
             font.pixelSize: 10
             font.bold: true
@@ -79,29 +117,37 @@ Rectangle {
         modal: true
         focus: true
         padding: 4
-        width: 148
-        height: Math.min(300, root.styleNames.length * 22 + 8)
+        margins: 4
+        width: 168
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle {
             color: "#0c1218"
             border.color: "#2a4a5a"
             radius: 2
         }
+        // Bring the current face into view each time the list opens.
+        onOpened: styleList.positionViewAtIndex(root.styleRow(Meter.activeStyle),
+                                                ListView.Contain)
         contentItem: ListView {
+            id: styleList
             clip: true
-            model: root.styleNames
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar {
+                policy: styleList.contentHeight > styleList.height
+                        ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+            }
+            model: root.styleChoices
             delegate: Rectangle {
-                required property int index
-                required property string modelData
+                required property var modelData
                 width: ListView.view.width
                 height: 22
-                color: Meter.activeStyle === index ? "#15435a" : "transparent"
+                color: Meter.activeStyle === modelData.sid ? "#15435a" : "transparent"
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
                     anchors.leftMargin: 8
-                    text: (Meter.activeStyle === index ? "✓  " : "    ") + modelData
-                    color: Meter.activeStyle === index ? "#00e5ff" : "#cdd9e5"
+                    text: (Meter.activeStyle === modelData.sid ? "✓  " : "    ") + modelData.name
+                    color: Meter.activeStyle === modelData.sid ? "#00e5ff" : "#cdd9e5"
                     font.pixelSize: 12
                     font.family: "Menlo"
                 }
@@ -109,7 +155,7 @@ Rectangle {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        Meter.setActiveStyle(index)
+                        Meter.setActiveStyle(modelData.sid)
                         stylePop.close()
                     }
                 }
@@ -127,16 +173,13 @@ Rectangle {
             case 1:  return barFace
             case 2:  return ladderFace
             case 3:  return portholeFace
-            case 4:  return faderFace
             case 5:  return nixieFace
-            case 6:  return numitronFace
             case 7:  return vfdFace
-            case 8:  return dekatronFace
-            case 9:  return panaplexFace
             case 10: return drumFace
             case 11: return irisFace
             case 12: return sonarFace
-            case 13: return ingotFace
+            case 16: return phosphorFace
+            case 17: return clusterFace
             default: return arcFace
             }
         }
@@ -146,16 +189,13 @@ Rectangle {
     Component { id: barFace;      PlasmaBar {} }
     Component { id: ladderFace;   VerticalLadder {} }
     Component { id: portholeFace; MeterPorthole {} }
-    Component { id: faderFace;    MeterFader {} }
     Component { id: nixieFace;    MeterNixie {} }
-    Component { id: numitronFace; MeterNumitron {} }
     Component { id: vfdFace;      MeterVfd {} }
-    Component { id: dekatronFace; MeterDekatron {} }
-    Component { id: panaplexFace; MeterPanaplex {} }
     Component { id: drumFace;     MeterDrum {} }
     Component { id: irisFace;     MeterIris {} }
     Component { id: sonarFace;    MeterSonar {} }
-    Component { id: ingotFace;    MeterIngot {} }
+    Component { id: clusterFace;  MeterCluster {} }
+    Component { id: phosphorFace; MeterPhosphor {} }
 
     // ── Click-to-cycle source picker (task #35 / FEATURES.md §6) ──
     // Click on the meter face cycles the source through the wired
@@ -168,16 +208,16 @@ Rectangle {
     // The cycle list is constant for now: only the wired sources
     // appear (RX S-meter / PWR / SWR).  PA_CURRENT / PA_VOLTS / TEMP /
     // ALC / MIC / COMP get added when their MeterModel computes
-    // land in follow-on commits.  The Arc|Bar toggle in the top-
-    // right corner sits ABOVE this MouseArea (higher z) so clicks
-    // there don't fall through to the source cycle.
+    // land in follow-on commits.  The style chip in the top-right
+    // corner sits ABOVE this MouseArea (higher z) so clicks there
+    // don't fall through to the source cycle.
     MouseArea {
         anchors.fill: face
         z: 1                              // below the style chip (z:10)
-        // Disabled on the Ladder style — Multi shows all sources at
-        // once, so there's no primary to cycle.  Operator picks per-
-        // state preference from Settings → Meter as usual.
-        enabled: Meter.activeStyle !== 2
+        // Disabled on Ladder (2) and Cluster (17) — they show all the
+        // ladder sources at once, so there's no primary to cycle.  Operator
+        // picks per-state preference from Settings → Meter as usual.
+        enabled: Meter.activeStyle !== 2 && Meter.activeStyle !== 17
         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
         acceptedButtons: Qt.LeftButton
         property var sourceCycle: [0, 1, 2]  // RX_SMETER, PWR, SWR
