@@ -239,3 +239,35 @@ A Cursor session works on branch `meter-panel` in worktree
 | Dock resize fights saved window layout | `resizeDocks` only on `vfoStyleChanged`, never at start-up or on other min-height changes; verify with a saved layout |
 | Font licences | OFL-only, licence files committed, SF never bundled |
 | Large styles on small screens | Uniform scale-down, never clip |
+
+## 11. Revisions from implementation planning
+
+Decided while writing `docs/superpowers/plans/2026-10-10-vfo-styles-phase1.md`.
+Where these conflict with the sections above, these win.
+
+1. **Flat file layout.** Files go in `src/qml/` with a `Vfo` prefix (`VfoBox.qml`,
+   `VfoDigitRow.qml`, `VfoStepMode.qml`, `VfoTxPip.qml`, `VfoStyles.js`,
+   `VfoStyle<Name>.qml`). This matches the existing flat `Lyra*` layout. There is
+   no `src/qml/vfo/` directory.
+2. **`VfoBox` takes `isB: bool`, not a role string.** The existing VFO B box
+   already handles both SPLIT and SUB through one code path (`displayBHz`).
+   In SUB, VFO B shows its Mode picker (RX2's own mode); in SPLIT it is hidden.
+3. **Styles only draw.** A style does not instantiate the Step/Mode row or
+   the TX pip. It reports where they go and how they look:
+   - `tuneRect`, `stepModeRect`, `txPipRect`
+   - `theme { label, field, fieldBorder, text, accent, pipIdle, pipIdleBorder, pipIdleText, compact }`
+
+   `VfoBox` then places the shared controls. Inputs are `freqHz`,
+   `selectedDigit`, `vfoState` (`rx`/`tx`/`armed`), `roleText`, `vfoLetter`,
+   `modeText`, `stepHz` and `showMode`. Styles never touch Stream or Prefs, so
+   the contract test loads them headless. The test also checks that the
+   Step/Mode row does not overlap `tuneRect` and that the TX pip covers no
+   digit.
+4. **Fonts location.** Fonts live in `src/assets/fonts/` and are registered in
+   `main.cpp` with `QFontDatabase::addApplicationFont`.
+5. **`Prefs.vfoStyle` defaults to `""`.** The registry resolves `""` or an
+   unknown id to its `defaultId`. The default is `amber` in the framework
+   commit and `lyraMac` once that style ships.
+6. **`LyraComboBox` theme properties.** It gains optional `fieldColor`,
+   `fieldBorderColor`, `textColor` and `accentColor`. Their defaults equal
+   today's colours, so every other combo stays unchanged.
