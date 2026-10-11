@@ -137,6 +137,7 @@ constexpr auto kDigitalDriveEnabled = "tx/digitalDriveEnabled";
 constexpr auto kDigitalDrivePct     = "tx/digitalDrivePct";
 constexpr auto kMicSource    = "tx/mic_source";
 constexpr auto kTooltipsEnabled = "ui/tooltips_enabled";
+constexpr auto kVfoStyle = "ui/vfo_style";
 // Task #74 — TUN separate-drive toggle + value.  Operator-tuned in
 // Settings → TX (toggle) and on TxPanel's inline tune-drive stepper.
 constexpr auto kUseTuneDrive = "tx/use_tune_drive";   // legacy (#74); migrated
@@ -349,6 +350,7 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     // always-on space-bar keying for existing operators.
     spaceBarPttEnabled_ = s.value(kSpaceBarPttEnabled, true).toBool();
     tooltipsEnabled_    = s.value(kTooltipsEnabled, true).toBool();
+    vfoStyle_           = s.value(kVfoStyle, QString()).toString();
     autoStartOnLaunch_  = s.value(kAutoStartOnLaunch, true).toBool();
     // Process priority (per-PC).  Clamp to the valid 0..2 range, then apply
     // to the running process so the persisted choice takes effect at launch.
@@ -1459,6 +1461,15 @@ void Prefs::setTooltipsEnabled(bool on) {
         tooltipsEnabled_ = on;
         QSettings().setValue(kTooltipsEnabled, on);
         emit tooltipsEnabledChanged();
+    }
+}
+
+void Prefs::setVfoStyle(const QString &id) {
+    const QString v = id.trimmed();
+    if (v != vfoStyle_) {
+        vfoStyle_ = v;
+        QSettings().setValue(kVfoStyle, v);
+        emit vfoStyleChanged();
     }
 }
 

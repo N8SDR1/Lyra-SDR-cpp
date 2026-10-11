@@ -298,6 +298,7 @@ private:
     // implicitHeight, so the dock size has to be driven from C++.
 private slots:
     void syncCollapsibleDock();
+    void syncTuningDockHeight();
 private:
     // TX-0c-pa-debug — refresh the HL2 telemetry strip on the right
     // side of the status bar (T / V / PA current).  Driven by
@@ -336,6 +337,10 @@ private:
 
     QHash<QString, QDockWidget *> docks_;
     QAction                    *lockAction_ = nullptr;
+    // Set when the VFO style changes; the next Tuning lyraMinHeight change
+    // resizes the dock to the new style (grow OR shrink).  Cleared after use
+    // or after 1 s, so start-up and other content changes never resize it.
+    bool tuningResizePending_ = false;
     bool                        panelsLocked_ = false;   // gates event() separator block
     bool                        spaceConsumedPress_ = false; // space-PTT: swallow paired release/repeats
     QAction                    *layoutRecallActs_[4]{};   // named-layout recall slots

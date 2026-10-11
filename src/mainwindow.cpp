@@ -1347,6 +1347,35 @@ void MainWindow::finishQuickSource(QQuickWidget *qw, const QString &qmlFile) {
                           : qRound(root->property("implicitHeight").toReal());
         if (h > 0) qw->setMinimumHeight(h);
     }
+
+    // Tuning: the VFO style decides the panel's height.  Keep the minimum
+    // live (a taller style, or the zero-beat strip appearing, must never be
+    // clipped), and when the operator picks a new style resize the dock to
+    // it — taller or shorter.  Only on a style change, so a saved layout is
+    // never overridden at start-up.
+    if (root && qmlFile == QLatin1String("TuningPanel.qml")) {
+        connect(root, SIGNAL(lyraMinHeightChanged()),
+                this, SLOT(syncTuningDockHeight()));
+        connect(prefs_, &Prefs::vfoStyleChanged, this, [this]() {
+            tuningResizePending_ = true;
+            QTimer::singleShot(1000, this, [this]() { tuningResizePending_ = false; });
+        });
+    }
+}
+
+void MainWindow::syncTuningDockHeight() {
+    QDockWidget *d = docks_.value(QStringLiteral("tuning"));
+    auto *qw = d ? d->findChild<QQuickWidget *>() : nullptr;
+    QObject *root = qw ? qw->rootObject() : nullptr;
+    if (!root) return;
+    const int h = root->property("lyraMinHeight").toInt();
+    if (h <= 0) return;
+    qw->setMinimumHeight(h);
+    if (tuningResizePending_ && !d->isFloating()) {
+        tuningResizePending_ = false;
+        const int chrome = d->height() - qw->height();   // title bar + frame
+        resizeDocks({d}, {h + chrome}, Qt::Vertical);
+    }
 }
 
 void MainWindow::loadDeferredQuickSources() {

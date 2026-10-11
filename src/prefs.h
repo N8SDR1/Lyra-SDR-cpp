@@ -417,6 +417,10 @@ class Prefs : public QObject {
     // toggle is genuinely global.  Persisted: ui/tooltips_enabled.
     Q_PROPERTY(bool tooltipsEnabled READ tooltipsEnabled
                WRITE setTooltipsEnabled NOTIFY tooltipsEnabledChanged)
+    // Tuning-panel VFO style id (src/qml/VfoStyles.js), shared by VFO A and
+    // B.  Empty = the registry default; an unknown id also falls back to it.
+    Q_PROPERTY(QString vfoStyle READ vfoStyle WRITE setVfoStyle
+               NOTIFY vfoStyleChanged)
 
 public:
     explicit Prefs(QObject *parent = nullptr);
@@ -695,6 +699,8 @@ public:
     void    setMicSource(const QString &token);
     bool tooltipsEnabled() const { return tooltipsEnabled_; }
     void setTooltipsEnabled(bool on);
+    QString vfoStyle() const { return vfoStyle_; }
+    void    setVfoStyle(const QString &id);
     // Task #33 — operator-facing token list with display labels.  Used
     // by the Settings → TX → Mic Source dropdown.  Order matches the
     // dropdown order (Mic In default first).  Disabled entries get a
@@ -817,6 +823,7 @@ signals:
     void digitalDrivePctChanged();
     void micSourceChanged();
     void tooltipsEnabledChanged();
+    void vfoStyleChanged();
 
 private:
     int     gridLevel_;
@@ -954,6 +961,7 @@ private:
     // v0.2.0..v0.2.2 ship behaviour.  Persisted: tx/mic_source.
     QString micSource_   = QStringLiteral("mic1");
     bool    tooltipsEnabled_ = true;   // Settings → Visuals; ui/tooltips_enabled
+    QString vfoStyle_;                 // Tuning-panel VFO style id; ui/vfo_style
     QHash<QString, int> splitShiftHz_;
     QHash<QString, int> vfoStepHz_;
     QHash<QString, int> vfoStepHzRx2_;

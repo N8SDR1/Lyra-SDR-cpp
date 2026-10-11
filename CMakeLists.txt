@@ -573,6 +573,12 @@ qt_add_qml_module(lyra
     QML_FILES
         src/qml/LyraSlider.qml
         src/qml/LyraButton.qml
+        src/qml/VfoBox.qml
+        src/qml/VfoDigitRow.qml
+        src/qml/VfoStepMode.qml
+        src/qml/VfoTxPip.qml
+        src/qml/VfoStyles.js
+        src/qml/VfoStyleAmber.qml
         src/qml/LyraSpinBox.qml
         src/qml/LyraComboBox.qml
         src/qml/PanadapterPanel.qml
@@ -1345,4 +1351,31 @@ target_include_directories(test_wheel_steps PRIVATE src)
 target_link_libraries(test_wheel_steps PRIVATE Qt6::Core)
 if(MSVC)
     target_compile_options(test_wheel_steps PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# VFO style digit hit-testing (src/vfo_digit_hit.h) — which digit place a
+# click / wheel lands on, from the rects the active VFO style reports.
+# Qt Core only.  Build + run:  cmake --build build --target test_vfo_digit_hit
+add_executable(test_vfo_digit_hit EXCLUDE_FROM_ALL
+    scratch/test_vfo_digit_hit.cpp
+    src/vfo_digit_hit.h
+)
+target_include_directories(test_vfo_digit_hit PRIVATE src)
+target_link_libraries(test_vfo_digit_hit PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_vfo_digit_hit PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# VFO style contract test — loads src/qml/VfoStyles.js and every registered
+# VfoStyle*.qml from the source tree (headless, offscreen) and checks the
+# geometry/theme contract VfoBox.qml relies on.
+# Build + run:  cmake --build build --target test_vfo_styles
+add_executable(test_vfo_styles EXCLUDE_FROM_ALL
+    scratch/test_vfo_styles.cpp
+)
+target_compile_definitions(test_vfo_styles PRIVATE
+    LYRA_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/qml")
+target_link_libraries(test_vfo_styles PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick)
+if(MSVC)
+    target_compile_options(test_vfo_styles PRIVATE /utf-8 /Zc:preprocessor)
 endif()

@@ -20,13 +20,20 @@ ComboBox {
     property int textLeftPad: 8
     property int textRightPad: 20
 
+    // Optional theme (VFO styles colour their Step/Mode pickers).  Defaults
+    // are the standard Lyra look, so every other combo is unchanged.
+    property color fieldColor: "#161e28"
+    property color fieldBorderColor: "#2a3a4a"
+    property color textColor: "#f2f8fc"
+    property color accentColor: "#50d0ff"
+
     // Selected-value text.  Leaves room on the right for the chevron.
     contentItem: Text {
         leftPadding: control.textLeftPad
         rightPadding: control.textRightPad
         text: control.displayText
         font: control.font
-        color: control.enabled ? "#f2f8fc" : "#5a6670"
+        color: control.enabled ? control.textColor : "#5a6670"
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }
@@ -37,15 +44,15 @@ ComboBox {
         y: control.topPadding + (control.availableHeight - height) / 2
         text: "▾"
         font.pixelSize: 11
-        color: control.enabled ? "#50d0ff" : "#5a6670"
+        color: control.enabled ? control.accentColor : "#5a6670"
     }
 
     background: Rectangle {
         implicitWidth: 64
-        color: control.enabled ? "#161e28" : "#12171d"
-        border.color: control.activeFocus ? "#50d0ff"
+        color: control.enabled ? control.fieldColor : "#12171d"
+        border.color: control.activeFocus ? control.accentColor
                     : control.hovered      ? "#3a5a6a"
-                    :                        "#2a3a4a"
+                    :                        control.fieldBorderColor
         border.width: 1
         radius: 3
     }
