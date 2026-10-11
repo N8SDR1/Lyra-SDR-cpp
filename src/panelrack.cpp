@@ -146,7 +146,7 @@ void PanelRack::addMember(QDockWidget *dock, QAction *toggleAction) {
     if (allowTearOut_) {
         connect(dock, &QDockWidget::topLevelChanged, this,
                 [this, dock](bool floating) {
-                    if (floating && canTearOut() && !restoring_
+                    if (floating && canTearOut(dock) && !restoring_
                         && members_.contains(dock->objectName()))
                         emit memberFloated(dock);
                 });
@@ -309,18 +309,22 @@ void PanelRack::persistUndoStack() {
     QSettings().setValue(keyBase(objName_) + QStringLiteral("undo"), v);
 }
 
+bool PanelRack::canTearOut(const QDockWidget *dock) const {
+    return canTearOut() && !fixedMembers_.contains(dock->objectName());
+}
+
 void PanelRack::reassertMemberFeatures() {
-    // restoreState() resets each dock's features.  A fixed rack, or a locked
-    // tear-out rack, hides the float button; an unlocked tear-out rack (DSP)
-    // keeps it.
-    QDockWidget::DockWidgetFeatures feats =
-        QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable;
-    if (canTearOut()) feats |= QDockWidget::DockWidgetFloatable;
+    // restoreState() resets each dock's features.  A fixed rack, a locked
+    // tear-out rack, or a fixed member hides the float button; other members
+    // of an unlocked tear-out rack (DSP) keep it.
     for (QDockWidget *d : std::as_const(members_)) {
+        QDockWidget::DockWidgetFeatures feats =
+            QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable;
+        if (canTearOut(d)) feats |= QDockWidget::DockWidgetFloatable;
         d->setFeatures(feats);
         if (QWidget *tb = d->titleBarWidget())
             if (auto *fb = tb->findChild<QToolButton *>(QStringLiteral("dockFloat")))
-                fb->setVisible(canTearOut());
+                fb->setVisible(canTearOut(d));
     }
 }
 

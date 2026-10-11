@@ -22,5 +22,4 @@ EqPanel {
     bwHz: Prefs.rxBandwidth
     bypassModes: ["DIGU", "DIGL"]
     panelTitle: qsTr("RX EQ")
-    isRx: true
 }

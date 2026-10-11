@@ -24,7 +24,7 @@ Rectangle {
     id: root
     implicitWidth: 860
     implicitHeight: collapsed ? 40 : 320
-    color: "#101820"
+    color: "#0d141b"
     border.color: "#2a4a5a"
 
     // ── palette (matches the glassy panadapter language) ───────────────
@@ -55,13 +55,10 @@ Rectangle {
     //                   "bypassed" flag).  TX dims in digital + CW; the RX dock
     //                   passes just the digital data modes.
     //   * panelTitle  — header chip ("TX EQ" vs "RX EQ").
-    //   * isRx        — true for the RX dock; picks the "RX"/"TX" tag on the
-    //                   band-edge marker independent of the translated title.
     property var  eq:    Eq
     property real bwHz:  Prefs.txBandwidth
     property var  bypassModes: ["DIGU", "DIGL", "CWU", "CWL"]
     property string panelTitle: qsTr("TX EQ")
-    property bool isRx: false
 
     // The TX rack is bypassed in the digital data modes (DIGU/DIGL, gated by
     // SetTxRackBypass) and is moot in CW.  Gray the ON lamp + flag the header
@@ -76,29 +73,22 @@ Rectangle {
     // node/tile/curve bindings re-evaluate (QML doesn't auto-track
     // Q_INVOKABLE calls).
     property int rev: 0
-    // Bumped only when band parameters change.  graph.fMax reads this (not
-    // rev) because onFMaxChanged bumps rev — reading rev there would loop.
-    property int bandsRev: 0
     onRevChanged: curveCanvas.requestPaint()
     Connections {
         target: eq
-        function onBandsChanged()       { root.bandsRev++; root.rev++ }
+        function onBandsChanged()       { root.rev++ }
         function onSelectedBandChanged() { root.rev++ }
         function onBypassChanged()      { root.rev++ }
         function onMakeupDbChanged()    { root.rev++ }
         // Stage-2b analyzer: a new mic-spectrum frame → repaint the graph;
         // a toggle change → repaint (and drop peak-hold when Accumulate off).
-        function onSpectrumChanged()    {
-            curveCanvas.requestPaint()
-            if (eq.analyzerMode > 0) waveCanvas.requestPaint()
-        }
+        function onSpectrumChanged()    { curveCanvas.requestPaint() }
         function onSpectrumOptsChanged() {
             if (!eq.accumulate) { curveCanvas.peakHold = []; curveCanvas.peakHang = [] }
             if (!eq.accumulate || !eq.beforeAfterMod) {
                 curveCanvas.peakHoldPre = []; curveCanvas.peakHangPre = []
             }
             curveCanvas.requestPaint()
-            waveCanvas.requestPaint()   // analyzer toggled: draw live or go idle
         }
     }
 
@@ -351,94 +341,6 @@ Rectangle {
             }
         }
 
-        // Live post-EQ waveform.  The strip fills to the same width as the
-        // frequency graph, which ends at the RX or TX audio bandwidth.
-        // A flat top means the level is riding one peak value (compression,
-        // a steady tone, or clipping).  The amber line on the graph below is the loudest
-        // frequency in that bandwidth.  Idle (midline only) while the
-        // analyzer is Off, like the spectrum backdrop.
-        Rectangle {
-            visible: !root.collapsed
-            Layout.fillWidth: true
-            Layout.preferredHeight: 72
-            Layout.maximumHeight: 72
-            color: "#0a0d12"
-            border.color: root.cGrid0
-            border.width: 1
-            Canvas {
-                id: waveCanvas
-                anchors.fill: parent
-                renderStrategy: Canvas.Cooperative
-                onWidthChanged: requestPaint()
-                onHeightChanged: requestPaint()
-                onPaint: {
-                    var ctx = getContext("2d")
-                    ctx.reset()
-                    var w = width, h = height
-                    ctx.clearRect(0, 0, w, h)
-                    var mid = h * 0.5
-                    ctx.strokeStyle = "rgba(255,255,255,0.12)"
-                    ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(w, mid); ctx.stroke()
-
-                    if (eq.analyzerMode === 0) return
-                    var wave = eq.waveform()
-                    var cols = Math.floor(wave.length / 2)
-                    if (cols < 2) return
-                    var peak = 0.02
-                    var sum = 0
-                    var i
-                    for (i = 0; i < cols; ++i) {
-                        var a = Math.abs(wave[i * 2]), b = Math.abs(wave[i * 2 + 1])
-                        var m = a > b ? a : b
-                        if (m > peak) peak = m
-                        sum += m
-                    }
-                    var mean = sum / cols
-                    var scale = (h * 0.46) / peak
-                    // One path per pass (not per column).
-                    ctx.strokeStyle = "rgba(0,180,170,0.45)"
-                    ctx.lineWidth = 2
-                    ctx.beginPath()
-                    for (i = 0; i < cols; ++i) {
-                        var x = (i + 0.5) * w / cols
-                        ctx.moveTo(x, mid - wave[i * 2 + 1] * scale)
-                        ctx.lineTo(x, mid - wave[i * 2] * scale)
-                    }
-                    ctx.stroke()
-                    ctx.strokeStyle = "#5dfff0"
-                    ctx.lineWidth = 1
-                    ctx.beginPath()
-                    for (i = 0; i < cols; ++i) {
-                        var x2 = (i + 0.5) * w / cols
-                        ctx.moveTo(x2, mid - wave[i * 2 + 1] * scale)
-                        ctx.lineTo(x2, mid - wave[i * 2] * scale)
-                    }
-                    ctx.stroke()
-                    // Peak-to-average of the per-column peaks.  The model only
-                    // supplies min/max per column, so a true peak/RMS crest
-                    // factor can't be computed here, and a steady tone or
-                    // sustained vowel also reads low.  So the hints only
-                    // describe the level shape; nothing here detects clipping
-                    // (sample scale isn't guaranteed full-scale).  Thresholds
-                    // are rough rules of thumb for speech.
-                    var papr = mean > 1e-4 ? 20 * Math.log(peak / mean) / Math.LN10 : 0
-                    var note = ""
-                    if (peak > 0.05) {
-                        if (papr < 8) note = qsTr("very even level — heavy compression or a steady tone")
-                        else if (papr < 12) note = qsTr("compressed")
-                        else if (papr > 16) note = qsTr("peaky — room to compress")
-                    }
-                    if (note.length) {
-                        ctx.font = "bold 11px 'Segoe UI', sans-serif"
-                        ctx.textBaseline = "top"
-                        ctx.textAlign = "left"
-                        ctx.fillStyle = "#8a9aac"
-                        ctx.fillText(note, 6, 4)
-                    }
-                }
-            }
-        }
-
         // ── Graph (curve + grid + draggable nodes) ─────────────────────
         Item {
             id: graph
@@ -447,10 +349,16 @@ Rectangle {
             visible: !root.collapsed
             opacity: eq.bypass ? 0.45 : 1.0
 
-            // The right edge is the audio that actually fits in the passband
-            // (TX BW on the TX dock, RX BW on the RX dock).  SSB/digital use
-            // the bandwidth itself; AM/DSB/FM/SAM use half, because those
-            // modes mirror the audio into both sidebands.
+            // Axis maps: log freq, linear ±15 dB.
+            // #168 — the upper frequency tracks the TX audio passband so the
+            // visible curve reflects what actually goes on the air: SSB/digital
+            // audio runs out to the TX BW high edge; the double-sideband modes
+            // (AM/DSB/FM/SAM) mirror audio into both sidebands, so their audio
+            // top is HALF the occupied TX BW.  Clamped to a sane, always-usable
+            // window (4 k floor so low bands never vanish; 12 k ceiling for
+            // ultra-wide ESSB).  txEdgeHz is the exact audio top (the dashed
+            // marker), fMax adds a little headroom so the edge isn't jammed at
+            // the right.
             readonly property real fMin: 30
             readonly property real txEdgeHz: {
                 var bw = root.bwHz
@@ -460,24 +368,12 @@ Rectangle {
                     bw = bw / 2
                 return bw
             }
-            // Right edge covers the on-air audio AND every EQ band, so a band
-            // parked above the bandwidth stays visible and selectable.  The
-            // dashed marker is the RX or TX bandwidth itself.
             readonly property real fMax: {
-                root.bandsRev
-                var top = txEdgeHz > 80 ? txEdgeHz : 3000
-                var hi = top
-                var n = eq.numBands
-                for (var i = 0; i < n; ++i) {
-                    var f = eq.bandFreq(i)
-                    if (f > hi) hi = f
-                }
-                return Math.min(16000, hi * 1.08)
+                var top = txEdgeHz
+                if (top <= 0) return 12000
+                return Math.max(4000, Math.min(12000, top * 1.15))
             }
             onFMaxChanged: root.rev++      // re-eval node/curve bindings + repaint
-            // The dashed bandwidth marker moves with txEdgeHz even when fMax
-            // is pinned by a high band.  fMax doesn't read rev, so no loop.
-            onTxEdgeHzChanged: root.rev++
             readonly property real dbR: 15
             function xForFreq(f) { return width * Math.log(f / fMin) / Math.log(fMax / fMin) }
             function freqForX(x) {
@@ -679,26 +575,6 @@ Rectangle {
                                     }
                                 }
                             }
-                            // Loudest frequency inside the passband — the
-                            // spot to look at first when cutting or boosting.
-                            var hotDb = -200, hotF = 0
-                            for (var hi = 1; hi < nb; ++hi) {
-                                var hf = (hi / (nb - 1)) * nyq
-                                if (hf < fMin) continue
-                                if (hf > fMax) break
-                                if (post[hi] > hotDb) { hotDb = post[hi]; hotF = hf }
-                            }
-                            if (hotF > 0 && hotDb > -55) {
-                                var hx = graph.xForFreq(hotF)
-                                ctx.strokeStyle = "rgba(224,160,48,0.9)"
-                                ctx.lineWidth = 1
-                                ctx.beginPath(); ctx.moveTo(hx, 0); ctx.lineTo(hx, h); ctx.stroke()
-                                ctx.font = "bold 11px 'Segoe UI', sans-serif"
-                                ctx.textAlign = "left"
-                                ctx.textBaseline = "bottom"
-                                ctx.fillStyle = "rgba(224,160,48,0.95)"
-                                ctx.fillText(root.fmtFreq(hotF), Math.min(hx + 4, w - 36), h - 2)
-                            }
                         }
                     }
 
@@ -730,8 +606,7 @@ Rectangle {
                         ctx.setLineDash([])
                         ctx.fillStyle = "rgba(224,160,48,0.95)"
                         ctx.textAlign = "right"
-                        ctx.fillText((root.isRx ? "RX " : "TX ")
-                                     + root.fmtFreq(graph.txEdgeHz), ex - 3, 1)
+                        ctx.fillText("TX " + root.fmtFreq(graph.txEdgeHz), ex - 3, 1)
                     }
                     ctx.textAlign = "left"   // restore default for the dB labels
                     // Horizontal dB grid every 3 dB across the ±15 axis.

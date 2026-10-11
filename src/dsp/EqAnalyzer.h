@@ -36,13 +36,9 @@ public:
     void feed(const double *pre, const double *postIq, int n);
 
     // GUI thread.  Copies the latest published dBFS bins into preDb/postDb
-    // (each resized to bins()) and the time-domain waveform into wave
-    // (length kWaveCols*2, interleaved min/max per column).  Returns true
-    // iff a new frame was published since the previous snapshot.
-    bool snapshot(std::vector<float> &preDb, std::vector<float> &postDb,
-                  std::vector<float> &wave);
-
-    static constexpr int kWaveCols = 400;
+    // (each resized to bins()).  Returns true iff a new frame was published
+    // since the previous snapshot (so the caller can skip idle repaints).
+    bool snapshot(std::vector<float> &preDb, std::vector<float> &postDb);
 
     void reset();
 
@@ -59,12 +55,7 @@ private:
 
     std::mutex mtx_;
     std::vector<float> prePub_, postPub_;   // dBFS bins (length bins())
-    std::vector<float> wave_;               // recent post-EQ samples
-    int    wavePos_  = 0;
-    int    waveFill_ = 0;
-    std::vector<float> wavePub_;            // kWaveCols min/max pairs
     bool   dirty_ = false;
-    static constexpr int kWaveSamples = 8192;
 };
 
 }  // namespace lyra::dsp

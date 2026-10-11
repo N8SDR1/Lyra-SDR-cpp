@@ -18,6 +18,7 @@
 #include <QByteArray>
 #include <QHash>
 #include <QList>
+#include <QSet>
 #include <QMainWindow>
 #include <QString>
 
@@ -52,6 +53,8 @@ public:
     void setTearOutHandler(std::function<void(QDockWidget *, const QPoint &globalPos,
                                               const QPoint &grabOffset)> fn);
     bool allowTearOut() const { return allowTearOut_; }
+    // This member never pops out, even in a tear-out rack (call before addMember).
+    void setFixedMember(const QString &objectName) { fixedMembers_.insert(objectName); }
     bool hasMember(const QDockWidget *dock) const;
     // Remove from this rack (and its toggle strip), leave the dock alive.
     void detachMember(QDockWidget *dock);
@@ -103,6 +106,7 @@ private:
     void persistUndoStack();            // write the undo stack to QSettings
     void reassertMemberFeatures();      // re-apply member features after restoreState
     bool canTearOut() const { return allowTearOut_ && !locked_; }
+    bool canTearOut(const QDockWidget *dock) const;   // + not a fixed member
     void buildLayoutMenu();             // (re)populate the Layouts dropdown on show
     void promptSaveSlot(int n);         // ask for a name, then saveSlot()
 
@@ -116,6 +120,7 @@ private:
     QDockWidget                   *lastMember_ = nullptr;
     bool                           openByDefault_ = false;
     bool                           allowTearOut_ = false;   // pop out + dock to main window
+    QSet<QString>                  fixedMembers_;           // never pop out (setFixedMember)
     bool                           locked_     = false;     // Lock panels: no pop-out
     bool                           quitting_   = false;     // see setQuitting()
     bool                           restoring_  = false;     // in our own restoreState

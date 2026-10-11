@@ -776,7 +776,7 @@ control panels in a row beneath).
   everything — panels can't be moved, floated, closed, **or resized** —
   so you can't disturb your arrangement by accident during operating.
   The move cursor disappears on locked title bars as a reminder.
-- **Audio panels (TX Speech / EQ / Combinator / Plating, RX EQ)** dock
+- **TX audio panels (Speech / EQ / Combinator / Plating)** dock
   like any other panel. A floating one only docks where the cyan highlight
   shows — an edge, or onto another panel; let go anywhere else and it stays
   a floating window. Its **⧉** button docks it straight into the window.
@@ -784,10 +784,10 @@ control panels in a row beneath).
   but it won't dock or pop out until you unlock.
 - **Grouped DSP Rack** (Settings → Visuals → Panel layout): pull a panel
   out of the rack with its **⧉** button, a title-bar double-click, or by
-  dragging it off the rack. It appears under your cursor and docks into
+  dragging it off the rack (RX EQ stays in the rack). It appears under your cursor and docks into
   Lyra if you drop it on a highlighted spot. A popped-out panel is
   reopened from the **View** menu, and the next time Lyra starts it is
-  back in the DSP Rack — the rack always opens with all five panels in it.
+  back in the DSP Rack — the rack always opens with all its panels in it.
   Locked panels can't be pulled out of the rack.
 
 **Undo a bad drag.** Dropped a panel somewhere you didn't mean to?
@@ -2438,16 +2438,6 @@ A draggable response curve over a live spectrum analyzer.
   runs, so the analyzer animates on receive too — you can shape your EQ
   while just listening, no need to key up (it's analysed, not
   transmitted, until you actually key).
-- **Waveform strip** — a live post-EQ time waveform above the graph, sharing
-  its width (the graph's right edge is the RX or TX audio bandwidth, or the
-  highest EQ band if that is higher). A flat-topped waveform means the
-  level is riding one peak value. A grey hint appears when the signal is
-  loud enough: **very even level — heavy compression or a steady tone**,
-  **compressed**, or **peaky — room to compress**. It compares the loudest
-  peak with the average peak level, so it is a rough guide only: it is not a
-  measured crest factor, a steady tone or sustained vowel also reads
-  "even", and it does not detect clipping. The strip is idle (midline only)
-  while the analyzer is **Off**. The RX EQ shows the same strip.
 
 ### RX EQ — receive parametric EQ
 

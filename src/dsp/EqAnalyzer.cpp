@@ -26,26 +26,18 @@ EqAnalyzer::EqAnalyzer(int fftSize, double sampleRate)
     postAcc_.assign(n_, 0.0);
     prePub_.assign(bins(), -140.0f);
     postPub_.assign(bins(), -140.0f);
-    wave_.assign(kWaveSamples, 0.0f);
-    wavePub_.assign(kWaveCols * 2, 0.0f);
 }
 
 void EqAnalyzer::reset() {
     fill_ = 0;
-    wavePos_ = 0;
-    waveFill_ = 0;
     std::fill(preAcc_.begin(), preAcc_.end(), 0.0);
     std::fill(postAcc_.begin(), postAcc_.end(), 0.0);
-    std::fill(wave_.begin(), wave_.end(), 0.0f);
 }
 
 void EqAnalyzer::feed(const double *pre, const double *postIq, int n) {
     for (int k = 0; k < n; ++k) {
         preAcc_[fill_]  = pre[k];
         postAcc_[fill_] = postIq[2 * k];
-        wave_[wavePos_] = static_cast<float>(postIq[2 * k]);
-        wavePos_ = (wavePos_ + 1) % kWaveSamples;
-        if (waveFill_ < kWaveSamples) ++waveFill_;
         if (++fill_ >= n_) {
             transform();
             fill_ = 0;
@@ -72,47 +64,19 @@ void EqAnalyzer::transform() {
         preDb[i]  = 20.0f * std::log10(ma + 1e-9f);
         postDb[i] = 20.0f * std::log10(mb + 1e-9f);
     }
-    const int cols = kWaveCols;
-    std::vector<float> wave(static_cast<size_t>(cols * 2), 0.0f);
-    const int nSamp = waveFill_;
-    if (nSamp >= cols) {
-        for (int c = 0; c < cols; ++c) {
-            int a = (c * nSamp) / cols;
-            int b = ((c + 1) * nSamp) / cols;
-            if (b <= a) b = a + 1;
-            float mn = 0.0f, mx = 0.0f;
-            bool first = true;
-            for (int i = a; i < b; ++i) {
-                int idx = wavePos_ - nSamp + i;
-                idx %= kWaveSamples;
-                if (idx < 0) idx += kWaveSamples;
-                const float s = wave_[idx];
-                if (first) { mn = mx = s; first = false; }
-                else {
-                    if (s < mn) mn = s;
-                    if (s > mx) mx = s;
-                }
-            }
-            wave[static_cast<size_t>(c * 2)]     = mn;
-            wave[static_cast<size_t>(c * 2 + 1)] = mx;
-        }
-    }
     {
         std::lock_guard<std::mutex> lk(mtx_);
         prePub_.swap(preDb);
         postPub_.swap(postDb);
-        wavePub_.swap(wave);
         dirty_ = true;
     }
 }
 
-bool EqAnalyzer::snapshot(std::vector<float> &preDb, std::vector<float> &postDb,
-                          std::vector<float> &wave) {
+bool EqAnalyzer::snapshot(std::vector<float> &preDb, std::vector<float> &postDb) {
     std::lock_guard<std::mutex> lk(mtx_);
     if (!dirty_) return false;
     preDb = prePub_;
     postDb = postPub_;
-    wave = wavePub_;
     dirty_ = false;
     return true;
 }
