@@ -2396,6 +2396,10 @@ bool HL2Stream::txBlocksBandJump(quint32 targetHz, bool sub) {
     return txBlocksJumpFrom(sub ? rx2FreqHz() : rx1FreqHz(), targetHz);
 }
 
+bool HL2Stream::txBlocksVfoBJump(quint32 targetHz) {
+    return splitEnabled() && txBlocksJumpFrom(vfoBHz(), targetHz);
+}
+
 bool HL2Stream::txBlocksJumpFrom(quint32 fromHz, quint32 targetHz) {
     if (!txDisplayActive_) return false;
     if (!lyra::bandJumpCrosses(int(fromHz), int(targetHz))) return false;

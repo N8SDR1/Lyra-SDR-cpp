@@ -3233,7 +3233,11 @@ A compact strip showing current **HF propagation** conditions from
   they would **leave the current amateur band**; a jump within the same band
   still works. The same rule covers the VFO itself: the **1→2**, **2→1** and
   **⇄** (copy/swap) buttons and a typed frequency are ignored if they would
-  move VFO A — or VFO B while it is live (SPLIT or SUB) — out of its band. The NCDXF **Follow** feature
+  move VFO A — or VFO B while it is live (SPLIT or SUB) — out of its band.
+  Frequency changes from a logger or other program over **CAT** or **TCI**
+  follow the same rule (VFO B counts there only in SPLIT, where it is the TX
+  frequency); a TCI client is sent the unchanged frequency so its display
+  stays in step. The NCDXF **Follow** feature
   pauses silently while you transmit and resumes on its next tick after you
   release.
 

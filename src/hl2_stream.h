@@ -914,6 +914,9 @@ public:
     // Same rule for a VFO move that has its own "from" (VFO A/B copy/swap,
     // typed entry on VFO B): compares fromHz with targetHz.
     Q_INVOKABLE bool txBlocksJumpFrom(quint32 fromHz, quint32 targetHz);
+    // VFO B moves (CAT FB, TCI vfo:0,1): VFO B only matters while SPLIT makes
+    // it the TX frequency; otherwise it is an idle register and always passes.
+    bool txBlocksVfoBJump(quint32 targetHz);
     // TX-0c-pa-debug — operator-tunable safety timeout (seconds) +
     // bypass.  Setters clamp + persist + emit changes; the FSM-side
     // keydown/keyup hooks arm/cancel the QTimer.

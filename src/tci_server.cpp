@@ -1495,9 +1495,14 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         if (!okc) return;
         if (args.size() >= 2) {
             bool f=false; qint64 v=args[1].toLongLong(&f);
-            if (f && stream_) {
-                if (ch == 0) stream_->setRx1FreqHz(quint32(v));
-                else if (ch == 1) stream_->setRx2FreqHz(quint32(v));
+            if (f && stream_ && (ch == 0 || ch == 1)) {
+                // Cross-band while transmitting: ignored, and the client is
+                // told the unchanged frequency so its display re-syncs.
+                if (stream_->txBlocksBandJump(quint32(v), ch == 1))
+                    sendTo(ws, QStringLiteral("dds:%1,%2").arg(ch)
+                                   .arg(ch == 0 ? curHz : qint64(stream_->rx2FreqHz())));
+                else if (ch == 0) stream_->setRx1FreqHz(quint32(v));
+                else              stream_->setRx2FreqHz(quint32(v));
             }
         } else if (ch == 0) sendTo(ws, QStringLiteral("dds:0,%1").arg(curHz));
         else if (ch == 1 && stream_)
@@ -1522,11 +1527,24 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         if (args.size() >= 3) {
             bool f = false; const qint64 v = args[2].toLongLong(&f);
             if (f && stream_) {
+                // Cross-band while transmitting: ignored, and the client is
+                // told the unchanged frequency so its display re-syncs.
                 if (rxi == 0) {
-                    if (ch == 0) stream_->setRx1FreqHz(quint32(v - offA));
-                    else         stream_->setVfoBHz(quint32(v - offA));
+                    const quint32 t = quint32(v - offA);
+                    if (ch == 0 ? stream_->txBlocksBandJump(t)
+                                : stream_->txBlocksVfoBJump(t))
+                        sendTo(ws, QStringLiteral("vfo:0,%1,%2").arg(ch)
+                                       .arg(qint64(ch == 0 ? stream_->rx1FreqHz()
+                                                           : stream_->vfoBHz()) + offA));
+                    else if (ch == 0) stream_->setRx1FreqHz(t);
+                    else              stream_->setVfoBHz(t);
                 } else {
-                    stream_->setRx2FreqHz(quint32(v - offB));
+                    const quint32 t = quint32(v - offB);
+                    if (stream_->txBlocksBandJump(t, true))
+                        sendTo(ws, QStringLiteral("vfo:1,%1,%2").arg(ch)
+                                       .arg(qint64(stream_->rx2FreqHz()) + offB));
+                    else
+                        stream_->setRx2FreqHz(t);
                 }
             }
         } else if (rxi == 0) {
@@ -1563,6 +1581,12 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
             if (!oko) return;
             const qint64 target = centre + off;
             if (target <= 0) return;
+            // Cross-band while transmitting: ignored (the client's next IF
+            // read returns the unchanged offset).
+            if (rxi == 1 ? stream_->txBlocksBandJump(quint32(target), true)
+                : ch == 0 ? stream_->txBlocksBandJump(quint32(target))
+                          : stream_->txBlocksVfoBJump(quint32(target)))
+                return;
             if (rxi == 1)
                 stream_->setRx2FreqHz(quint32(target));
             else if (ch == 0)
