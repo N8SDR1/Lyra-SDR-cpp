@@ -37,6 +37,10 @@ int bandIndexForFreq(int hz) {
     return -1;
 }
 
+bool bandJumpCrosses(int fromHz, int toHz) {
+    return bandIndexForFreq(fromHz) != bandIndexForFreq(toHz);
+}
+
 const std::vector<Band> &broadcastBands() {
     // Shortwave broadcast meter bands, matching old Lyra BROADCAST_BANDS.
     static const std::vector<Band> kBc = {

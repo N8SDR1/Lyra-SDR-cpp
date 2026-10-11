@@ -905,6 +905,12 @@ public:
     // truth: red-on-air + panadapter TX rescale follow this so they flip for
     // QSK CW; the wire MOX bit (moxActive) is unchanged.
     bool    txDisplayActive() const { return txDisplayActive_; }
+    // One-click jumps (GEN/TIME/Mem/XVTR, band-plan markers) call this with
+    // the target frequency.  True = ignore the jump: we are transmitting and
+    // it would leave the current amateur band (a band change re-selects
+    // filters / OC outputs / PA band under power).  Same-band jumps pass.
+    // Compares against RX1, or RX2 when `sub`.  Emits txBandChangeBlocked().
+    Q_INVOKABLE bool txBlocksBandJump(quint32 targetHz, bool sub = false);
     // TX-0c-pa-debug — operator-tunable safety timeout (seconds) +
     // bypass.  Setters clamp + persist + emit changes; the FSM-side
     // keydown/keyup hooks arm/cancel the QTimer.
@@ -1662,6 +1668,8 @@ signals:
     void cwTerminalHoldDropped();
     // #105 — display TX-state (moxActive || cwKeyingActive) changed.
     void txDisplayActiveChanged(bool on);
+    // A band jump was ignored because we are transmitting (status-bar cue).
+    void txBandChangeBlocked();
     // Fires ONCE per requestMox(true) call (MOX button click, TUN arm,
     // space-bar press — any path that signals operator intent to key).
     // Lets the TX panel paint a short "press-intent" indicator (orange

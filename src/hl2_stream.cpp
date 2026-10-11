@@ -2392,6 +2392,14 @@ void HL2Stream::setVfoBHz(quint32 hz) {
     }
 }
 
+bool HL2Stream::txBlocksBandJump(quint32 targetHz, bool sub) {
+    if (!txDisplayActive_) return false;
+    const quint32 from = sub ? rx2FreqHz() : rx1FreqHz();
+    if (!lyra::bandJumpCrosses(int(from), int(targetHz))) return false;
+    emit txBandChangeBlocked();
+    return true;
+}
+
 void HL2Stream::setSubEnabled(bool on) {
     const bool prev = subEnabled_.exchange(on, std::memory_order_relaxed);
     if (prev == on)

@@ -70,6 +70,9 @@ public:
 
 signals:
     void changed();
+    // The jump is going ahead (not blocked by the TX band lockout): MainWindow
+    // drops the GEN slot's ownership of the VFO, before the retune lands.
+    void aboutToTune();
 
 private:
     void load();

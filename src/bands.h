@@ -40,6 +40,10 @@ const std::vector<Band> &cbBands();
 
 // Index of the amateur band whose [low,high] contains hz, else -1.
 int bandIndexForFreq(int hz);
+// True when a jump from fromHz to toHz leaves the current amateur band:
+// different bands, or one inside a band and the other outside.  Two
+// out-of-band frequencies count as the same (no band filter changes).
+bool bandJumpCrosses(int fromHz, int toHz);
 // Index of the broadcast band whose [low,high] contains hz, else -1.
 int broadcastBandIndexForFreq(int hz);
 // Index of the CB band whose [low,high] contains hz, else -1.

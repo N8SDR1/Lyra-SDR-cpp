@@ -147,6 +147,8 @@ void XvtrSlots::tune(int i) {
     if (!valid(i) || !slots_[i].enabled || !stream_) return;
     const quint32 hz = static_cast<quint32>(
         std::clamp(tuneHzFor(i), qint64(0), qint64(std::numeric_limits<quint32>::max())));
+    if (stream_->txBlocksBandJump(hz)) return;
+    emit aboutToTune();
     slots_[i].lastHz = hz;
     persist(i);
     stream_->setRx1FreqHz(hz);
@@ -157,6 +159,8 @@ void XvtrSlots::tuneSub(int i) {
     if (!valid(i) || !slots_[i].enabled || !stream_) return;
     const quint32 hz = static_cast<quint32>(
         std::clamp(tuneHzFor(i), qint64(0), qint64(std::numeric_limits<quint32>::max())));
+    if (stream_->txBlocksBandJump(hz, true)) return;
+    emit aboutToTune();
     slots_[i].lastHz = hz;
     persist(i);
     stream_->setSubEnabled(true);

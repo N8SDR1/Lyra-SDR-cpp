@@ -256,6 +256,10 @@ bool SolarPanel::eventFilter(QObject *watched, QEvent *event) {
 
 void SolarPanel::tuneBand(const QString &bandKey, bool forceSub) {
     if (!stream_ || bandKey.isEmpty()) return;
+    if (stream_->txDisplayActive()) {
+        emit bandChangeBlocked();
+        return;
+    }
     int defaultHz = 0;
     for (const lyra::Band &b : lyra::amateurBands()) {
         if (bandKey == QLatin1String(b.name)) {

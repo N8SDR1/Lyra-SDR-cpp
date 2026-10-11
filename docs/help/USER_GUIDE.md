@@ -3217,6 +3217,15 @@ A compact strip showing current **HF propagation** conditions from
   the focused one. **Right-click** or **Shift+click** parks the SUB receiver
   on that band instead. Band memory is honoured, so you land on the
   frequency you last used there.
+- **Band changes are ignored while transmitting.** Switching bands re-selects
+  filters and PA/relay outputs, so during transmit (including CW keying) a
+  click on the heat-map or on any Band-panel band chip does nothing except
+  post "Band change ignored while transmitting" in the status bar. The other
+  one-click jumps (GEN, TIME, Mem recall, XVTR chips, and the band-plan, CB
+  and broadcast markers on the panadapter) are blocked the same way only when
+  they would **leave the current amateur band**; a jump within the same band
+  still works. The NCDXF **Follow** feature pauses silently while you transmit
+  and resumes on its next tick after you release.
 
 The ratings are shown for **your current day or night** — Lyra works out
 whether it's daylight at your location and picks HamQSL's day or night

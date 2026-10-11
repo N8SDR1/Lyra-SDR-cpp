@@ -29,6 +29,10 @@ public:
                lyra::ipc::HL2Stream *stream, BandMemory *bandMemory,
                GenSlots *gen, QWidget *parent = nullptr);
 
+signals:
+    // A band click was ignored because the radio is transmitting.
+    void bandChangeBlocked();
+
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
@@ -39,6 +43,7 @@ private:
     void refresh();
     // Same destination as a Band-panel chip: left click follows the
     // focused receiver; Shift+click and right-click park SUB there.
+    // Ignored while transmitting (a band change retunes filters / PA).
     void tuneBand(const QString &bandKey, bool forceSub);
 
     lyra::solar::SolarService *svc_ = nullptr;

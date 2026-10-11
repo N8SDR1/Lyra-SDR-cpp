@@ -1386,6 +1386,20 @@ if(MSVC)
     target_compile_options(test_wheel_steps PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
+# TX band-jump rule (src/bands.h bandJumpCrosses): a one-click jump that leaves
+# the current amateur band is ignored while transmitting.  Qt Core only;
+# EXCLUDE_FROM_ALL.  Build + run:  cmake --build build --target test_band_jump
+add_executable(test_band_jump EXCLUDE_FROM_ALL
+    scratch/test_band_jump.cpp
+    src/bands.cpp
+    src/bands.h
+)
+target_include_directories(test_band_jump PRIVATE src)
+target_link_libraries(test_band_jump PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_band_jump PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
 # VFO saved-style id migration (src/vfo_style_migrate.h): a removed style's id
 # maps to its successor on load.  Qt Core only; EXCLUDE_FROM_ALL.
 # Build + run:  cmake --build build --target test_vfo_style_migrate

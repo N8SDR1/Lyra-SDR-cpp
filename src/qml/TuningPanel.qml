@@ -675,7 +675,7 @@ Rectangle {
                 MemoryRecallPopup {
                     id: memRecallPopup
                     memories: root.memList
-                    onRecalled: function(index) { Gen.deactivate(); Memory.recall(index) }
+                    onRecalled: function(index) { Memory.recall(index) }
                 }
                 TapHandler {
                     acceptedButtons: Qt.RightButton

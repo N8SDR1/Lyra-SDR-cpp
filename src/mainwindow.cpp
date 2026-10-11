@@ -655,6 +655,13 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     memory_ = new MemoryStore(
         prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
 
+    // A TIME / Mem / XVTR jump that really happens releases the GEN slot (a
+    // band-lockout-blocked jump does not).  Emitted before the retune, so
+    // GenSlots::onFreqChanged can't overwrite the slot with the new frequency.
+    connect(time_,   &TimeStations::aboutToTune, gen_, &GenSlots::deactivate);
+    connect(memory_, &MemoryStore::aboutToTune,  gen_, &GenSlots::deactivate);
+    connect(xvtr_,   &XvtrSlots::aboutToTune,    gen_, &GenSlots::deactivate);
+
     // EiBi shortwave-broadcaster overlay (Settings → Bands → SW Database).
     eibi_ = new EibiStore(prefs_, bands_, this);
 
@@ -1945,6 +1952,13 @@ void MainWindow::buildDocks() {
     auto *solarPanel = new SolarPanel(solar_, ncdxfFollow_,
                                       qobject_cast<lyra::ipc::HL2Stream *>(stream_),
                                       bandMemory_, gen_, this);
+    auto bandBlocked = [this] {
+        statusBus_->show(tr("Band change ignored while transmitting"), 3000);
+    };
+    connect(solarPanel, &SolarPanel::bandChangeBlocked, this, bandBlocked);
+    // One-click jumps (GEN/TIME/Mem/XVTR, band-plan markers) that would cross bands.
+    if (auto *hl2 = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+        connect(hl2, &lyra::ipc::HL2Stream::txBandChangeBlocked, this, bandBlocked);
     addWidgetDock(QStringLiteral("propagation"), tr("Solar / Propagation"),
                   solarPanel,
                   QStringLiteral("propagation"), Qt::BottomDockWidgetArea);

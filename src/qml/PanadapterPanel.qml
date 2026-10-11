@@ -1805,6 +1805,8 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
+                                if (Stream.txBlocksBandJump(Math.round(segItem.modelData.qsy)))
+                                    return
                                 Prefs.mode = "USB"
                                 Stream.setRx1FreqHz(
                                     Math.round(segItem.modelData.qsy))
@@ -1916,6 +1918,8 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
+                                if (Stream.txBlocksBandJump(Math.round(markItem.modelData.freq)))
+                                    return
                                 Prefs.mode = markItem.modelData.mode
                                 Stream.setRx1FreqHz(Math.round(markItem.modelData.freq))
                                 Status.show(qsTr("Tuned to ")
@@ -1977,6 +1981,8 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
+                                if (Stream.txBlocksBandJump(Math.round(cbItem.modelData.freq)))
+                                    return
                                 Prefs.mode = "AM"
                                 Stream.setRx1FreqHz(Math.round(cbItem.modelData.freq))
                                 Status.show(qsTr("Tuned to CB ") + cbItem.modelData.label
@@ -2027,6 +2033,8 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
+                                if (Stream.txBlocksBandJump(Math.round(ebItem.modelData.freqHz)))
+                                    return
                                 Prefs.mode = "AM"
                                 Stream.setRx1FreqHz(Math.round(ebItem.modelData.freqHz))
                                 Status.show(qsTr("Tuned to ")
