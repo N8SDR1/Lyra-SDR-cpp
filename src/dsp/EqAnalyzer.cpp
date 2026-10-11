@@ -24,6 +24,8 @@ EqAnalyzer::EqAnalyzer(int fftSize, double sampleRate)
     winNorm_ = (sum > 0.0) ? (sum * 0.5) : 1.0;
     preAcc_.assign(n_, 0.0);
     postAcc_.assign(n_, 0.0);
+    preAvg_.assign(bins(), 0.0);
+    postAvg_.assign(bins(), 0.0);
     prePub_.assign(bins(), -140.0f);
     postPub_.assign(bins(), -140.0f);
 }
@@ -32,6 +34,7 @@ void EqAnalyzer::reset() {
     fill_ = 0;
     std::fill(preAcc_.begin(), preAcc_.end(), 0.0);
     std::fill(postAcc_.begin(), postAcc_.end(), 0.0);
+    avgSeeded_ = false;
 }
 
 void EqAnalyzer::feed(const double *pre, const double *postIq, int n) {
@@ -58,11 +61,42 @@ void EqAnalyzer::transform() {
     const int nb = bins();
     const float norm = static_cast<float>(winNorm_);
     std::vector<float> preDb(nb), postDb(nb);
-    for (int i = 0; i < nb; ++i) {
-        const float ma = std::sqrt(reA[i] * reA[i] + imA[i] * imA[i]) / norm;
-        const float mb = std::sqrt(reB[i] * reB[i] + imB[i] * imB[i]) / norm;
-        preDb[i]  = 20.0f * std::log10(ma + 1e-9f);
-        postDb[i] = 20.0f * std::log10(mb + 1e-9f);
+    const double tau = tau_.load(std::memory_order_relaxed);
+    if (tau <= 0.0) {
+        // Raw: publish this frame as-is (TX EQ — unchanged).
+        avgSeeded_ = false;
+        for (int i = 0; i < nb; ++i) {
+            const float ma = std::sqrt(reA[i] * reA[i] + imA[i] * imA[i]) / norm;
+            const float mb = std::sqrt(reB[i] * reB[i] + imB[i] * imB[i]) / norm;
+            preDb[i]  = 20.0f * std::log10(ma + 1e-9f);
+            postDb[i] = 20.0f * std::log10(mb + 1e-9f);
+        }
+    } else {
+        // Averaged: one-pole IIR on per-bin POWER (|X|^2), not on dB — a
+        // dB-domain average under-reads bursty audio (it averages the log)
+        // and lets single-frame nulls drag the trace down.  The coefficient
+        // comes from the frame period so the time constant holds at any fs
+        // or FFT size: alpha = 1 - exp(-(n/fs) / tau).  The first frame
+        // after enable/reset seeds the average so it doesn't ramp up from 0.
+        const double frameSec = (fs_ > 0.0) ? n_ / fs_ : 0.0;
+        const double alpha = (frameSec > 0.0) ? 1.0 - std::exp(-frameSec / tau) : 1.0;
+        for (int i = 0; i < nb; ++i) {
+            const double ma = static_cast<double>(reA[i]) / norm, mai = static_cast<double>(imA[i]) / norm;
+            const double mb = static_cast<double>(reB[i]) / norm, mbi = static_cast<double>(imB[i]) / norm;
+            const double pa = ma * ma + mai * mai;
+            const double pb = mb * mb + mbi * mbi;
+            if (avgSeeded_) {
+                preAvg_[i]  += alpha * (pa - preAvg_[i]);
+                postAvg_[i] += alpha * (pb - postAvg_[i]);
+            } else {
+                preAvg_[i]  = pa;
+                postAvg_[i] = pb;
+            }
+            // 1e-18 power == the raw path's 1e-9 amplitude floor (-180 dB).
+            preDb[i]  = static_cast<float>(10.0 * std::log10(preAvg_[i] + 1e-18));
+            postDb[i] = static_cast<float>(10.0 * std::log10(postAvg_[i] + 1e-18));
+        }
+        avgSeeded_ = true;
     }
     {
         std::lock_guard<std::mutex> lk(mtx_);

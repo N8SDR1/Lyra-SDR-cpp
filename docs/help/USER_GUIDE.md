@@ -2459,6 +2459,9 @@ remembered, exactly like the TX DSP panels.
 - **Graph width tracks the RX bandwidth** — the curve spans the receive
   passband actually in use, so the bands sit where the audio is. Change your
   RX filter width and the EQ rescales to match.
+- **Analyzer** — the receive audio never stops, so the RX analyzer is averaged
+  (about a third of a second) to give a steady picture, and its vertical scale
+  follows the signal level so loud peaks never flat-top at the top of the graph.
 - **ON / bypass** — the top-bar **ON** button bypasses the RX EQ in **any**
   mode. It additionally **auto-bypasses in the digital data modes (DIGU /
   DIGL)** so decoders always get flat audio; it stays available in CW and SSB.

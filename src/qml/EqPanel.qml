@@ -55,10 +55,49 @@ Rectangle {
     //                   "bypassed" flag).  TX dims in digital + CW; the RX dock
     //                   passes just the digital data modes.
     //   * panelTitle  — header chip ("TX EQ" vs "RX EQ").
+    //   * autoRangeSpectrum — analyzer vertical scale follows the signal
+    //                   (RX: post-RXA audio can sit above 0 dBFS with AF gain
+    //                   / EQ boost).  Off = the fixed 0 / -100 dBFS TX scale.
     property var  eq:    Eq
     property real bwHz:  Prefs.txBandwidth
     property var  bypassModes: ["DIGU", "DIGL", "CWU", "CWL"]
     property string panelTitle: qsTr("TX EQ")
+    property bool autoRangeSpectrum: false
+
+    // Auto-range state: a peak envelope over what's drawn (post + pre when
+    // B/A, + the Acc peak-hold lines so a held peak never clips) with an
+    // instant attack and a 3 dB/s release; the scale top is the envelope +
+    // specHeadroomDb rounded UP to 10 dB (so it moves in calm 10 dB steps,
+    // 16-26 dB above the loudest bin — operator found 6 dB too tight).
+    // Floored at -40 dBFS so a quiet band doesn't zoom into the noise.
+    // Called per new analyzer frame.
+    readonly property real specHeadroomDb: 16
+    property real specEnvDb: -200
+    property double specEnvMs: 0
+    function updateSpecRange() {
+        var m = -200
+        function scan(arr) {
+            if (!arr) return
+            var nb = arr.length
+            if (nb < 3) return
+            var nyq = eq.specNyquist
+            for (var i = 1; i < nb; ++i) {
+                var f = (i / (nb - 1)) * nyq
+                if (f < graph.fMin) continue
+                if (f > graph.fMax) break
+                if (arr[i] > m) m = arr[i]
+            }
+        }
+        scan(eq.spectrumPost())
+        if (eq.beforeAfterMod) scan(eq.spectrumPre())
+        if (eq.accumulate) { scan(curveCanvas.peakHold); scan(curveCanvas.peakHoldPre) }
+        if (!isFinite(m)) return
+        var now = Date.now()
+        var dt = specEnvMs > 0 ? Math.min(1.0, (now - specEnvMs) / 1000) : 0
+        specEnvMs = now
+        specEnvDb = Math.max(m, specEnvDb - 3.0 * dt)
+        graph.specTopDb = Math.max(-40, Math.ceil((specEnvDb + specHeadroomDb) / 10) * 10)
+    }
 
     // The TX rack is bypassed in the digital data modes (DIGU/DIGL, gated by
     // SetTxRackBypass) and is moot in CW.  Gray the ON lamp + flag the header
@@ -82,7 +121,10 @@ Rectangle {
         function onMakeupDbChanged()    { root.rev++ }
         // Stage-2b analyzer: a new mic-spectrum frame → repaint the graph;
         // a toggle change → repaint (and drop peak-hold when Accumulate off).
-        function onSpectrumChanged()    { curveCanvas.requestPaint() }
+        function onSpectrumChanged() {
+            if (root.autoRangeSpectrum && eq.analyzerMode > 0) root.updateSpecRange()
+            curveCanvas.requestPaint()
+        }
         function onSpectrumOptsChanged() {
             if (!eq.accumulate) { curveCanvas.peakHold = []; curveCanvas.peakHang = [] }
             if (!eq.accumulate || !eq.beforeAfterMod) {
@@ -389,8 +431,10 @@ Rectangle {
             function clampY(y) { return Math.max(11, Math.min(height - 11, y)) }
             // Analyzer backdrop has its OWN vertical scale (dBFS), independent
             // of the ±15 dB gain grid the EQ curve rides — they share the box.
-            readonly property real specFloorDb: -100
-            readonly property real specTopDb: 0
+            // Fixed 0 / -100 dBFS (TX); the RX panel auto-ranges the top
+            // (root.updateSpecRange) and the floor follows 100 dB below it.
+            property real specTopDb: 0
+            readonly property real specFloorDb: specTopDb - 100
             function yForDb(db) {
                 var t = (specTopDb - db) / (specTopDb - specFloorDb)
                 return Math.max(0, Math.min(height, height * t))
@@ -501,12 +545,15 @@ Rectangle {
                             if (amode === 1) {
                                 // ── SPECTRUM (line / fill) ──────────────────
                                 // Pink-noise reference (-3 dB/oct) — tilt guide.
+                                // Anchored to the scale top (-45 dB below it at
+                                // 1 kHz) so on an auto-ranged RX scale it keeps
+                                // its place in the box; only its slope matters.
                                 ctx.strokeStyle = "rgba(255,120,200,0.22)"; ctx.lineWidth = 1
                                 ctx.beginPath()
                                 var pf0 = true
                                 for (var pf = fMin; pf <= fMax; pf *= 1.15) {
                                     var ppx = graph.xForFreq(pf)
-                                    var ppy = graph.yForDb(-45 - 3 * (Math.log(pf / 1000) / Math.LN2))
+                                    var ppy = graph.yForDb(graph.specTopDb - 45 - 3 * (Math.log(pf / 1000) / Math.LN2))
                                     if (pf0) { ctx.moveTo(ppx, ppy); pf0 = false } else ctx.lineTo(ppx, ppy)
                                 }
                                 ctx.stroke()

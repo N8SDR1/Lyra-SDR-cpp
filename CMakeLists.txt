@@ -1254,6 +1254,19 @@ if(MSVC)
     target_compile_options(test_parameq PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
+# #59 RX EQ — live analyzer unit test (dBFS calibration + the RX power-domain
+# averaging; raw path unchanged when off).  No Qt.  EXCLUDE_FROM_ALL.
+# Build + run:  cmake --build build --target test_eq_analyzer
+add_executable(test_eq_analyzer EXCLUDE_FROM_ALL
+    scratch/test_eq_analyzer.cpp
+    src/dsp/EqAnalyzer.h
+    src/dsp/EqAnalyzer.cpp
+)
+target_include_directories(test_eq_analyzer PRIVATE src)
+if(MSVC)
+    target_compile_options(test_eq_analyzer PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
 # #88 — native speech pre-processor unit test (Auto-AGC + De-esser).
 # EXCLUDE_FROM_ALL; `cmake --build build --target test_speech`.  No Qt.
 add_executable(test_speech EXCLUDE_FROM_ALL

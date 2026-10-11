@@ -40,6 +40,14 @@ EqModel::EqModel(Side side, QObject *parent) : QObject(parent), side_(side) {
         s_txEngine.store(&eq_, std::memory_order_release);
         s_txAnalyzer.store(&analyzer_, std::memory_order_release);
         s_self = this;
+    } else {
+        // RX audio flows continuously (TX mic only on transmit), so raw
+        // 21 ms frames (1024 @ 48 kHz) made the RX graph flicker.  Average
+        // bin power with tau = 300 ms: ~28 frames' worth of averaging calms
+        // the per-frame scatter of speech/noise, while a rise still lands
+        // within 1 dB in ~1 s (3 tau) and a drop falls ~14 dB/s (4.34/tau) —
+        // syllable-to-phrase scale, so it stays responsive to what's heard.
+        analyzer_.setAveraging(0.3);
     }
 
     // Pre-size the cached bin lists so QML always sees a stable length.
