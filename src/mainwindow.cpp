@@ -1901,6 +1901,28 @@ void MainWindow::buildDocks() {
                     [this, d](bool on) {
                         if (on) presentChipDock(d, 0);
                     });
+            // Turned on by the operator (View menu) while it lives in a
+            // grouped rack: the rack window may be closed, or the panel
+            // tabbed behind another, so it would be "on" yet unseen.  Open
+            // the rack through its chip (keeps the chip in step) and bring
+            // the panel's tab forward.  triggered, not toggled: a rack
+            // restoring its own state must not pop the rack open.
+            connect(d->toggleViewAction(), &QAction::triggered, this,
+                    [this, d](bool on) {
+                        auto *rack = qobject_cast<lyra::ui::PanelRack *>(d->window());
+                        if (!on || !rack) return;
+                        QToolButton *chip = rack == dspRack_     ? dspRackChip_
+                                          : rack == optionsRack_ ? optionsRackChip_
+                                                                 : nullptr;
+                        if (chip && !chip->isChecked()) {
+                            chip->setChecked(true);   // shows + raises the rack
+                        } else {
+                            rack->show();
+                            rack->raise();
+                            rack->activateWindow();
+                        }
+                        d->raise();                   // front tab if tabbed
+                    });
         }
     }
     // Profiles — front-facing quick recall of a saved TX/RX profile
