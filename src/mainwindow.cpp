@@ -269,13 +269,15 @@ inline bool isChipSummonedPanel(const QString &objectName) {
         || objectName == QLatin1String("ampview");
 }
 
-// The four TX audio panels dock and pop out like the front-panel docks.
-// The other chip windows (RX EQ, CW, Tuner, Recorder, …) stay float-only.
-inline bool isDockableAudioPanel(const QString &objectName) {
+// The four TX audio panels and the Tuner dock and pop out like the
+// front-panel docks.  The other chip windows (RX EQ, CW, Recorder, …) stay
+// float-only.
+inline bool isDockableChipPanel(const QString &objectName) {
     return objectName == QLatin1String("txspeech")
         || objectName == QLatin1String("txeq")
         || objectName == QLatin1String("txcombinator")
-        || objectName == QLatin1String("txplate");
+        || objectName == QLatin1String("txplate")
+        || objectName == QLatin1String("tuner");
 }
 
 inline bool isFloatOnlyPanel(const QString &objectName) {
@@ -283,7 +285,8 @@ inline bool isFloatOnlyPanel(const QString &objectName) {
         && objectName != QLatin1String("txspeech")
         && objectName != QLatin1String("txeq")
         && objectName != QLatin1String("txcombinator")
-        && objectName != QLatin1String("txplate");
+        && objectName != QLatin1String("txplate")
+        && objectName != QLatin1String("tuner");
 }
 
 // Diagnostic: LYRA_TEST_SIZE=WxH opens the window at exactly that LOGICAL size.
@@ -1086,12 +1089,12 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     // A committed drag persists the layout immediately (save-on-commit).
     dragController_ = new DockDragController(this, &docks_, this);
     // Chip-summoned tool windows (CW console, CW decoder, …) are float-only:
-    // the controller must free-move them and NEVER dock them.  The four TX audio
-    // panels dock like front-panel docks, except while panels are locked —
+    // the controller must free-move them and NEVER dock them.  The dockable
+    // chip panels (four TX audio + Tuner) dock like front-panel docks, except while panels are locked —
     // then a floating one only free-moves (see applyPanelLock).
     dragController_->setFloatOnlyPredicate([this](const QString &name) {
         return isFloatOnlyPanel(name)
-            || (panelsLocked_ && isDockableAudioPanel(name));
+            || (panelsLocked_ && isDockableChipPanel(name));
     });
     connect(dragController_, &DockDragController::layoutChanged,
             this, &MainWindow::saveLayout);
@@ -1727,14 +1730,14 @@ QWidget *MainWindow::makeDockTitleBar(QDockWidget *dock,
                             "main window — or double-click the title bar. "
                             "Drag a popped-out panel onto Lyra to dock it."));
     connect(floatBtn, &QToolButton::clicked, this, [this, dock]() {
-        const bool audio = isDockableAudioPanel(dock->objectName());
+        const bool dockable = isDockableChipPanel(dock->objectName());
         if (!dock->isFloating()) {
             dock->setFloating(true);
-            if (audio) adoptFloatedRackMember(dock);
+            if (dockable) adoptFloatedRackMember(dock);
             dock->raise();
             dock->activateWindow();
-        } else if (audio) {
-            // ⧉ on an already-floating audio panel docks it into Lyra.
+        } else if (dockable) {
+            // ⧉ on an already-floating dockable chip panel docks it into Lyra.
             dockAudioPanelIntoMain(dock, frameGeometry().center());
         } else {
             dock->setFloating(false);
@@ -1915,7 +1918,8 @@ void MainWindow::buildDocks() {
     // floating dock can report visible (check stays on) while its window is
     // ordered out, and a later "show" is a no-op.  Re-present whenever the
     // operator turns one of these on.
-    for (const char *nm : {"txspeech", "txeq", "txcombinator", "txplate"}) {
+    for (const char *nm : {"txspeech", "txeq", "txcombinator", "txplate",
+                           "tuner"}) {
         if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
             connect(d->toggleViewAction(), &QAction::toggled, this,
                     [this, d](bool on) {
@@ -3579,12 +3583,13 @@ void MainWindow::applyPanelLock(bool locked) {
         if (isChipSummonedPanel(on)
             && qobject_cast<lyra::ui::PanelRack *>(dock->window()))
             continue;
-        // The four TX audio panels can dock into the main layout.  Docked there,
-        // they lock with it (fall through).  Floating, they stay movable and
+        // The dockable chip panels (four TX audio + Tuner) can dock into the
+        // main layout.  Docked there, they lock with it (fall through).
+        // Floating, they stay movable and
         // closable like the other chip windows, but while locked they cannot
         // dock (the drag controller treats them as float-only) or be docked
         // by ⧉ / a title-bar double-click (no Floatable, ⧉ hidden).
-        const bool lockedAudio = locked && isDockableAudioPanel(on);
+        const bool lockedAudio = locked && isDockableChipPanel(on);
         if (isChipSummonedPanel(on) && !(lockedAudio && !dock->isFloating())) {
             dock->setFeatures(lockedAudio
                                   ? kUnlockedFeatures & ~QDockWidget::DockWidgetFloatable
@@ -3709,7 +3714,7 @@ void MainWindow::presentChipDock(QDockWidget *d, int slot) {
 
 void MainWindow::resurrectOpenChipDocks() {
     static const char *kNames[] = {
-        "txspeech", "txeq", "txcombinator", "txplate"
+        "txspeech", "txeq", "txcombinator", "txplate", "tuner"
     };
     int slot = 0;
     for (const char *nm : kNames) {

@@ -776,11 +776,11 @@ control panels in a row beneath).
   everything — panels can't be moved, floated, closed, **or resized** —
   so you can't disturb your arrangement by accident during operating.
   The move cursor disappears on locked title bars as a reminder.
-- **TX audio panels (Speech / EQ / Combinator / Plating)** dock
-  like any other panel. A floating one only docks where the cyan highlight
+- **TX audio panels (Speech / EQ / Combinator / Plating) and the Tuner**
+  dock like any other panel. A floating one only docks where the cyan highlight
   shows — an edge, or onto another panel; let go anywhere else and it stays
   a floating window. Its **⧉** button docks it straight into the window.
-  With panels locked, a floating audio panel can still be moved and closed,
+  With panels locked, a floating one can still be moved and closed,
   but it won't dock or pop out until you unlock.
 - **Grouped DSP Rack** (Settings → Visuals → Panel layout): pull a panel
   out of the rack with its **⧉** button, a title-bar double-click, or by
@@ -2891,8 +2891,9 @@ copy well on typical signals; reach for the rest only when copy is rough:
 If you run a **manual antenna tuner** (the kind you set by hand with
 Input / Output / Inductor controls), the **Tuner** panel remembers your
 settings so you can return to a known-good match without starting from
-scratch. Open it from the header — **Options: → Tuner**. It's a floating
-panel; drag it anywhere. (Pure tuning memory — it doesn't drive or read your
+scratch. Open it from the header — **Options: → Tuner**. It opens as a
+floating panel; drag it anywhere, or drop it on a highlighted spot to dock
+it into the main window. (Pure tuning memory — it doesn't drive or read your
 tuner, it just remembers what *you* dialled in.)
 
 **Pick your antenna.** Three antenna slots across the top — **Beam /
