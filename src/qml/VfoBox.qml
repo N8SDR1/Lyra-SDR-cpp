@@ -65,7 +65,8 @@ Item {
 
     function commitHz(hz) {
         if (isB) panel.commitBCarrier(hz)
-        else     Stream.setRx1FreqHz(hz - WdspEngine.markerOffsetHz)
+        else if (!Stream.txBlocksBandJump(hz - WdspEngine.markerOffsetHz))
+            Stream.setRx1FreqHz(hz - WdspEngine.markerOffsetHz)
     }
 
     implicitWidth: naturalWidth

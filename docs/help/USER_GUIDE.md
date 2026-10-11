@@ -3234,8 +3234,11 @@ A compact strip showing current **HF propagation** conditions from
   one-click jumps (GEN, TIME, Mem recall, XVTR chips, and the band-plan, CB
   and broadcast markers on the panadapter) are blocked the same way only when
   they would **leave the current amateur band**; a jump within the same band
-  still works. The NCDXF **Follow** feature pauses silently while you transmit
-  and resumes on its next tick after you release.
+  still works. The same rule covers the VFO itself: the **1→2**, **2→1** and
+  **⇄** (copy/swap) buttons and a typed frequency are ignored if they would
+  move VFO A — or VFO B while it is live (SPLIT or SUB) — out of its band. The NCDXF **Follow** feature
+  pauses silently while you transmit and resumes on its next tick after you
+  release.
 
 The ratings are shown for **your current day or night** — Lyra works out
 whether it's daylight at your location and picks HamQSL's day or night

@@ -138,13 +138,33 @@ Rectangle {
         return (hz > 0 ? "+" : "") + hz + " Hz"
     }
 
+    // VFO B's live frequency: VFO B in SPLIT (or with no SUB), else RX2.
+    function bFromHz() {
+        return (Stream.splitEnabled || !Stream.subEnabled) ? Stream.vfoBHz
+                                                           : Stream.rx2FreqHz
+    }
+    // While transmitting, a VFO move that would leave its amateur band is
+    // ignored (filters / OC outputs / PA band must not switch under power).
+    // VFO A always counts; B only when it is live (SPLIT TX or SUB RX).
+    // Pass undefined for a side that doesn't move.
+    function abBlocked(newA, newB) {
+        if (newA !== undefined && Stream.txBlocksJumpFrom(Stream.rx1FreqHz, newA))
+            return true
+        return newB !== undefined && (Stream.splitEnabled || Stream.subEnabled)
+            && Stream.txBlocksJumpFrom(bFromHz(), newB)
+    }
     function commitBCarrier(hz) {
-        if (Stream.splitEnabled || !Stream.subEnabled)
+        if (Stream.splitEnabled || !Stream.subEnabled) {
+            if (abBlocked(undefined, hz)) return
             Stream.setVfoBHz(hz)
-        else
-            Stream.setRx2FreqHz(hz - WdspEngine.markerOffsetHzRx2)
+        } else {
+            var rx2Hz = hz - WdspEngine.markerOffsetHzRx2
+            if (abBlocked(undefined, rx2Hz)) return
+            Stream.setRx2FreqHz(rx2Hz)
+        }
     }
     function copyAtoB() {
+        if (abBlocked(undefined, Stream.rx1FreqHz)) return
         if (Stream.splitEnabled)
             Stream.setVfoBHz(Stream.rx1FreqHz)
         else if (Stream.subEnabled)
@@ -157,6 +177,7 @@ Rectangle {
         }
     }
     function copyBtoA() {
+        if (abBlocked(bFromHz(), undefined)) return
         if (Stream.splitEnabled)
             Stream.setRx1FreqHz(Stream.vfoBHz)
         else if (Stream.subEnabled)
@@ -169,6 +190,7 @@ Rectangle {
         }
     }
     function swapAB() {
+        if (abBlocked(bFromHz(), Stream.rx1FreqHz)) return
         var a = Stream.rx1FreqHz
         if (Stream.splitEnabled) {
             var b = Stream.vfoBHz
