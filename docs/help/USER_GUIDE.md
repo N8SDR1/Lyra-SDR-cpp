@@ -917,8 +917,11 @@ node).
 
 ## Tuning panel
 
-Sets the **RX1 receive frequency** on a big amber **LED-style readout**
-(megahertz · kilohertz · hertz), the way old Lyra showed it.
+Sets the **RX1 receive frequency** on a big **readout**
+(megahertz · kilohertz · hertz). Its look is selectable: **right-click either
+VFO → VFO style** and choose **Lyra (Mac)** (default), **Amber LED** (the
+original look), **Classic LCD**, **Nixie**, **Widget**, or **Aluminum**. The
+choice is shared by VFO A and B and remembered.
 
 - **Click a digit** to select it (a cyan underline marks it), then **roll
   the mouse wheel** over the display to tune that digit's place up/down;
@@ -930,8 +933,9 @@ Sets the **RX1 receive frequency** on a big amber **LED-style readout**
   **Step** (see below).
 - **Double-click** the display to type an exact frequency.
 The frequency, **Step**, and **Mode** form one bordered **VFO cluster**.
-The border is **green while receiving** and turns **red on transmit**
-(MOX/TUN); an amber **RX/TX tag** in the top-left corner marks the role
+In every style the border is **green while receiving**, turns **red on
+transmit** (MOX/TUN), and is **grey** when the VFO is armed but not active;
+an **RX/TX tag**, drawn in each style's own colours, marks the role
 (it flips RX→TX on key). The Lyra logo sits centred to its right, with
 **VFO B** to the right of that (it appears when **SPLIT** or **SUB** is
 on). Each VFO has a small **TX pip**: **gray** = this VFO would not

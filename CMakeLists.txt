@@ -578,7 +578,12 @@ qt_add_qml_module(lyra
         src/qml/VfoStepMode.qml
         src/qml/VfoTxPip.qml
         src/qml/VfoStyles.js
+        src/qml/VfoStyleAluminum.qml
         src/qml/VfoStyleAmber.qml
+        src/qml/VfoStyleClassicLcd.qml
+        src/qml/VfoStyleLyraMac.qml
+        src/qml/VfoStyleNixie.qml
+        src/qml/VfoStyleWidget.qml
         src/qml/LyraSpinBox.qml
         src/qml/LyraComboBox.qml
         src/qml/PanadapterPanel.qml
@@ -612,6 +617,10 @@ qt_add_qml_module(lyra
         src/assets/watermarks/lyra-watermark.jpg
         src/assets/logo/lyra-icon-128.png
         src/assets/logo/lyra-icon-256.png
+        src/assets/fonts/ShareTechMono-Regular.ttf
+        src/assets/fonts/NixieOne-Regular.ttf
+        src/assets/fonts/Inter-Variable.ttf
+        src/assets/fonts/DSEG7Classic-Bold.ttf
 )
 
 # In-app User Guide: bundle the markdown so the HelpDialog can load it
@@ -1374,7 +1383,8 @@ add_executable(test_vfo_styles EXCLUDE_FROM_ALL
     scratch/test_vfo_styles.cpp
 )
 target_compile_definitions(test_vfo_styles PRIVATE
-    LYRA_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/qml")
+    LYRA_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/qml"
+    LYRA_FONT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/assets/fonts")
 target_link_libraries(test_vfo_styles PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick)
 if(MSVC)
     target_compile_options(test_vfo_styles PRIVATE /utf-8 /Zc:preprocessor)

@@ -97,6 +97,7 @@ std::atomic<bool> g_shutdown_complete{false};
 #include <QApplication>
 #include <QColor>
 #include <QFont>
+#include <QFontDatabase>
 #include <QIcon>
 #include <QPalette>
 #include <QSettings>
@@ -476,6 +477,17 @@ int main(int argc, char *argv[])
     }
 
     QApplication app(argc, argv);
+
+    // VFO-style fonts (src/assets/fonts, all SIL OFL — licences alongside).
+    // Bundled so a style looks the same on every machine; registered before
+    // any QML loads.
+    for (const char *f : {"ShareTechMono-Regular.ttf", "NixieOne-Regular.ttf",
+                          "Inter-Variable.ttf", "DSEG7Classic-Bold.ttf"}) {
+        const QString path = QStringLiteral(":/qt/qml/Lyra/src/assets/fonts/")
+                             + QLatin1String(f);
+        if (QFontDatabase::addApplicationFont(path) < 0)
+            qWarning("[fonts] failed to load %s", f);
+    }
 
 #ifdef Q_OS_MACOS
     // Consolas is a Windows font and does not exist on macOS.  The UI asks for

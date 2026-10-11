@@ -1,8 +1,8 @@
 // Lyra — Tuning dock panel (RX1 / DDC0), VFO-cluster layout.
 //
 // Operator-curated layout (2026-06-20): each VFO is a self-contained
-// CLUSTER — a big LED-style readout (FreqDisplay) you tune by clicking a
-// digit + wheeling, with its Step + Mode combos directly UNDERNEATH it,
+// CLUSTER — a big readout (VfoBox.qml, drawn by the operator-selected VFO
+// style from VfoStyles.js) you tune by clicking a digit + wheeling, with its Step + Mode combos directly UNDERNEATH it,
 // and the Lyra logo centred between VFO A and the reserved VFO-B slot.
 // Mode moved here from the (now "Filters") dock; the Prefs.mode →
 // WdspEngine.mode binding came with it.  A controls row under the VFOs
@@ -11,9 +11,9 @@
 // feature lands (SPLIT, RIT/XIT, repeaters), never as a dead widget.
 //
 // VFO indication model:
-//   • amber RX/TX text tag, upper-left of the digits = ROLE (which VFO
-//     listens, which transmits) — amber lives ONLY in the tag, never
-//     blended into the border (an amber→red border blend read pinkish).
+//   • RX/TX text tag = ROLE (which VFO listens, which transmits); its
+//     colour and position belong to the selected style.  The tag colour
+//     is never blended into the border (an amber→red blend read pinkish).
 //   • border = LIVE state: green = receiving, red = transmitting now
 //     (Stream.moxActive, the wire-MOX truth), neutral gray = an armed-
 //     but-not-keyed TX VFO (only meaningful once SPLIT lands).

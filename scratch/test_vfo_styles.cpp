@@ -50,6 +50,19 @@ int main(int argc, char **argv)
     QGuiApplication app(argc, argv);
     std::printf("test_vfo_styles\n");
 
+#ifdef LYRA_FONT_DIR
+    {
+        QDir fontDir(QStringLiteral(LYRA_FONT_DIR));
+        for (const QString &f : fontDir.entryList({QStringLiteral("*.ttf")}, QDir::Files))
+            check(QStringLiteral("font loads: ") + f,
+                  QFontDatabase::addApplicationFont(fontDir.filePath(f)) >= 0);
+        const QStringList fams = QFontDatabase::families();
+        for (const char *fam : {"Share Tech Mono", "Nixie One", "Inter", "DSEG7 Classic"})
+            check(QStringLiteral("font family present: ") + QLatin1String(fam),
+                  fams.contains(QLatin1String(fam)));
+    }
+#endif
+
     const QString dir = QStringLiteral(LYRA_QML_DIR);
     QQmlEngine engine;
     QList<QQmlError> warnings;
