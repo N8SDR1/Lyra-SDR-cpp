@@ -281,13 +281,36 @@ void P2Session::setDdcFrequencyHz(int ddc, quint32 hz) {
                             kPortHpToSdr);
 }
 
+bool P2Session::angeliaRxSlots() const {
+    return profile_ && profile_->angeliaRxDdcSlots;
+}
+
+int P2Session::rx1DdcIndex() const {
+    return angeliaRxSlots() ? 2 : 0;
+}
+
+int P2Session::rx2DdcIndex() const {
+    return angeliaRxSlots() ? 3 : 1;
+}
+
+void P2Session::enablePrimaryRx(quint16 rateKhz) {
+    if (angeliaRxSlots()) {
+        // DDC0's IQ port is the feedback stream on this class, not RX1.
+        ddcEnabled_[0] = false;
+        ddcAdc_[2] = 0;
+        enableDdc(2, rateKhz);
+        return;
+    }
+    enableDdc(0, rateKhz);
+}
+
 void P2Session::enableDdc(int ddc, quint16 rateKhz) {
     if (ddc < 0 || ddc >= kNumDdc) return;
     const auto i = static_cast<std::size_t>(ddc);
     ddcEnabled_[i]    = true;
     ddcRateKhz_[i]    = rateKhz;
     ddcSeqStarted_[i] = false;   // stream (re)starts — reseed seq tracking
-    if (ddc == 1) {
+    if (ddc == rx2DdcIndex()) {
         warnedNoDdc1Iq_ = false;
         ddc1IqOkLogged_ = false;
         ddc1IqLogLeft_  = 30;
@@ -297,7 +320,7 @@ void P2Session::enableDdc(int ddc, quint16 rateKhz) {
     if (open_) {
         sendDdcSpecificToRadio(true);
         punchEnabledDdcIqFirewalls();
-        if (ddc == 1)
+        if (ddc >= 1)
             scheduleDdc1FirewallPunch();
     }
 }
@@ -317,17 +340,27 @@ void P2Session::disableDdc(int ddc) {
 
 void P2Session::armSubSecondaryDdcs(quint16 rateKhz, quint32 freqHz) {
     subRx2Wanted_ = true;
+    const int rx2 = rx2DdcIndex();
+    const auto slot = static_cast<std::size_t>(rx2);
     const bool alreadyArmed =
-        ddcEnabled_[1] && ddcRateKhz_[1] == rateKhz;
+        ddcEnabled_[slot] && ddcRateKhz_[slot] == rateKhz;
+    // HP phase words for the second receiver still live in slot 1.
+    // On the two-ADC class that word is copied onto DDC3.
     ddcFreqHz_[1] = freqHz;
-    ddcEnabled_[1] = true;
-    ddcRateKhz_[1] = rateKhz;
-    ddcEnabled_[2] = false;
-    ddcEnabled_[3] = false;
+    if (angeliaRxSlots()) {
+        ddcEnabled_[1] = false;
+        ddcAdc_[2] = 0;
+        ddcAdc_[3] = 1;
+    } else {
+        ddcEnabled_[2] = false;
+        ddcEnabled_[3] = false;
+    }
+    ddcEnabled_[slot] = true;
+    ddcRateKhz_[slot] = rateKhz;
     if (alreadyArmed) {
         // VFO B / SPLIT retune: phase word rides the HP packet. A full
         // general + receive_specific blast on every 1 kHz step does not
-        // start DDC1 and floods :1024/:1025.
+        // start the second stream and floods :1024/:1025.
         if (open_ && hpTimer_.isActive())
             sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_,
                                 kPortHpToSdr);
@@ -338,12 +371,14 @@ void P2Session::armSubSecondaryDdcs(quint16 rateKhz, quint32 freqHz) {
     ddc1IqLogLeft_ = 30;
     unmatchedIqLogLeft_ = 12;
     subIqLatchDdc_ = -1;
-    ddcSeqStarted_[1] = false;
+    ddcSeqStarted_[slot] = false;
     if (!open_ || !hpTimer_.isActive())
         return;  // handshake still pending; finishOpenHandshake programs mask
     emit logLine(QStringLiteral(
-        "P2: SUB arm — receive_specific DDC0+DDC1 slots, mask bit1, "
-        "then 1-byte host punch to radio:1036 (Windows UDP return path)"));
+        "P2: SUB arm — DDC%1, UDP %2, then 1-byte host punch "
+        "(Windows UDP return path)")
+                     .arg(rx2)
+                     .arg(kPortDdcIq0 + rx2));
     sendDdcSpecificToRadio(true);
     sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_,
                         kPortHpToSdr);
@@ -358,20 +393,30 @@ void P2Session::disarmSubSecondaryDdcs() {
     ddc1IqOkLogged_ = false;
     ddc1IqLogLeft_ = 0;
     unmatchedIqLogLeft_ = 0;
-    for (int d = 1; d <= 3; ++d)
-        ddcEnabled_[static_cast<std::size_t>(d)] = false;
+    if (angeliaRxSlots()) {
+        // DDC2 is RX1 on this class. Only the second receiver goes off.
+        ddcEnabled_[1] = false;
+        ddcEnabled_[3] = false;
+    } else {
+        for (int d = 1; d <= 3; ++d)
+            ddcEnabled_[static_cast<std::size_t>(d)] = false;
+    }
     if (open_)
         sendDdcSpecificToRadio(true);
 }
 
 bool P2Session::shouldFeedRx2(int ddc) {
-    if (ddc != 1 || !subRx2Wanted_ || !ddcEnabled_[1]) return false;
+    const int want = rx2DdcIndex();
+    if (ddc != want || !subRx2Wanted_ ||
+        !ddcEnabled_[static_cast<std::size_t>(want)])
+        return false;
     if (isPureSignalLive()) return false;
-    if (subIqLatchDdc_ != 1) {
-        subIqLatchDdc_ = 1;
+    if (subIqLatchDdc_ != want) {
+        subIqLatchDdc_ = want;
         emit logLine(QStringLiteral(
-            "P2: SUB IQ from radio UDP %1 (DDC1) — feeding WDSP RX2")
-                         .arg(kPortDdcIq0 + 1));
+            "P2: SUB IQ from radio UDP %1 (DDC%2) — feeding WDSP RX2")
+                         .arg(kPortDdcIq0 + ddc)
+                         .arg(ddc));
     }
     return true;
 }
@@ -384,19 +429,20 @@ void P2Session::punchDdcIqFirewall(int ddc) {
 }
 
 void P2Session::punchEnabledDdcIqFirewalls() {
-    punchDdcIqFirewall(0);
-    if (ddcEnabled_[1])
-        punchDdcIqFirewall(1);
+    for (int d = 0; d < 4; ++d) {
+        if (ddcEnabled_[static_cast<std::size_t>(d)])
+            punchDdcIqFirewall(d);
+    }
 }
 
 void P2Session::scheduleDdc1FirewallPunch() {
-    if (!open_ || !ddcEnabled_[1])
+    if (!open_)
         return;
     const quint32 epoch = openEpoch_;
     QTimer::singleShot(80, this, [this, epoch]() {
-        if (!open_ || epoch != openEpoch_ || !ddcEnabled_[1])
+        if (!open_ || epoch != openEpoch_)
             return;
-        punchDdcIqFirewall(1);
+        punchEnabledDdcIqFirewalls();
     });
 }
 
@@ -417,8 +463,10 @@ void P2Session::ingestRadioDatagram(quint16 senderPort, const QByteArray &buf) {
         --unmatchedIqLogLeft_;
         emit logLine(QStringLiteral(
             "P2: unmatched UDP from radio src port %1 size %2 "
-            "(SUB IQ is 1444 bytes from src 1036)")
-                         .arg(senderPort).arg(buf.size()));
+            "(second-receiver IQ is 1444 bytes from src %3)")
+                         .arg(senderPort)
+                         .arg(buf.size())
+                         .arg(kPortDdcIq0 + rx2DdcIndex()));
     }
 }
 
@@ -513,16 +561,18 @@ QByteArray P2Session::buildDdcSpecificPacket() const {
     // DeskHPSDR receive_specific first loop (Angelia/Orion/Saturn):
     // receiver[i] programs DDC(i+2) ADC/rate/24-bit, then the PS
     // overlay ORs DDC0. Hermes/Brick2 skip this (RX is DDC0).
-    if (angeliaSlots) {
-        const quint16 rx1Rate = ddcRateKhz_[0] ? ddcRateKhz_[0]
-                                               : quint16{192};
-        const quint8 rx1Adc = (nAdc <= 1) ? quint8{0} : ddcAdc_[0];
-        writeDdcSlot(2, rx1Adc, rx1Rate);
-        if (ddcEnabled_[1]) {
-            const quint16 rx2Rate = ddcRateKhz_[1] ? ddcRateKhz_[1]
+    if (angeliaSlots && !psTx) {
+        // RX1 is DDC2 on ADC 0. RX2 is DDC3 on ADC 1. Do not copy the
+        // Settings ADC onto those slots — index 2 is the feedback
+        // selector, not the second converter.
+        const quint16 rx1Rate = ddcRateKhz_[2] ? ddcRateKhz_[2]
+                                : (ddcRateKhz_[0] ? ddcRateKhz_[0]
+                                                 : quint16{192});
+        writeDdcSlot(2, 0, rx1Rate);
+        if (ddcEnabled_[3]) {
+            const quint16 rx2Rate = ddcRateKhz_[3] ? ddcRateKhz_[3]
                                                    : rx1Rate;
-            const quint8 rx2Adc = (nAdc <= 1) ? quint8{0} : ddcAdc_[1];
-            writeDdcSlot(3, rx2Adc, rx2Rate);
+            writeDdcSlot(3, 1, rx2Rate);
         }
     }
     if (psTx) {
@@ -590,7 +640,7 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     // [5] CWX off; [6..8] must be zero (hardened p2app rejects the
     // packet otherwise — protocol2_command.c validation).
     if (profile_ && profile_->angeliaRxDdcSlots) {
-        const quint32 rx2 = ddcEnabled_[1] ? ddcFreqHz_[1] : ddcFreqHz_[0];
+        const quint32 rx2 = subRx2Wanted_ ? ddcFreqHz_[1] : ddcFreqHz_[0];
         wrBeU32(pkt.data() + 9, phaseWord(ddcFreqHz_[0]));   // DDC0 STM32
         wrBeU32(pkt.data() + 13, phaseWord(rx2));            // DDC1 STM32
         wrBeU32(pkt.data() + 17, phaseWord(ddcFreqHz_[0]));  // DDC2 RX1
@@ -1067,8 +1117,11 @@ void P2Session::open(const QString &ip) {
     warnedNoIq_    = false;
     warnedNoDdc1Iq_ = false;
     ddc1IqOkLogged_ = false;
-    // If SUB was armed before bind, keep logging DDC1 until packets arrive.
-    const bool subArmed = ddcEnabled_[1];
+    // If SUB was armed before bind, keep logging the second stream.
+    const bool subArmed =
+        subRx2Wanted_ &&
+        ddcEnabled_[static_cast<std::size_t>(rx2DdcIndex())];
+    rx1PortLogged_ = false;
     ddc1IqLogLeft_  = subArmed ? 30 : 0;
     unmatchedIqLogLeft_ = subArmed ? 12 : 0;
     ddcSpecificSeq_ = 0;
@@ -1324,9 +1377,14 @@ void P2Session::onHpTick() {
         }
     }
 
-    // Per-DDC IQ rates (~1 Hz). Hermes SUB is DDC1 / UDP 1036.
+    // Per-DDC IQ rates (~1 Hz). One-ADC SUB is DDC1 / UDP 1036.
+    // Two-ADC SUB is DDC3 / UDP 1038, with RX1 on DDC2 / UDP 1037.
     if (hpTickCount_ % 10 == 0) {
-        const bool subArmed = ddcEnabled_[1];
+        const bool twoAdc = angeliaRxSlots();
+        const int rx2 = rx2DdcIndex();
+        const bool subArmed =
+            subRx2Wanted_ &&
+            ddcEnabled_[static_cast<std::size_t>(rx2)];
         if (subArmed) {
             if (unmatchedIqLogLeft_ < 4)
                 unmatchedIqLogLeft_ = 4;
@@ -1336,36 +1394,31 @@ void P2Session::onHpTick() {
         const quint32 d2 = ddcIqCount_[2];
         const quint32 d3 = ddcIqCount_[3];
         ddcIqCount_.fill(0);
-        if (subArmed && d1 > 0 && !ddc1IqOkLogged_) {
+        const quint32 subPkts = twoAdc ? d3 : d1;
+        const quint32 rx1Pkts = twoAdc ? d2 : d0;
+        if (subArmed && subPkts > 0 && !ddc1IqOkLogged_) {
             ddc1IqOkLogged_ = true;
             ddc1IqLogLeft_ = 0;
             emit logLine(QStringLiteral(
-                "P2 IQ: DDC1=%1 pkt/s (DDC0=%2; DDC2=%3 DDC3=%4 "
-                "count-only)")
-                .arg(d1).arg(d0).arg(d2).arg(d3));
+                "P2 IQ: DDC0=%1 DDC1=%2 DDC2=%3 DDC3=%4 pkt/s")
+                .arg(d0).arg(d1).arg(d2).arg(d3));
         } else if (subArmed && ddc1IqLogLeft_ > 0) {
             --ddc1IqLogLeft_;
             emit logLine(QStringLiteral(
                 "P2 IQ: DDC0=%1 DDC1=%2 DDC2=%3 DDC3=%4 pkt/s "
-                "(UDP 1035/1036/1037/1038) DDC1Hz=%5")
+                "(UDP 1035/1036/1037/1038) RX2Hz=%5")
                 .arg(d0).arg(d1).arg(d2).arg(d3).arg(ddcFreqHz_[1]));
         }
         if (!warnedNoDdc1Iq_ && running_ && subArmed
-            && d1 == 0 && d2 == 0 && d3 == 0 && d0 > 0
+            && subPkts == 0 && rx1Pkts > 0
             && statusCount_ >= 25) {
             warnedNoDdc1Iq_ = true;
+            const int port = kPortDdcIq0 + rx2;
             emit logLine(QStringLiteral(
-                "P2: SUB armed but DDC1 = 0 pkt/s (radio src 1036) while "
-                "DDC0 is flowing. DDC1Hz=%1. Firmware is not emitting a "
-                "second IQ stream on src 1036 (or Windows is dropping it).")
-                .arg(ddcFreqHz_[1]));
-        } else if (!warnedNoDdc1Iq_ && running_ && subArmed
-                   && d1 == 0 && (d2 > 0 || d3 > 0)) {
-            warnedNoDdc1Iq_ = true;
-            emit logLine(QStringLiteral(
-                "P2: DDC1 silent (src 1036) but DDC2=%1 DDC3=%2 pkt/s — "
-                "not feeding those into RX2 on this Hermes/Brick2 map")
-                .arg(d2).arg(d3));
+                "P2: SUB armed but DDC%1 = 0 pkt/s (radio src %2) while "
+                "RX1 is flowing. RX2Hz=%3. The second stream is not "
+                "arriving (or Windows is dropping it).")
+                .arg(rx2).arg(port).arg(ddcFreqHz_[1]));
         }
     }
 
@@ -1679,6 +1732,13 @@ void P2Session::parseIqFrame(int ddc, const QByteArray &d) {
         if (n < ddcIqCount_.size())
             ++ddcIqCount_[n];
         return;
+    }
+    if (angeliaRxSlots() && ddc == rx1DdcIndex() && !rx1PortLogged_) {
+        rx1PortLogged_ = true;
+        emit logLine(QStringLiteral(
+            "P2: RX1 IQ from radio UDP %1 (DDC%2)")
+                         .arg(kPortDdcIq0 + ddc)
+                         .arg(ddc));
     }
 
     if (ddcSeqStarted_[n] && seq != ddcSeqNext_[n]) {

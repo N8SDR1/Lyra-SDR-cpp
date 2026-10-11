@@ -64,9 +64,9 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
     // int32, scaled by 1/2^31.
     connect(session_, &P2Session::iqFrameReceived, session_,
             [sess = session_](int ddc, quint32 /*seq*/, const QByteArray &iq) {
-                // DDC0 → RX1 (source 0). SUB → RX2 (source 2) from DDC1
-                // unless live PS (DDC1 is TX replica then).
-                if (ddc != 0 && ddc != 1)
+                // One-ADC: DDC0 → RX1, DDC1 → RX2. Two-ADC class: DDC2 →
+                // RX1, DDC3 → RX2. Live PS still consumes DDC0 only.
+                if (ddc < 0 || ddc > 3)
                     return;
                 static thread_local std::vector<double> buf;
                 const int n = iq.size() / 6;
@@ -90,9 +90,9 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                     return;
                 }
                 sess->ingestPsccIq(ddc, buf.data(), n);
-                if (ddc == 0)
+                if (ddc == sess->rx1DdcIndex())
                     xrouter(router_instance(0), 0, 0, n, buf.data());
-                else if (sess->shouldFeedRx2(1))
+                else if (sess->shouldFeedRx2(ddc))
                     xrouter(router_instance(0), 0, 2, n, buf.data());
             });
 
@@ -311,6 +311,11 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
             auto *s = session_;
             QMetaObject::invokeMethod(s, [s, armed, rate, subOn]() {
                 s->setPureSignalArmed(armed);
+                // Two-ADC PS still forces the DDC0-only mask inside the
+                // packet builder while transmitting. Enabling DDC1 here
+                // would open the unused port during receive.
+                if (s->angeliaRxSlots())
+                    return;
                 if (armed)
                     s->enableDdc(1, rate);
                 else if (!subOn)
@@ -349,11 +354,11 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                                 : 0);
                     QMetaObject::invokeMethod(s, [s, khz, subOn, psOn,
                                                   hz]() {
-                        s->enableDdc(0, static_cast<quint16>(khz));
+                        s->enablePrimaryRx(static_cast<quint16>(khz));
                         if (subOn)
                             s->armSubSecondaryDdcs(
                                 static_cast<quint16>(khz), hz);
-                        else if (psOn)
+                        else if (psOn && !s->angeliaRxSlots())
                             s->enableDdc(1, static_cast<quint16>(khz));
                         // Let timer events delayed by the RX rebuild drain,
                         // then re-prime the still-RX TX transport.
@@ -570,7 +575,7 @@ void P2RxBridge::syncRx2Ddc()
         const quint16 khz = rateKhz_;
         QMetaObject::invokeMethod(s, [s, ps, khz]() {
             s->disarmSubSecondaryDdcs();
-            if (ps)
+            if (ps && !s->angeliaRxSlots())
                 s->enableDdc(1, khz);
         });
         return;
@@ -626,10 +631,15 @@ void P2RxBridge::pushFrontEndToSession() {
     const int ant = trxAntenna_;
     QMetaObject::invokeMethod(s, [s, att, adc, input, bypass, ant]() {
         s->setAdcAttenuation(adc, att);
-        s->setDdcAdc(0, adc);
-        s->setDdcAdc(1, adc);
-        s->setDdcAdc(2, adc);
-        s->setDdcAdc(3, adc);
+        if (s->angeliaRxSlots()) {
+            s->setDdcAdc(2, 0);
+            s->setDdcAdc(3, 1);
+        } else {
+            s->setDdcAdc(0, adc);
+            s->setDdcAdc(1, adc);
+            s->setDdcAdc(2, adc);
+            s->setDdcAdc(3, adc);
+        }
         s->setRxInput(static_cast<P2RxInput>(input));
         s->setHpfBypass(bypass);
         s->setTrxAntenna(ant);
@@ -1129,10 +1139,15 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
         s->setTrxAntenna(bandAnt);
         s->setAdcAttenuation(adc, att);
         s->setAttOnTx(attOnTxEn, attOnTxDb);
-        s->setDdcAdc(0, adc);
-        s->setDdcAdc(1, adc);
-        s->setDdcAdc(2, adc);
-        s->setDdcAdc(3, adc);
+        if (s->angeliaRxSlots()) {
+            s->setDdcAdc(2, 0);
+            s->setDdcAdc(3, 1);
+        } else {
+            s->setDdcAdc(0, adc);
+            s->setDdcAdc(1, adc);
+            s->setDdcAdc(2, adc);
+            s->setDdcAdc(3, adc);
+        }
         s->setRxInput(static_cast<P2RxInput>(input));
         s->setHpfBypass(bypass);
         s->setDdcFrequencyHz(0, correctedHz);
@@ -1140,12 +1155,12 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
         // This matters immediately for split/VFO-B profiles; the normal
         // dial-update path continues to track later changes.
         s->setDucFrequencyHz(correctedTx);
-        s->enableDdc(0, rate);
+        s->enablePrimaryRx(rate);
         if (subOn) {
             s->armSubSecondaryDdcs(
                 rate,
                 static_cast<quint32>(corrected_freq(static_cast<int>(rx2Hz))));
-        } else if (psOn) {
+        } else if (psOn && !s->angeliaRxSlots()) {
             s->enableDdc(1, rate);
         }
         s->setPureSignalArmed(psOn);
@@ -1161,9 +1176,10 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     open_ = true;
     emit openChanged();
     emit txStateChanged();
+    const int rx1Ddc = (p2hw && p2hw->angeliaRxDdcSlots) ? 2 : 0;
     emit logLine(QStringLiteral(
-        "P2: opening %1 (DDC0 @ %2 kHz, %3 Hz)")
-            .arg(ip).arg(rateKhz_).arg(correctedHz));
+        "P2: opening %1 (DDC%2 @ %3 kHz, %4 Hz)")
+            .arg(ip).arg(rx1Ddc).arg(rateKhz_).arg(correctedHz));
     // isRunning() stays false — and runningChanged() does NOT fire —
     // until P2Session::started() confirms the radio actually answered
     // (connected in the constructor).  See the open_/running_ split
