@@ -180,6 +180,15 @@ extern void (*SetTXAPostGenToneMag)(int channel, double mag);
 extern void (*SetTXAPostGenToneFreq)(int channel, double freq);
 extern void (*SetTXAPostGenTTMag)(int channel, double mag1, double mag2);
 extern void (*SetTXAPostGenTTFreq)(int channel, double freq1, double freq2);
+// Input-side generator.  Mode 2 is Gaussian noise; the TX bandpass
+// after it sets the occupied bandwidth.  Names verified in the
+// bundled wdsp.dll export table.
+//   gen.c  void SetTXAPreGenRun(int channel, int run);
+//   gen.c  void SetTXAPreGenMode(int channel, int mode);
+//   gen.c  void SetTXAPreGenNoiseMag(int channel, double mag);
+extern void (*SetTXAPreGenRun)(int channel, int run);
+extern void (*SetTXAPreGenMode)(int channel, int mode);
+extern void (*SetTXAPreGenNoiseMag)(int channel, double mag);
 
 // ---- TXA operator-control setters (P4.b TxControl re-home consumer) ------
 // The operator-facing TXA chain controls the FSM/Settings seam pushes

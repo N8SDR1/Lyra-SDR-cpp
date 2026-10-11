@@ -2252,7 +2252,8 @@ PC dies.
 | **Settings → TX** | **Attestation** checkbox (default **off**). Tick only if **this** radio has the coupler. Until then Arm stays inert. |
 | Header **Options → PureSignal** | Opens the compact **PURESIGNAL** dock |
 | Header **Options → Amp View** | Opens the **AMP VIEW** plot (last two chips on the Options row) |
-| TX panel **2-tone** | Two-tone generator that **keys MOX** — the usual PS tune-up carrier |
+| PureSignal dock **2-tone** | Two equal tones that **key MOX**. Same generator as the TX dock. Average power reads about half of TUN. |
+| PureSignal dock **Voice** | Male-voice shaped noise that **keys MOX**. The level spin next to it is **−12 to +3 dB**. |
 
 ### Modes that force PureSignal off
 
@@ -2281,6 +2282,24 @@ still uses the mic rack, but PureSignal stays off.
   while **MOX is also on** and the focused mode is **not** on the
   lock-out list above. The chip goes **off** in those modes even if
   Arm is still ticked in Settings.
+- **2-tone** — two equal tones into the transmit chain, and it keys
+  MOX. Peak power matches TUN; the wattmeter reads **average**, so
+  expect about half the TUN reading (18–20 W TUN is often 8–11 W of
+  2-tone). Click again to unkey. The same button is on the TX dock.
+- **Voice** — continuous noise shaped like a male voice: most of the
+  energy from about **300 Hz to 1 kHz**, consonants falling off through
+  **3 kHz**. The transmit filter still sets the occupied width. It
+  keys MOX. Click again to unkey. **Voice** is only on this dock.
+  Only one of TUN, 2-tone, and Voice runs at a time; clicking another
+  switches the generator without you having to unkey first. All three
+  drop when MOX drops. Voice does **not** stay armed across restarts.
+- **Voice level** — the spin beside **Voice**, **−12 to +3 dB**.
+  **0** is a normal loud level. **+3** is the top. **−12** is quiet.
+  The number is remembered. A continuous noise has no speech pauses,
+  so average PA power is higher than talking — keep key-downs **short**,
+  and use a **dummy load**. The wattmeter still stays under a full TUN
+  carrier, because TUN is one full-scale tone and Voice is a shaped
+  band. If the reading is only a couple of watts, turn the spin up.
 - **SUB** — if Dual-RX was on, Lyra **pauses SUB for the keyed PS
   window** so DDC0/DDC1 can carry TX + feedback. Your saved SUB
   preference is **not** flipped off in Settings; SUB comes back when
@@ -2335,8 +2354,10 @@ plot (live `GetPSDisp` curve).
    bit more until ADC0 auto-att settles).
 3. Stay in **USB / LSB / AM / SAM / DSB**. Open **PureSignal**, Arm **ON**.
    (FM, CW, and DIG force Arm off — you will not see a live coupler.)
-4. Key **2-tone** (or TUN / MOX + speech). Watch **FB** go teal →
-   green. **ATT** may step a few times, then hold.
+4. Key **Voice** or **2-tone** (or TUN / MOX + speech). **Voice**
+   fills the voice band and is the easier stimulus when 2-tone is
+   light on the coupler. Watch **FB** go teal → green. **ATT** may
+   step a few times, then hold.
 5. Open **Amp View** if you want the curve. Snap / Hold as needed.
 6. Unkey — FB goes idle/muted; **ATT stays** at the last pad.
 7. Next keyup should land **near** the previous FB, not a full hunt.

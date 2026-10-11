@@ -721,6 +721,11 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         QSettings().value(QStringLiteral("tx/amCarrierPct"),
                           kDefaultAmCarrierPct).toDouble(),
         0.0, 100.0);
+    // PureSignal noise stimulus.  0 dB first-run.  Top is +3 dB.
+    // Saved values from the old 0 dB ceiling still load.
+    psNoiseLevelDb_ = std::clamp(
+        QSettings().value(QStringLiteral("tx/psNoiseLevelDb"), 0).toInt(),
+        -12, 3);
     txSafetyTimer_ = new QTimer(this);
     txSafetyTimer_->setSingleShot(true);
     connect(txSafetyTimer_, &QTimer::timeout,
@@ -745,6 +750,11 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     connect(this, &HL2Stream::moxActiveChanged, this, [this](bool on) {
         if (!on && twoToneEnabled_.load(std::memory_order_relaxed)) {
             setTwoToneEnabled(false);
+        }
+    });
+    connect(this, &HL2Stream::moxActiveChanged, this, [this](bool on) {
+        if (!on && noiseEnabled_.load(std::memory_order_relaxed)) {
+            setNoiseEnabled(false);
         }
     });
     // #169 — SWR-protection evaluator: a 50 ms repeating tick armed on
@@ -1159,13 +1169,17 @@ void HL2Stream::open(const QString &ip) {
     // state to reset beyond this flag.
     if (twoToneEnabled_.load(std::memory_order_relaxed))
         setTwoToneEnabled(false);
+    if (noiseEnabled_.load(std::memory_order_relaxed))
+        setNoiseEnabled(false);
     tuneEnabled_.store(false, std::memory_order_relaxed);
     twoToneEnabled_.store(false, std::memory_order_relaxed);
+    noiseEnabled_.store(false, std::memory_order_relaxed);
     requestedMox_  = false;
     fsmRunning_    = false;
     if (moxActive_) { moxActive_ = false; emit moxActiveChanged(false); }
     if (txSafetyTimer_ && txSafetyTimer_->isActive()) txSafetyTimer_->stop();
     emit tuneEnabledChanged(false);// TX panel UI follows
+    emit noiseEnabledChanged(false);
     // Mirror the persisted PA-enable into the UI on every open, so the
     // Settings checkbox accurately reflects the live atomic state even
     // after a previous close() that pre-2026-05-29 used to clobber it.
@@ -1570,8 +1584,11 @@ void HL2Stream::close() {
     // final EP2 frames carry silent TX I/Q.
     if (twoToneEnabled_.load(std::memory_order_relaxed))
         setTwoToneEnabled(false);
+    if (noiseEnabled_.load(std::memory_order_relaxed))
+        setNoiseEnabled(false);
     tuneEnabled_.store(false, std::memory_order_relaxed);
     twoToneEnabled_.store(false, std::memory_order_relaxed);
+    noiseEnabled_.store(false, std::memory_order_relaxed);
     requestedMox_  = false;
     fsmRunning_    = false;
     if (moxActive_) {
@@ -1586,6 +1603,7 @@ void HL2Stream::close() {
     }
     if (txSafetyTimer_ && txSafetyTimer_->isActive()) txSafetyTimer_->stop();
     emit tuneEnabledChanged(false);// TX panel UI follows
+    emit noiseEnabledChanged(false);
     // paEnabledChanged is intentionally NOT emitted here — paOn_ is
     // not touched in close() (per the 2026-05-29 persistence posture),
     // so the Settings checkbox stays at the operator's last explicit
@@ -3184,6 +3202,8 @@ void HL2Stream::setTuneEnabled(bool on) {
     // self-wired safety.
     if (on && twoToneEnabled_.load(std::memory_order_relaxed))
         setTwoToneEnabled(false);
+    if (on && noiseEnabled_.load(std::memory_order_relaxed))
+        setNoiseEnabled(false);
     const bool prev = tuneEnabled_.exchange(on, std::memory_order_relaxed);
     if (prev == on) return;
     // Forward to the registered postgen callback (no-op if TX control
@@ -3257,6 +3277,8 @@ void HL2Stream::setTuneEnabled(bool on) {
 void HL2Stream::setTwoToneEnabled(bool on) {
     if (on && tuneEnabled_.load(std::memory_order_relaxed))
         setTuneEnabled(false);
+    if (on && noiseEnabled_.load(std::memory_order_relaxed))
+        setNoiseEnabled(false);
 
     const bool prev = twoToneEnabled_.exchange(on, std::memory_order_relaxed);
     if (prev == on) return;
@@ -3268,6 +3290,39 @@ void HL2Stream::setTwoToneEnabled(bool on) {
     }
     if (fwd) fwd(on);
     emit twoToneEnabledChanged(on);
+}
+
+void HL2Stream::setNoiseEnabled(bool on) {
+    if (on && tuneEnabled_.load(std::memory_order_relaxed))
+        setTuneEnabled(false);
+    if (on && twoToneEnabled_.load(std::memory_order_relaxed))
+        setTwoToneEnabled(false);
+
+    const bool prev = noiseEnabled_.exchange(on, std::memory_order_relaxed);
+    if (prev == on) return;
+    pushCalNoise();
+    emit noiseEnabledChanged(on);
+}
+
+void HL2Stream::setPsNoiseLevelDb(int db) {
+    db = std::clamp(db, -12, 3);
+    if (psNoiseLevelDb_ == db) return;
+    psNoiseLevelDb_ = db;
+    QSettings().setValue(QStringLiteral("tx/psNoiseLevelDb"), db);
+    emit psNoiseLevelDbChanged(db);
+    if (noiseEnabled_.load(std::memory_order_relaxed))
+        pushCalNoise();
+}
+
+void HL2Stream::pushCalNoise() {
+    std::function<void(bool, double)> fwd;
+    {
+        std::lock_guard<std::mutex> lk(txControlMtx_);
+        fwd = txControl_.setCalNoise;
+    }
+    if (!fwd) return;
+    const double mag = std::pow(10.0, 0.05 * static_cast<double>(psNoiseLevelDb_));
+    fwd(noiseEnabled_.load(std::memory_order_relaxed), mag);
 }
 
 void HL2Stream::setPsAttestation(bool on) {
@@ -5223,6 +5278,10 @@ void HL2Stream::registerTxControl(TxControl ctl) {
         ctcssFreq        = ctcssToneHz_;
         ctcssOn          = ctcssEnabled_ && (m == 5);
     }
+    // A channel that opens while the noise stimulus is already armed
+    // must pick the generator back up.  Normal starts are disarmed.
+    if (noiseEnabled_.load(std::memory_order_relaxed))
+        pushCalNoise();
     if (pushMic)          pushMic(micGainDb_);
     if (pushAlc)          pushAlc(alcMaxGainLinear_);
     if (pushAlcDecay)     pushAlcDecay(alcDecayMs_);

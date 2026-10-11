@@ -315,6 +315,13 @@ class HL2Stream : public QObject {
                NOTIFY tuneEnabledChanged)
     Q_PROPERTY(bool twoToneEnabled READ twoToneEnabled WRITE setTwoToneEnabled
                NOTIFY twoToneEnabledChanged)
+    // PureSignal calibration stimulus: male-voice shaped noise into
+    // the TX chain.  Most energy under 1 kHz, falling through 3 kHz.
+    // Mutually exclusive with Tune and two-tone.  Level is dB, −12..+3.
+    Q_PROPERTY(bool noiseEnabled READ noiseEnabled WRITE setNoiseEnabled
+               NOTIFY noiseEnabledChanged)
+    Q_PROPERTY(int psNoiseLevelDb READ psNoiseLevelDb WRITE setPsNoiseLevelDb
+               NOTIFY psNoiseLevelDbChanged)
     Q_PROPERTY(bool psAttestation READ psAttestation WRITE setPsAttestation
                NOTIFY psAttestationChanged)
     Q_PROPERTY(bool psArmed READ psArmed WRITE setPsArmed
@@ -732,6 +739,11 @@ public:
         // Continuous two-tone post-generator control. Empty before TX
         // channel registration.
         std::function<void(bool)> setTwoTone;
+        // Band-limited Gaussian noise for PureSignal calibration.
+        // (on, linear magnitude). Injected before the TX bandpass, so
+        // the operator's TX filter sets the occupied bandwidth.
+        // Empty until the TX channel is open.
+        std::function<void(bool, double)> setCalNoise;
         // #109 — PHROT (phase rotator) run.  Symmetrizes asymmetric
         // speech to lower peak-to-average ratio (more average talk power
         // for the same ALC ceiling).  Operator on/off, mirrors the
@@ -1000,6 +1012,8 @@ public:
     // whenever MOX is active"; auto-clears on the next MOX-off edge.
     bool    tuneEnabled() const { return tuneEnabled_.load(std::memory_order_relaxed); }
     bool    twoToneEnabled() const { return twoToneEnabled_.load(std::memory_order_relaxed); }
+    bool    noiseEnabled() const { return noiseEnabled_.load(std::memory_order_relaxed); }
+    int     psNoiseLevelDb() const { return psNoiseLevelDb_; }
     bool    psAttestation() const { return psAttestation_; }
     bool    psArmed() const { return psArmed_; }
     bool    psDigitalLockout() const;
@@ -1289,9 +1303,18 @@ public slots:
     // safety so a stray MOX click after a tune session can't re-emit
     // the carrier.  Not persisted — operator must explicitly arm.
     void setTuneEnabled(bool on);
-    // Arm/disarm the Thetis-compatible continuous two-tone generator.
-    // Mutually exclusive with Tune and auto-cleared when MOX drops.
+    // Arm/disarm the continuous two-tone generator.
+    // Mutually exclusive with Tune and the noise stimulus, and
+    // auto-cleared when MOX drops.
     void setTwoToneEnabled(bool on);
+    // Arm/disarm the male-voice calibration noise (PureSignal stimulus).
+    // Mutually exclusive with Tune and two-tone.  Auto-cleared when
+    // MOX drops.  Not persisted — an explicit operator gesture.
+    void setNoiseEnabled(bool on);
+    // −12..+3 dB.  Persisted.  The TX bandpass keeps only the
+    // passband, so average power stays below a full carrier.
+    // Re-applied live while the noise stimulus is running.
+    void setPsNoiseLevelDb(int db);
     void setPsAttestation(bool on);
     void setPsArmed(bool on);
     Q_INVOKABLE void resetPureSignal();
@@ -1691,6 +1714,8 @@ signals:
     // operator unarm, or the moxActiveChanged(false) safety auto-clear).
     void tuneEnabledChanged(bool on);
     void twoToneEnabledChanged(bool on);
+    void noiseEnabledChanged(bool on);
+    void psNoiseLevelDbChanged(int db);
     void psAttestationChanged(bool on);
     void psArmedChanged(bool on);
     void psLiveArmedChanged(bool on);
@@ -1800,6 +1825,7 @@ private slots:
 
 private:
     double applyPwrTrim(double rawW) const;
+    void pushCalNoise();
 
     // Mirror a safety-critical TX/wire event to BOTH the in-app log
     // dock (emit logLine) AND the Qt logging surface (qInfo / qCritical
@@ -2240,6 +2266,8 @@ private:
     // needed since only that thread mutates it).
     std::atomic<bool>    tuneEnabled_{false};
     std::atomic<bool>    twoToneEnabled_{false};
+    std::atomic<bool>    noiseEnabled_{false};
+    int                  psNoiseLevelDb_{0};
     bool                 psAttestation_{false};
     bool                 psArmed_{false};
     bool                 subPausedForPs_{false};
