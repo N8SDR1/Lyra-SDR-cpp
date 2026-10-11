@@ -174,6 +174,10 @@ Rectangle {
                 id: adcCombo
                 visible: FrontEnd.p2Active
                 Layout.preferredWidth: 58
+                // Compact pads: the roomy 8/20 default leaves 30 px, too
+                // narrow for "ADC1" at 13 px (it elided to "AD…").
+                textLeftPad: 4
+                textRightPad: 14
                 model: [qsTr("ADC1"), qsTr("ADC2")]
                 currentIndex: FrontEnd.adcIndex
                 onActivated: FrontEnd.setAdcIndex(currentIndex)

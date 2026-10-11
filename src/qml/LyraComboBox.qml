@@ -19,6 +19,11 @@ ComboBox {
     // Tuning FM can tighten these; other call sites keep the roomy default.
     property int textLeftPad: 8
     property int textRightPad: 20
+    // The text pads above are the whole horizontal inset.  Zero the style's
+    // own control padding (5 px a side on macOS) so it isn't stacked on top
+    // of them — that double inset elided short labels ("ADC1" → "A…").
+    leftPadding: 0
+    rightPadding: 0
 
     // Optional theme (VFO styles colour their Step/Mode pickers).  Defaults
     // are the standard Lyra look, so every other combo is unchanged.
@@ -78,24 +83,41 @@ ComboBox {
         }
     }
 
-    // Popup grows to at least the field width (and a sane floor) so long
-    // labels aren't clipped, sizes its height to the item count, and
-    // scrolls when there are more items than fit.
+    // Widest dropdown row: item text + the delegate's 8 px side padding.
+    // Measured each time the popup opens (models change at runtime).
+    property real _popupRowWidth: 0
+    TextMetrics { id: rowMetrics; font: control.font }
+    function _measureRows() {
+        var w = 0
+        for (var i = 0; i < control.count; ++i) {
+            rowMetrics.text = control.textAt(i)
+            w = Math.max(w, rowMetrics.advanceWidth)
+        }
+        return Math.ceil(w) + 16
+    }
+
+    // Popup is as wide as the field, a sane floor, or the widest row
+    // (plus the scroll bar when the list scrolls), whichever is largest —
+    // the rows don't elide, so a narrower list would cut labels off.  It
+    // sizes its height to the item count and scrolls past 320 px.
     popup: Popup {
         // Render in a top-level window so the list is NOT clipped by the
         // dock panel's frame — otherwise items past the panel edge are
         // hidden + unselectable (Mode, RX BW, … in a narrow panel).
         popupType: Popup.Window
         y: control.height - 1
-        width: Math.max(control.width, 130)
+        width: Math.max(control.width, 130,
+                        control._popupRowWidth + leftPadding + rightPadding
+                        + (control.count * 26 + 2 > 320 ? popupBar.width : 0))
         implicitHeight: Math.min(control.count * 26 + 2, 320)
         padding: 1
+        onAboutToShow: control._popupRowWidth = control._measureRows()
         contentItem: ListView {
             clip: true
             model: control.delegateModel
             currentIndex: control.highlightedIndex
             boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar { active: true }
+            ScrollBar.vertical: ScrollBar { id: popupBar; active: true }
         }
         background: Rectangle {
             color: "#12181f"

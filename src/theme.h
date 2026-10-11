@@ -20,6 +20,17 @@
 
 #include <QString>
 
+#ifdef Q_OS_MACOS
+#include <QAbstractItemView>
+#include <QComboBox>
+#include <QEvent>
+#include <QFontMetrics>
+#include <QGuiApplication>
+#include <QScreen>
+#include <QStyle>
+#include <QStyleOptionComboBox>
+#endif
+
 namespace lyra::ui {
 
 inline QString lyraStyleSheet() {
@@ -309,6 +320,96 @@ QLabel[lyraFooter="true"] {
     padding: 6px 4px 0 4px;
 }
 )QSS");
+}
+
+#ifdef Q_OS_MACOS
+// macOS combo popups clip their items under the app stylesheet.
+//
+// The macOS style paints a QComboBox popup as a native-looking menu: every
+// item's text starts after an ~18 px checkmark column.  But QComboBox sizes
+// that popup from the CLOSED combo (popup = combo width - 16, widened only by
+// the combo's own width hint), and once the stylesheet above styles QComboBox
+// the closed box is just text + 6 px padding + arrow (~text + 30) instead of
+// the native bezel's ~text + 52.  The popup therefore comes out ~text + 14
+// wide while the text is painted from x = 18, so the tail of the longest
+// items is cut off ("Vertic").  Fusion / Windows paint popup text near the
+// left edge (x = 7 / 3) with no -16 popup inset, so only macOS needs this.
+//
+// Fix, once for every combo: when a combo's popup window is about to show,
+// grow it to the native width (checkmark column + widest item + the same
+// trailing margin the un-styled native popup leaves), keeping it on screen.
+// Runs before the popup is mapped (QShowEvent precedes the platform show).
+class ComboPopupWidthFix final : public QObject {
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override {
+        if (ev->type() != QEvent::Show || !obj->isWidgetType())
+            return false;
+        auto *popup = static_cast<QWidget *>(obj);
+        auto *combo = qobject_cast<QComboBox *>(popup->parentWidget());
+        if (!combo || !popup->isWindow() || combo->view()->window() != popup)
+            return false;
+        // Only the menu-style popup has the checkmark column; an editable
+        // combo drops a plain list that already fits.
+        QStyleOptionComboBox opt;
+        opt.initFrom(combo);
+        opt.editable = combo->isEditable();
+        if (!combo->style()->styleHint(QStyle::SH_ComboBox_Popup, &opt, combo))
+            return false;
+
+        // Measured against QMacStyle's menu-item painter (Qt 6.11): text
+        // starts at x = 18; the un-styled native popup leaves 18 px after
+        // the widest item.
+        constexpr int kCheckColumn = 18;
+        constexpr int kTrailing = 18;
+        QAbstractItemView *view = combo->view();
+        const QFontMetrics fm = combo->fontMetrics();
+        const QFontMetrics vfm = view->fontMetrics();
+        int text = 0;
+        for (int i = 0; i < combo->count(); ++i) {
+            const QString t = combo->itemText(i);
+            text = qMax(text, qMax(fm.horizontalAdvance(t),
+                                   vfm.horizontalAdvance(t)));
+        }
+        // Frame + any vertical scroll bar: whatever the popup spends
+        // outside the item viewport.
+        const int chrome = popup->width() - view->viewport()->width();
+        const int need = kCheckColumn + text + kTrailing + chrome;
+        if (popup->width() >= need)
+            return false;
+        QRect g = popup->geometry();
+        g.setWidth(need);
+        // Clamp to the monitor the combo is on.  popup->screen() is not
+        // usable here: the popup's native window doesn't exist yet on its
+        // first show, so it reports the primary screen and the clamp would
+        // throw the list onto the other monitor.
+        const QScreen *s = QGuiApplication::screenAt(
+            combo->mapToGlobal(combo->rect().center()));
+        if (!s) s = combo->screen();
+        if (s) {
+            const QRect avail = s->availableGeometry();
+            g.setWidth(qMin(g.width(), avail.width()));   // never wider than the screen
+            if (g.right() > avail.right())
+                g.moveRight(avail.right());
+            if (g.left() < avail.left())
+                g.moveLeft(avail.left());
+        }
+        popup->setGeometry(g);
+        return false;
+    }
+};
+#endif
+
+// Install the app-wide QtWidgets fixes that go with the stylesheet above.
+// Call once, right after qApp->setStyleSheet(lyraStyleSheet()).
+inline void installStyleFixes(QObject *app) {
+#ifdef Q_OS_MACOS
+    app->installEventFilter(new ComboPopupWidthFix(app));
+#else
+    Q_UNUSED(app);
+#endif
 }
 
 } // namespace lyra::ui

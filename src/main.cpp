@@ -519,6 +519,9 @@ int main(int argc, char *argv[])
     // Apply old-Lyra's dark cool-CRT theme to the whole QtWidgets shell
     // (menu bar, dock title bars, Settings dialog, tabs, controls).
     app.setStyleSheet(lyra::ui::lyraStyleSheet());
+    // ...and the stylesheet's app-wide companions (macOS combo popups sized
+    // to fit their items — see theme.h).
+    lyra::ui::installStyleFixes(&app);
     // Hyperlink colours: Qt's default Link role is a dark blue that is
     // unreadable on Lyra's near-black surfaces.  Set the cyan accent
     // app-wide so EVERY rich-text widget (the Help guide today, anything
