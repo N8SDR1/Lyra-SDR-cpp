@@ -153,22 +153,30 @@ const P2HardwareProfile kSaturnProfile = {
     &saturnAlexRxWord, &saturnAlexTxWord,
 };
 
-// Classic-Alex ANAN on Protocol 2. TX is dummy-load / Arm-P2-TX only
-// (txOnAirValidated=false) until a tester benches RF on that box.
+// ANAN-10 / 10E / HERMES: 1 ADC, classic Alex (they have a filter
+// board — not BrickSDR2's zero-Alex fixed TX). TX keys like BrickSDR2
+// (Enable PA + MOX + Drive, no dummy-load arm).
 const P2HardwareProfile kHermesAlexP2 = {
-    "ANAN-100", "Hermes-class ANAN (classic Alex)", 1, 10, 1,
+    "ANAN-10", "Hermes-class ANAN-10 (classic Alex)", 1, 10, 1,
     &classicAlexRxWord, &saturnAlexTxWord,
-    false, false, 0x01,  // Alex0 enable — PA/LPF/TR live on the filter board
+    false, true, 0x01,  // Alex0 — PA/LPF/TR on the filter board
+};
+// ANAN-100 / 100B: still 1 ADC + classic Alex (not Brick3's 2-ADC
+// Angelia DDC map). TX keys like Brick3SDR (on-air, no bench arm).
+const P2HardwareProfile kAnan100HermesP2 = {
+    "ANAN-100", "Hermes-class ANAN-100 (classic Alex)", 1, 10, 1,
+    &classicAlexRxWord, &saturnAlexTxWord,
+    false, true, 0x01,
 };
 const P2HardwareProfile kAngeliaOrionAlexP2 = {
     "ANAN-100D", "Angelia/Orion ANAN (classic Alex)", 3, 10, 2,
     &classicAlexRxWord, &saturnAlexTxWord,
-    false, false, 0x01, true,  // Alex0 only + DDC2/DDC3 HP (deskHPSDR Angelia)
+    false, true, 0x01, true,  // Alex0 + DDC2/DDC3 HP; TX like Brick3SDR
 };
 const P2HardwareProfile kBrick3Profile = {
     "BRICK3-SDR", "Brick3SDR", 3, 10, 2,
     &classicAlexRxWord, &saturnAlexTxWord,
-    false, false, 0x01, true,
+    false, true, 0x01, true,  // on-air TX: keys like BrickSDR2 (no bench arm)
 };
 
 // BrickSDR (Hermes-class P2) has NO Alex front end -- its onboard LPF
@@ -208,17 +216,19 @@ const P2HardwareProfile *p2ProfileForModel(const QString &modelKey) {
     if (modelKey.compare(QLatin1String("BRICK-SDR"), Qt::CaseInsensitive) == 0 ||
         modelKey.compare(QLatin1String("BRICK-SDR2"), Qt::CaseInsensitive) == 0)
         return &kBrickProfile;
-    // Hermes-class ANAN (1 ADC, classic HPF). Shipped as P1; P2 FPGA is
-    // the Lyra path. Discovery "Hermes" still defaults to BrickP2 — pick
-    // these keys in Settings.
+    // ANAN-10 / 10E / HERMES: BrickSDR2 TX posture, keep classic Alex.
+    // Discovery "Hermes" still defaults to BrickP2 — pick these in Settings.
     if (modelKey.compare(QLatin1String("ANAN-10"), Qt::CaseInsensitive) == 0 ||
         modelKey.compare(QLatin1String("ANAN-10E"), Qt::CaseInsensitive) == 0 ||
-        modelKey.compare(QLatin1String("ANAN-100"), Qt::CaseInsensitive) == 0 ||
-        modelKey.compare(QLatin1String("ANAN-100B"), Qt::CaseInsensitive) == 0 ||
         modelKey.compare(QLatin1String("HERMES"), Qt::CaseInsensitive) == 0)
         return &kHermesAlexP2;
+    // ANAN-100 / 100B: Brick3SDR TX posture on the 1-ADC Hermes-Alex wire.
+    if (modelKey.compare(QLatin1String("ANAN-100"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ANAN-100B"), Qt::CaseInsensitive) == 0)
+        return &kAnan100HermesP2;
     if (modelKey.compare(QLatin1String("BRICK3-SDR"), Qt::CaseInsensitive) == 0)
         return &kBrick3Profile;
+    // ANAN-100D / 200D: Brick3SDR TX + the 2-ADC Angelia DDC map.
     if (modelKey.compare(QLatin1String("ANAN-100D"), Qt::CaseInsensitive) == 0 ||
         modelKey.compare(QLatin1String("ANAN-200D"), Qt::CaseInsensitive) == 0)
         return &kAngeliaOrionAlexP2;

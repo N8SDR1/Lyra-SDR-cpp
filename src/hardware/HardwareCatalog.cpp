@@ -89,8 +89,8 @@ const HardwareModelDescriptor kCatalog[] = {
     // Brick3SDR — Protocol 2 only, Angelia-class (2 ADC, classic Alex).
     // Discovery MAC 02:B3:xx names the board Brick3. Not the Hermes-class
     // BrickSDR row above (1 ADC, onboard LPF, no Alex). PA/meter numbers
-    // match ANAN-100D until a Brick3-specific cal exists. TX stays
-    // dummy-load + Arm P2 TX (not on-air validated).
+    // match ANAN-100D until a Brick3-specific cal exists. TX keys like
+    // BrickSDR2 (on-air; no dummy-load arm).
     {"BRICK3-SDR",   "Brick3SDR",       mANAN100D,    bAngelia,   WireSupport::P2Only, 2, false, 33, false,
      false, false, 360.f, 120.f, 0.2899, 0.98f,      -2.1f,    false, true,  PA_100D,    56.2f},
 };

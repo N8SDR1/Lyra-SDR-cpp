@@ -30,7 +30,8 @@
 //
 // TX: a dedicated 48 kHz CMaster/TXA pump feeds the session's bounded
 // 192 kHz FIFO and continuous port-1029 writer. On-air-validated models
-// (Brick) key like HL2. Classic ANAN stays fail-closed until Arm P2 TX.
+// (BrickSDR2, Brick3SDR, ANAN-10/10E, ANAN-100 line) key like HL2.
+// Saturn G2 stays fail-closed until Arm P2 TX.
 //
 // Threading: P2Session (QUdpSocket + timers) lives on thread_; every
 // session mutation is marshalled onto that thread via
@@ -239,6 +240,12 @@ private:
     void deactivateTxProducerSeam();
     void syncTxIntentToSession(bool on);
     void resetTxUiState();
+    // Arm the P2 TX gate when the model is on-air-validated (or the
+    // operator opted into auto-arm) AND the session is confirmed +
+    // transport-ready.  Called from both the TX-state tick and the
+    // first HP-status confirmation so Ready-before-started cannot
+    // leave the first PTT rejected.
+    void maybeAutoArmTx();
 
     lyra::ipc::HL2Stream  *stream_  = nullptr;
     lyra::dsp::WdspEngine *engine_  = nullptr;

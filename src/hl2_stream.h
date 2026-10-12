@@ -144,6 +144,9 @@ class HL2Stream : public QObject {
     // DDC1 keeps mirroring RX1 (SUB-off wire identity).  When on, DDC1
     // follows rx2FreqHz (VFO B if SPLIT is also on).  focusedRx is 1 or 2.
     Q_PROPERTY(bool    subEnabled READ subEnabled WRITE setSubEnabled NOTIFY subEnabledChanged)
+    // True when the selected radio (or the live connection) has two
+    // converters. The second spectrum follows this and subEnabled.
+    Q_PROPERTY(bool    dualAdc READ dualAdc NOTIFY dualAdcChanged)
     Q_PROPERTY(quint32 rx2FreqHz  READ rx2FreqHz  WRITE setRx2FreqHz  NOTIFY rx2FreqChanged)
     Q_PROPERTY(int     focusedRx  READ focusedRx  WRITE setFocusedRx  NOTIFY focusedRxChanged)
     // RIT (RX incremental tuning) + XIT (TX incremental tuning) — signed
@@ -788,6 +791,7 @@ public:
     bool    splitEnabled()      const { return splitEnabled_.load(std::memory_order_relaxed); }
     quint32 vfoBHz()            const { return vfoBHz_.load(std::memory_order_relaxed); }
     bool    subEnabled()        const { return subEnabled_.load(std::memory_order_relaxed); }
+    bool    dualAdc()           const { return dualAdc_.load(std::memory_order_relaxed); }
     quint32 rx2FreqHz()         const { return rx2FreqHz_.load(std::memory_order_relaxed); }
     int     focusedRx()         const { return focusedRx_.load(std::memory_order_relaxed); }
     // Effective TX carrier the wire NCO is set to (0x02/0x08/0x0a).  Tracks
@@ -946,6 +950,11 @@ public:
     // unity so watts live on HP [345] only.  Set by the P2 bridge on
     // open/close.  Does not change the operator slider.
     void    setP2DrivePath(bool on);
+    // Bind PA-gain / watts-cap / PWR-trim persistence to a specific
+    // radio profile (the connected P2 rig). Empty restores the active
+    // rig. Reloads the table immediately so Brick3 does not inherit
+    // HL2 or Brick2 numbers when that radio is opened.
+    void    setTxCalRigId(const QString &rigId);
     // TX power model Stage 3 — per-band "PA Gain By Band" (Thetis port).
     // gbb is a per-band multiplier in the RadioVolume formula (default
     // 100 = neutral).  The operator measures each band into a dummy load
@@ -1255,6 +1264,8 @@ public slots:
     void setSplitEnabled(bool on);
     void setVfoBHz(quint32 hz);
     void setSubEnabled(bool on);
+    void setDualAdc(bool on);
+    void refreshDualAdcFromSettings();
     void setRx2FreqHz(quint32 hz);
     void setFocusedRx(int rx);
     // RIT/XIT — RIT offsets only the RX DDC NCO (via pushEffectiveRxFreq);
@@ -1649,6 +1660,7 @@ signals:
     void splitEnabledChanged();
     void vfoBHzChanged();
     void subEnabledChanged();
+    void dualAdcChanged();
     void rx2FreqChanged();
     void focusedRxChanged();
     void ritChanged();   // RIT enable and/or offset
@@ -1956,6 +1968,8 @@ private:
     // Every drive-byte write + every TX band change funnels here.  No-op
     // until create_xmtr (set_drive_level/SetTXFixedGain are guarded).
     void   applyTxPower_(int requestedRaw);
+    QString txCalKey_(const QString &logical) const;
+    void    loadTxPowerCal_();
     // Thetis HL2: RadioVolume = min(drive% · gbb[band]/100 / 93.75, 1).
     double radioVolumeFor_(int requestedRaw) const;
     // Stage 3b/B — the watts-cap drive ceiling (0..255 raw) for the active
@@ -2169,6 +2183,7 @@ private:
     std::atomic<bool>    splitEnabled_{false};
     std::atomic<quint32> vfoBHz_{7074000};
     std::atomic<bool>    subEnabled_{false};
+    std::atomic<bool>    dualAdc_{false};
     std::atomic<quint32> rx2FreqHz_{7074000};
     int lastSubWarnBandA_{-1};
     int lastSubWarnBandB_{-1};
@@ -2187,6 +2202,7 @@ private:
     std::atomic<int>     txDriveLevel_{0};      // 0..255 operator setpoint
     std::atomic<int>     txEmittedDriveByte_{0}; // applyTxPower_ output (wire)
     std::atomic<bool>    p2DrivePath_{false};   // P2 analog drive vs HL2 P1
+    QString              txCalRigId_;           // empty = active-rig PA cal
     // TX power model Stage 3 — per-band "PA Gain By Band".
     // amateurBands() 160m..6m plus 11m (kPaPowerBandElevenM). Default 100 =
     // neutral.  Atomic per element: read on the power chokepoint

@@ -993,6 +993,11 @@ int main(int argc, char *argv[])
                      wdspEngine, [stream, wdspEngine]() {
                          wdspEngine->setSubEnabled(stream->subEnabled());
                      });
+    QObject::connect(stream, &lyra::ipc::HL2Stream::dualAdcChanged,
+                     wdspEngine, [stream, wdspEngine]() {
+                         wdspEngine->setRx2SpectrumWanted(stream->dualAdc());
+                     });
+    wdspEngine->setRx2SpectrumWanted(stream->dualAdc());
 
     // #158 DL-4 — mute RX out of the VAC mixer during TX (reference
     // SetIVACmox what-flag gating; RX→VAC silent on the air, the no-feedback

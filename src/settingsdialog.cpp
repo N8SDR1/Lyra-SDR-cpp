@@ -4190,11 +4190,10 @@ QWidget *SettingsDialog::buildHardwareTab() {
             limit->setSuffix(tr(" %"));
             limit->setToolTip(tr(
                 "Independent ceiling over the front-panel Drive slider for "
-                "radios whose TX is not yet on-air validated (Brick3SDR / "
-                "classic ANAN). Default is 50% on a dummy load so the PA can "
-                "show watts (DeskHPSDR ~15 W on Brick3 is the hardware check). "
-                "Raise this if you want more Drive on the dummy. This is not "
-                "the watts CAP or Max Protect. Dummy load only."));
+                "radios whose TX is not yet on-air validated (classic ANAN). "
+                "Default is 50% on a dummy load. Raise this if you want more "
+                "Drive on the dummy. This is not the watts CAP or Max Protect. "
+                "Dummy load only."));
             p2Grid->addWidget(limitLabel, 2, 0);
             p2Grid->addWidget(limit, 2, 1, Qt::AlignLeft);
 
@@ -8821,8 +8820,6 @@ QWidget *SettingsDialog::buildVisualsTab() {
     form->addRow(tr("Waterfall speed"), wspeed);
 
     // --- Waterfall dB range (INDEPENDENT of the panadapter scale) ---
-    // Auto-fit OR a manual floor/ceiling.  The manual spinboxes gray
-    // out while Auto is on.
     auto *wfAuto = new QCheckBox(tr("Auto-fit the waterfall dB range"), page);
     wfAuto->setChecked(prefs_->waterfallDbAuto());
     wfAuto->setToolTip(tr("Track the band automatically (noise floor − 15 dB "
@@ -8831,33 +8828,15 @@ QWidget *SettingsDialog::buildVisualsTab() {
     connect(wfAuto, &QCheckBox::toggled, prefs_, &Prefs::setWaterfallDbAuto);
     form->addRow(tr("Waterfall dB"), wfAuto);
 
-    // §15.30 — TWO independent pairs (RX-state and TX-state) so an
-    // operator can tune the TX waterfall scale without keying, and so
-    // the RX pair (their tuned dark-with-pop preference) never gets
-    // overwritten by a drag during MOX (or vice versa).  Both pairs
-    // are always-visible: the RX spinboxes always read+write the RX
-    // backing; the TX spinboxes always read+write the TX backing.
-    //
-    // The live `waterfallDbMin()/Max()` accessors still MOX-route
-    // (drag-the-right-edge during MOX updates whichever state is
-    // active) — these spinboxes just bypass that and address each
-    // backing directly via setRxWaterfallDb*/setTxWaterfallDb*.
-
-    // --- RX-state waterfall (the operator's normal listening scale) ---
     auto *wfMin = new QDoubleSpinBox(page);
     wfMin->setRange(-200.0, 0.0);
     wfMin->setSuffix(tr(" dB"));
     wfMin->setValue(prefs_->rxWaterfallDbMin());
-    wfMin->setToolTip(tr("RX-state waterfall floor — levels at/below this "
-                         "map to the darkest palette colour.  Active when "
-                         "MOX is OFF.  Drag the waterfall's right-edge "
-                         "during RX to tune this from the panadapter."));
+    wfMin->setToolTip(tr("Waterfall floor — levels at/below this map to "
+                         "the darkest palette colour."));
     connect(wfMin, &QDoubleSpinBox::valueChanged,
             prefs_, &Prefs::setRxWaterfallDbMin);
     connect(prefs_, &Prefs::waterfallDbMinChanged, page, [this, wfMin]() {
-        // Mirror RX changes that came from elsewhere (drag during RX,
-        // band-memory recall, etc.).  RX backing only — TX changes
-        // arrive on txWaterfallDbMinChanged below.
         if (wfMin->value() != prefs_->rxWaterfallDbMin())
             wfMin->setValue(prefs_->rxWaterfallDbMin());
     });
@@ -8867,9 +8846,8 @@ QWidget *SettingsDialog::buildVisualsTab() {
     wfMax->setRange(-200.0, 20.0);
     wfMax->setSuffix(tr(" dB"));
     wfMax->setValue(prefs_->rxWaterfallDbMax());
-    wfMax->setToolTip(tr("RX-state waterfall ceiling — levels at/above this "
-                         "map to the brightest palette colour.  Active when "
-                         "MOX is OFF."));
+    wfMax->setToolTip(tr("Waterfall ceiling — levels at/above this map to "
+                         "the brightest palette colour."));
     connect(wfMax, &QDoubleSpinBox::valueChanged,
             prefs_, &Prefs::setRxWaterfallDbMax);
     connect(prefs_, &Prefs::waterfallDbMaxChanged, page, [this, wfMax]() {
@@ -8878,19 +8856,12 @@ QWidget *SettingsDialog::buildVisualsTab() {
     });
     form->addRow(tr("Waterfall dB — RX ceiling"), wfMax);
 
-    // --- TX-state waterfall (active while MOX is on) ---
-    // Defaults −70 / +30 dBFS match the reference TX waterfall
-    // Low / High Level for HL2 TX drive levels — a clean tune-carrier
-    // line that doesn't blow out the heat map.  Tune from here OR by
-    // dragging the waterfall's right-edge during MOX.
     auto *wfTxMin = new QDoubleSpinBox(page);
     wfTxMin->setRange(-200.0, 30.0);
     wfTxMin->setSuffix(tr(" dB"));
     wfTxMin->setValue(prefs_->txWaterfallDbMin());
     wfTxMin->setToolTip(tr("TX-state waterfall floor — active only while "
-                           "MOX is ON.  Default −70 dB frames a clean "
-                           "TX-tone line; the operator's RX preferences "
-                           "are preserved separately."));
+                           "MOX is ON. Main pan only."));
     connect(wfTxMin, &QDoubleSpinBox::valueChanged,
             prefs_, &Prefs::setTxWaterfallDbMin);
     connect(prefs_, &Prefs::txWaterfallDbMinChanged, page, [this, wfTxMin]() {
@@ -8904,8 +8875,7 @@ QWidget *SettingsDialog::buildVisualsTab() {
     wfTxMax->setSuffix(tr(" dB"));
     wfTxMax->setValue(prefs_->txWaterfallDbMax());
     wfTxMax->setToolTip(tr("TX-state waterfall ceiling — active only while "
-                           "MOX is ON.  Default +30 dB matches the "
-                           "reference TX waterfall High Level."));
+                           "MOX is ON. Main pan only."));
     connect(wfTxMax, &QDoubleSpinBox::valueChanged,
             prefs_, &Prefs::setTxWaterfallDbMax);
     connect(prefs_, &Prefs::txWaterfallDbMaxChanged, page, [this, wfTxMax]() {
@@ -8914,9 +8884,6 @@ QWidget *SettingsDialog::buildVisualsTab() {
     });
     form->addRow(tr("Waterfall dB — TX ceiling"), wfTxMax);
 
-    // --- dB display range (vertical scale) ---
-    // Auto-fit OR a manual floor/ceiling.  The manual spinboxes gray
-    // out while Auto is on (the panadapter auto-fits internally).
     auto *pdAuto = new QCheckBox(tr("Auto-fit the spectrum dB range"), page);
     pdAuto->setChecked(prefs_->dbAuto());
     pdAuto->setToolTip(tr("Track the band automatically (noise floor − 15 dB "
@@ -8932,7 +8899,8 @@ QWidget *SettingsDialog::buildVisualsTab() {
     dbMin->setValue(prefs_->dbMin());
     connect(dbMin, &QDoubleSpinBox::valueChanged, prefs_, &Prefs::setDbMin);
     connect(prefs_, &Prefs::dbMinChanged, page, [this, dbMin]() {
-        if (dbMin->value() != prefs_->dbMin()) dbMin->setValue(prefs_->dbMin());
+        if (dbMin->value() != prefs_->dbMin())
+            dbMin->setValue(prefs_->dbMin());
     });
     form->addRow(tr("dB range — floor"), dbMin);
 
@@ -8942,42 +8910,81 @@ QWidget *SettingsDialog::buildVisualsTab() {
     dbMax->setValue(prefs_->dbMax());
     connect(dbMax, &QDoubleSpinBox::valueChanged, prefs_, &Prefs::setDbMax);
     connect(prefs_, &Prefs::dbMaxChanged, page, [this, dbMax]() {
-        if (dbMax->value() != prefs_->dbMax()) dbMax->setValue(prefs_->dbMax());
+        if (dbMax->value() != prefs_->dbMax())
+            dbMax->setValue(prefs_->dbMax());
     });
     form->addRow(tr("dB range — ceiling"), dbMax);
 
-    // Gray the manual floor/ceiling out while Auto is on, and keep the
-    // checkbox in sync if Auto is flipped elsewhere (e.g. a dB-edge drag
-    // on the panadapter turns it off).
-    auto applyPdAuto = [dbMin, dbMax](bool a) {
+    auto *subDbMin = new QDoubleSpinBox(page);
+    subDbMin->setRange(-200.0, 0.0);
+    subDbMin->setSuffix(tr(" dB"));
+    subDbMin->setValue(prefs_->rx2DbMin());
+    subDbMin->setToolTip(tr("SUB receiver spectrum and waterfall floor. "
+                            "Two-converter radios only."));
+    connect(subDbMin, &QDoubleSpinBox::valueChanged,
+            prefs_, &Prefs::setRx2DbMin);
+    connect(prefs_, &Prefs::rx2DbMinChanged, page, [this, subDbMin]() {
+        if (subDbMin->value() != prefs_->rx2DbMin())
+            subDbMin->setValue(prefs_->rx2DbMin());
+    });
+    form->addRow(tr("SUB RX floor"), subDbMin);
+    auto *subDbMinLab = qobject_cast<QLabel *>(form->labelForField(subDbMin));
+
+    auto *subDbMax = new QDoubleSpinBox(page);
+    subDbMax->setRange(-200.0, 30.0);
+    subDbMax->setSuffix(tr(" dB"));
+    subDbMax->setValue(prefs_->rx2DbMax());
+    subDbMax->setToolTip(tr("SUB receiver spectrum and waterfall ceiling. "
+                            "Two-converter radios only."));
+    connect(subDbMax, &QDoubleSpinBox::valueChanged,
+            prefs_, &Prefs::setRx2DbMax);
+    connect(prefs_, &Prefs::rx2DbMaxChanged, page, [this, subDbMax]() {
+        if (subDbMax->value() != prefs_->rx2DbMax())
+            subDbMax->setValue(prefs_->rx2DbMax());
+    });
+    form->addRow(tr("SUB RX ceiling"), subDbMax);
+    auto *subDbMaxLab = qobject_cast<QLabel *>(form->labelForField(subDbMax));
+
+    auto showSubDb = [this, subDbMin, subDbMax, subDbMinLab, subDbMaxLab]() {
+        const bool dual = stream_ && stream_->dualAdc();
+        subDbMin->setVisible(dual);
+        subDbMax->setVisible(dual);
+        if (subDbMinLab) subDbMinLab->setVisible(dual);
+        if (subDbMaxLab) subDbMaxLab->setVisible(dual);
+    };
+    showSubDb();
+    if (stream_) {
+        connect(stream_, &lyra::ipc::HL2Stream::dualAdcChanged,
+                page, showSubDb);
+    }
+
+    auto applyPdAuto = [dbMin, dbMax, this]() {
+        const bool a = prefs_->dbAuto();
         dbMin->setEnabled(!a);
         dbMax->setEnabled(!a);
     };
-    applyPdAuto(prefs_->dbAuto());
-    connect(prefs_, &Prefs::dbAutoChanged, page,
-            [this, pdAuto, applyPdAuto]() {
-                const bool a = prefs_->dbAuto();
-                if (pdAuto->isChecked() != a) pdAuto->setChecked(a);
-                applyPdAuto(a);
-            });
-
-
-    // Gray ALL four manual floor/ceiling spinboxes out while Auto is on
-    // (Auto applies to whichever pair is currently live — driven by
-    // the panadapter's noise-floor / peak tracking).
-    auto applyWfAuto = [wfMin, wfMax, wfTxMin, wfTxMax](bool a) {
+    auto applyWfAuto = [wfMin, wfMax, wfTxMin, wfTxMax, this]() {
+        const bool a = prefs_->waterfallDbAuto();
         wfMin->setEnabled(!a);
         wfMax->setEnabled(!a);
         wfTxMin->setEnabled(!a);
         wfTxMax->setEnabled(!a);
     };
-    applyWfAuto(prefs_->waterfallDbAuto());
+    applyPdAuto();
+    applyWfAuto();
+    connect(prefs_, &Prefs::dbAutoChanged, page, [this, pdAuto, applyPdAuto]() {
+        const bool a = prefs_->dbAuto();
+        if (pdAuto->isChecked() != a)
+            pdAuto->setChecked(a);
+        applyPdAuto();
+    });
     connect(prefs_, &Prefs::waterfallDbAutoChanged, page,
             [this, wfAuto, applyWfAuto]() {
-                const bool a = prefs_->waterfallDbAuto();
-                if (wfAuto->isChecked() != a) wfAuto->setChecked(a);
-                applyWfAuto(a);
-            });
+        const bool a = prefs_->waterfallDbAuto();
+        if (wfAuto->isChecked() != a)
+            wfAuto->setChecked(a);
+        applyWfAuto();
+    });
 
     // --- Spectrum fill on/off + fill colour ---
     // The fill colour applies in SOLID trace mode (lets the fill differ
@@ -9411,6 +9418,94 @@ QWidget *SettingsDialog::buildVisualsTab() {
     {
         auto *note = new QLabel(
             tr("Takes effect on the next launch of Lyra."), page);
+        note->setWordWrap(true);
+        note->setStyleSheet(QStringLiteral("QLabel{color:#8fa0aa;}"));
+        form->addRow(QString(), note);
+    }
+
+    // --- SUB second-spectrum layout (two-converter radios) ---
+    {
+        auto *hdr = new QLabel(tr("SUB (second spectrum)"), page);
+        hdr->setStyleSheet(QStringLiteral(
+            "QLabel{color:#7fd6ef;font-weight:700;padding-top:6px;}"));
+        form->addRow(hdr);
+    }
+    auto *subEn = new QCheckBox(
+        tr("Use a saved layout when SUB is on"), page);
+    subEn->setChecked(prefs_->subLayoutEnabled());
+    subEn->setToolTip(
+        tr("Off: SUB splits the panadapter in place without stretching the "
+           "control docks. On: SUB recalls the named layout chosen below "
+           "(save that arrangement with SUB on via View → Layouts → Save). "
+           "Turning SUB off always restores the layout that was running "
+           "just before SUB came on — window size, docks and spectrum split."));
+    auto *subSlot = new QComboBox(page);
+    auto fillSubSlots = [subSlot]() {
+        const int keep = subSlot->currentData().toInt();
+        subSlot->blockSignals(true);
+        subSlot->clear();
+        QSettings s;
+        for (int i = 1; i <= 4; ++i) {
+            QString name = s.value(QStringLiteral("layouts/%1/name").arg(i))
+                               .toString();
+            const bool empty =
+                s.value(QStringLiteral("layouts/%1/windowState").arg(i))
+                    .toByteArray().isEmpty();
+            if (name.isEmpty())
+                name = QCoreApplication::translate(
+                    "SettingsDialog", "Layout %1").arg(i);
+            subSlot->addItem(
+                empty ? QCoreApplication::translate(
+                            "SettingsDialog", "%1 — (empty)").arg(name)
+                      : name,
+                i);
+        }
+        int idx = subSlot->findData(keep > 0 ? keep : 1);
+        if (idx < 0) idx = 0;
+        subSlot->setCurrentIndex(idx);
+        subSlot->blockSignals(false);
+    };
+    fillSubSlots();
+    {
+        const int idx = subSlot->findData(prefs_->subLayoutSlot());
+        if (idx >= 0) subSlot->setCurrentIndex(idx);
+    }
+    auto refreshSubLayoutUi = [this, subEn, subSlot]() {
+        const bool dual = stream_ && stream_->dualAdc();
+        subEn->setEnabled(dual);
+        subSlot->setEnabled(dual && prefs_->subLayoutEnabled());
+    };
+    refreshSubLayoutUi();
+    connect(subEn, &QCheckBox::toggled, this, [this, refreshSubLayoutUi](bool on) {
+        prefs_->setSubLayoutEnabled(on);
+        refreshSubLayoutUi();
+    });
+    connect(prefs_, &Prefs::subLayoutEnabledChanged, page,
+            [this, subEn, refreshSubLayoutUi]() {
+        if (subEn->isChecked() != prefs_->subLayoutEnabled())
+            subEn->setChecked(prefs_->subLayoutEnabled());
+        refreshSubLayoutUi();
+    });
+    connect(subSlot, &QComboBox::activated, this, [this, subSlot](int i) {
+        prefs_->setSubLayoutSlot(subSlot->itemData(i).toInt());
+    });
+    connect(prefs_, &Prefs::subLayoutSlotChanged, page, [this, subSlot]() {
+        const int idx = subSlot->findData(prefs_->subLayoutSlot());
+        if (idx >= 0 && subSlot->currentIndex() != idx)
+            subSlot->setCurrentIndex(idx);
+    });
+    if (stream_) {
+        connect(stream_, &lyra::ipc::HL2Stream::dualAdcChanged,
+                page, refreshSubLayoutUi);
+    }
+    form->addRow(tr("SUB layout"), subEn);
+    form->addRow(tr("Layout"), subSlot);
+    {
+        auto *note = new QLabel(
+            tr("Turning SUB off restores the previous running layout. "
+               "Save a SUB arrangement in View → Layouts if you tick the "
+               "option above. Two-converter radios only."),
+            page);
         note->setWordWrap(true);
         note->setStyleSheet(QStringLiteral("QLabel{color:#8fa0aa;}"));
         form->addRow(QString(), note);

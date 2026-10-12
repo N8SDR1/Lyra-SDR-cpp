@@ -1,7 +1,7 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.16 Sheliak** (Brick3 Beta Testing) on the **Hermes Lite 2 / 2+**
+**v0.25.17 Sheliak** (Brick3 dual-ADC SUB pane) on the **Hermes Lite 2 / 2+**
 (Protocol 1) and **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says
 otherwise.
 
@@ -10,10 +10,11 @@ otherwise.
 ## Radio &amp; connection
 
 - ✅ HPSDR **Protocol 1** discovery (multi-NIC, subnet-directed broadcast) + **Add by IP** for fixed-IP / cross-subnet radios
-- ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** and **Brick3SDR** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator); discovery firmware shown as **v10.6**-style, not “fw v0”. **TX DUC follows the VFO after retune** (v0.25.15). **Brick3 Beta Testing** (v0.25.16): MAP ANT/RX chips, Auto Step 0–31, per-band PS pad. **P1 Brick / P1 ANAN: Discover lists, Open refuses** (HL2 TX layout) — flash P2; Brick FPGA help: Anton (linoobs)
+- ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** and **Brick3SDR** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator); discovery firmware shown as **v10.6**-style, not “fw v0”. **TX DUC follows the VFO after retune** (v0.25.15). **Brick3 Beta Testing** (v0.25.16–0.25.17): MAP ANT/RX chips, Auto Step 0–31, per-band PS pad, TX like BrickSDR2 (no dummy-load arm), **SUB second pan**. **P1 Brick / P1 ANAN: Discover lists, Open refuses** (HL2 TX layout) — flash P2; Brick FPGA help: Anton (linoobs)
 - ✅ **Keyboard VFO** (global arrows: 1 kHz / 10 Hz), **startup profile** (mode binding → last-used → Default), **Tuning Mem** left-click after idle (v0.25.15)
-- 🚧 **ANAN-10 / 10E / 100 / 100B / 100D / 200D** Protocol 2 — classic Alex HPF; TX dummy-load arm, not on-air validated; pick marketed model in Settings (Hermes discovery still defaults to Brick). Boxes that shipped P1 should use a P2 FPGA when they can.
-- ✅ **SUB / RX2 on HL2, BrickSDR2, and Brick3SDR** — second DDC; orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2 overlay; band chips **red** (RX1) vs **green** (SUB); **Shift+click / right-click** hops SUB; off-span **◀ RX2** / **RX2 ▶**. HL2 / Brick2: one ADC (N2ADR follows RX1). Brick3: 2 ADC in the catalog; independent dual-pane + diversity not this cut. **SUB and SPLIT are independent** (SUB listening does not force VFO-B TX).
+- 🚧 **ANAN-10 / 10E** Protocol 2 — classic Alex; **BrickSDR2 TX** (on-air, no dummy-load arm). Pick marketed model in Settings (Hermes discovery still defaults to Brick). Boxes that shipped P1 should use a P2 FPGA when they can.
+- 🚧 **ANAN-100 / 100B / 100D / 200D** Protocol 2 — **Brick3SDR TX** (on-air, independent Enable PA). **100D / 200D**: two converters, **SUB** opens a second panadapter.
+- ✅ **SUB / RX2 on HL2, BrickSDR2, Brick3SDR, and P2 ANAN** — second DDC; orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2 overlay; band chips **red** (RX1) vs **green** (SUB); **Shift+click / right-click** hops SUB; off-span **◀ RX2** / **RX2 ▶**. One ADC (HL2 / Brick2 / 10 / 100): overlay + N2ADR follows RX1. Two ADC (Brick3 / 100D / 200D): **SUB pane** with own waterfall, band-plan, click-tune, Visuals floor/ceiling. **Diversity** not this cut. **SUB and SPLIT are independent** (SUB listening does not force VFO-B TX). SUB + SPLIT click-tune on the SUB pane moves **VFO B** only.
 - ✅ **SPLIT** pile-up — TX on VFO B independent of SUB; gray TX pips; right-click SPLIT 1/5/10 kHz shift; lime TX marker (red on key); **◀ TX** / **TX ▶** when TX is off-span
 - ✅ Multi-radio list, auto-connect to the last radio, installer firewall rules (connect without admin rights)
 - ✅ **Stale-IP** guard (won't freeze trying to reach a radio that moved)
@@ -45,7 +46,7 @@ otherwise.
 - ✅ **Digital** via **TCI** and **VAC1 / VAC2** — WSJT-X / MSHV / JTDX / FLDigi / VarAC, or a logger on a second cable. VAC **Enable** is RX; **Mic source = VAC1 or VAC2** is TX. VAC2 carries **RX2** (turn **SUB** on). TCI audio and VAC TX are mutually exclusive.
 - ✅ TX power / drive, separate **tune drive**, AM carrier level, mic gain + **20 dB mic boost**; Protocol 2 uses analog drive (HP [345]) plus per-band **PA Gain / Full Output / CAP**, including a dedicated **11m** slot
 - ✅ Always-on **ALC** + operator **Leveler**, **PHROT** phase rotator
-- ✅ **PureSignal** — adaptive TX predistortion (HL2 / HL2+ coupler mod; BrickSDR2 ADC0 pad; Brick3 rear **PS** jack). Compact **PureSignal** dock + **Amp View** (Snap / Hold), FB window 129–181, auto-att persisted **per TX band** (v0.25.16). Reset wipes st/cal/Amp View in RX or TX. Attestation in Settings → TX (default off).
+- ✅ **PureSignal** — adaptive TX predistortion (HL2 / HL2+ coupler mod; BrickSDR2 ADC0 pad; Brick3 rear **PS** jack). Compact dock: ON / 2-tone / **Voice** / ATT / FB / Reset. Engine chips (st / cal / D0 / D1) on **Amp View**. Auto-att persisted **per TX band** (v0.25.16). Attestation in Settings → TX (default off).
 - ✅ **Waterfall callsign ID** — paints your call in the SSB passband (ham bands only)
 
 ### Native TX audio rack (studio-in-the-radio)
@@ -69,7 +70,8 @@ otherwise.
 
 - ✅ **Vulkan / RHI** scene-graph spectrum — glassy fill/glow, peak-hold, noise-floor line, palettes
 - ✅ Click / drag / wheel tuning; draggable passband edges; **click-to-tune on the waterfall**; collapsible waterfall
-- ✅ **Dockable UI** — snap to edge / split / tab / float, four named layout slots + factory default, lock panels
+- ✅ **Dockable UI** — snap to edge / split / tab / float, four named layout slots + factory default, lock panels; optional **SUB layout** recall (Visuals) that restores the pre-SUB arrangement when SUB goes off
+- ✅ **Windows per-app mixer** volume remembered across Stop / Start (v0.25.17)
 - ✅ **Crash-safe graphics** — auto-steps down to a safer backend if a launch ever fails; an **operator-pinned** Vulkan/D3D/OpenGL choice in Settings is not overridden by that ladder (v0.24.5)
 - ✅ Band switching + **per-band memory**; GEN / time-station / 20-slot memory bank; **EiBi** shortwave overlay
 

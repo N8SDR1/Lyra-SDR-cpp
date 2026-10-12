@@ -10,18 +10,16 @@ Quick answers to common questions and fixes. For full detail see the
 
 **What hardware does Lyra support?**
 Hermes Lite 2 and 2+ over HPSDR Protocol 1, and **BrickSDR2 / Brick3SDR over Protocol 2
-only**. Hermes Lite 2 / 2+ and Brick2 / Brick3 all have **SUB / RX2** (second DDC on
-the same ADC) and **SPLIT** (TX on VFO B, independent of SUB). Colours:
-orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2; **◀ RX2** /
-**RX2 ▶** when SUB is off-span. N2ADR / filter board follows **RX1** —
-cross-band SUB is much weaker. **ANAN-10 / 10E / 100 / 100B / 100D /
-200D** and **G2 / G2-1K** have Protocol 2 profiles; TX is dummy-load until
-that box is on-air validated. Discovery **Hermes** still defaults to
-BrickSDR2 — pick the marketed ANAN model in Settings → Hardware. A Brick or
-classic ANAN still on **Protocol 1** will show up in Discover and is
-**refused on Open** (Lyra’s P1 TX is HL2-shaped). Flash **Protocol 2**; Brick
-FPGA help: **Anton (linoobs)** on Discord. 7000DLE / 8000 stay locked.
-See **[Supported Radios](Supported-Radios)**.
+only**. **SUB / RX2** and **SPLIT** on all of them. One-converter radios
+(HL2, Brick2, ANAN-10 / 100) draw RX2 on the main pane; **Brick3SDR /
+ANAN-100D / 200D** open a **second panadapter**. Colours: orange **TUNE A**
+/ cyan RX1 vs lime **TUNE B** / green RX2. N2ADR follows **RX1** on
+one-ADC boxes. **ANAN-10 / 10E** TX like BrickSDR2; **ANAN-100-series** TX
+like Brick3SDR (on-air). **G2** still dummy-load arm. Discovery **Hermes**
+defaults to BrickSDR2 — pick the marketed ANAN model in Settings → Hardware.
+A Brick or classic ANAN still on **Protocol 1** is **refused on Open**.
+Flash **Protocol 2**; Brick FPGA help: **Anton (linoobs)** on Discord.
+7000DLE / 8000 stay locked. See **[Supported Radios](Supported-Radios)**.
 
 **Does Lyra support MIDI controllers?**
 Not inside the radio. A USB knob that Windows treats as a **mouse wheel**

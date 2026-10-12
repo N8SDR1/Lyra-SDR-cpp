@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.16 Sheliak** — Brick3 Beta Testing (Protocol 2). WDSP 2.10 from 0.25.8.
+**v0.25.17 Sheliak** — Brick3 dual-ADC SUB pane · ANAN TX mapping. WDSP 2.10 from 0.25.8.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 

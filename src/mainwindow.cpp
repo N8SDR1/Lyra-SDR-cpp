@@ -1051,6 +1051,19 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     buildToolbar();
     qInfo("[startup] restoring layout");
     restoreLayout();   // geometry + dock state + lock state
+    if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+        connect(st, &lyra::ipc::HL2Stream::subEnabledChanged,
+                this, &MainWindow::syncRx2Pan);
+        connect(st, &lyra::ipc::HL2Stream::dualAdcChanged,
+                this, &MainWindow::syncRx2Pan);
+    }
+    if (prefs_) {
+        connect(prefs_, &Prefs::subLayoutEnabledChanged,
+                this, &MainWindow::syncRx2Pan);
+        connect(prefs_, &Prefs::subLayoutSlotChanged,
+                this, &MainWindow::syncRx2Pan);
+    }
+    syncRx2Pan();
     qInfo("[startup] layout restored");
     if (const QSize ts = testWindowSize(); ts.isValid()) {
         // Un-maximize first: restoreLayout() may have set WindowMaximized, and
@@ -1664,6 +1677,15 @@ void MainWindow::buildDocks() {
     addQuickDock(QStringLiteral("panadapter"), tr("Panadapter"),
                  QStringLiteral("PanadapterPanel.qml"),
                  QStringLiteral("panadapter"), Qt::TopDockWidgetArea);
+    addQuickDock(QStringLiteral("panadapter2"), tr("RX2"),
+                 QStringLiteral("Rx2PanadapterPanel.qml"),
+                 QStringLiteral("panadapter"), Qt::TopDockWidgetArea);
+    if (auto *mainPan = docks_.value(QStringLiteral("panadapter"))) {
+        if (auto *rx2Pan = docks_.value(QStringLiteral("panadapter2"))) {
+            splitDockWidget(mainPan, rx2Pan, Qt::Vertical);
+            rx2Pan->hide();
+        }
+    }
     // Tuning + Audio — ordinary QML control panels (bottom by default).
     // Proves the dock pattern works for non-Vulkan panels too; the
     // operator can drag/float/snap/tab any of them anywhere.
@@ -1939,6 +1961,7 @@ void MainWindow::buildMenus() {
             tr("Slot %1").arg(slot), this,
             [this, slot]() { saveNamedLayout(slot); });
     }
+    layoutsMenu->addSeparator();
     // Refresh slot labels (names + empty/enabled state) whenever the menu opens.
     connect(layoutsMenu, &QMenu::aboutToShow,
             this, &MainWindow::refreshLayoutMenus);
@@ -3419,6 +3442,11 @@ void MainWindow::fitWindowToScreen() {
 void MainWindow::saveLayout() {
     if (testWindowSize().isValid()) return;   // diagnostic run — see testWindowSize()
     if (safeBootLayout()) return;             // safe boot is READ-ONLY — see safeBootLayout()
+    // While SUB is showing the second pan, keep the session slot as the
+    // pre-SUB arrangement so launch / SUB-off do not inherit the SUB docks.
+    if (auto *rx2 = docks_.value(QStringLiteral("panadapter2"));
+        rx2 && rx2->isVisible())
+        return;
     QSettings s;
     const QString p = layoutSlotPrefix();     // this display setup's own slot
     // Grouped-rack panels are children of their rack window, not the main
@@ -3791,6 +3819,170 @@ void MainWindow::refreshLayoutMenus() {
         }
     }
     refreshLayoutUndoAction();
+}
+
+void MainWindow::applyDockLayout(const QByteArray &geo, const QByteArray &st,
+                                const QVariant &split, bool persistSession) {
+    layoutRestoring_ = true;
+    if (!geo.isEmpty()) {
+        restoreGeometry(geo);
+        fitWindowToScreen();
+    }
+    if (!st.isEmpty())
+        restoreState(st);
+    if (prefs_ && split.isValid())
+        prefs_->setPanadapterSplit(split);
+    applyPanelLock(
+        QSettings().value(QStringLiteral("ui/panelsLocked"), false).toBool());
+    QTimer::singleShot(0, this, [this, persistSession]() {
+        layoutRestoring_ = false;
+        if (persistSession)
+            saveLayout();
+    });
+}
+
+void MainWindow::capturePreSubLayout() {
+    QSettings s;
+    s.setValue(QStringLiteral("ui/subOff/geometry"), saveGeometry());
+    s.setValue(QStringLiteral("ui/subOff/windowState"), saveState());
+    if (prefs_)
+        s.setValue(QStringLiteral("ui/subOff/panadapterSplit"),
+                   prefs_->panadapterSplit());
+}
+
+bool MainWindow::restorePreSubLayout(QDockWidget *rx2) {
+    QSettings s;
+    const QByteArray st =
+        s.value(QStringLiteral("ui/subOff/windowState")).toByteArray();
+    if (st.isEmpty())
+        return false;
+    applyDockLayout(s.value(QStringLiteral("ui/subOff/geometry")).toByteArray(),
+                    st,
+                    s.value(QStringLiteral("ui/subOff/panadapterSplit")),
+                    true);
+    if (rx2)
+        rx2->setVisible(false);
+    s.remove(QStringLiteral("ui/subOff/geometry"));
+    s.remove(QStringLiteral("ui/subOff/windowState"));
+    s.remove(QStringLiteral("ui/subOff/panadapterSplit"));
+    return true;
+}
+
+void MainWindow::applySubOnArrangement(QDockWidget *rx2) {
+    layoutRestoring_ = true;
+    if (prefs_ && prefs_->subLayoutEnabled()) {
+        const int slot = prefs_->subLayoutSlot();
+        QSettings s;
+        const QString base = QStringLiteral("layouts/%1/").arg(slot);
+        const QByteArray st =
+            s.value(base + QStringLiteral("windowState")).toByteArray();
+        if (!st.isEmpty()) {
+            applyDockLayout(
+                s.value(base + QStringLiteral("geometry")).toByteArray(),
+                st,
+                s.value(base + QStringLiteral("panadapterSplit")),
+                false);
+            rx2->setVisible(true);
+            QTimer::singleShot(0, this, [this, rx2]() {
+                if (rx2 && !rx2->isVisible())
+                    showRx2KeepingControlHeights(rx2);
+                else
+                    layoutRestoring_ = false;
+            });
+            return;
+        }
+    }
+    if (!rx2->isVisible())
+        showRx2KeepingControlHeights(rx2);
+    else
+        layoutRestoring_ = false;
+}
+
+void MainWindow::syncRx2Pan() {
+    auto *rx2 = docks_.value(QStringLiteral("panadapter2"));
+    if (!rx2) return;
+    auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+    const bool dual = st && st->dualAdc();
+    if (QAction *a = rx2->toggleViewAction()) {
+        a->setVisible(dual);
+        a->setEnabled(dual);
+    }
+    const bool want = dual && st->subEnabled();
+    const bool was = rx2->isVisible();
+
+    if (want) {
+        if (!was)
+            capturePreSubLayout();
+        applySubOnArrangement(rx2);
+        return;
+    }
+    if (was || !QSettings().value(QStringLiteral("ui/subOff/windowState"))
+                    .toByteArray().isEmpty()) {
+        if (!restorePreSubLayout(rx2)) {
+            layoutRestoring_ = true;
+            hideRx2ReturningHeight(rx2);
+        }
+    }
+}
+
+void MainWindow::showRx2KeepingControlHeights(QDockWidget *rx2) {
+    auto *mainPan = docks_.value(QStringLiteral("panadapter"));
+    const int winH = height();
+    const int topH = mainPan ? mainPan->height() : 0;
+    QList<QDockWidget *> bottoms;
+    QList<int> bottomHs;
+    for (auto it = docks_.cbegin(); it != docks_.cend(); ++it) {
+        QDockWidget *d = it.value();
+        if (!d || d == rx2 || d == mainPan) continue;
+        if (!d->isVisible() || d->isFloating()) continue;
+        if (dockWidgetArea(d) == Qt::BottomDockWidgetArea) {
+            bottoms.append(d);
+            bottomHs.append(qMax(1, d->height()));
+        }
+    }
+    rx2->show();
+    QTimer::singleShot(0, this, [this, rx2, mainPan, winH, topH, bottoms,
+                                 bottomHs]() {
+        if (mainPan && topH > 160) {
+            const int rx2H = qBound(120, topH / 3, topH - 120);
+            resizeDocks({mainPan, rx2}, {topH - rx2H, rx2H}, Qt::Vertical);
+        }
+        if (!bottoms.isEmpty())
+            resizeDocks(bottoms, bottomHs, Qt::Vertical);
+        if (height() > winH)
+            resize(width(), winH);
+        layoutRestoring_ = false;
+        saveLayout();
+    });
+}
+
+void MainWindow::hideRx2ReturningHeight(QDockWidget *rx2) {
+    auto *mainPan = docks_.value(QStringLiteral("panadapter"));
+    const int winH = height();
+    int give = rx2->height();
+    if (mainPan) give += mainPan->height();
+    QList<QDockWidget *> bottoms;
+    QList<int> bottomHs;
+    for (auto it = docks_.cbegin(); it != docks_.cend(); ++it) {
+        QDockWidget *d = it.value();
+        if (!d || d == rx2 || d == mainPan) continue;
+        if (!d->isVisible() || d->isFloating()) continue;
+        if (dockWidgetArea(d) == Qt::BottomDockWidgetArea) {
+            bottoms.append(d);
+            bottomHs.append(qMax(1, d->height()));
+        }
+    }
+    rx2->hide();
+    QTimer::singleShot(0, this, [this, mainPan, winH, give, bottoms, bottomHs]() {
+        if (mainPan && give > 80)
+            resizeDocks({mainPan}, {give}, Qt::Vertical);
+        if (!bottoms.isEmpty())
+            resizeDocks(bottoms, bottomHs, Qt::Vertical);
+        if (height() != winH)
+            resize(width(), winH);
+        layoutRestoring_ = false;
+        saveLayout();
+    });
 }
 
 void MainWindow::saveNamedLayout(int slot) {

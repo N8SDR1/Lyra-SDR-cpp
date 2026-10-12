@@ -4,6 +4,7 @@
 
 #include "hl2_stream.h"
 #include "xvtrslots.h"
+#include "hardware/HardwareCatalog.h"
 
 #include "bands.h"
 // Step 14 Stage 1 — wire-layer includes for the inert wire-up of
@@ -283,6 +284,7 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     rx2FreqHz_.store(
         QSettings().value(QStringLiteral("rx/rx2FreqHz"), persistedRxHz).toUInt(),
         std::memory_order_relaxed);
+    refreshDualAdcFromSettings();
     focusedRx_.store(std::clamp(
         QSettings().value(QStringLiteral("rx/focusedRx"), 1).toInt(), 1, 2),
         std::memory_order_relaxed);
@@ -483,84 +485,9 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
                  std::clamp(QSettings().value(lyra::rig::scope::rigKey(QStringLiteral("tx/driveLevel")),
                                               0).toInt(), 0, 255)),
         std::memory_order_relaxed);
-    // TX power model Stage 3 — load the per-band PA Gain table (Thetis
-    // "PA Gain By Band").  Default 100 = neutral on every band; the
-    // operator measures + nudges each band on the PA Gain Settings tab.
-    {
-        QSettings s;
-        for (int i = 0; i < kNumPaGainBands; ++i) {
-            const char *nm = lyra::paPowerBandName(i);
-            const QString band = (nm && nm[0])
-                ? QString::fromUtf8(nm) : QString::number(i);
-            // pa_gain/* + meter/pwrTrim/* are PER-RIG TX power + meter
-            // calibration (rig/<id>/…); a Brick must not read the HL2's cal.
-            paGainByBand_[i].store(
-                s.value(lyra::rig::scope::rigKey(
-                            QStringLiteral("pa_gain/%1/gain").arg(band)),
-                        kPaGainDefault).toDouble(),
-                std::memory_order_relaxed);
-            // Stage 3b — per-band measured full output (W); 0 = not measured.
-            fullOutputWByBand_[i].store(
-                s.value(lyra::rig::scope::rigKey(
-                            QStringLiteral("pa_gain/%1/fullW").arg(band)),
-                        0.0).toDouble(),
-                std::memory_order_relaxed);
-            // Stage B — per-band TUN-learned cap drive ceiling (-1 = unset)
-            // + the cap it was learned for (-1 = none).
-            capCeilRaw_[i].store(
-                s.value(lyra::rig::scope::rigKey(
-                            QStringLiteral("pa_gain/%1/capCeilRaw").arg(band)),
-                        -1).toInt(),
-                std::memory_order_relaxed);
-            capCeilCapW_[i].store(
-                s.value(lyra::rig::scope::rigKey(
-                            QStringLiteral("pa_gain/%1/capCeilCapW").arg(band)),
-                        -1.0).toDouble(),
-                std::memory_order_relaxed);
-            // Stage B — "settled under the cap" latch.  The HL2 drive DAC is
-            // coarse (16 steps); a cap can fall BETWEEN two hardware steps, so
-            // the servo parks on the step just UNDER the cap and stops hunting.
-            // Persisted so a converged band never blips over the cap again.
-            capServoSettled_[i].store(
-                s.value(lyra::rig::scope::rigKey(
-                            QStringLiteral("pa_gain/%1/capSettled").arg(band)),
-                        false).toBool(),
-                std::memory_order_relaxed);
-            // Per-band PWR-meter trim (index-keyed; 1.0 = raw formula).
-            pwrTrimByBand_[i].store(
-                std::clamp(s.value(lyra::rig::scope::rigKey(
-                                       QStringLiteral("meter/pwrTrim/%1").arg(i)),
-                                   1.0).toDouble(), 0.1, 10.0),
-                std::memory_order_relaxed);
-            // Per-band raw-watts capture latch — session-only, start empty
-            // (0 = no sample this session; populated live while transmitting).
-            capturedRawW_[i].store(0.0, std::memory_order_relaxed);
-            capturedDrive_[i].store(0, std::memory_order_relaxed);
-        }
-        // Stage 3b — the single watts Max cap (0 = off).
-        maxOutputW_.store(
-            s.value(lyra::rig::scope::rigKey(QStringLiteral("tx/maxOutputW")), 0.0).toDouble(),
-            std::memory_order_relaxed);
-        // Cap arm gate (2026-07-03) — persisted; only meaningful with a value.
-        // MIGRATION (safety): a cap set by a pre-arm-gate version has no
-        // "tx/capArmed" key but WAS limiting the amp — treat it as armed so
-        // upgrading never silently drops amp protection (the dangerous
-        // direction = suddenly full power).  A cap value set AFTER the update
-        // starts un-armed (the operator arms it after calibrating Full Output).
-        {
-            const double cap = maxOutputW_.load(std::memory_order_relaxed);
-            const bool hasKey = s.contains(QStringLiteral("tx/capArmed"));
-            const bool armed = hasKey
-                ? (s.value(QStringLiteral("tx/capArmed")).toBool() && cap > 0.0)
-                : (cap > 0.0);                       // migrate existing cap → armed
-            capArmed_.store(armed, std::memory_order_relaxed);
-            if (!hasKey && cap > 0.0)
-                s.setValue(QStringLiteral("tx/capArmed"), true);
-        }
-        // Seed CAP-chip status on RX (applyTxPower_ is a no-op on the wire
-        // until prn exists; the status emit still runs).
-        applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
-    }
+    // TX power model Stage 3 — load the per-band PA Gain table.
+    // Default 100 = neutral; operator measures on the PA Gain tab.
+    loadTxPowerCal_();
     // TX-1 component 5a — load operator-tuned TR-sequencing + fade
     // durations from QSettings (tx/trSeq/<key>).  Defaults match the
     // operator's working-station HL2+ DB export (15/50/13/5 ms) which
@@ -1978,7 +1905,7 @@ void HL2Stream::setPwrTrimForBand(int idx, double scale) {
     scale = std::clamp(scale, 0.1, 10.0);
     pwrTrimByBand_[idx].store(scale, std::memory_order_relaxed);
     QSettings().setValue(
-        lyra::rig::scope::rigKey(QStringLiteral("meter/pwrTrim/%1").arg(idx)),
+        txCalKey_(QStringLiteral("meter/pwrTrim/%1").arg(idx)),
         scale);
 }
 
@@ -2351,6 +2278,20 @@ void HL2Stream::setSubEnabled(bool on) {
     pushEffectiveRxFreq();
 }
 
+void HL2Stream::setDualAdc(bool on) {
+    if (dualAdc_.load(std::memory_order_relaxed) == on)
+        return;
+    dualAdc_.store(on, std::memory_order_relaxed);
+    emit dualAdcChanged();
+}
+
+void HL2Stream::refreshDualAdcFromSettings() {
+    const QString key = QSettings().value(
+        QStringLiteral("radio/hardwareModel")).toString();
+    const auto *hw = lyra::hardware::modelByKey(key);
+    setDualAdc(hw && hw->adcCount > 1);
+}
+
 void HL2Stream::setRx2FreqHz(quint32 hz) {
     const quint32 prev = rx2FreqHz_.exchange(hz, std::memory_order_relaxed);
     if (prev == hz)
@@ -2539,14 +2480,11 @@ void HL2Stream::tickCapServo_(double fwdW) {
         const QString b = (nm && nm[0])
             ? QString::fromUtf8(nm) : QString::number(band);
         QSettings s;
-        s.setValue(lyra::rig::scope::rigKey(
-                       QStringLiteral("pa_gain/%1/capCeilRaw").arg(b)),
+        s.setValue(txCalKey_(QStringLiteral("pa_gain/%1/capCeilRaw").arg(b)),
                    capCeilRaw_[band].load(std::memory_order_relaxed));
-        s.setValue(lyra::rig::scope::rigKey(
-                       QStringLiteral("pa_gain/%1/capCeilCapW").arg(b)),
+        s.setValue(txCalKey_(QStringLiteral("pa_gain/%1/capCeilCapW").arg(b)),
                    capCeilCapW_[band].load(std::memory_order_relaxed));
-        s.setValue(lyra::rig::scope::rigKey(
-                       QStringLiteral("pa_gain/%1/capSettled").arg(b)),
+        s.setValue(txCalKey_(QStringLiteral("pa_gain/%1/capSettled").arg(b)),
                    capServoSettled_[band].load(std::memory_order_relaxed));
     };
 
@@ -2758,6 +2696,83 @@ void HL2Stream::setP2DrivePath(bool on) {
     }
 }
 
+QString HL2Stream::txCalKey_(const QString &logical) const {
+    if (!txCalRigId_.isEmpty())
+        return QStringLiteral("rig/%1/%2").arg(txCalRigId_, logical);
+    return lyra::rig::scope::rigKey(logical);
+}
+
+void HL2Stream::setTxCalRigId(const QString &rigId) {
+    if (txCalRigId_ == rigId)
+        return;
+    txCalRigId_ = rigId;
+    loadTxPowerCal_();
+}
+
+void HL2Stream::loadTxPowerCal_() {
+    QSettings s;
+    for (int i = 0; i < kNumPaGainBands; ++i) {
+        const char *nm = lyra::paPowerBandName(i);
+        const QString band = (nm && nm[0])
+            ? QString::fromUtf8(nm) : QString::number(i);
+        paGainByBand_[i].store(
+            s.value(txCalKey_(QStringLiteral("pa_gain/%1/gain").arg(band)),
+                    kPaGainDefault).toDouble(),
+            std::memory_order_relaxed);
+        fullOutputWByBand_[i].store(
+            s.value(txCalKey_(QStringLiteral("pa_gain/%1/fullW").arg(band)),
+                    0.0).toDouble(),
+            std::memory_order_relaxed);
+        capCeilRaw_[i].store(
+            s.value(txCalKey_(QStringLiteral("pa_gain/%1/capCeilRaw").arg(band)),
+                    -1).toInt(),
+            std::memory_order_relaxed);
+        capCeilCapW_[i].store(
+            s.value(txCalKey_(QStringLiteral("pa_gain/%1/capCeilCapW").arg(band)),
+                    -1.0).toDouble(),
+            std::memory_order_relaxed);
+        capServoSettled_[i].store(
+            s.value(txCalKey_(QStringLiteral("pa_gain/%1/capSettled").arg(band)),
+                    false).toBool(),
+            std::memory_order_relaxed);
+        pwrTrimByBand_[i].store(
+            std::clamp(s.value(txCalKey_(
+                                   QStringLiteral("meter/pwrTrim/%1").arg(i)),
+                               1.0).toDouble(), 0.1, 10.0),
+            std::memory_order_relaxed);
+        capturedRawW_[i].store(0.0, std::memory_order_relaxed);
+        capturedDrive_[i].store(0, std::memory_order_relaxed);
+    }
+    const double prevCap = maxOutputW_.load(std::memory_order_relaxed);
+    const bool prevArmed = capArmed_.load(std::memory_order_relaxed);
+    maxOutputW_.store(
+        s.value(txCalKey_(QStringLiteral("tx/maxOutputW")), 0.0).toDouble(),
+        std::memory_order_relaxed);
+    {
+        const double cap = maxOutputW_.load(std::memory_order_relaxed);
+        const QString armedKey = txCalKey_(QStringLiteral("tx/capArmed"));
+        const bool hasScoped = s.contains(armedKey);
+        const bool hasFlat = s.contains(QStringLiteral("tx/capArmed"));
+        bool armed = false;
+        if (hasScoped)
+            armed = s.value(armedKey).toBool() && cap > 0.0;
+        else if (hasFlat)
+            armed = s.value(QStringLiteral("tx/capArmed")).toBool() && cap > 0.0;
+        else
+            armed = cap > 0.0;
+        capArmed_.store(armed, std::memory_order_relaxed);
+        if (!hasScoped && cap > 0.0)
+            s.setValue(armedKey, armed);
+    }
+    const double cap = maxOutputW_.load(std::memory_order_relaxed);
+    if (cap != prevCap)
+        emit maxOutputWChanged(cap);
+    const bool armed = capArmed_.load(std::memory_order_relaxed);
+    if (armed != prevArmed)
+        emit capArmedChanged(armed);
+    applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+}
+
 void HL2Stream::pushIoboardTxFreq(bool force) {
     // Protocol 1 only.  Analog is independent of the N2ADR OC checkbox:
     // I2C2 slave 0x1D (five TX-Hz bytes) whether filters are on.
@@ -2802,7 +2817,7 @@ void HL2Stream::setPaGainForBand(int idx, double gain) {
     paGainByBand_[idx].store(gain, std::memory_order_relaxed);
     const char *nm = lyra::paPowerBandName(idx);
     QSettings().setValue(
-        lyra::rig::scope::rigKey(QStringLiteral("pa_gain/%1/gain")
+        txCalKey_(QStringLiteral("pa_gain/%1/gain")
             .arg((nm && nm[0]) ? QString::fromUtf8(nm) : QString::number(idx))),
         gain);
     // Re-apply live if this is the band we're transmitting on, so the
@@ -2823,7 +2838,7 @@ void HL2Stream::setFullOutputForBand(int idx, double watts) {
     fullOutputWByBand_[idx].store(watts, std::memory_order_relaxed);
     const char *nm = lyra::paPowerBandName(idx);
     QSettings().setValue(
-        lyra::rig::scope::rigKey(QStringLiteral("pa_gain/%1/fullW")
+        txCalKey_(QStringLiteral("pa_gain/%1/fullW")
             .arg((nm && nm[0]) ? QString::fromUtf8(nm) : QString::number(idx))),
         watts);
     // Re-apply if this band is live — the watts ceiling just changed.
@@ -2837,7 +2852,7 @@ void HL2Stream::setMaxOutputW(double watts) {
     if (watts < 0.0) watts = 0.0;
     if (watts == maxOutputW_.load(std::memory_order_relaxed)) return;
     maxOutputW_.store(watts, std::memory_order_relaxed);
-    QSettings().setValue(lyra::rig::scope::rigKey(QStringLiteral("tx/maxOutputW")), watts);
+    QSettings().setValue(txCalKey_(QStringLiteral("tx/maxOutputW")), watts);
     emit maxOutputWChanged(watts);
     // Clearing the cap value disarms it — an "armed but no value" state is
     // meaningless, and re-arming after re-setting a value is one explicit
@@ -2854,7 +2869,7 @@ void HL2Stream::setCapArmed(bool on) {
     // gates the arm control, but keep the invariant here too).
     if (on && maxOutputW_.load(std::memory_order_relaxed) <= 0.0) return;
     capArmed_.store(on, std::memory_order_relaxed);
-    QSettings().setValue(QStringLiteral("tx/capArmed"), on);
+    QSettings().setValue(txCalKey_(QStringLiteral("tx/capArmed")), on);
     emit capArmedChanged(on);
     // The effective ceiling just changed — re-apply on the live band.
     applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
@@ -2879,12 +2894,9 @@ void HL2Stream::clearCapLearnForBand(int idx) {
     const QString b = (nm && nm[0])
         ? QString::fromUtf8(nm) : QString::number(idx);
     QSettings s;
-    s.setValue(lyra::rig::scope::rigKey(
-                   QStringLiteral("pa_gain/%1/capCeilRaw").arg(b)), -1);
-    s.setValue(lyra::rig::scope::rigKey(
-                   QStringLiteral("pa_gain/%1/capCeilCapW").arg(b)), -1.0);
-    s.setValue(lyra::rig::scope::rigKey(
-                   QStringLiteral("pa_gain/%1/capSettled").arg(b)), false);
+    s.setValue(txCalKey_(QStringLiteral("pa_gain/%1/capCeilRaw").arg(b)), -1);
+    s.setValue(txCalKey_(QStringLiteral("pa_gain/%1/capCeilCapW").arg(b)), -1.0);
+    s.setValue(txCalKey_(QStringLiteral("pa_gain/%1/capSettled").arg(b)), false);
     // Re-apply if this band is live so a stale locked ceiling stops biting now.
     const int cur = lyra::paPowerBandIndexForFreq(
         ddsHzForRf(txFreqHz_.load(std::memory_order_relaxed)));

@@ -108,6 +108,16 @@ void Panadapter::setEngineObj(QObject *o) {
     emit engineChanged();
 }
 
+void Panadapter::setReceiver(int v) {
+    if (v != 1 && v != 2)
+        v = 1;
+    if (v == receiver_)
+        return;
+    receiver_ = v;
+    smoothInit_ = false;
+    emit receiverChanged();
+}
+
 void Panadapter::setDbMin(double v) {
     if (v != dbMin_) {
         dbMin_ = v;
@@ -254,10 +264,18 @@ void Panadapter::itemChange(ItemChange change, const ItemChangeData &value) {
 void Panadapter::passbandPx(int W, int *lo, int *hi) const {
     int l = 0, h = W;
     if (engine_) {
-        const double span = static_cast<double>(engine_->spanHz());
+        const double span = (receiver_ == 2)
+            ? static_cast<double>(engine_->iqRateHz())
+            : static_cast<double>(engine_->spanHz());
+        const double low = (receiver_ == 2)
+            ? engine_->passbandLowHzRx2()
+            : engine_->passbandLowHz();
+        const double high = (receiver_ == 2)
+            ? engine_->passbandHighHzRx2()
+            : engine_->passbandHighHz();
         if (span > 0.0 && W > 0) {
-            double xl = W * (0.5 + engine_->passbandLowHz()  / span);
-            double xh = W * (0.5 + engine_->passbandHighHz() / span);
+            double xl = W * (0.5 + low  / span);
+            double xh = W * (0.5 + high / span);
             if (xh < xl) std::swap(xl, xh);
             l = std::clamp(static_cast<int>(xl), 0, W);
             h = std::clamp(static_cast<int>(xh), 0, W);
@@ -288,7 +306,10 @@ void Panadapter::onFrame() {
     if (static_cast<int>(rawPix_.size()) != n) {
         rawPix_.assign(static_cast<size_t>(n), -200.0f);
     }
-    engine_->copySpectrum(rawPix_.data(), n);
+    if (receiver_ == 2)
+        engine_->copySpectrumRx2(rawPix_.data(), n);
+    else
+        engine_->copySpectrum(rawPix_.data(), n);
 
     // Auto-fit the dB range from the raw spectrum (throttled ~5 Hz).
     // effRangeChanged drives the dB-scale labels to follow the live fit.

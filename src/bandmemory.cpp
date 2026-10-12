@@ -78,6 +78,9 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                 });
         connect(prefs_, &Prefs::modeRx2Changed, this,
                 &BandMemory::saveRx2Mode);
+        auto liveRx2 = [this]() { saveRx2Scale(); };
+        connect(prefs_, &Prefs::rx2DbMinChanged, this, liveRx2);
+        connect(prefs_, &Prefs::rx2DbMaxChanged, this, liveRx2);
     }
     // Apply the current band's saved settings ONCE at startup.  The
     // stream restores its RX1 frequency in its own ctor via an atomic
@@ -90,6 +93,8 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
         if (!currentBand_.isEmpty())
             applyBand(currentBand_);
         currentBandRx2_ = bandNameFor(int(stream_->rx2FreqHz()));
+        if (!currentBandRx2_.isEmpty())
+            applyRx2Scale(currentBandRx2_);
     }
 }
 
@@ -150,10 +155,14 @@ int BandMemory::freqForRx2(const QString &band) const {
 }
 
 void BandMemory::onRx2FreqChanged() {
-    if (!stream_) return;
+    if (applyingRx2_ || !stream_) return;
     const int hz = int(stream_->rx2FreqHz());
     const QString name = bandNameFor(hz);
-    currentBandRx2_ = name;
+    if (name != currentBandRx2_) {
+        currentBandRx2_ = name;
+        if (!name.isEmpty())
+            applyRx2Scale(name);
+    }
     if (!name.isEmpty())
         QSettings().setValue(bandMemPfx() + name +
                              QStringLiteral("/freqRx2"), hz);
@@ -164,6 +173,14 @@ void BandMemory::saveRx2Mode() {
     QSettings().setValue(bandMemPfx() + currentBandRx2_ +
                          QStringLiteral("/modeRx2"),
                          prefs_->modeRx2());
+}
+
+void BandMemory::saveRx2Scale() {
+    if (applyingRx2_ || !prefs_ || currentBandRx2_.isEmpty()) return;
+    QSettings s;
+    const QString p = bandMemPfx() + currentBandRx2_ + QLatin1Char('/');
+    s.setValue(p + QStringLiteral("dbMinRx2"), prefs_->rx2DbMin());
+    s.setValue(p + QStringLiteral("dbMaxRx2"), prefs_->rx2DbMax());
 }
 
 void BandMemory::applyRx2Band(const QString &band) {
@@ -178,10 +195,34 @@ void BandMemory::applyRx2Band(const QString &band) {
         if (bandSsb == QLatin1String("USB") || bandSsb == QLatin1String("LSB"))
             mode = bandSsb;
     }
-    if (mode.isEmpty())
-        return;
+    if (!mode.isEmpty()) {
+        applyingRx2_ = true;
+        prefs_->setModeRx2(mode);
+        applyingRx2_ = false;
+    }
+    applyRx2Scale(band);
+}
+
+void BandMemory::applyRx2Scale(const QString &band) {
+    if (!prefs_ || band.isEmpty()) return;
+    QSettings s;
+    const QString p = bandMemPfx() + band + QLatin1Char('/');
     applyingRx2_ = true;
-    prefs_->setModeRx2(mode);
+    if (s.contains(p + QStringLiteral("dbMinRx2"))) {
+        prefs_->setRx2DbMin(s.value(p + QStringLiteral("dbMinRx2")).toDouble());
+        prefs_->setRx2DbMax(s.value(p + QStringLiteral("dbMaxRx2")).toDouble());
+    } else {
+        const double dMin = s.contains(p + QStringLiteral("dbMin"))
+                                ? s.value(p + QStringLiteral("dbMin")).toDouble()
+                                : prefs_->rxDbMin();
+        const double dMax = s.contains(p + QStringLiteral("dbMax"))
+                                ? s.value(p + QStringLiteral("dbMax")).toDouble()
+                                : prefs_->rxDbMax();
+        prefs_->setRx2DbMin(dMin);
+        prefs_->setRx2DbMax(dMax);
+        s.setValue(p + QStringLiteral("dbMinRx2"), dMin);
+        s.setValue(p + QStringLiteral("dbMaxRx2"), dMax);
+    }
     applyingRx2_ = false;
 }
 

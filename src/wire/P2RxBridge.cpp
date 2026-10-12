@@ -203,19 +203,7 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 if (fault && stream_ && stream_->moxActive())
                     stream_->requestMox(false);
                 emit txStateChanged();
-                // Operator preference: re-apply the transient interlock the
-                // moment the transport reaches Ready, so a controlled
-                // dummy-load bench isn't re-armed by hand each session.
-                // Same health gate as a manual arm (setTxBenchArmed guards
-                // hardware/running/ready/fault), so this can only fire on a
-                // TX-capable rig with a healthy transport.
-                // On-air-validated models (BrickSDR) auto-arm on every
-                // healthy connect regardless of the auto-arm preference, so
-                // TX keys off Enable PA + MOX + Drive exactly like HL2.
-                if ((txAutoArm_ || txOnAirValidated_) && !txBenchArmed_ &&
-                    txTransportReady_ && txHardwareSupported_ && running_ &&
-                    !txFaultLatched_)
-                    setTxBenchArmed(true);
+                maybeAutoArmTx();
             });
 
     // Connection confirmation: isRunning() must not go true until the
@@ -233,6 +221,10 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
         running_ = true;
         ip_      = ip;
         emit runningChanged();
+        // HP status can arrive before running_ was true, so the Ready
+        // auto-arm tick missed. Retry here so the first PTT is not
+        // dropped until a later TX-state change.
+        maybeAutoArmTx();
     });
     connect(session_, &P2Session::stopped, this, [this]() {
         if (!running_) return;
@@ -491,6 +483,13 @@ void P2RxBridge::setTxAutoArm(bool on) {
         txTransportReady_ && !txFaultLatched_)
         setTxBenchArmed(true);
     emit txStateChanged();
+}
+
+void P2RxBridge::maybeAutoArmTx() {
+    if ((txAutoArm_ || txOnAirValidated_) && !txBenchArmed_ &&
+        txTransportReady_ && txHardwareSupported_ && running_ &&
+        !txFaultLatched_)
+        setTxBenchArmed(true);
 }
 
 void P2RxBridge::resetTxUiState() {
@@ -1068,6 +1067,8 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
             .arg(prof.isValid()
                      ? QStringLiteral("  [radio profile %1]").arg(prof.mac)
                      : QString()));
+    if (stream_)
+        stream_->setDualAdc(hw && hw->adcCount > 1);
 
     // TRX antenna port (ANT1/2/3): radio profile → global setting.
     const int ant = prof.isValid()
@@ -1080,8 +1081,8 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     // id alone is insufficient (e.g. a Brick and a genuine Hermes-class
     // ANAN can share discovery identity but not front-end hardware).
     const auto *p2hw = lyra::wire::p2ProfileForModel(modelKey);
-    // A P2 hardware profile ungreys TX. On-air-validated models (Brick)
-    // skip the dummy-load arm; classic ANAN keeps that interlock.
+    // A P2 hardware profile ungreys TX. On-air-validated models skip the
+    // dummy-load arm (BrickSDR2, Brick3SDR, ANAN-10/10E, 100-line).
     txHardwareSupported_ = p2hw != nullptr;
     // On-air-validated models (BrickSDR) key like HL2 — no transient arm.
     txOnAirValidated_ = p2hw && p2hw->txOnAirValidated;
@@ -1109,8 +1110,10 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     const bool attOnTxEn = stream_ ? stream_->attOnTxEnabled() : true;
     const int attOnTxDb = stream_ ? stream_->attOnTxDb() : 31;
     auto *st = stream_;
-    if (st)
+    if (st) {
         st->setP2DrivePath(true);
+        st->setTxCalRigId(rigId_);
+    }
     if (st) {
         auto *sess = session_;
         st->bindPsAttnWriter(
@@ -1207,6 +1210,7 @@ void P2RxBridge::close() {
             [st = stream_](int db) { st->setTxStepAttnDb(db); },
             -28, 31, 31);
         stream_->setP2DrivePath(false);
+        stream_->setTxCalRigId(QString());
     }
     deactivateTxProducerSeam();
     open_    = false;
@@ -1214,6 +1218,8 @@ void P2RxBridge::close() {
     ip_.clear();
     rigId_.clear();
     hardwareModelKey_.clear();
+    if (stream_)
+        stream_->refreshDualAdcFromSettings();
     modelLabel_.clear();
     supplyV_ = std::numeric_limits<double>::quiet_NaN();
     paA_     = std::numeric_limits<double>::quiet_NaN();

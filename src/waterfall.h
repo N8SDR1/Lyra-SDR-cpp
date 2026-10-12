@@ -41,6 +41,9 @@ class Waterfall : public QQuickItem {
     Q_OBJECT
     Q_PROPERTY(QObject *engine READ engineObj WRITE setEngineObj
                NOTIFY engineChanged)
+    // 1 = first receiver (default). 2 = second receiver, full converter span.
+    Q_PROPERTY(int receiver READ receiver WRITE setReceiver
+               NOTIFY receiverChanged)
     Q_PROPERTY(double dbMin READ dbMin WRITE setDbMin NOTIFY rangeChanged)
     Q_PROPERTY(double dbMax READ dbMax WRITE setDbMax NOTIFY rangeChanged)
     Q_PROPERTY(int targetFps READ targetFps WRITE setTargetFps
@@ -63,6 +66,8 @@ public:
 
     QObject *engineObj() const;
     void     setEngineObj(QObject *o);
+    int      receiver() const { return receiver_; }
+    void     setReceiver(int v);
 
     double dbMin() const { return dbMin_; }
     void   setDbMin(double v);
@@ -86,6 +91,7 @@ public:
 
 signals:
     void engineChanged();
+    void receiverChanged();
     void rangeChanged();
     void targetFpsChanged();
     void paletteChanged();
@@ -106,6 +112,7 @@ private:
     void rebuildLut();   // refresh lut_ from paletteIndex_ / strengthColor_
 
     lyra::dsp::WdspEngine *engine_ = nullptr;
+    int                    receiver_ = 1;
     QImage               img_;            // history buffer (binCount × kHistory)
     std::vector<float>   row_;            // scratch: latest dB frame
     std::vector<float>   pendingMax_;     // peak-hold accumulator between rows

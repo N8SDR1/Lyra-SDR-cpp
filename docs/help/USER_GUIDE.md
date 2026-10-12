@@ -20,6 +20,44 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.17
+
+**Second spectrum on two-converter radios.** Brick3SDR, ANAN-100D / 200D,
+and other **adcCount > 1** boxes get a **SUB panadapter** when **SUB** is
+on (own waterfall, band-plan markers, click-tune). HL2 / BrickSDR2 still
+draw RX2 as the green overlay on the main pane.
+
+- **SUB RX floor / ceiling** — Settings → Visuals, two extra rows, only
+  on dual-ADC radios. One pair drives SUB pan **and** SUB waterfall.
+  Remembered **per RX2 band**. Drag the SUB scale edge the same way as
+  Main. Main RX / TX dB stays independent.
+- **SUB layout** — Settings → Visuals → **Use a saved layout when SUB is
+  on**. Off (default): SUB splits the pan in place without stretching
+  the control docks. On: SUB recalls a named **View → Layouts** slot
+  (save it with SUB already on). Turning SUB off always restores the
+  layout that was running just before SUB came on.
+- **Click-tune.** SUB on: a click on the SUB pane tunes **RX2**. SUB +
+  **SPLIT**: a click on the SUB pane moves **VFO B** only (TX offset),
+  not RX2.
+- **Trace / palette** on the SUB pane follow Settings → Visuals (same
+  look as Main). Scale is the SUB floor/ceiling pair.
+
+**Brick3 TX** keys like BrickSDR2 (Enable PA + MOX + Drive — no dummy-load
+arm). Still **beta testing**: first RF into a dummy load.
+
+**ANAN Protocol 2 TX mapping.** Pick the marketed model in Settings →
+Hardware. **ANAN-10 / 10E** follow BrickSDR2 TX. **ANAN-100 / 100B /
+100D / 200D** follow Brick3SDR TX (on-air, independent **Enable PA**).
+**G2 / G2-1K** still use the dummy-load arm. **7000DLE / 8000** stay
+locked.
+
+**PureSignal dock** — ON, 2-tone, **Voice** (male-voice shaped noise +
+level), ATT, FB, Reset. Engine chips (st / cal / D0 / D1) live on
+**Amp View**, not the compact strip.
+
+**PC speaker volume** — Windows per-app mixer for Lyra is remembered
+across Stop / Start and relaunch (separate from Vol / AF).
+
 ## What's new in 0.25.16
 
 **Brick3 Beta Testing.** Protocol 2 RX + TX on **Brick3SDR** (Angelia
@@ -236,6 +274,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.17](#whats-new-in-02517)
 - [What's new in 0.25.16](#whats-new-in-02516)
 - [What's new in 0.25.15](#whats-new-in-02515)
 - [What's new in 0.25.14](#whats-new-in-02514)
@@ -264,7 +303,7 @@ Dummy load first.
 - [The panadapter (spectrum display)](#the-panadapter-spectrum-display)
 - [Tuning panel](#tuning-panel)
   - [Keyboard (VFO and PTT)](#keyboard-vfo-and-ptt)
-  - [SUB — second receiver (HL2 and BrickSDR2)](#sub--second-receiver-hl2-and-bricksdr2)
+  - [SUB — second receiver](#sub--second-receiver)
   - [SPLIT — receive A, transmit B](#split--receive-a-transmit-b)
 - [Second receiver (SUB / RX2) — how it works](#second-receiver-sub--rx2--how-it-works)
 - [Filters panel](#filters-panel)
@@ -341,7 +380,9 @@ Dummy load first.
   - [Gridline brightness](#gridline-brightness)
   - [Frame rate](#frame-rate)
   - [dB range (floor / ceiling)](#db-range-floor--ceiling)
+  - [SUB RX floor / ceiling](#sub-rx-floor--ceiling)
   - [Waterfall dB range (RX and TX)](#waterfall-db-range-rx-and-tx)
+  - [SUB layout](#sub-layout)
   - [Watermark](#watermark)
   - [Meteors](#meteors)
   - [Graphics backend](#graphics-backend)
@@ -395,7 +436,7 @@ Lyra **opens** these today:
 |---|---|---|
 | **Hermes Lite 2 / 2+** | Protocol 1 | Full RX + TX. HL2+ adds the on-board mic / headphone jacks. |
 | **BrickSDR2** | **Protocol 2 only** | Full RX + TX, SUB / SPLIT, PureSignal. |
-| **Brick3SDR** | **Protocol 2 only** | **Brick3 Beta Testing.** Angelia-class (2 ADC, Alex, 2 ANT, RX2 jack). Pick **Brick3SDR** in **Settings → Hardware**. Dummy-load + Arm P2 TX on first key. |
+| **Brick3SDR** | **Protocol 2 only** | **Brick3 Beta Testing.** Angelia-class (2 ADC, Alex, 2 ANT, RX2 jack). Pick **Brick3SDR** in **Settings → Hardware**. TX keys like BrickSDR2 (Enable PA + MOX + Drive — no dummy-load arm). First RF into a dummy load. With **SUB** on, a **second panadapter** opens. |
 
 A Brick (or classic ANAN) that still answers **Protocol 1** can show in
 **Discover**. Lyra **will not Open** that row. Protocol 1 TX in Lyra is the
@@ -408,10 +449,17 @@ while keyed, or a dirty first burst). We refuse rather than half-drive it.
 row. For Brick flash / image help, ask **Anton (linoobs)** on Discord. Dummy
 load on the first TX after a flash.
 
-Classic ANAN that can run P2 should do the same, then pick the marketed model
-in **Settings → Hardware**. Leftover P1 rows stay refused. ANAN G2 / 10–200D
-on P2 are dummy-load TX arm until a tester validates RF; 7000DLE / 8000 stay
-locked.
+Classic ANAN that can run P2 should do the same, then pick the **marketed
+model** in **Settings → Hardware** (discovery **Hermes** still defaults
+to BrickSDR2). Leftover P1 rows stay refused.
+
+| Model | TX posture |
+|---|---|
+| **ANAN-10 / 10E** (and **HERMES**) | Like **BrickSDR2**: on-air, Enable PA + MOX + Drive, no dummy-load arm. Classic Alex. One ADC — SUB is overlay, not a second pane. |
+| **ANAN-100 / 100B** | Like **Brick3SDR** TX (on-air, independent Enable PA). One ADC + classic Alex — SUB overlay, not a second pane. |
+| **ANAN-100D / 200D** | Like **Brick3SDR** TX **and** two converters: **SUB** opens a second panadapter. |
+| **ANAN-G2 / G2-1K** | Dummy-load **Arm P2 TX** until a tester validates RF. Two ADC. |
+| **7000DLE / 8000** | Stay locked. |
 
 ---
 
@@ -877,6 +925,15 @@ picture:
   parked frequency; the second receiver keeps the band you just left.
   Click again (or hop bands) to go back. Tooltip shows the parked MHz.
 
+**Second spectrum (two-converter radios, SUB on).** Brick3SDR,
+ANAN-100D / 200D, and other **two-ADC** models open a **SUB pane**
+(default **below** the main panadapter) with its own waterfall,
+band-plan markers, and click-tune. **Click** on that pane: **SUB**
+tunes **RX2**; **SUB + SPLIT** moves **VFO B** only. Trace colour
+and palette follow Settings → Visuals; **floor / ceiling** are the
+SUB pair (see [SUB RX floor / ceiling](#sub-rx-floor--ceiling)).
+Hide SUB and the extra pane closes.
+
 Full colour map and a worked example: [Second receiver (SUB / RX2)](#second-receiver-sub--rx2--how-it-works).
 
 **SPLIT TX marker.** With SPLIT on, the **TX (VFO B)** frequency is a solid
@@ -980,11 +1037,13 @@ field, dialog, or combo has focus.
 The **USB encoder / HID wheel** is separate — see
 [Navigation (USB encoder / HID wheel)](#navigation-usb-encoder--hid-wheel).
 
-### SUB — second receiver (HL2 and BrickSDR2)
+### SUB — second receiver
 
-**SUB** is a **second receiver** on DDC1 — same operator path on Hermes
-Lite 2 / 2+ (Protocol 1) and BrickSDR2 (Protocol 2). Both radios have
-**one ADC** and one analog front end. How the colours, **◀ RX2** /
+**SUB** is a **second receiver** on DDC1 — Hermes Lite 2 / 2+ (Protocol
+1), BrickSDR2, Brick3SDR, and Protocol-2 ANAN. **One-converter** radios
+(HL2, BrickSDR2, ANAN-10 / 10E / 100 / 100B) draw RX2 on the **main**
+panadapter. **Two-converter** radios (Brick3SDR, ANAN-100D / 200D)
+open a **second pane** when SUB is on. How the colours, **◀ RX2** /
 **RX2 ▶**, audio, and band chips fit together is in
 [Second receiver (SUB / RX2)](#second-receiver-sub--rx2--how-it-works).
 
@@ -1114,21 +1173,25 @@ tuned — not the frozen display centre.
 
 ## Second receiver (SUB / RX2) — how it works
 
-**Hermes Lite 2 / 2+** (Protocol 1) and **BrickSDR2** (Protocol 2).
-**SUB** opens the second DDC (DDC1). There is still **one ADC** and
-**one analog filter**. Same-band SUB (both VFOs on 40 m, for example)
-is full strength. **Cross-band SUB** (RX1 on 40 m, RX2 on 20 m) is
-allowed on the wire, but with an N2ADR / filter board enabled the
+**SUB** opens the second DDC (DDC1). **SPLIT** is separate — that only
+moves **transmit** to VFO B. You can run SUB, SPLIT, both, or neither.
+
+**One converter** (HL2, BrickSDR2, ANAN-10 / 10E / 100 / 100B): one ADC
+and one analog filter. Same-band SUB is full strength. **Cross-band
+SUB** is allowed on the wire, but with an N2ADR / filter board the
 relays follow **RX1** — RX2 on the other ham band will be **much
 weaker**. The status log notes that once when the two amateur bands
-differ. BrickSDR2 is the same single-ADC story (no second analog
-front end).
+differ. RX2 is the **green overlay** on the main panadapter.
 
-Lyra has **one panadapter** and **two receivers**. RX1 always owns the
-live spectrum IQ. **SUB** turns on RX2 (the radio's second DDC): its own
-frequency, mode, last-band memory, passband, and audio ear. **SPLIT** is
-separate — that only moves **transmit** to VFO B. You can run SUB, SPLIT,
-both, or neither.
+**Two converters** (Brick3SDR, ANAN-100D / 200D, G2): RX1 and RX2 sit
+on **separate ADCs**. **SUB** opens a **second panadapter** (own
+waterfall, band-plan, click-tune). MAP **RX2** is that converter's
+antenna jack, **not** the PureSignal coupler. **Diversity** (same
+frequency on both ADCs) is not in this release.
+
+RX2 has its own frequency, mode, last-band memory, passband, and audio
+ear. Click-tune on the SUB pane: **SUB** → RX2; **SUB + SPLIT** →
+**VFO B** only.
 
 ### What you see (colour coding)
 
@@ -1664,9 +1727,15 @@ path we recommend unless you specifically need PC audio.
 2. Pick your PC output — speakers, USB headset, or interface.
 3. Set **Vol** to taste.
 
-Lyra resamples between the HL2 and your sound card automatically. If your
+Lyra resamples between the radio and your sound card automatically. If your
 device name appears more than once (different Windows audio backends), just
 try one; pick another only if you hit dropouts.
+
+**Windows mixer.** The Windows per-app volume for **Lyra** (the slider in
+the system volume mixer, not Lyra **Vol** / **AF**) is saved when you
+**Stop** and restored on **Start** and relaunch. If audio comes back
+full blast after a restart, check that mixer — it used to reset to 100 %
+each session.
 
 ### Digital modes — getting RX audio to another program
 
@@ -1959,7 +2028,9 @@ is laid out in old Lyra's three-row arrangement:
 - **Clear** — wipe the held peaks and start fresh (handy in **Hold** mode).
 
 The look-and-feel settings — palettes, smoothing, glow, gridline, peak
-style/color, noise floor — live in **Settings → Visuals**.
+style/color, noise floor — live in **Settings → Visuals**. Those apply
+to **both** panes on a two-converter radio. **SUB RX floor / ceiling**
+is the extra Visuals pair for the second pane.
 
 ---
 
@@ -2318,12 +2389,10 @@ still uses the mic rack, but PureSignal stays off.
   ATT-31 PROT lamp. Lyra **keeps the last pad across PTT and per TX
   band** (20 m can sit at 8 dB while 40 m stays 0) so the next key
   on that band does not re-hunt from the seed.
-- **st / cal / correcting / D0 / D1** — engine state, calibration
-  count, “correcting” flag, and the two sample magnitudes (TX vs
-  feedback). **D0/D1 both ~0** with drive up usually means **not
-  enough RF into the coupler**, not a dead UI.
-- **Reset** — restart the calibrator (`SetPSControl`). Use after a
-  stuck state, not as a daily ritual.
+- **Reset** — restart the calibrator. Use after a stuck state, not as
+  a daily ritual. Engine chips (**st / cal / D0 / D1**) live on
+  **Amp View**, not this strip. **D0/D1 both ~0** with drive up
+  usually means **not enough RF into the coupler**.
 
 Auto-att only **steps** when the engine says a new calibration attempt
 happened **and** FB is outside 129–181. It should **not** slam ATT on
@@ -5309,8 +5378,19 @@ How many times per second the panadapter redraws, **1–240 fps**. Default
 ### dB range (floor / ceiling)
 
 The exact numbers for the bottom (**floor**) and top (**ceiling**) of the
-signal-strength scale. Most operators just drag the scale on the
-panadapter edge, but you can type precise values here.
+**main** signal-strength scale. Most operators just drag the scale on the
+panadapter edge, but you can type precise values here. Main **spectrum**
+and Main **waterfall** stay independent. These are remembered **per band**
+(40 m vs 20 m each keep their own).
+
+### SUB RX floor / ceiling
+
+On **two-converter** radios only (Brick3SDR, ANAN-100D / 200D, …) Visuals
+adds **SUB RX floor** and **SUB RX ceiling**. One pair drives the **SUB
+panadapter and the SUB waterfall** together. Remembered **per RX2 band**.
+The first time you park RX2 on a band, Lyra copies Main spectrum floor /
+ceiling so you are not starting from factory numbers. Drag the SUB
+pane's scale edge and these spinboxes follow.
 
 ### Waterfall dB range (RX and TX)
 
@@ -5345,6 +5425,15 @@ TX scale snaps in the moment you key. If the live waterfall still
 looks too hot on TX after first try, drag its right edge down a few dB
 while keyed (or tighten the **TX ceiling** spinner) and it'll stick
 for next time.
+
+### SUB layout
+
+**Settings → Visuals → Use a saved layout when SUB is on.** Off
+(default): turning SUB on splits the panadapter in place and does **not**
+stretch the control docks. On: SUB recalls a named **View → Layouts**
+slot (1–4). Save that slot **with SUB already on** so the second pane has
+room. Turning SUB **off** always restores the arrangement that was
+running just before SUB came on, whether the tick is on or off.
 
 ### Watermark
 
