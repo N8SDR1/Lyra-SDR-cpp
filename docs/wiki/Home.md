@@ -132,8 +132,12 @@ see **[Combo](SDRLogger-Plus-Combo)** and **[User Guide → Second receiver](Use
   Rick remains the project author; this is pairing help, not a
   licensed-operator co-author credit.
 
-Full attribution (WDSP, Thetis, fldigi, testers):
-[CREDITS.md](https://github.com/N8SDR1/Lyra-SDR-cpp/blob/main/CREDITS.md).
+**Special thanks:** **Heiko (DL1BZ)** — DeskHPSDR, again — and
+**Anton (linoobs)** — BrickSDR FPGA / Protocol 2 flash help.
+
+Full attribution, **reference projects** (DeskHPSDR, pihpsdr, Quisk,
+linHPSDR, HL2 gateware), WDSP / Thetis / fldigi:
+**[Credits](Credits)** · [CREDITS.md](https://github.com/N8SDR1/Lyra-SDR-cpp/blob/main/CREDITS.md).
 
 ## Links
 

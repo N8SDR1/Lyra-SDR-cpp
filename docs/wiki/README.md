@@ -16,6 +16,7 @@ Curated pages (edit here, then push to the wiki):
 - `Roadmap.md`
 - `SDRLogger-Plus-Combo.md`
 - `FAQ-and-Troubleshooting.md`
+- `Credits.md` — reference projects (DeskHPSDR / Heiko) and special thanks (Heiko, Anton / linoobs)
 - `_Sidebar.md` — wiki navigation (shows on every page)
 - `_Footer.md`
 
