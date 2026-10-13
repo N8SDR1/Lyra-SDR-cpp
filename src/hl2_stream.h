@@ -517,6 +517,10 @@ class HL2Stream : public QObject {
                WRITE setAttOnTxEnabled NOTIFY attOnTxEnabledChanged)
     Q_PROPERTY(int  attOnTxDb       READ attOnTxDb
                WRITE setAttOnTxDb       NOTIFY attOnTxDbChanged)
+    // Dual-ADC analog isolate: ground/disconnect the RX2 jack while
+    // keyed. Default ON. Hidden on one-converter radios (no RX2 jack).
+    Q_PROPERTY(bool rx2GroundOnTx READ rx2GroundOnTx
+               WRITE setRx2GroundOnTx NOTIFY rx2GroundOnTxChanged)
     // #94 — External TX Inhibit.  Operator hard lockout: blocks ALL keying
     // (MOX / HW-PTT / CW / TUN / TCI / Auto-ID) at the requestMox funnel, to
     // protect external gear (a 2nd SDR / scope) sharing the setup.  Engaging
@@ -1069,6 +1073,7 @@ public:
     bool    phrotEnabled()          const { return phrotEnabled_;          }
     // §15.31 — ATT-on-TX operator surface getters.
     bool    attOnTxEnabled()        const { return attOnTxEnabled_;        }
+    bool    rx2GroundOnTx()         const { return rx2GroundOnTx_;         }
     bool    txInhibit()             const { return txInhibit_;             }
     int     attOnTxDb()             const { return attOnTxDb_;             }
     // #201 — transient convert lockout: the offline MP4 converter blocks
@@ -1501,6 +1506,7 @@ public slots:
     // emit the changed signal, and (if keyed right now) re-apply to the
     // wire live so the operator sees the effect mid-TX.
     void setAttOnTxEnabled(bool on);
+    void setRx2GroundOnTx(bool on);
     void setTxInhibit(bool on);   // #94 External TX Inhibit (hard keying lockout)
     void setAttOnTxDb(int db);
     // #169 — SWR-protection operator surface.  Each persists under
@@ -1773,6 +1779,7 @@ signals:
     void phrotEnabledChanged(bool on);   // #109 phase rotator
     // §15.31 — ATT-on-TX operator surface.
     void attOnTxEnabledChanged(bool on);
+    void rx2GroundOnTxChanged(bool on);
     void txInhibitChanged(bool on);   // #94
     void voxEnabledChanged(bool on);  // #91
     void voxKeyingChanged(bool on);   // #91
@@ -2002,6 +2009,7 @@ private:
     // the FSM keydown/keyup hooks pass true/false to switch at the
     // right TR-sequenced moments.
     void updateOcPattern(bool transmitting = false);
+    void applyRx2GroundBit(bool transmitting);
     // #199 Stage 2 — OC wire sink (the write-tail of the old updateOcPattern)
     // + the N2ADR preset seeder for the editable OcControl table.
     void setOcOutput(quint8 bits);
@@ -2624,7 +2632,9 @@ private:
     // Q_PROPERTY setters on the Qt main thread; the FSM reads them on
     // the same thread (keydown/keyup run via QTimer::singleShot here).
     static constexpr bool kDefaultAttOnTxEnabled = true;
+    static constexpr bool kDefaultRx2GroundOnTx  = true;
     bool   attOnTxEnabled_         = kDefaultAttOnTxEnabled;
+    bool   rx2GroundOnTx_          = kDefaultRx2GroundOnTx;
     bool   txInhibit_             = false;   // #94 External TX Inhibit (persisted)
     bool   convertLockout_        = false;   // #201 transient MP4-convert keying lockout
     int    attOnTxDb_              = kAttOnTxDb;   // 0..31; default 31

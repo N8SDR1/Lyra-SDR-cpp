@@ -1320,7 +1320,13 @@ Quick band switching, in four rows:
   appears at the end of this row, right after 6m, when you enable it in
   **Settings → Hardware → Band panel**. When you're tuned on it, the
   panadapter marks all **40 CB channels** (Ch1…Ch40) across the top —
-  **click a channel marker to jump to it** in AM.
+  **click a channel marker to jump to it**. Click-tune **mode follows
+  Settings → Hardware → Band plan → Region** (same picker as the ham
+  overlay), not a fixed US map: **US / IARU Region 2** uses **AM** on
+  1–35, **USB** on 36–40 except **Ch38 LSB** (27.385 calling);
+  **IARU Region 1** uses **USB** on 36–40; **IARU Region 3** uses
+  **LSB** on 36–40; **None** stays **AM** on every channel. Same click
+  on the **SUB** pan tunes RX2.
 - **BC** — the shortwave **broadcast** meter bands (**120m … 13m**, all
   AM). Like the Ham bands, BC and the 11m band **remember their last
   frequency and mode** and return to it when you click them (band default
@@ -4399,6 +4405,22 @@ checkbox). The lamp snaps orange → red on key-down — your visible
 confirmation that the front end is protected. (Note: the LNA gain
 *readout* itself keeps showing your RX setpoint — the ATT lamp is the
 TX-state indicator, not the LNA number.)
+
+### RX2 jack isolate on TX (two-converter radios)
+
+On a two-converter radio (ANAN-100D / 200D / G2 / 7000 / 8000,
+Brick3), transmit always goes out **ANT**, not the RX2 jack. The RX2
+jack stays on its analog path unless you isolate it. **ATT on TX**
+pads both ADCs; it does **not** open the analog relay on the RX2
+jack.
+
+**Settings → TX → RX2 jack isolate on TX** (default ON, hidden on
+one-converter radios) grounds/disconnects the RX2 jack for the
+duration of every transmission, then restores it on key-up. Leave it
+on unless you have a specific reason to keep RX2 open while keyed
+(for example a future diversity experiment). SUB itself does not
+change this — isolate still applies whenever you transmit, SUB or
+not.
 
 ### External TX Inhibit (lock out all transmit)
 

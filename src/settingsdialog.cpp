@@ -2608,7 +2608,8 @@ QWidget *SettingsDialog::buildHardwareTab() {
         region->setCurrentIndex(std::max(0, region->findData(prefs_->bandPlanRegion())));
         region->setToolTip(tr("Region for the amateur band-plan overlay "
                               "(sub-band segments, landmarks, out-of-band "
-                              "advisories) on the panadapter."));
+                              "advisories) and for 11m/CB click-tune defaults "
+                              "(AM vs USB vs LSB on channels 36–40)."));
         connect(region, &QComboBox::currentIndexChanged, grp, [this, region](int) {
             prefs_->setBandPlanRegion(region->currentData().toString());
         });
@@ -7879,6 +7880,45 @@ QWidget *SettingsDialog::buildTxTab() {
         form->addRow(tr("ATT:"), attSpin);
 
         leftCol->addWidget(grp);   // §15.31 — SAFETY / set-once column
+    }
+
+    // Dual-ADC analog isolate: ground/disconnect the RX2 jack while
+    // keyed so TX energy on ANT cannot couple into the second
+    // converter's analog path. ATT-on-TX pads ADC1; this is the
+    // analog relay. Hidden on one-converter radios (no RX2 jack).
+    if (stream_) {
+        auto *grp = new QGroupBox(
+            tr("RX2 jack isolate on TX"), page);
+        auto *form = new QFormLayout(grp);
+
+        auto *gndBox = new QCheckBox(
+            tr("Ground RX2 antenna while transmitting"), grp);
+        gndBox->setChecked(stream_->rx2GroundOnTx());
+        gndBox->setToolTip(tr(
+            "On two-converter radios the RX2 jack stays on its analog "
+            "path while you transmit from ANT. ATT-on-TX pads the ADC; "
+            "this additionally grounds/disconnects the RX2 jack so TX "
+            "energy cannot couple into the second converter.\n\n"
+            "Default ON. Leave it on unless you have a specific reason "
+            "to keep RX2 open during TX. One-converter radios have no "
+            "RX2 jack — this control is hidden."));
+        connect(gndBox, &QCheckBox::toggled, this, [this](bool on) {
+            if (stream_) stream_->setRx2GroundOnTx(on);
+        });
+        connect(stream_, &lyra::ipc::HL2Stream::rx2GroundOnTxChanged, gndBox,
+                [gndBox](bool on) {
+                    if (gndBox->isChecked() != on) gndBox->setChecked(on);
+                });
+        form->addRow(gndBox);
+
+        auto showGnd = [this, grp]() {
+            grp->setVisible(stream_ && stream_->dualAdc());
+        };
+        showGnd();
+        connect(stream_, &lyra::ipc::HL2Stream::dualAdcChanged,
+                page, showGnd);
+
+        leftCol->addWidget(grp);
     }
 
     // #94 — External TX Inhibit (hard keying lockout).  Lives HERE in

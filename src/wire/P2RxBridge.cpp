@@ -295,6 +295,8 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 [this](bool) { pushAttOnTxToSession(); });
         connect(stream_, &lyra::ipc::HL2Stream::attOnTxDbChanged, this,
                 [this](int) { pushAttOnTxToSession(); });
+        connect(stream_, &lyra::ipc::HL2Stream::rx2GroundOnTxChanged, this,
+                [this](bool) { pushRx2GroundToSession(); });
         auto pushPs = [this]() {
             if (!session_ || !stream_) return;
             const bool armed = stream_->psLiveArmed();
@@ -651,6 +653,13 @@ void P2RxBridge::pushAttOnTxToSession() {
     const bool en = stream_->attOnTxEnabled();
     const int db = stream_->attOnTxDb();
     QMetaObject::invokeMethod(s, [s, en, db]() { s->setAttOnTx(en, db); });
+}
+
+void P2RxBridge::pushRx2GroundToSession() {
+    if (!open_ || !session_ || !stream_) return;
+    auto *s = session_;
+    const bool on = stream_->rx2GroundOnTx();
+    QMetaObject::invokeMethod(s, [s, on]() { s->setRx2GroundOnTx(on); });
 }
 
 void P2RxBridge::setRxAttenuationDb(int db) {
@@ -1109,6 +1118,7 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     const int bandAnt = trxAntenna_;
     const bool attOnTxEn = stream_ ? stream_->attOnTxEnabled() : true;
     const int attOnTxDb = stream_ ? stream_->attOnTxDb() : 31;
+    const bool rx2Gnd = stream_ ? stream_->rx2GroundOnTx() : true;
     auto *st = stream_;
     if (st) {
         st->setP2DrivePath(true);
@@ -1133,7 +1143,7 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     QMetaObject::invokeMethod(s, [s, ip, correctedHz, correctedTx, rate,
                                   bandAnt, p2hw,
                                   att, adc, input, bypass,
-                                  attOnTxEn, attOnTxDb, st,
+                                  attOnTxEn, attOnTxDb, rx2Gnd, st,
                                   subOn, psOn, rx2Hz]() {
         s->setTxProducerSink([](const double *iq, int samples) {
             return feedP2TxCmasterInput(iq, samples);
@@ -1142,6 +1152,7 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
         s->setTrxAntenna(bandAnt);
         s->setAdcAttenuation(adc, att);
         s->setAttOnTx(attOnTxEn, attOnTxDb);
+        s->setRx2GroundOnTx(rx2Gnd);
         if (s->angeliaRxSlots()) {
             s->setDdcAdc(2, 0);
             s->setDdcAdc(3, 1);

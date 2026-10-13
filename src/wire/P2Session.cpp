@@ -736,6 +736,14 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
         pkt[1433] = static_cast<char>(
             static_cast<unsigned char>(pkt[1433]) | 0x04);
     }
+    // Dual-ADC analog isolate: ground the RX2 jack while keyed.
+    // Brick2's captured TX overlay already writes 0x01 here on
+    // one-converter radios (no RX2 jack) — do not skip that path.
+    // OR only when the profile actually has a second converter.
+    if (transmit && rx2GroundOnTx_ && profile_ && profile_->adcCount > 1) {
+        pkt[1430] = static_cast<char>(
+            static_cast<unsigned char>(pkt[1430]) | 0x01);
+    }
     const bool keyedWithPa = transmit && tx.paEnabled;
     // HP ATT: DeskHPSDR PA→both 31, then PS overwrites ADC1 [1442] only.
     pkt[1442] = static_cast<char>(overlayHpAdcAttByte(1, keyedWithPa));
@@ -835,6 +843,16 @@ void P2Session::setAttOnTx(bool enabled, int db) {
     attOnTxEnabled_ = enabled;
     attOnTxDb_ = std::clamp(db, 0, 31);
     sendDucSpecificIfOpen();
+    if (!open_)
+        return;
+    if (P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit)
+        applyTxControlNow();
+}
+
+void P2Session::setRx2GroundOnTx(bool on) {
+    if (rx2GroundOnTx_ == on)
+        return;
+    rx2GroundOnTx_ = on;
     if (!open_)
         return;
     if (P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit)

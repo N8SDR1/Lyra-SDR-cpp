@@ -1,7 +1,8 @@
 // Second-receiver spectrum. Shown only on a two-converter radio while
 // the second receiver is on. Trace, palette, dB range, glow, fill, and
 // the band-plan strip all follow Settings → Visuals (same Prefs as the
-// main pan). The scale is the full converter rate, centred on that
+// main pan), including 11m/CB channel ticks when that band is enabled.
+// The scale is the full converter rate, centred on that
 // receiver's converter, so a click lands on the right dial.
 
 import QtQuick
@@ -283,6 +284,9 @@ Item {
                     ? BandPlan.landmarks(root.ddcHz, root.spanHz,
                                          Prefs.bandPlanLandmarks,
                                          Prefs.bandPlanBeacons) : []
+                readonly property var cbChans:
+                    (Prefs.cbBandEnabled && BandPlan.region.length)
+                    ? BandPlan.cbChannels(root.ddcHz, root.spanHz) : []
 
                 Repeater {
                     model: bandPlan.segs
@@ -419,6 +423,58 @@ Item {
                             ToolTip.visible: containsMouse && Prefs.tooltipsEnabled
                             ToolTip.text: markItem.modelData.label + " · "
                                           + markItem.modelData.mode
+                        }
+                    }
+                }
+
+                Repeater {
+                    model: bandPlan.cbChans
+                    delegate: Item {
+                        id: cbItem
+                        required property var modelData
+                        readonly property real cx: bandPlan.xOf(modelData.freq)
+                        readonly property string md:
+                            (modelData.mode && modelData.mode.length)
+                            ? modelData.mode : "AM"
+                        Rectangle {
+                            x: cbItem.cx - 0.5; y: 14; width: 1; height: 9
+                            color: "#b0c4d4"; opacity: 0.6
+                        }
+                        Text {
+                            x: cbItem.cx - width / 2; y: 9
+                            text: cbItem.modelData.label
+                            color: "#b0c4d4"
+                            font.pixelSize: 11; font.bold: true
+                            style: Text.Outline; styleColor: "#cc000000"
+                        }
+                        Text {
+                            visible: cbItem.modelData.note !== ""
+                            x: cbItem.cx - width / 2; y: 22
+                            text: cbItem.modelData.note
+                            color: "#ffcf6b"
+                            font.pixelSize: 9; font.bold: true
+                            style: Text.Outline; styleColor: "#cc000000"
+                        }
+                        MouseArea {
+                            x: cbItem.cx - 11; y: 8; width: 22; height: 20
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                Prefs.modeRx2 = cbItem.md
+                                root.setCarrierHz(Math.round(cbItem.modelData.freq))
+                                Status.show(qsTr("RX2 tuned to CB ")
+                                    + cbItem.modelData.label
+                                    + " — "
+                                    + (cbItem.modelData.freq / 1.0e6).toFixed(4)
+                                    + " MHz " + cbItem.md, 2000)
+                            }
+                            ToolTip.visible: containsMouse && Prefs.tooltipsEnabled
+                            ToolTip.text: "CB " + cbItem.modelData.label + "  "
+                                + (cbItem.modelData.freq / 1.0e6).toFixed(3)
+                                + " MHz " + cbItem.md
+                                + (cbItem.modelData.note !== ""
+                                   ? "\n" + cbItem.modelData.note : "")
+                                + qsTr("\nClick to tune RX2")
                         }
                     }
                 }

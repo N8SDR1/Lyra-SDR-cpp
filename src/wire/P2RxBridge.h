@@ -235,6 +235,7 @@ private:
     void persistFrontEndValue(const QString &name, const QVariant &value);
     void pushFrontEndToSession();
     void pushAttOnTxToSession();
+    void pushRx2GroundToSession();
     void onAutoStepTick();
     void activateTxProducerSeam();
     void deactivateTxProducerSeam();

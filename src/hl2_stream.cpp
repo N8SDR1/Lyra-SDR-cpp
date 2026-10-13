@@ -24,6 +24,7 @@
 #include "wire/MetisFrame.h"    // metis_wire_bind, metis_socket_fd
 #include "wire/ObBuffs.h"       // destroy_obbuffs (P3 — close() ring teardown)
 #include "wire/FrameComposer.h" // §5 control-plane mapping: set_rx_freq / set_tx_freq / set_rx_step_attn_db (P4.b RX side)
+#include "wire/RbpFilter.h"     // prbpfilter2 RX2-jack ground bit
 #include "wire/TxGain.h"        // SetTXFixedGain/Run — TX power model Stage 2 fine drive
 #include "bands.h"              // amateurBands / bandIndexForFreq — TX power model Stage 3
 #include "bandmemory.h"
@@ -619,6 +620,8 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     // (the verified reference's HL2 working posture); clamped on load.
     attOnTxEnabled_ = QSettings().value(QStringLiteral("tx/attOnTxEnabled"),
                                         kDefaultAttOnTxEnabled).toBool();
+    rx2GroundOnTx_ = QSettings().value(QStringLiteral("tx/rx2GroundOnTx"),
+                                       kDefaultRx2GroundOnTx).toBool();
     // #94 External TX Inhibit — persisted, fail-safe (stays locked across
     // restarts until the operator clears it).
     txInhibit_ = QSettings().value(QStringLiteral("tx/inhibit"), false).toBool();
@@ -2283,6 +2286,7 @@ void HL2Stream::setDualAdc(bool on) {
         return;
     dualAdc_.store(on, std::memory_order_relaxed);
     emit dualAdcChanged();
+    applyRx2GroundBit(mox_.load(std::memory_order_relaxed));
 }
 
 void HL2Stream::refreshDualAdcFromSettings() {
@@ -3927,6 +3931,7 @@ void HL2Stream::fsmAdvance() {
         // front end 31 dB hotter than the reference in the one state
         // an operator would least expect it.  See kAttOnTxDisabledDb.
         setTxStepAttnDb(attOnTxEnabled_ ? attOnTxDb_ : kAttOnTxDisabledDb);
+        applyRx2GroundBit(/*transmitting=*/true);
         // Switch the OC pattern to the TX-side per-band bits FIRST so
         // the external filter board's relays have the mox_delay window
         // (~15 ms) to settle into TX configuration before the MOX bit
@@ -4173,6 +4178,7 @@ void HL2Stream::fsmKeyupSettled() {
     // Restore the operator's pre-keydown step-att (today always 0;
     // forward-compat for a future operator-tunable RX step-att).
     setTxStepAttnDb(savedTxStepAttn_);
+    applyRx2GroundBit(/*transmitting=*/false);
     // Switch the OC pattern back to the RX-side per-band bits.  This
     // happens AFTER the wire MOX bit has cleared (in fsmKeyupTxOff per
     // the §15.25 corrected order) AND ptt_out_delay has elapsed — so
@@ -4602,6 +4608,24 @@ void HL2Stream::setAttOnTxEnabled(bool on) {
                                        "disabled branch is still max "
                                        "attenuation, not unprotected)")
                             .arg(kAttOnTxDisabledDb)));
+}
+
+void HL2Stream::applyRx2GroundBit(bool transmitting) {
+    const bool gnd = dualAdc() && rx2GroundOnTx_ && transmitting;
+    if (lyra::wire::prbpfilter2)
+        lyra::wire::prbpfilter2->_rx2_gnd = gnd ? 1 : 0;
+}
+
+void HL2Stream::setRx2GroundOnTx(bool on) {
+    if (on == rx2GroundOnTx_) return;
+    rx2GroundOnTx_ = on;
+    QSettings().setValue(QStringLiteral("tx/rx2GroundOnTx"), on);
+    emit rx2GroundOnTxChanged(on);
+    applyRx2GroundBit(mox_.load(std::memory_order_relaxed)
+                      || requestedMox_);
+    safetyLog(QStringLiteral("TX: RX2 jack isolate -> %1")
+              .arg(on ? QStringLiteral("ON (ground while keyed)")
+                      : QStringLiteral("off")));
 }
 
 // #94 External TX Inhibit — hard operator lockout of all keying.  Gated at

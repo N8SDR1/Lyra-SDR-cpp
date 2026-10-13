@@ -214,6 +214,7 @@ public:
     // is not mutated. Protection is active only while the safety gate
     // authorises transmit WITH PA enabled.
     void setAttOnTx(bool enabled, int db);
+    void setRx2GroundOnTx(bool on);
     // P7 scaffold: DeskHPSDR generic P2 PS (ALEX_PS_BIT + DDC0/DDC1 lock).
     void setPureSignalArmed(bool on);
     void setTxProducerSink(P2TxPump::InputSink sink) {
@@ -443,6 +444,7 @@ private:
     int          psFeedbackAttnDb_ = 0;
     bool         attOnTxEnabled_ = true;
     int          attOnTxDb_      = 31;
+    bool         rx2GroundOnTx_  = true;
     bool         psArmed_{false};
     // SUB audio from DDC1 — independent of enableDdc(1) for PS replica.
     bool         subRx2Wanted_{false};
