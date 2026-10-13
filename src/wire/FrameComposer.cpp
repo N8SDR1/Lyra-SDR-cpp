@@ -250,6 +250,11 @@ void request_hl2_ioboard_tx_freq(std::uint64_t hz)
     g_ioboard_want.store(hz, std::memory_order_relaxed);
 }
 
+std::uint64_t hl2_ioboard_tx_freq_on_wire()
+{
+    return g_ioboard_sent.load(std::memory_order_relaxed);
+}
+
 // HL2 "Band Volts" enable → C0=0x00 frame C3 bit 3 (ADC dither bit).
 // compose_case_0 reads `prn->adc[0].dither` into C3 bit 3; the gateware
 // (control.v:582-584) latches it as `band_volts_enabled`.
@@ -1093,8 +1098,13 @@ void write_main_loop_hl2(const char* out_bufp) {
 
                 const auto& ov = prn->i2c.i2c_queue[next];
                 if (is_ioboard_analog_entry(ov)) {
-                    // Keep BYTE4..BYTE1 back-to-back; BYTE0 latches PWM.
-                    prn->i2c.delay = (ov.control < 4) ? 0 : 5;
+                    // Thetis/Quisk: delay=5 after every I2C steal.
+                    // v0.25.18 set delay=0 on BYTE4..BYTE1 so two
+                    // writes rode one UDP datagram.  Pico n2adr_basic
+                    // then missed BYTE0 — J4 stuck on leftover PWM
+                    // (usually 20 m), no voltage change (#17).
+                    // drop_pending already prevents mixed-Hz bursts.
+                    prn->i2c.delay = 5;
                     if (ov.control == 4) {
                         g_ioboard_sent.store(
                             g_ioboard_queued.load(std::memory_order_relaxed),

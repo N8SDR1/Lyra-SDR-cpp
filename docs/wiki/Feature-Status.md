@@ -30,7 +30,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ Graphics **crash ladder** (OpenGL → software, MSAA off on software) so a bad GPU driver does not leave Lyra with no window
 - ✅ **MSAA** picker **Off / 2× / 4× / 8×** (Settings → Visuals; default 4×; restart)
 - ✅ **Xvtr** band chips — RF dial (ten-digit LED, ~2.147 GHz), IF NCO, Disable PA default on; Shift+click SUB hop; right-click slot editor. Band-plan **region does not rewrite** slot MHz — set RF low/high/LO for your allocation. See User Guide **Band panel**.
-- ✅ HL2 **N2ADR / IO board** — OC LPF (I2C **0x20**) is the **Enable N2ADR / IO board** checkbox. Analog band-follow is **always** Protocol 1 TX Hz on I2C **0x1D** (I2C2), not gated on that box. **v0.25.18:** leftover analog bursts are dropped; the Pico latches on **BYTE0**. Optional **Band Volts on J3** is a separate fan-PWM gateware path, default off.
+- ✅ HL2 **N2ADR / IO board** — OC LPF (I2C **0x20**) is the **Enable N2ADR / IO board** checkbox. Analog band-follow is **always** Protocol 1 TX Hz on I2C **0x1D** (I2C2), not gated on that box. Leftover analog bursts are dropped; Pico latches on **BYTE0**. **Post-0.25.18 #17:** analog I2C uses Thetis **delay=5** between every byte (0.25.18 `delay=0` hung the Pico — stuck on 20 m). Optional **Band Volts on J3** is a separate fan-PWM gateware path, default off.
 
 ## Receive (RX)
 

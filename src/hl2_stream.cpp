@@ -2790,6 +2790,7 @@ void HL2Stream::pushIoboardTxFreq(bool force) {
     // burst "done" at enqueue left pin 8 on the previous band (80 m
     // stuck through a 20 m click) when the Pico had not yet latched.
     lyra::wire::request_hl2_ioboard_tx_freq(hz);
+    const quint64 onWire = lyra::wire::hl2_ioboard_tx_freq_on_wire();
     const quint64 last = lastIoboardTxHz_.load(std::memory_order_relaxed);
     const int band = lyra::paPowerBandIndexForFreq(
         static_cast<int>(qMin(hz, quint64(std::numeric_limits<int>::max()))));
@@ -2797,12 +2798,17 @@ void HL2Stream::pushIoboardTxFreq(bool force) {
     const qint64 now = std::chrono::duration_cast<std::chrono::milliseconds>(
                            std::chrono::steady_clock::now().time_since_epoch())
                            .count();
-    const bool bandChanged = (last == ~quint64{0}) || band != lastBand;
+    const bool bandChanged = (onWire == ~quint64{0}) || band != lastBand;
+    const bool latched = (onWire == hz);
     const bool due =
         (now - lastIoboardTxMs_.load(std::memory_order_relaxed)) >= 500;
     // Analog is band-shaped.  Same-band VFO ticks coalesce to 0.5 s so
     // the I2C steal cannot starve C&C.  Cross-band always tries now.
-    if (!force && hz == last && !bandChanged && !due)
+    // Coalesce on BYTE0-on-wire, not enqueue-success (#17 / 0.25.18:
+    // last=hz at enqueue hid a failed Pico latch — stuck on 20 m).
+    if (!force && latched && !bandChanged && !due)
+        return;
+    if (!force && !latched && hz == last && !bandChanged && !due)
         return;
     if (!lyra::wire::enqueue_hl2_ioboard_tx_freq(hz))
         return;
