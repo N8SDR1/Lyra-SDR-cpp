@@ -275,8 +275,11 @@ int modeToWdsp(const QString &m) {
 // PortAudio callback).  Producer = the RX worker thread via push();
 // consumer = Qt's audio backend thread via readData().  A std::mutex
 // guards the ring indices (hold time = a memcpy of a few hundred
-// int16, sub-ms).  On underrun readData pads silence and always
-// returns the full requested length so the sink never stops.
+// int16, sub-ms).  On underrun readData fades the last real sample
+// out once (raised-cosine, ~5 ms @ 48 kHz) then stays silent — no
+// per-callback re-fade (that would buzz at the sink period).  First
+// healthy sample after a gap fades back in.  Always returns the
+// requested length so the sink never stops.
 // ---------------------------------------------------------------
 class AudioRing : public QIODevice {
 public:
@@ -305,6 +308,9 @@ public:
     void prefillSilence(int frames) {
         std::lock_guard<std::mutex> lk(mtx_);
         rd_ = wr_ = countFrames_ = 0;
+        lastL_ = lastR_ = 0;
+        fadeOutLeft_ = fadeInLeft_ = 0;
+        gapActive_ = false;
         const int n = std::min(frames, capFrames_);
         for (int i = 0; i < n; ++i) {
             buf_[static_cast<size_t>(wr_) * 2 + 0] = 0;
@@ -338,13 +344,40 @@ public:
         std::lock_guard<std::mutex> lk(mtx_);
         for (qint64 f = 0; f < maxFrames; ++f) {
             if (countFrames_ > 0) {
-                out[f * 2 + 0] = buf_[static_cast<size_t>(rd_) * 2 + 0];
-                out[f * 2 + 1] = buf_[static_cast<size_t>(rd_) * 2 + 1];
+                qint16 L = buf_[static_cast<size_t>(rd_) * 2 + 0];
+                qint16 R = buf_[static_cast<size_t>(rd_) * 2 + 1];
                 rd_ = (rd_ + 1) % capFrames_;
                 --countFrames_;
+                if (gapActive_) {
+                    fadeInLeft_ = kFadeFrames;
+                    fadeOutLeft_ = 0;
+                    gapActive_ = false;
+                }
+                if (fadeInLeft_ > 0) {
+                    const float g = fadeInGain(fadeInLeft_);
+                    L = scale16(L, g);
+                    R = scale16(R, g);
+                    --fadeInLeft_;
+                }
+                lastL_ = L;
+                lastR_ = R;
+                out[f * 2 + 0] = L;
+                out[f * 2 + 1] = R;
             } else {
-                out[f * 2 + 0] = 0;   // underrun -> silence
-                out[f * 2 + 1] = 0;
+                if (!gapActive_) {
+                    fadeOutLeft_ = kFadeFrames;
+                    fadeInLeft_ = 0;
+                    gapActive_ = true;
+                }
+                if (fadeOutLeft_ > 0) {
+                    const float g = fadeOutGain(fadeOutLeft_);
+                    out[f * 2 + 0] = scale16(lastL_, g);
+                    out[f * 2 + 1] = scale16(lastR_, g);
+                    --fadeOutLeft_;
+                } else {
+                    out[f * 2 + 0] = 0;
+                    out[f * 2 + 1] = 0;
+                }
                 padded = true;
             }
         }
@@ -356,11 +389,34 @@ public:
 
 private:
     static constexpr qint64 kBytesPerFrame = 2 * sizeof(qint16);  // stereo
+    static constexpr int    kFadeFrames    = 256;  // ~5.3 ms @ 48 kHz
+
+    static float fadeOutGain(int left) {
+        const float t = static_cast<float>(kFadeFrames - left + 1)
+                        / static_cast<float>(kFadeFrames);
+        return 0.5f * (1.0f + std::cos(3.14159265f * t));
+    }
+    static float fadeInGain(int left) {
+        const float t = static_cast<float>(kFadeFrames - left + 1)
+                        / static_cast<float>(kFadeFrames);
+        return 0.5f * (1.0f - std::cos(3.14159265f * t));
+    }
+    static qint16 scale16(qint16 x, float g) {
+        const float y = static_cast<float>(x) * g;
+        if (y > 32767.0f) return 32767;
+        if (y < -32768.0f) return -32768;
+        return static_cast<qint16>(std::lround(y));
+    }
+
     mutable std::mutex  mtx_;
     std::vector<qint16> buf_;        // interleaved L,R; capFrames_*2
     int                 capFrames_;
     int                 rd_ = 0, wr_ = 0, countFrames_ = 0;
     qint64              overruns_ = 0, underruns_ = 0;
+    qint16              lastL_ = 0, lastR_ = 0;
+    int                 fadeOutLeft_ = 0;
+    int                 fadeInLeft_  = 0;
+    bool                gapActive_   = false;
 };
 
 WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
@@ -565,8 +621,9 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
         std::memory_order_relaxed);
     mutedRx2_.store(s.value(QStringLiteral("audio/mutedRx2"), false).toBool(),
                     std::memory_order_relaxed);
-    afGainDb_ = std::clamp(
-        s.value(QStringLiteral("audio/afGainDb"), 0.0).toDouble(), 0.0, 40.0);
+    afGainDb_.store(std::clamp(
+        s.value(QStringLiteral("audio/afGainDb"), 0.0).toDouble(), 0.0, 40.0),
+                    std::memory_order_relaxed);
     balance_.store(std::clamp(
         s.value(QStringLiteral("audio/balance"), 0.0).toDouble(), -1.0, 1.0),
         std::memory_order_relaxed);
@@ -651,9 +708,11 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     squelchEnabled_ = s.value(QStringLiteral("dsp/squelchEnabled"), false).toBool();
     squelchThreshold_ = std::clamp(
         s.value(QStringLiteral("dsp/squelchThreshold"), 0.20).toDouble(), 0.0, 1.0);
-    nbEnabled_  = s.value(QStringLiteral("dsp/nbEnabled"), false).toBool();
-    nbStrength_ = std::clamp(
-        s.value(QStringLiteral("dsp/nbStrength"), 0.5).toDouble(), 0.0, 1.0);
+    nbEnabled_.store(s.value(QStringLiteral("dsp/nbEnabled"), false).toBool(),
+                     std::memory_order_relaxed);
+    nbStrength_.store(std::clamp(
+        s.value(QStringLiteral("dsp/nbStrength"), 0.5).toDouble(), 0.0, 1.0),
+                      std::memory_order_relaxed);
     apfEnabled_ = s.value(QStringLiteral("dsp/apfEnabled"), false).toBool();
     apfGainDb_  = std::clamp(
         s.value(QStringLiteral("dsp/apfGainDb"), 12.0).toDouble(), 0.0, 24.0);
@@ -1180,7 +1239,8 @@ bool WdspEngine::openRx1()
     // Panel (post-DSP makeup) gain = the operator's AF gain (dB → linear;
     // 0 dB = unity = WDSP create_panel default).
     if (api.SetRXAPanelGain1) {
-        api.SetRXAPanelGain1(channel_, std::pow(10.0, afGainDb_ / 20.0));
+        api.SetRXAPanelGain1(channel_,
+            std::pow(10.0, afGainDb_.load(std::memory_order_relaxed) / 20.0));
     }
 
     // RX noise reduction (EMNR) + auto-notch + LMS — persisted state.
@@ -3318,11 +3378,11 @@ void WdspEngine::setMuted(bool m)
 void WdspEngine::setAfGainDb(double db)
 {
     db = std::clamp(db, 0.0, 40.0);
-    if (std::abs(db - afGainDb_) < 1e-6) return;
-    afGainDb_ = db;
-    QSettings().setValue(QStringLiteral("audio/afGainDb"), db);
-    {   // push to WDSP live (serialise against feedIq's fexchange0)
+    {
         std::lock_guard<std::mutex> lk(channelMtx_);
+        if (std::abs(db - afGainDb_.load(std::memory_order_relaxed)) < 1e-6)
+            return;
+        afGainDb_.store(db, std::memory_order_relaxed);
         if (opened_ && wdsp_ && wdsp_->api().SetRXAPanelGain1) {
             const double g = std::pow(10.0, db / 20.0);
             wdsp_->api().SetRXAPanelGain1(channel_, g);
@@ -3330,6 +3390,7 @@ void WdspEngine::setAfGainDb(double db)
                 wdsp_->api().SetRXAPanelGain1(rx2Channel_, g);
         }
     }
+    QSettings().setValue(QStringLiteral("audio/afGainDb"), db);
     emit afGainChanged();
 }
 
@@ -3939,14 +4000,16 @@ void WdspEngine::pushNbState()
 {
     if (!opened_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
-    double th = 12.0 - 9.5 * std::clamp(nbStrength_, 0.0, 1.0);
+    const double strength = nbStrength_.load(std::memory_order_relaxed);
+    double th = 12.0 - 9.5 * std::clamp(strength, 0.0, 1.0);
     th = std::clamp(th, 1.5, 50.0);
+    const int run = nbEnabled_.load(std::memory_order_relaxed) ? 1 : 0;
     auto apply = [&](int ch, bool created) {
         if (!created) return;
         if (api.SetEXTNOBThreshold)
             api.SetEXTNOBThreshold(ch, th);
         if (api.SetEXTNOBRun)
-            api.SetEXTNOBRun(ch, nbEnabled_ ? 1 : 0);
+            api.SetEXTNOBRun(ch, run);
     };
     apply(channel_, nbCreated_);
     apply(rx2Channel_, nbCreatedRx2_);
@@ -3954,23 +4017,32 @@ void WdspEngine::pushNbState()
 
 void WdspEngine::setNbEnabled(bool on)
 {
-    if (nbEnabled_ == on) return;
-    nbEnabled_ = on;
+    {
+        std::lock_guard<std::mutex> lk(channelMtx_);
+        if (nbEnabled_.load(std::memory_order_relaxed) == on)
+            return;
+        nbEnabled_.store(on, std::memory_order_relaxed);
+        pushNbState();
+    }
     QSettings().setValue(QStringLiteral("dsp/nbEnabled"), on);
-    pushNbState();
     emit nbChanged();
     emitLog(QStringLiteral("[wdsp] NB %1 (strength %2%)")
                 .arg(on ? QStringLiteral("on") : QStringLiteral("off"))
-                .arg(static_cast<int>(nbStrength_ * 100.0 + 0.5)));
+                .arg(static_cast<int>(
+                    nbStrength_.load(std::memory_order_relaxed) * 100.0 + 0.5)));
 }
 
 void WdspEngine::setNbStrength(double s)
 {
     s = std::clamp(s, 0.0, 1.0);
-    if (std::abs(s - nbStrength_) < 1e-6) return;
-    nbStrength_ = s;
+    {
+        std::lock_guard<std::mutex> lk(channelMtx_);
+        if (std::abs(s - nbStrength_.load(std::memory_order_relaxed)) < 1e-6)
+            return;
+        nbStrength_.store(s, std::memory_order_relaxed);
+        pushNbState();
+    }
     QSettings().setValue(QStringLiteral("dsp/nbStrength"), s);
-    pushNbState();   // re-tune threshold live
     emit nbChanged();
 }
 
@@ -5241,7 +5313,7 @@ void WdspEngine::feedIq(const double *iq, int nframes)
         // nbBuf_.  That post-NB block feeds NR-C (audio), Spectrum0,
         // capture, and zero-beat.  NB off → use accum_.
         double *blockPtr = accum_.data();
-        if (nbEnabled_ && nbCreated_ && api.xnobEXT &&
+        if (nbEnabled_.load(std::memory_order_relaxed) && nbCreated_ && api.xnobEXT &&
             nbBuf_.size() >= blockDoubles) {
             api.xnobEXT(channel_, accum_.data(), nbBuf_.data());
             blockPtr = nbBuf_.data();

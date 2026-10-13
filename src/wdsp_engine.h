@@ -371,7 +371,7 @@ public:
     bool   txMuted() const { return txMuted_.load(std::memory_order_relaxed); }
     bool   autoMuteOnTx() const { return autoMuteOnTx_.load(std::memory_order_relaxed); }
     int    rxResumeDelayMs() const { return rxResumeDelayMs_.load(std::memory_order_relaxed); }
-    double afGainDb() const { return afGainDb_; }
+    double afGainDb() const { return afGainDb_.load(std::memory_order_relaxed); }
     double balance()  const { return balance_.load(std::memory_order_relaxed); }
     bool   monEnabled() const { return monEnabled_.load(std::memory_order_relaxed); }
     double monVolume()  const { return monVolume_.load(std::memory_order_relaxed); }
@@ -586,8 +586,8 @@ public:
     double squelchThreshold() const { return squelchThreshold_; }
     Q_INVOKABLE void setSquelchEnabled(bool on);
     Q_INVOKABLE void setSquelchThreshold(double t);   // 0..1
-    bool   nbEnabled()  const { return nbEnabled_; }
-    double nbStrength() const { return nbStrength_; }
+    bool   nbEnabled()  const { return nbEnabled_.load(std::memory_order_relaxed); }
+    double nbStrength() const { return nbStrength_.load(std::memory_order_relaxed); }
     Q_INVOKABLE void setNbEnabled(bool on);
     Q_INVOKABLE void setNbStrength(double s);          // 0..1
     bool apfEnabled() const { return apfEnabled_; }
@@ -1315,10 +1315,10 @@ private:
     std::atomic<int>    rxResumeDelayMs_{50};   // persisted audio/rxResumeDelayMs
     QTimer              rxResumeTimer_;
     void applyTxMuted_(bool m);
-    // AF makeup gain (dB, main-thread; pushed to WDSP SetRXAPanelGain1 as
-    // a linear gain).  Balance −1..+1 is applied Lyra-side in feedIq, so
-    // it's an atomic the RX worker reads.
-    double              afGainDb_ = 0.0;
+    // AF makeup gain (dB).  UI write + WDSP SetRXAPanelGain1 under
+    // channelMtx_; RX1/RX2 workers read the atomic (RX2 holds rx2Mtx_
+    // only).  Balance −1..+1 is applied Lyra-side in feedIq.
+    std::atomic<double> afGainDb_{0.0};
     std::atomic<double> balance_{0.0};
 
     // #159 slim DSP — per-family [RX=0, TX=1] minimum-phase flag (false =
@@ -1393,8 +1393,11 @@ private:
     int     wdspNotchCount_ = 0;         // notches currently in the WDSP DB
     bool    squelchEnabled_   = false;
     double  squelchThreshold_ = 0.20;    // 0..1 operator knob
-    bool    nbEnabled_   = false;
-    double  nbStrength_  = 0.5;          // 0..1 (higher = more blanking)
+    // NB run/strength: UI writes under channelMtx_; feedIq (channelMtx_)
+    // and feedIqRx2 (rx2Mtx_) read the atomics so a toggle cannot tear
+    // against either worker.
+    std::atomic<bool>   nbEnabled_{false};
+    std::atomic<double> nbStrength_{0.5};  // 0..1 (higher = more blanking)
     bool    nbCreated_   = false;        // EXT NOB created for this channel
     std::vector<double> nbBuf_;          // xnobEXT output (2*inSize doubles)
     bool    apfEnabled_  = false;        // CW peaking filter (CW-gated)
