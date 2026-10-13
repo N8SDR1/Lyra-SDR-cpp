@@ -156,16 +156,16 @@
     <header>
       <img class="logo" src="logo.png" alt="Lyra logo">
       <div class="wordmark">LYRA<span class="accent"> SDR</span></div>
-      <p class="tagline">A modern, GPU-accelerated SDR transceiver for HPSDR radios — the Hermes&nbsp;Lite&nbsp;2 / 2+, BrickSDR2, and Brick3SDR.</p>
-      <div><span class="badge">v0.25.16 Sheliak · Brick3 Beta Testing · GPL v3</span></div>
+      <p class="tagline">A modern, GPU-accelerated SDR transceiver for HPSDR radios — the Hermes&nbsp;Lite&nbsp;2 / 2+, BrickSDR2 / Brick3SDR, and ANAN-10–200D.</p>
+      <div><span class="badge">v0.25.18 Sheliak · analog latch · RX2 isolate · GPL v3</span></div>
       <div class="cta">
         <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest">⬇ Download</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki">📖 Docs</a>
         <a class="btn btn-ghost" href="https://discord.gg/BwjsQvjcSc">💬 Join the Discord</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp">★ GitHub</a>
       </div>
-      <p class="platforms">Windows 10 / 11 · Hermes Lite 2 / 2+ (Protocol 1) &amp; BrickSDR2 / Brick3SDR (Protocol 2) · 1600 × 900 display or larger</p>
-      <p class="platforms" style="margin-top:8px;">Protocol 1 is Hermes Lite 2 / 2+ only. Brick and ANAN are Protocol 2 only — Lyra does not open those radios on Protocol 1.</p>
+      <p class="platforms">Windows 10 / 11 · Hermes Lite 2 / 2+ (Protocol 1) · BrickSDR2 / Brick3SDR / ANAN-10–200D (Protocol 2) · 1600 × 900 display or larger</p>
+      <p class="platforms" style="margin-top:8px;">Protocol 1 is Hermes Lite 2 / 2+ only. Brick and ANAN are Protocol 2 only — Lyra does not open those radios on Protocol 1. G2 is dummy-load arm; 7000DLE / 8000 stay locked.</p>
     </header>
 
     <section class="showcase">
@@ -252,7 +252,7 @@
     <section>
       <h2>What it does</h2>
       <div class="grid">
-        <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on the Hermes&nbsp;Lite&nbsp;2 / 2+ (Protocol 1) and BrickSDR2 / Brick3SDR (Protocol 2). Brick3 is beta testing. Protocol 1 is HL2-only; Brick and ANAN are Protocol 2 only. See <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Supported-Radios">Supported Radios</a>.</p></div>
+        <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on the Hermes&nbsp;Lite&nbsp;2 / 2+ (Protocol 1) and BrickSDR2 / Brick3SDR / ANAN-10–200D (Protocol 2). Brick3 is beta testing. G2 is dummy-load arm. Protocol 1 is HL2-only. See <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Supported-Radios">Supported Radios</a>.</p></div>
         <div class="card"><h3><span class="ico">📊</span> GPU panadapter</h3><p>A Vulkan-accelerated spectrum and waterfall with click-to-tune, centre-tune (CTUN), RIT / XIT, peak hold and eight colour palettes.</p></div>
         <div class="card"><h3><span class="ico">✨</span> PureSignal</h3><p>Adaptive TX predistortion on coupler-mod HL2 / HL2+, BrickSDR2, and Brick3SDR, with a compact dock and an Amp View plot (Snap / Hold). <a href="#puresignal">See it up close</a>.</p></div>
         <div class="card"><h3><span class="ico">🎚️</span> Studio TX chain</h3><p>8-band parametric EQ, a multiband combinator, tube-plate reverb, speech processing, a voice keyer and VOX — shape your audio like a broadcast desk, saved as recallable profiles.</p></div>
@@ -269,7 +269,7 @@
       <h2>On the roadmap</h2>
       <p class="marquee-sub">Where Lyra is headed &mdash; planned for future releases.</p>
       <div class="grid">
-        <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">📡</span> More radios</h3><p>HPSDR <strong style="color:var(--head)">Protocol 2</strong> is live on <strong style="color:var(--head)">BrickSDR2</strong> and <strong style="color:var(--head)">Brick3SDR</strong> (beta testing). Next up: the <strong style="color:var(--head)">ANAN</strong> family (G2, G2-1K, 7000DLE, 8000) on that same P2 path.</p></div>
+        <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">📡</span> More radios</h3><p>HPSDR <strong style="color:var(--head)">Protocol 2</strong> is live on <strong style="color:var(--head)">BrickSDR2</strong>, <strong style="color:var(--head)">Brick3SDR</strong> (beta), and <strong style="color:var(--head)">ANAN-10 / 10E / 100-series</strong>. Next: G2 on-air, then 7000DLE / 8000, then <strong style="color:var(--head)">Diversity</strong> on two-converter boxes.</p></div>
         <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">💻</span> macOS &amp; Linux</h3><p>Native cross-platform builds so Lyra runs beyond Windows.</p></div>
       </div>
     </section>
