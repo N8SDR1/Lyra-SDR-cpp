@@ -7162,9 +7162,10 @@ QWidget *SettingsDialog::buildTxTab() {
             tr("Reduce TX drive in digital modes (DIGU/DIGL)"), grp);
         en->setChecked(prefs_->digitalDriveEnabled());
         en->setToolTip(tr("When on, transmit at a fraction of the band's set "
-                          "drive while in the digital data modes — back off on "
-                          "FT8/JS8/etc. without touching your voice drive. "
-                          "Off = no change."));
+                          "drive while in DIGU/DIGL — back off on FT8/JS8/etc. "
+                          "without touching your voice Drive/Tune sliders "
+                          "(those stay at 100%). The status bar names the "
+                          "cut when you enter a digital mode. Off = no change."));
         form->addRow(en);
 
         auto *pct = new QSpinBox(grp);

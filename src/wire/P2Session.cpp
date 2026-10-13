@@ -740,7 +740,8 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     // Brick2's captured TX overlay already writes 0x01 here on
     // one-converter radios (no RX2 jack) — do not skip that path.
     // OR only when the profile actually has a second converter.
-    if (transmit && rx2GroundOnTx_ && profile_ && profile_->adcCount > 1) {
+    if (transmit && rx2GroundOnTx_.load(std::memory_order_relaxed) &&
+        profile_ && profile_->adcCount > 1) {
         pkt[1430] = static_cast<char>(
             static_cast<unsigned char>(pkt[1430]) | 0x01);
     }
@@ -850,9 +851,10 @@ void P2Session::setAttOnTx(bool enabled, int db) {
 }
 
 void P2Session::setRx2GroundOnTx(bool on) {
-    if (rx2GroundOnTx_ == on)
+    bool expected = !on;
+    if (!rx2GroundOnTx_.compare_exchange_strong(
+            expected, on, std::memory_order_relaxed))
         return;
-    rx2GroundOnTx_ = on;
     if (!open_)
         return;
     if (P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit)

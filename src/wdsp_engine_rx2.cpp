@@ -168,6 +168,7 @@ void WdspEngine::feedIqRx2(const double *iq, int nframes)
     rx2Accum_.insert(rx2Accum_.end(), iq,
                      iq + static_cast<size_t>(2 * nframes));
     const size_t blockDoubles = static_cast<size_t>(2 * cfg_.inSize);
+    trimIqAccum(rx2Accum_, blockDoubles);
     if (rx2OutBuf_.size() < static_cast<size_t>(2 * outSize_))
         rx2OutBuf_.assign(static_cast<size_t>(2 * outSize_), 0.0);
 

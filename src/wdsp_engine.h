@@ -1250,6 +1250,10 @@ private:
     // both, but document the order for future-proofing).
     mutable std::mutex analyzerMtx_;
 
+    // Drop oldest IQ from an accumulator so it never holds more than
+    // kIqAccumMaxBlocks complete in_size blocks (see wdsp_engine.cpp).
+    static void trimIqAccum(std::vector<double>& acc, size_t blockDoubles);
+
     // Step 3d DSP buffers (all sized in the constructor).
     // accum_ : interleaved IQ doubles awaiting a full in_size block.
     // outBuf_: fexchange0 output (2 * outSize_ doubles, L/R).

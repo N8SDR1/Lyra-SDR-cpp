@@ -224,6 +224,11 @@ constexpr int    kPrefillMs    = 30;   // startup silence pre-fill (ms)
 // underrunning (operator-tunable on the bench).
 constexpr int    kSinkBufferMs = 40;
 
+// IQ block accumulator ceiling (C).  Each WDSP in_size block is
+// 2*inSize doubles.  Cap at N complete blocks and drop the oldest so
+// a stalled drain cannot grow the vector without bound (SUB / hitch).
+constexpr size_t kIqAccumMaxBlocks = 8;
+
 // Step 3e: perceptual volume taper.  Slider position (0..1) -> dB gain
 // so comfortable listening sits mid-slider instead of bunched at the
 // bottom.  pos=1 -> 0 dB (unity), pos=0.5 -> -30 dB, pos->0 -> silence.
@@ -5278,6 +5283,17 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
     }
 }
 
+void WdspEngine::trimIqAccum(std::vector<double>& acc, size_t blockDoubles)
+{
+    if (blockDoubles == 0)
+        return;
+    const size_t maxDoubles = blockDoubles * kIqAccumMaxBlocks;
+    if (acc.size() <= maxDoubles)
+        return;
+    acc.erase(acc.begin(),
+              acc.begin() + static_cast<std::ptrdiff_t>(acc.size() - maxDoubles));
+}
+
 void WdspEngine::feedIq(const double *iq, int nframes)
 {
     // Drop IQ until the channel is live (e.g. samples arriving in the
@@ -5307,6 +5323,7 @@ void WdspEngine::feedIq(const double *iq, int nframes)
     // Drain whole in_size blocks through WDSP.  in_size frames =
     // 2*in_size interleaved doubles in, 2*outSize_ doubles out.
     const size_t blockDoubles = static_cast<size_t>(2 * cfg_.inSize);
+    trimIqAccum(accum_, blockDoubles);
     while (accum_.size() >= blockDoubles) {
         // Noise blanker (EXT): splice the impulse blanker on the raw IQ
         // block BEFORE WDSP's RXA chain — xnobEXT cleans accum_ front into

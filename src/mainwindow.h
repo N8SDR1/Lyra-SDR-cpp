@@ -124,6 +124,9 @@ public:
     // router/DSP state the session's IQ callbacks dispatch into.
     lyra::wire::P2RxBridge *p2Bridge() const { return p2Bridge_; }
 
+    // Transient status-bar bus (QML `Status` + C++ advisories).
+    StatusBus *statusBus() const { return statusBus_; }
+
     // Share JUST the panel layout as a small .lyralayout file (driven from
     // Settings → Backup & Restore → "Share a layout").  Arrangement only —
     // no window size/position, so a layout is monitor-independent and safe to
