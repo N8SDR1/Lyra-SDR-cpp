@@ -92,9 +92,11 @@ gear — all native, all in front of the WDSP transmitter:
 
 ## Shipped highlights
 
-✅ **PureSignal** (HL2 coupler mod / Brick ADC0) · ✅
-**VAC2** · ✅ **SUB / SPLIT** (independent; second pan on Brick3 / 100D) · 🚧 **ANAN-10…200D** P2 (10/10E = Brick2 TX; 100-series = Brick3 TX) · 🗺️
-**ANAN-7000DLE / 8000** · 🗺️ **Linux, then macOS**.
+✅ **v0.25.18 Sheliak** · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
+Brick3 PS jack) · ✅ **VAC2** · ✅ **SUB / SPLIT** (second pan on Brick3 /
+100D; RX2 jack isolate on TX) · 🗺️ **Diversity** (next — RX2 jack / Ext1,
+not ANT2) · 🚧 **ANAN-10…200D** P2 (10/10E = Brick2 TX; 100-series =
+Brick3 TX; G2 dummy-load) · 🗺️ **7000DLE / 8000** · 🗺️ **Linux, then macOS**.
 
 Details, ordering, and status on the **[Roadmap](Roadmap)**.
 
@@ -105,7 +107,8 @@ Details, ordering, and status on the **[Roadmap](Roadmap)**.
 - 🚀 **[Quick Start](Quick-Start)** — box on the desk to first signal in five minutes.
 - 🎙️ **[First Voice Setup](First-Voice-Setup)** — your first phone contact (SSB / AM / FM).
 - 💻 **[PC Requirements](PC-Requirements)** — CPU / GPU / video spec, in detail.
-- 📖 **[User Guide](User-Guide)** — the full operator's manual (also built into the app: **Help → User Guide**), including **[second receiver / SUB](User-Guide#second-receiver-sub--rx2--how-it-works)** on HL2 and BrickSDR2.
+- 📖 **[User Guide](User-Guide)** — the full operator's manual (also built into the app: **Help → User Guide**), including **[second receiver / SUB](User-Guide#second-receiver-sub--rx2--how-it-works)** on HL2, BrickSDR2, and Brick3SDR.
+- 🙏 **[Credits](Credits)** — DeskHPSDR, Heiko, Anton, testers, upstream.
 - 🔗 **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** — the two-way link with the companion logger (RST from RX1).
 - ❓ **[FAQ &amp; Troubleshooting](FAQ-and-Troubleshooting)**
 
@@ -117,7 +120,7 @@ Lyra over TCI and flip on the **[Combo link](SDRLogger-Plus-Combo)** and the two
 work as one: copy a call once in Lyra's CW console and it lands in the log with a
 callbook lookup, the operator's name comes back to your `{NAME}` macro, RST-Rcvd
 auto-fills from Lyra's **RX1** calibrated S-meter (SUB RST is not Combo yet), and a `{LOG}` macro logs the QSO as you
-send 73. HL2 and BrickSDR2 **SUB / RX2** and **SPLIT** are on the same TCI socket —
+send 73. HL2, BrickSDR2, and Brick3SDR **SUB / RX2** and **SPLIT** are on the same TCI socket —
 see **[Combo](SDRLogger-Plus-Combo)** and **[User Guide → Second receiver](User-Guide#second-receiver-sub--rx2--how-it-works)**.
 → **[Get SDRLogger+](https://n8sdr1.github.io/SDRLoggerPlus/)**
 

@@ -4,21 +4,34 @@ Where Lyra is headed. This is a **direction, not a dated schedule** — items la
 when they're solid. Everything shipped today is on the [Feature Status](Feature-Status)
 page.
 
+**Now (v0.25.18 Sheliak):** HL2 / HL2+ P1, BrickSDR2 / Brick3SDR P2, SUB +
+SPLIT, PureSignal, TX rack. Brick3 / ANAN-100D get a second SUB panadapter.
+**Next major feature:** [Diversity](#diversity-next-dual-adc-feature) (two ADCs,
+same frequency — not a second VFO). **Then:** G2 on-air validation, 7000/8000
+when OrionMkII BPF is in scope, Linux then macOS.
+
 > **Legend:** ✅ done · 🚧 in progress · 🗺️ planned · 💡 exploring (early idea, not scheduled)
 
 ## Major features
 
-### ✅ SUB / RX2 + SPLIT on HL2 (P1) and BrickSDR2 (P2)
+### ✅ SUB / RX2 + SPLIT (HL2, BrickSDR2, Brick3SDR, P2 ANAN)
 
-**Hermes Lite 2 / 2+** and **BrickSDR2** share the same SUB / SPLIT
-operator model: second DDC (DDC1) **and** independent **SPLIT** TX on
-VFO B. One ADC — N2ADR / analog filter follows **RX1** (cross-band SUB
-is much weaker). Operator cues: orange **TUNE A** / lime **TUNE B**,
-**cyan** RX1 passband vs **green** RX2 overlay, **red** vs **green** band
-chips, off-span **◀ RX2** / **RX2 ▶** (click to swap onto the panadapter),
-lime **TX** marker (red on key). TCI: `channel_count:2`; `vfo:0,1` is
-SPLIT VFO B; `vfo:1,0` / `dds:1` is SUB. Logger Combo RST still uses
-**RX1**.
+Same operator model everywhere: second DDC **and** independent **SPLIT**
+TX on VFO B. One ADC (HL2 / Brick2 / ANAN-10 / 100): overlay on the main
+pane; N2ADR / analog filter follows **RX1** (cross-band SUB is much weaker).
+Two ADC (**Brick3SDR / ANAN-100D / 200D**): **SUB** opens a **second
+panadapter** (own waterfall, band-plan, click-tune, Visuals floor/ceiling).
+**RX2 jack isolate on TX** (default on) for those two-converter boxes.
+Cues: orange **TUNE A** / lime **TUNE B**, cyan vs green passbands,
+red vs green band chips, off-span **◀ RX2** / **RX2 ▶**, lime **TX**
+marker (red on key). TCI: `channel_count:2`; `vfo:0,1` is SPLIT VFO B;
+`vfo:1,0` / `dds:1` is SUB. Logger Combo RST still uses **RX1**.
+
+### 🗺️ Diversity (next dual-ADC feature)
+
+Two converters, **same frequency**, phase/gain combine — not a second VFO
+(that is SUB). Parked until we start it. Brick2 / HL2 cannot (one ADC).
+Does **not** use ANT2; the second RF is the **RX2 jack** (Alex Ext1).
 
 ### ✅ PureSignal — adaptive predistortion
 
@@ -60,7 +73,10 @@ these are real roadmap items, not "maybe someday."
 - ✅ **TCI STOP** does not close the radio (v0.25.11) and does not drop MOX (v0.25.13). **TUNE / TRX / CHRONO** key like the host panel (v0.25.14).
 - ✅ **Brick3 Beta Testing** — Protocol 2 RX+TX, MAP, Auto Step, per-band PS pad, Reset wipe (v0.25.16); dual-ADC SUB pane, on-air TX, ANAN mapping (v0.25.17); RX2 jack isolate on TX (v0.25.18).
 - ✅ **HL2 analog J4 pin 8** — leftover I2C burst dropped; Pico latches on BYTE0 (v0.25.18).
-- 🗺️ **Diversity** — two ADCs, same frequency, phase/gain combine. Next dual-ADC feature after this cut. Not SUB. Brick2 / HL2 cannot.
+- ✅ **11 m / CB chips on the SUB pane** — click-tune mode follows Hardware Region (v0.25.18).
+- ✅ **Windows per-app mixer** volume remembered across Stop / Start (v0.25.17).
+- ✅ **PureSignal Voice** on the compact dock; engine chips on Amp View (v0.25.17).
+- ✅ **RIT / XIT** on the Tuning panel.
 - ✅ **Protocol 2 TX follows the VFO after retune** (v0.25.15; BrickSDR2).
 - ✅ **Keyboard VFO** Left/Right 1 kHz, Up/Down 10 Hz (v0.25.15).
 - ✅ **Startup profile** uses mode binding then last-used, not always Default (v0.25.15).

@@ -3,11 +3,12 @@
 This page gets you from a downloaded installer to hearing your first
 signal. For the full reference, see the **[User Guide](User-Guide)**.
 
-> **You need:** a Hermes Lite 2 / 2+ **or a BrickSDR2 / Brick3SDR on Protocol 2** on your
-> network, a Windows 10 (1809+) or 11 PC (64‑bit, a GPU with OpenGL 3.3+), and
-> the two connected to the same LAN (a dedicated NIC‑to‑radio cable works
-> great). A Brick still on **Protocol 1** can appear in Discover and **will
-> not Open** — see [Supported Radios](Supported-Radios).
+> **You need:** a Hermes Lite 2 / 2+ **or a BrickSDR2 / Brick3SDR on Protocol 2**
+> on your network (P2 ANAN-10…200D also open — pick the marketed model in
+> Settings). Windows 10 (1809+) or 11, 64‑bit, OpenGL 3.3+ GPU, wired LAN
+> (a dedicated NIC‑to‑radio cable works great). A Brick or classic ANAN
+> still on **Protocol 1** can appear in Discover and **will not Open** —
+> see [Supported Radios](Supported-Radios).
 
 ---
 
@@ -31,7 +32,8 @@ The very first time Lyra runs it builds an **FFT plan cache** ("optimizing"
 splash). This is a one‑time, few‑minute step — let it finish and Lyra opens
 normally. Companion auto-start (SDRLogger+) waits until that finishes.
 After that, launches are fast. (If you ever change CPU/RAM or want
-to rebuild it, **Settings → Radio → FFT optimization → Clear &amp; rebuild**.)
+to rebuild it, **Settings → Backup &amp; Restore → Rebuild FFT optimization
+on next start**.)
 
 ## 3. Find and open your radio
 
@@ -44,7 +46,10 @@ to rebuild it, **Settings → Radio → FFT optimization → Clear &amp; rebuild
    radio shows **green and bold**. Protocol 1 **Hermes** (not HermesLite) is
    **refused** — that is a Brick/ANAN still on P1, not an HL2. Flash **P2**
    (Brick: **Anton (linoobs)** on Discord) and Open the Protocol 2 row.
-4. **Close** the current radio before opening a different one.
+4. In **Settings → Hardware**, pick the **marketed model** if discovery
+   still says Hermes / Brick — **Brick3SDR**, **ANAN-10 / 10E**, or
+   **ANAN-100 / 100D / 200D**. Wrong pick = wrong TX / MAP / SUB pane.
+5. **Close** the current radio before opening a different one.
 
 > **No "Any Subnet" checkbox needed.** Lyra's discovery is always maximal:
 > every scan probes on **all** network adapters — including direct‑connect
@@ -76,8 +81,11 @@ hanging on the stale address.
 
 1. Pick a **band** (Band panel) and a **mode** (Mode/Filter panel).
 2. Click or scroll on the **panadapter** to tune; drag the passband edges to
-   set bandwidth.
-3. Set **AF Gain / Volume** on the Audio panel.
+   set bandwidth. **SUB** is a second receiver (**SPLIT** is TX on VFO B —
+   they are independent). **Brick3SDR / ANAN-100D / 200D** open a **second
+   panadapter** when SUB is on.
+3. Set **AF Gain / Volume** on the Audio panel. Windows mixer volume for
+   Lyra is remembered across Stop / Start (v0.25.17).
 
 ### Where's the audio coming out?
 Two paths — pick in the Audio panel:
@@ -99,7 +107,11 @@ first:
 - **Mic input** (Settings → TX, or the Audio panel) — radio codec mic, a PC
   mic via VAC1, or TCI for digital.
 - **TX power / drive**, and **enable the PA** if your build needs it
-  (Settings → TX → Advanced).
+  (Settings → TX → Advanced). Brick3 first RF: **dummy load**.
+- **HL2 analog amp (GP100 / J4 pin 8):** analog band-follow is always on
+  I2C **0x1D** — you do **not** need **Enable N2ADR**. Leave **Band Volts
+  on J3** off unless the amp is on the fan header. v0.25.18 latches on
+  **BYTE0** so a fast band hop should not stick on the old voltage.
 - **Running an amplifier?** Read
   **[User Guide → Operating with an external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**
   first — Lyra has TR‑sequencing and hot‑switch protection you should

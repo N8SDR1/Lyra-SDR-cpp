@@ -245,6 +245,18 @@ MUTE only silences speakers / the HL2 jack. **VAC Output** and **MON TX**
 can still play. If VAC Output is the same speakers (or loops back), you
 hear two copies. Use a dedicated VAC device, or turn VAC / MON TX off.
 
+**Windows mixer jumps to full / unmutes after Stop or Start.**
+Fixed in **v0.25.17** (Issue #18). Lyra now remembers its **per-app**
+Windows mixer volume across Stop / Start and relaunch. That slider is
+**not** Lyra **Vol** / **AF**. If an older build slammed you to 100 %,
+install 0.25.17 or later, set the mixer once, then Stop / Start again.
+
+**What is Auto Step / MAP (Protocol 2)?**
+**Step** on DSP+Audio walks the ADC pad **0–31** (clip +3 / unwind −1),
+frozen while keyed. Default **off**. **MAP** (Brick3 / 100-series) is
+per-band **ANT** and **RX jack** chips — RX2 is Ext1, not ANT2. Diversity
+is not this cut.
+
 ---
 
 ## Settings &amp; layout
@@ -283,7 +295,20 @@ the **Apps** header chip) to launch fldigi / MMTTY / etc., with **TCI** or
 
 ---
 
-## Dual receive (SUB / RX2) — HL2 and BrickSDR2
+## Dual receive (SUB / RX2)
+
+**Brick3SDR / ANAN-100D / 200D — second panadapter?**
+Yes. Two converters: **SUB** opens a **second spectrum** (own waterfall,
+band-plan, 11 m chips, click-tune). Settings → Visuals has **SUB floor /
+ceiling** (per RX2 band) and an optional **SUB layout**. One-converter
+radios (HL2, Brick2, ANAN-10 / 100) still draw RX2 as the **green overlay**
+on the main pane.
+
+**Does TX protect the RX2 jack?**
+On two-converter radios, **RX2 jack isolate on TX** (default **on**)
+grounds/disconnects that jack for the whole key-down. ATT-on-TX still pads
+both ADCs; it does not open the analog RX2 path. Diversity is not in this
+cut.
 
 **How do I turn on the second receiver?**
 Press **SUB** on the Tuning panel (it lights **green**). There is **no**
@@ -304,10 +329,10 @@ RX2. Full map: **[User Guide → Second receiver](User-Guide#second-receiver-sub
 
 **What are ◀ RX2 and RX2 ▶?**
 Chips on the **left** or **right** edge of the panadapter when SUB is on
-but RX2 is **off the current span**. **Click** to swap VFOs so the
-waterfall (always RX1 IQ) shows that parked frequency; RX2 keeps the band
-you left. **◀ TX** / **TX ▶** are the same idea for SPLIT TX — don’t mix
-them up.
+but RX2 is **off the current span**. **Click** to swap VFOs onto that
+parked frequency. On one-ADC radios the waterfall is RX1 IQ (cross-band
+SUB is weaker). On two-ADC radios the **SUB pane** shows RX2’s own IQ.
+**◀ TX** / **TX ▶** are the same idea for SPLIT TX — don’t mix them up.
 
 **How do I hop SUB to another band without moving VFO A?**
 **Shift+click** or **right-click** a Ham / BC / 11m chip. Plain **click**
@@ -325,9 +350,14 @@ filter follows RX1 — same-band SUB is full strength; another ham band
 on RX2 is much weaker. Status log warns once when the amateur bands
 differ.
 
+**11 m chips on SUB?**
+From **v0.25.18** the SUB pane shows the same 11 m / CB channel chips as
+the main panadapter. Click-tune **mode follows Settings → Hardware →
+Region** (AM vs USB/LSB).
+
 ---
 
 Still stuck? Open an
 **[issue](https://github.com/N8SDR1/Lyra-SDR-cpp/issues)** with your
-Windows version, Lyra version, radio (HL2 / HL2+ + gateware), and what you
-saw.
+Windows version, Lyra version, radio (HL2 / HL2+ / BrickSDR2 / Brick3SDR
++ gateware), and what you saw.
