@@ -18,8 +18,13 @@ Thetis-correct. LPF 0x20 is **not** on this 32-slot ring.
 
 Fix: restore Thetis/Quisk **delay=5** after every analog steal;
 coalesce on `hl2_ioboard_tx_freq_on_wire()` (BYTE0 overlaid);
-keep drop-pending (that part was right). No version bump until
-Rick asks. Bench: J4 pin 8 160→80→20→15, J3 Band Volts off.
+keep drop-pending (that part was right).
+
+**Released v0.25.19 Sheliak** — installer + tag + wiki. Also ships
+IQ backlog cap, PC-ring underrun fade, NB/AF atomics. Do not merge
+`main`. Diversity still parked (plan in
+`docs/architecture/diversity_include_plan.md`). Bench: J4 pin 8
+160→80→20→15, J3 Band Volts off.
 
 ---
 

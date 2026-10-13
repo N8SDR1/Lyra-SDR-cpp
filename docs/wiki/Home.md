@@ -92,7 +92,7 @@ gear — all native, all in front of the WDSP transmitter:
 
 ## Shipped highlights
 
-✅ **v0.25.18 Sheliak** · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
+✅ **v0.25.19 Sheliak** · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
 Brick3 PS jack) · ✅ **VAC2** · ✅ **SUB / SPLIT** (second pan on Brick3 /
 100D; RX2 jack isolate on TX) · 🗺️ **Diversity** (next — RX2 jack / Ext1,
 not ANT2) · 🚧 **ANAN-10…200D** P2 (10/10E = Brick2 TX; 100-series =

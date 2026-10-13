@@ -20,12 +20,30 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.19
+
+- **HL2 analog J4 follows band hops again (Issue #17).** v0.25.18
+  collapsed the I2C gap (`delay=0`) so two Pico writes rode one UDP
+  packet and **BYTE0** never latched — J4 stayed on leftover voltage
+  (often 20 m) with **no** change on clicks. This build restores
+  Thetis/Quisk **delay=5** between every analog byte, still drops a
+  leftover 0x1D burst, and only treats a hop as done when BYTE0 is
+  **on the wire**. Recheck **J4 pin 8** on 160 → 80 → 20 → 15. Leave
+  **HL2 Band Volts on J3** off unless the amp is on the fan header.
+  See [Settings → Filters / BCD](#settings--filters--bcd).
+- **PC audio.** A stalled RX drain cannot grow IQ forever. Short
+  PC-ring underruns fade instead of hard-zero. NB / AF gain cannot
+  tear across worker threads. DIGU/DIGL below the Drive/Tune sliders
+  toasts the status bar.
+
 ## What's new in 0.25.18
 
 - **HL2 analog band-follow (J4 pin 8).** A leftover I2C write from the
   previous band is dropped, and the Pico only latches when **BYTE0** of
   the new TX-Hz burst is on the wire. Fast hops (160 → 80 → **20** → 15)
-  should no longer leave 20 m stuck on 80 m voltage. See
+  should no longer leave 20 m stuck on 80 m voltage — **if** I2C
+  **delay=5** is in the build (that is 0.25.19; 0.25.18 used delay=0
+  and hung some Picos — Issue #17). See
   [Settings → Filters / BCD](#settings--filters--bcd).
 - **RX2 jack isolate on TX** (two-converter radios). Default **on**.
   Grounds/disconnects the RX2 jack for the whole key-down, then restores
@@ -289,6 +307,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.19](#whats-new-in-02519)
 - [What's new in 0.25.18](#whats-new-in-02518)
 - [What's new in 0.25.17](#whats-new-in-02517)
 - [What's new in 0.25.16](#whats-new-in-02516)
@@ -3924,9 +3943,11 @@ paths** plus OC filters — they are not the same pin. Protocol 2 radios
 USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no filter board (analog still follows).
 
 **Band hops.** The Pico latches analog when **BYTE0** of the five-byte
-TX-Hz write lands. Lyra drops any analog burst still queued from the
-previous band so a leftover 80 m write cannot leave **J4 pin 8** on
-the 80 m voltage after you hop to 20 m.
+TX-Hz write lands. Lyra spaces those I2C steals with **delay=5** (same
+as Thetis/Quisk) so two writes do not share one UDP datagram, drops
+any analog burst still queued from the previous band, and only
+coalesces a hop after BYTE0 is on the wire. A leftover 80 m write
+cannot leave **J4 pin 8** on the 80 m voltage after you hop to 20 m.
 
 ### Filter board — OC Control (J16 pins)
 

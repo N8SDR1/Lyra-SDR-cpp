@@ -217,6 +217,11 @@ until the gate passes.
 
 ## Diversity (parked — future feature)
 
+**Authoritative include plan (2026-10-13):**
+`docs/architecture/diversity_include_plan.md` — Thetis + DeskHPSDR
+deep read, Lyra gap map, phased D0–D7. **No feature code until
+operator go-ahead.** Dummy-load only; no VK amp.
+
 **Operator lock 2026-10-10:** Thetis and DeskHPSDR offer diversity on
 ANAN-100D, Brick3, and other dual-ADC boxes. **Lyra does not.** Parked;
 do not implement until a dedicated pass (DeskHPSDR/Thetis Brick3 read

@@ -188,11 +188,12 @@ path.
 v0.25.18 collapsed the I2C gap on analog BYTE4..BYTE1 (`delay=0`).
 Two 0x1D writes then rode one UDP datagram; Pico `n2adr_basic`
 missed the BYTE0 latch, so J4 stayed on leftover PWM (often 20 m)
-with **no** change on band clicks. Current tree restores the
+with **no** change on band clicks. **v0.25.19** restores the
 Thetis/Quisk **delay=5** between every analog byte, still drops a
 leftover 0x1D burst before a new Hz, and only coalesces when BYTE0
-is actually on the wire. Recheck **J4 pin 8** on 160 → 80 → 20 → 15.
-Leave **HL2 Band Volts on J3** off unless the amp is on the fan header.
+is actually on the wire. Install 0.25.19 and recheck **J4 pin 8**
+on 160 → 80 → 20 → 15. Leave **HL2 Band Volts on J3** off unless
+the amp is on the fan header.
 
 **I'm running an amplifier — anything to set first?**
 Yes — configure **TR‑sequencing** and the **RF‑delay / ATT‑on‑TX**
