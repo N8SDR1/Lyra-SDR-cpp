@@ -20,6 +20,21 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## What's new in 0.25.18
+
+- **HL2 analog band-follow (J4 pin 8).** A leftover I2C write from the
+  previous band is dropped, and the Pico only latches when **BYTE0** of
+  the new TX-Hz burst is on the wire. Fast hops (160 → 80 → **20** → 15)
+  should no longer leave 20 m stuck on 80 m voltage. See
+  [Settings → Filters / BCD](#settings--filters--bcd).
+- **RX2 jack isolate on TX** (two-converter radios). Default **on**.
+  Grounds/disconnects the RX2 jack for the whole key-down, then restores
+  it. ATT-on-TX still pads both ADCs; it does not open that analog path.
+  See [RX2 jack isolate on TX](#rx2-jack-isolate-on-tx-two-converter-radios).
+- **11 m channel chips on the SUB pane.** Same markers as the main
+  panadapter. Click-tune **mode follows Settings → Hardware → Region**
+  (AM vs USB/LSB), not a fixed US map.
+
 ## What's new in 0.25.17
 
 **Second spectrum on two-converter radios.** Brick3SDR, ANAN-100D / 200D,
@@ -274,6 +289,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.18](#whats-new-in-02518)
 - [What's new in 0.25.17](#whats-new-in-02517)
 - [What's new in 0.25.16](#whats-new-in-02516)
 - [What's new in 0.25.15](#whats-new-in-02515)
@@ -436,7 +452,7 @@ Lyra **opens** these today:
 |---|---|---|
 | **Hermes Lite 2 / 2+** | Protocol 1 | Full RX + TX. HL2+ adds the on-board mic / headphone jacks. |
 | **BrickSDR2** | **Protocol 2 only** | Full RX + TX, SUB / SPLIT, PureSignal. |
-| **Brick3SDR** | **Protocol 2 only** | **Brick3 Beta Testing.** Angelia-class (2 ADC, Alex, 2 ANT, RX2 jack). Pick **Brick3SDR** in **Settings → Hardware**. TX keys like BrickSDR2 (Enable PA + MOX + Drive — no dummy-load arm). First RF into a dummy load. With **SUB** on, a **second panadapter** opens. |
+| **Brick3SDR** | **Protocol 2 only** | **Brick3 Beta Testing.** Angelia-class (2 ADC, Alex, 2 ANT, RX2 jack). Pick **Brick3SDR** in **Settings → Hardware**. TX keys like BrickSDR2 (Enable PA + MOX + Drive — no dummy-load arm). First RF into a dummy load. With **SUB** on, a **second panadapter** opens. **RX2 jack isolate on TX** default on. |
 
 A Brick (or classic ANAN) that still answers **Protocol 1** can show in
 **Discover**. Lyra **will not Open** that row. Protocol 1 TX in Lyra is the
@@ -457,7 +473,7 @@ to BrickSDR2). Leftover P1 rows stay refused.
 |---|---|
 | **ANAN-10 / 10E** (and **HERMES**) | Like **BrickSDR2**: on-air, Enable PA + MOX + Drive, no dummy-load arm. Classic Alex. One ADC — SUB is overlay, not a second pane. |
 | **ANAN-100 / 100B** | Like **Brick3SDR** TX (on-air, independent Enable PA). One ADC + classic Alex — SUB overlay, not a second pane. |
-| **ANAN-100D / 200D** | Like **Brick3SDR** TX **and** two converters: **SUB** opens a second panadapter. |
+| **ANAN-100D / 200D** | Like **Brick3SDR** TX **and** two converters: **SUB** opens a second panadapter. **RX2 jack isolate on TX** default on. |
 | **ANAN-G2 / G2-1K** | Dummy-load **Arm P2 TX** until a tester validates RF. Two ADC. |
 | **7000DLE / 8000** | Stay locked. |
 
@@ -3906,6 +3922,11 @@ paths** plus OC filters — they are not the same pin. Protocol 2 radios
 | N2ADR LPF relays | J16 → I2C **0x20** | **Enable N2ADR / IO board** | DeskHPSDR `filter_board = N2ADR` |
 
 USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no filter board (analog still follows).
+
+**Band hops.** The Pico latches analog when **BYTE0** of the five-byte
+TX-Hz write lands. Lyra drops any analog burst still queued from the
+previous band so a leftover 80 m write cannot leave **J4 pin 8** on
+the 80 m voltage after you hop to 20 m.
 
 ### Filter board — OC Control (J16 pins)
 

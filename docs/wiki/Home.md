@@ -45,7 +45,7 @@ wired Ethernet link to the radio.
 | **Hermes Lite 2** | ✅ Supported (Protocol 1) |
 | **Hermes Lite 2+ (AK4951)** | ✅ Supported (Protocol 1) |
 | **BrickSDR2** | ✅ Supported (**Protocol 2**). A P1 discovery row is listed but **not opened**. |
-| **Brick3SDR** | ✅ **Brick3 Beta Testing** (**Protocol 2**). TX like BrickSDR2 (no dummy-load arm). **SUB** opens a second panadapter. First RF: dummy load. |
+| **Brick3SDR** | ✅ **Brick3 Beta Testing** (**Protocol 2**). TX like BrickSDR2 (no dummy-load arm). **SUB** opens a second panadapter. **RX2 jack isolate on TX**. First RF: dummy load. |
 | **ANAN-10 / 10E** (P2) | 🚧 BrickSDR2 TX (on-air, classic Alex). Pick model in Settings. |
 | **ANAN-100 / 100B / 100D / 200D** (P2) | 🚧 Brick3SDR TX (on-air, independent Enable PA). **100D / 200D**: SUB second pane. |
 | ANAN-G2 / G2-1K | 🚧 Dummy-load TX arm (Saturn BPF) |

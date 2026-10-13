@@ -184,6 +184,13 @@ actually jumpered to the **fan header**. 0 V on J3 with that box off is
 expected when J3 is GND. Protocol 2 Brick/ANAN do not use the Pico 0x1D
 path.
 
+**20 m analog stuck on 80 m voltage after a band hop.**
+v0.25.18 drops a leftover I2C **0x1D** burst before sending the new
+TX Hz, and only treats the write as done when **BYTE0** is on the
+wire (that is the Pico latch). Recheck **J4 pin 8** on 160 → 80 → 20
+→ 15. Leave **HL2 Band Volts on J3** off unless the amp is on the
+fan header.
+
 **I'm running an amplifier — anything to set first?**
 Yes — configure **TR‑sequencing** and the **RF‑delay / ATT‑on‑TX**
 protections before keying into an amp. Per-band **PA Gain / Full Output (W)**

@@ -2784,11 +2784,9 @@ void HL2Stream::pushIoboardTxFreq(bool force) {
         return;
     const quint64 hz = txFreqHz_.load(std::memory_order_relaxed);
     // Always latch the wanted Hz first.  The EP2 writer retries the
-    // five-byte 0x1D burst when the I2C ring has room.  Skipping that
-    // latch because lastIoboardTxHz_ already matches leaves analog on
-    // the previous band: an earlier click can fail to enqueue (ring
-    // full of 0x20 LPF writes) while the writer still flushes the
-    // *other* band's Hz, then a return click looks like a no-op.
+    // five-byte 0x1D burst until BYTE0 is on the wire.  Marking the
+    // burst "done" at enqueue left pin 8 on the previous band (80 m
+    // stuck through a 20 m click) when the Pico had not yet latched.
     lyra::wire::request_hl2_ioboard_tx_freq(hz);
     const quint64 last = lastIoboardTxHz_.load(std::memory_order_relaxed);
     const int band = lyra::paPowerBandIndexForFreq(
