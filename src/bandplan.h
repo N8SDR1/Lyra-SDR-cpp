@@ -64,8 +64,10 @@ public:
     // Name of the amateur band containing freqHz ("40m"…), or "" if the
     // freq is outside every allocation in the current region (or NONE).
     Q_INVOKABLE QString bandContaining(double freqHz) const;
-    // The 40 US CB channels visible in the window, each { freq, label }.
-    // Empty unless the 11m/CB band is enabled (Settings → Hardware).
+    // The 40 CB channels visible in the window, each
+    // { freq, label, note, mode }.  Channel centres are the CEPT/FCC 40-ch
+    // plan.  Click-tune mode follows Prefs.bandPlanRegion (US / IARU R1 /
+    // IARU R3 / NONE).  Empty unless the 11m/CB band is enabled.
     Q_INVOKABLE QVariantList cbChannels(double centerHz, double spanHz) const;
     // True when freqHz falls within the 11m / CB band extent (the 40-channel
     // plan + a small guard for AM sidebands).  A pure range test — the caller

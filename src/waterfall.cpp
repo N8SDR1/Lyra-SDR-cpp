@@ -43,6 +43,16 @@ void Waterfall::setEngineObj(QObject *o) {
     emit engineChanged();
 }
 
+void Waterfall::setReceiver(int v) {
+    if (v != 1 && v != 2)
+        v = 1;
+    if (v == receiver_)
+        return;
+    receiver_ = v;
+    img_ = QImage();
+    emit receiverChanged();
+}
+
 void Waterfall::setDbMin(double v) {
     if (v != dbMin_) { dbMin_ = v; emit rangeChanged(); }
 }
@@ -160,7 +170,10 @@ void Waterfall::onFrame() {
     // 120 ms IIR cache).  Effective only during TX state — WdspEngine
     // falls through to pixout=0 in RX (current shared behaviour) per
     // §15.29 C2 deferral.
-    engine_->copyWaterfallSpectrum(row_.data(), n);
+    if (receiver_ == 2)
+        engine_->copySpectrumRx2(row_.data(), n);
+    else
+        engine_->copyWaterfallSpectrum(row_.data(), n);
 
     // Auto-fit the dB range from the live spectrum (throttled to ~5 Hz),
     // independent of scroll speed / fps.  Runs every frame (not just on a

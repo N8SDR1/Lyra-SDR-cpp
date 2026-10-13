@@ -10,18 +10,16 @@ Quick answers to common questions and fixes. For full detail see the
 
 **What hardware does Lyra support?**
 Hermes Lite 2 and 2+ over HPSDR Protocol 1, and **BrickSDR2 / Brick3SDR over Protocol 2
-only**. Hermes Lite 2 / 2+ and Brick2 / Brick3 all have **SUB / RX2** (second DDC on
-the same ADC) and **SPLIT** (TX on VFO B, independent of SUB). Colours:
-orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2; **◀ RX2** /
-**RX2 ▶** when SUB is off-span. N2ADR / filter board follows **RX1** —
-cross-band SUB is much weaker. **ANAN-10 / 10E / 100 / 100B / 100D /
-200D** and **G2 / G2-1K** have Protocol 2 profiles; TX is dummy-load until
-that box is on-air validated. Discovery **Hermes** still defaults to
-BrickSDR2 — pick the marketed ANAN model in Settings → Hardware. A Brick or
-classic ANAN still on **Protocol 1** will show up in Discover and is
-**refused on Open** (Lyra’s P1 TX is HL2-shaped). Flash **Protocol 2**; Brick
-FPGA help: **Anton (linoobs)** on Discord. 7000DLE / 8000 stay locked.
-See **[Supported Radios](Supported-Radios)**.
+only**. **SUB / RX2** and **SPLIT** on all of them. One-converter radios
+(HL2, Brick2, ANAN-10 / 100) draw RX2 on the main pane; **Brick3SDR /
+ANAN-100D / 200D** open a **second panadapter**. Colours: orange **TUNE A**
+/ cyan RX1 vs lime **TUNE B** / green RX2. N2ADR follows **RX1** on
+one-ADC boxes. **ANAN-10 / 10E** TX like BrickSDR2; **ANAN-100-series** TX
+like Brick3SDR (on-air). **G2** still dummy-load arm. Discovery **Hermes**
+defaults to BrickSDR2 — pick the marketed ANAN model in Settings → Hardware.
+A Brick or classic ANAN still on **Protocol 1** is **refused on Open**.
+Flash **Protocol 2**; Brick FPGA help: **Anton (linoobs)** on Discord.
+7000DLE / 8000 stay locked. See **[Supported Radios](Supported-Radios)**.
 
 **Does Lyra support MIDI controllers?**
 Not inside the radio. A USB knob that Windows treats as a **mouse wheel**
@@ -186,6 +184,13 @@ actually jumpered to the **fan header**. 0 V on J3 with that box off is
 expected when J3 is GND. Protocol 2 Brick/ANAN do not use the Pico 0x1D
 path.
 
+**20 m analog stuck on 80 m voltage after a band hop.**
+v0.25.18 drops a leftover I2C **0x1D** burst before sending the new
+TX Hz, and only treats the write as done when **BYTE0** is on the
+wire (that is the Pico latch). Recheck **J4 pin 8** on 160 → 80 → 20
+→ 15. Leave **HL2 Band Volts on J3** off unless the amp is on the
+fan header.
+
 **I'm running an amplifier — anything to set first?**
 Yes — configure **TR‑sequencing** and the **RF‑delay / ATT‑on‑TX**
 protections before keying into an amp. Per-band **PA Gain / Full Output (W)**
@@ -240,6 +245,18 @@ MUTE only silences speakers / the HL2 jack. **VAC Output** and **MON TX**
 can still play. If VAC Output is the same speakers (or loops back), you
 hear two copies. Use a dedicated VAC device, or turn VAC / MON TX off.
 
+**Windows mixer jumps to full / unmutes after Stop or Start.**
+Fixed in **v0.25.17** (Issue #18). Lyra now remembers its **per-app**
+Windows mixer volume across Stop / Start and relaunch. That slider is
+**not** Lyra **Vol** / **AF**. If an older build slammed you to 100 %,
+install 0.25.17 or later, set the mixer once, then Stop / Start again.
+
+**What is Auto Step / MAP (Protocol 2)?**
+**Step** on DSP+Audio walks the ADC pad **0–31** (clip +3 / unwind −1),
+frozen while keyed. Default **off**. **MAP** (Brick3 / 100-series) is
+per-band **ANT** and **RX jack** chips — RX2 is Ext1, not ANT2. Diversity
+is not this cut.
+
 ---
 
 ## Settings &amp; layout
@@ -278,7 +295,20 @@ the **Apps** header chip) to launch fldigi / MMTTY / etc., with **TCI** or
 
 ---
 
-## Dual receive (SUB / RX2) — HL2 and BrickSDR2
+## Dual receive (SUB / RX2)
+
+**Brick3SDR / ANAN-100D / 200D — second panadapter?**
+Yes. Two converters: **SUB** opens a **second spectrum** (own waterfall,
+band-plan, 11 m chips, click-tune). Settings → Visuals has **SUB floor /
+ceiling** (per RX2 band) and an optional **SUB layout**. One-converter
+radios (HL2, Brick2, ANAN-10 / 100) still draw RX2 as the **green overlay**
+on the main pane.
+
+**Does TX protect the RX2 jack?**
+On two-converter radios, **RX2 jack isolate on TX** (default **on**)
+grounds/disconnects that jack for the whole key-down. ATT-on-TX still pads
+both ADCs; it does not open the analog RX2 path. Diversity is not in this
+cut.
 
 **How do I turn on the second receiver?**
 Press **SUB** on the Tuning panel (it lights **green**). There is **no**
@@ -299,10 +329,10 @@ RX2. Full map: **[User Guide → Second receiver](User-Guide#second-receiver-sub
 
 **What are ◀ RX2 and RX2 ▶?**
 Chips on the **left** or **right** edge of the panadapter when SUB is on
-but RX2 is **off the current span**. **Click** to swap VFOs so the
-waterfall (always RX1 IQ) shows that parked frequency; RX2 keeps the band
-you left. **◀ TX** / **TX ▶** are the same idea for SPLIT TX — don’t mix
-them up.
+but RX2 is **off the current span**. **Click** to swap VFOs onto that
+parked frequency. On one-ADC radios the waterfall is RX1 IQ (cross-band
+SUB is weaker). On two-ADC radios the **SUB pane** shows RX2’s own IQ.
+**◀ TX** / **TX ▶** are the same idea for SPLIT TX — don’t mix them up.
 
 **How do I hop SUB to another band without moving VFO A?**
 **Shift+click** or **right-click** a Ham / BC / 11m chip. Plain **click**
@@ -320,9 +350,14 @@ filter follows RX1 — same-band SUB is full strength; another ham band
 on RX2 is much weaker. Status log warns once when the amateur bands
 differ.
 
+**11 m chips on SUB?**
+From **v0.25.18** the SUB pane shows the same 11 m / CB channel chips as
+the main panadapter. Click-tune **mode follows Settings → Hardware →
+Region** (AM vs USB/LSB).
+
 ---
 
 Still stuck? Open an
 **[issue](https://github.com/N8SDR1/Lyra-SDR-cpp/issues)** with your
-Windows version, Lyra version, radio (HL2 / HL2+ + gateware), and what you
-saw.
+Windows version, Lyra version, radio (HL2 / HL2+ / BrickSDR2 / Brick3SDR
++ gateware), and what you saw.

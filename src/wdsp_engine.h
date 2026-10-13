@@ -145,6 +145,7 @@ class WdspEngine : public QObject {
     // all track zoom for free because the displayed span shrinks as zoom
     // rises.  NOTIFY spanChanged (emitted on a rate OR a zoom change).
     Q_PROPERTY(int    spanHz READ spanHz NOTIFY spanChanged)
+    Q_PROPERTY(int    iqRateHz READ iqRateHz NOTIFY spanChanged)
     // Panadapter zoom: 1.0 = full IQ span; higher magnifies the band
     // CENTRE.  Done old-Lyra-style — the analyzer always produces a
     // full-span, full-resolution spectrum; copySpectrum crops the centre
@@ -407,6 +408,11 @@ public:
         }
         const int r = inRateAtomic_.load(std::memory_order_relaxed);
         return static_cast<int>(r / zClamp);
+    }
+    // Full converter rate (Hz). The second receiver's spectrum uses this
+    // as its scale so the main panadapter's zoom does not shrink it.
+    int iqRateHz() const {
+        return inRateAtomic_.load(std::memory_order_relaxed);
     }
     // Task #44 Phase 2 — analyzer ownership accessor for TxDspWorker
     // (called per block-pack tick to decide whether to feed the TX
@@ -982,6 +988,10 @@ public:
     Q_INVOKABLE bool openRx2();
     Q_INVOKABLE void closeRx2();
     Q_INVOKABLE void setSubEnabled(bool on);
+    // Second-receiver spectrum. Created only when the radio has two
+    // converters. The main analyzer stays on the first receiver.
+    void setRx2SpectrumWanted(bool on);
+    int  copySpectrumRx2(float *dst, int maxN);
     void feedIqRx2(const double *iq, int nframes);
 
 signals:
@@ -1170,6 +1180,10 @@ private:
     void configureAnalyzerForTx() noexcept;
     void configureAnalyzerForRx_locked() noexcept;   // analyzerMtx_ held
     void configureAnalyzerForTx_locked() noexcept;   // analyzerMtx_ held
+    void configureRx2Analyzer_locked() noexcept;     // analyzerMtx_ held
+    void openRx2Analyzer();
+    void closeRx2Analyzer();
+    void feedRx2Spectrum(double *block) noexcept;
 
     // P4.b TUN display-honesty crop helpers (shared by copySpectrum +
     // copyWaterfallSpectrum).  txAnalyzerOffBins() converts the live
@@ -1205,6 +1219,8 @@ private:
     bool        opened_  = false;
     bool        running_ = false;
     bool        analyzerOpen_ = false;   // Step 5 panadapter analyzer
+    std::atomic<bool> rx2SpectrumWanted_{false};
+    std::atomic<bool> rx2AnalyzerOpen_{false};
     // ── Task #44 Phase 2 atomics ──────────────────────────────────
     // txOwnsAnalyzer_ : true while the MOX-edge swap has retuned
     //   kAnDisp for the TX sip1 feed (per setTxOwnsAnalyzer()).
@@ -1444,6 +1460,7 @@ private:
     // garbage feeding the zoom crop).  GUI-thread only (the QQuickWidget
     // panadapter + waterfall reads are serialised).
     std::vector<float> specCache_;
+    std::vector<float> specCacheRx2_;
     std::atomic<double> rxDisplayCalibrationDb_{0.0};
     // §15.29 C1 — pixout=1 waterfall cache, mirrors specCache_ but
     // populated by copyWaterfallSpectrum's GetPixels(pixout=1) during

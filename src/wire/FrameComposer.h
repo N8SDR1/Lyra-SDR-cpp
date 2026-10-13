@@ -126,13 +126,14 @@ bool enqueue_i2c_write(unsigned char bus, unsigned char address,
                        unsigned char control, unsigned char write_data);
 
 // Five writes to IO-board slave 0x1D on I2C2: BYTE4..BYTE0
-// (register 0 then 4 last).  No-op / false if prn is null or fewer
-// than 5 free slots.
+// (register 0 then 4 last).  Replaces any analog bytes still in the
+// ring so the Pico never mixes two TX frequencies.  False if prn is
+// null or fewer than 5 free slots after that drop.
 bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz);
 
 // Latest TX RF Hz the EP2 writer should push to 0x1D on I2C2.
-// Writer retries when the 32-slot ring has room (band-voltage follow
-// must not be lost to a full queue).
+// Writer retries until register 4 (BYTE0) is actually overlaid —
+// queueing the burst is not the same as the Pico latching PWM.
 void request_hl2_ioboard_tx_freq(std::uint64_t hz);
 
 // HL2 "Band Volts" output enable (MI0BOT / Ramdor gateware feature).

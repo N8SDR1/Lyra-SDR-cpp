@@ -4,6 +4,7 @@
 
 #include "hl2_stream.h"
 #include "xvtrslots.h"
+#include "hardware/HardwareCatalog.h"
 
 #include "bands.h"
 // Step 14 Stage 1 — wire-layer includes for the inert wire-up of
@@ -23,6 +24,7 @@
 #include "wire/MetisFrame.h"    // metis_wire_bind, metis_socket_fd
 #include "wire/ObBuffs.h"       // destroy_obbuffs (P3 — close() ring teardown)
 #include "wire/FrameComposer.h" // §5 control-plane mapping: set_rx_freq / set_tx_freq / set_rx_step_attn_db (P4.b RX side)
+#include "wire/RbpFilter.h"     // prbpfilter2 RX2-jack ground bit
 #include "wire/TxGain.h"        // SetTXFixedGain/Run — TX power model Stage 2 fine drive
 #include "bands.h"              // amateurBands / bandIndexForFreq — TX power model Stage 3
 #include "bandmemory.h"
@@ -336,6 +338,7 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     rx2FreqHz_.store(
         QSettings().value(QStringLiteral("rx/rx2FreqHz"), persistedRxHz).toUInt(),
         std::memory_order_relaxed);
+    refreshDualAdcFromSettings();
     focusedRx_.store(std::clamp(
         QSettings().value(QStringLiteral("rx/focusedRx"), 1).toInt(), 1, 2),
         std::memory_order_relaxed);
@@ -536,84 +539,9 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
                  std::clamp(QSettings().value(lyra::rig::scope::rigKey(QStringLiteral("tx/driveLevel")),
                                               0).toInt(), 0, 255)),
         std::memory_order_relaxed);
-    // TX power model Stage 3 — load the per-band PA Gain table (Thetis
-    // "PA Gain By Band").  Default 100 = neutral on every band; the
-    // operator measures + nudges each band on the PA Gain Settings tab.
-    {
-        QSettings s;
-        for (int i = 0; i < kNumPaGainBands; ++i) {
-            const char *nm = lyra::paPowerBandName(i);
-            const QString band = (nm && nm[0])
-                ? QString::fromUtf8(nm) : QString::number(i);
-            // pa_gain/* + meter/pwrTrim/* are PER-RIG TX power + meter
-            // calibration (rig/<id>/…); a Brick must not read the HL2's cal.
-            paGainByBand_[i].store(
-                s.value(lyra::rig::scope::rigKey(
-                            QStringLiteral("pa_gain/%1/gain").arg(band)),
-                        kPaGainDefault).toDouble(),
-                std::memory_order_relaxed);
-            // Stage 3b — per-band measured full output (W); 0 = not measured.
-            fullOutputWByBand_[i].store(
-                s.value(lyra::rig::scope::rigKey(
-                            QStringLiteral("pa_gain/%1/fullW").arg(band)),
-                        0.0).toDouble(),
-                std::memory_order_relaxed);
-            // Stage B — per-band TUN-learned cap drive ceiling (-1 = unset)
-            // + the cap it was learned for (-1 = none).
-            capCeilRaw_[i].store(
-                s.value(lyra::rig::scope::rigKey(
-                            QStringLiteral("pa_gain/%1/capCeilRaw").arg(band)),
-                        -1).toInt(),
-                std::memory_order_relaxed);
-            capCeilCapW_[i].store(
-                s.value(lyra::rig::scope::rigKey(
-                            QStringLiteral("pa_gain/%1/capCeilCapW").arg(band)),
-                        -1.0).toDouble(),
-                std::memory_order_relaxed);
-            // Stage B — "settled under the cap" latch.  The HL2 drive DAC is
-            // coarse (16 steps); a cap can fall BETWEEN two hardware steps, so
-            // the servo parks on the step just UNDER the cap and stops hunting.
-            // Persisted so a converged band never blips over the cap again.
-            capServoSettled_[i].store(
-                s.value(lyra::rig::scope::rigKey(
-                            QStringLiteral("pa_gain/%1/capSettled").arg(band)),
-                        false).toBool(),
-                std::memory_order_relaxed);
-            // Per-band PWR-meter trim (index-keyed; 1.0 = raw formula).
-            pwrTrimByBand_[i].store(
-                std::clamp(s.value(lyra::rig::scope::rigKey(
-                                       QStringLiteral("meter/pwrTrim/%1").arg(i)),
-                                   1.0).toDouble(), 0.1, 10.0),
-                std::memory_order_relaxed);
-            // Per-band raw-watts capture latch — session-only, start empty
-            // (0 = no sample this session; populated live while transmitting).
-            capturedRawW_[i].store(0.0, std::memory_order_relaxed);
-            capturedDrive_[i].store(0, std::memory_order_relaxed);
-        }
-        // Stage 3b — the single watts Max cap (0 = off).
-        maxOutputW_.store(
-            s.value(lyra::rig::scope::rigKey(QStringLiteral("tx/maxOutputW")), 0.0).toDouble(),
-            std::memory_order_relaxed);
-        // Cap arm gate (2026-07-03) — persisted; only meaningful with a value.
-        // MIGRATION (safety): a cap set by a pre-arm-gate version has no
-        // "tx/capArmed" key but WAS limiting the amp — treat it as armed so
-        // upgrading never silently drops amp protection (the dangerous
-        // direction = suddenly full power).  A cap value set AFTER the update
-        // starts un-armed (the operator arms it after calibrating Full Output).
-        {
-            const double cap = maxOutputW_.load(std::memory_order_relaxed);
-            const bool hasKey = s.contains(QStringLiteral("tx/capArmed"));
-            const bool armed = hasKey
-                ? (s.value(QStringLiteral("tx/capArmed")).toBool() && cap > 0.0)
-                : (cap > 0.0);                       // migrate existing cap → armed
-            capArmed_.store(armed, std::memory_order_relaxed);
-            if (!hasKey && cap > 0.0)
-                s.setValue(QStringLiteral("tx/capArmed"), true);
-        }
-        // Seed CAP-chip status on RX (applyTxPower_ is a no-op on the wire
-        // until prn exists; the status emit still runs).
-        applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
-    }
+    // TX power model Stage 3 — load the per-band PA Gain table.
+    // Default 100 = neutral; operator measures on the PA Gain tab.
+    loadTxPowerCal_();
     // TX-1 component 5a — load operator-tuned TR-sequencing + fade
     // durations from QSettings (tx/trSeq/<key>).  Defaults match the
     // operator's working-station HL2+ DB export (15/50/13/5 ms) which
@@ -745,6 +673,8 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     // (the verified reference's HL2 working posture); clamped on load.
     attOnTxEnabled_ = QSettings().value(QStringLiteral("tx/attOnTxEnabled"),
                                         kDefaultAttOnTxEnabled).toBool();
+    rx2GroundOnTx_ = QSettings().value(QStringLiteral("tx/rx2GroundOnTx"),
+                                       kDefaultRx2GroundOnTx).toBool();
     // #94 External TX Inhibit — persisted, fail-safe (stays locked across
     // restarts until the operator clears it).
     txInhibit_ = QSettings().value(QStringLiteral("tx/inhibit"), false).toBool();
@@ -774,6 +704,11 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
         QSettings().value(QStringLiteral("tx/amCarrierPct"),
                           kDefaultAmCarrierPct).toDouble(),
         0.0, 100.0);
+    // PureSignal noise stimulus.  0 dB first-run.  Top is +3 dB.
+    // Saved values from the old 0 dB ceiling still load.
+    psNoiseLevelDb_ = std::clamp(
+        QSettings().value(QStringLiteral("tx/psNoiseLevelDb"), 0).toInt(),
+        -12, 3);
     txSafetyTimer_ = new QTimer(this);
     txSafetyTimer_->setSingleShot(true);
     connect(txSafetyTimer_, &QTimer::timeout,
@@ -798,6 +733,11 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     connect(this, &HL2Stream::moxActiveChanged, this, [this](bool on) {
         if (!on && twoToneEnabled_.load(std::memory_order_relaxed)) {
             setTwoToneEnabled(false);
+        }
+    });
+    connect(this, &HL2Stream::moxActiveChanged, this, [this](bool on) {
+        if (!on && noiseEnabled_.load(std::memory_order_relaxed)) {
+            setNoiseEnabled(false);
         }
     });
     // #169 — SWR-protection evaluator: a 50 ms repeating tick armed on
@@ -1212,13 +1152,17 @@ void HL2Stream::open(const QString &ip) {
     // state to reset beyond this flag.
     if (twoToneEnabled_.load(std::memory_order_relaxed))
         setTwoToneEnabled(false);
+    if (noiseEnabled_.load(std::memory_order_relaxed))
+        setNoiseEnabled(false);
     tuneEnabled_.store(false, std::memory_order_relaxed);
     twoToneEnabled_.store(false, std::memory_order_relaxed);
+    noiseEnabled_.store(false, std::memory_order_relaxed);
     requestedMox_  = false;
     fsmRunning_    = false;
     if (moxActive_) { moxActive_ = false; emit moxActiveChanged(false); }
     if (txSafetyTimer_ && txSafetyTimer_->isActive()) txSafetyTimer_->stop();
     emit tuneEnabledChanged(false);// TX panel UI follows
+    emit noiseEnabledChanged(false);
     // Mirror the persisted PA-enable into the UI on every open, so the
     // Settings checkbox accurately reflects the live atomic state even
     // after a previous close() that pre-2026-05-29 used to clobber it.
@@ -1635,8 +1579,11 @@ void HL2Stream::close() {
     // final EP2 frames carry silent TX I/Q.
     if (twoToneEnabled_.load(std::memory_order_relaxed))
         setTwoToneEnabled(false);
+    if (noiseEnabled_.load(std::memory_order_relaxed))
+        setNoiseEnabled(false);
     tuneEnabled_.store(false, std::memory_order_relaxed);
     twoToneEnabled_.store(false, std::memory_order_relaxed);
+    noiseEnabled_.store(false, std::memory_order_relaxed);
     requestedMox_  = false;
     fsmRunning_    = false;
     if (moxActive_) {
@@ -1651,6 +1598,7 @@ void HL2Stream::close() {
     }
     if (txSafetyTimer_ && txSafetyTimer_->isActive()) txSafetyTimer_->stop();
     emit tuneEnabledChanged(false);// TX panel UI follows
+    emit noiseEnabledChanged(false);
     // paEnabledChanged is intentionally NOT emitted here — paOn_ is
     // not touched in close() (per the 2026-05-29 persistence posture),
     // so the Settings checkbox stays at the operator's last explicit
@@ -2045,7 +1993,7 @@ void HL2Stream::setPwrTrimForBand(int idx, double scale) {
     scale = std::clamp(scale, 0.1, 10.0);
     pwrTrimByBand_[idx].store(scale, std::memory_order_relaxed);
     QSettings().setValue(
-        lyra::rig::scope::rigKey(QStringLiteral("meter/pwrTrim/%1").arg(idx)),
+        txCalKey_(QStringLiteral("meter/pwrTrim/%1").arg(idx)),
         scale);
 }
 
@@ -2433,6 +2381,21 @@ void HL2Stream::setSubEnabled(bool on) {
     pushEffectiveRxFreq();
 }
 
+void HL2Stream::setDualAdc(bool on) {
+    if (dualAdc_.load(std::memory_order_relaxed) == on)
+        return;
+    dualAdc_.store(on, std::memory_order_relaxed);
+    emit dualAdcChanged();
+    applyRx2GroundBit(mox_.load(std::memory_order_relaxed));
+}
+
+void HL2Stream::refreshDualAdcFromSettings() {
+    const QString key = QSettings().value(
+        QStringLiteral("radio/hardwareModel")).toString();
+    const auto *hw = lyra::hardware::modelByKey(key);
+    setDualAdc(hw && hw->adcCount > 1);
+}
+
 void HL2Stream::setRx2FreqHz(quint32 hz) {
     const quint32 prev = rx2FreqHz_.exchange(hz, std::memory_order_relaxed);
     if (prev == hz)
@@ -2621,14 +2584,11 @@ void HL2Stream::tickCapServo_(double fwdW) {
         const QString b = (nm && nm[0])
             ? QString::fromUtf8(nm) : QString::number(band);
         QSettings s;
-        s.setValue(lyra::rig::scope::rigKey(
-                       QStringLiteral("pa_gain/%1/capCeilRaw").arg(b)),
+        s.setValue(txCalKey_(QStringLiteral("pa_gain/%1/capCeilRaw").arg(b)),
                    capCeilRaw_[band].load(std::memory_order_relaxed));
-        s.setValue(lyra::rig::scope::rigKey(
-                       QStringLiteral("pa_gain/%1/capCeilCapW").arg(b)),
+        s.setValue(txCalKey_(QStringLiteral("pa_gain/%1/capCeilCapW").arg(b)),
                    capCeilCapW_[band].load(std::memory_order_relaxed));
-        s.setValue(lyra::rig::scope::rigKey(
-                       QStringLiteral("pa_gain/%1/capSettled").arg(b)),
+        s.setValue(txCalKey_(QStringLiteral("pa_gain/%1/capSettled").arg(b)),
                    capServoSettled_[band].load(std::memory_order_relaxed));
     };
 
@@ -2840,6 +2800,83 @@ void HL2Stream::setP2DrivePath(bool on) {
     }
 }
 
+QString HL2Stream::txCalKey_(const QString &logical) const {
+    if (!txCalRigId_.isEmpty())
+        return QStringLiteral("rig/%1/%2").arg(txCalRigId_, logical);
+    return lyra::rig::scope::rigKey(logical);
+}
+
+void HL2Stream::setTxCalRigId(const QString &rigId) {
+    if (txCalRigId_ == rigId)
+        return;
+    txCalRigId_ = rigId;
+    loadTxPowerCal_();
+}
+
+void HL2Stream::loadTxPowerCal_() {
+    QSettings s;
+    for (int i = 0; i < kNumPaGainBands; ++i) {
+        const char *nm = lyra::paPowerBandName(i);
+        const QString band = (nm && nm[0])
+            ? QString::fromUtf8(nm) : QString::number(i);
+        paGainByBand_[i].store(
+            s.value(txCalKey_(QStringLiteral("pa_gain/%1/gain").arg(band)),
+                    kPaGainDefault).toDouble(),
+            std::memory_order_relaxed);
+        fullOutputWByBand_[i].store(
+            s.value(txCalKey_(QStringLiteral("pa_gain/%1/fullW").arg(band)),
+                    0.0).toDouble(),
+            std::memory_order_relaxed);
+        capCeilRaw_[i].store(
+            s.value(txCalKey_(QStringLiteral("pa_gain/%1/capCeilRaw").arg(band)),
+                    -1).toInt(),
+            std::memory_order_relaxed);
+        capCeilCapW_[i].store(
+            s.value(txCalKey_(QStringLiteral("pa_gain/%1/capCeilCapW").arg(band)),
+                    -1.0).toDouble(),
+            std::memory_order_relaxed);
+        capServoSettled_[i].store(
+            s.value(txCalKey_(QStringLiteral("pa_gain/%1/capSettled").arg(band)),
+                    false).toBool(),
+            std::memory_order_relaxed);
+        pwrTrimByBand_[i].store(
+            std::clamp(s.value(txCalKey_(
+                                   QStringLiteral("meter/pwrTrim/%1").arg(i)),
+                               1.0).toDouble(), 0.1, 10.0),
+            std::memory_order_relaxed);
+        capturedRawW_[i].store(0.0, std::memory_order_relaxed);
+        capturedDrive_[i].store(0, std::memory_order_relaxed);
+    }
+    const double prevCap = maxOutputW_.load(std::memory_order_relaxed);
+    const bool prevArmed = capArmed_.load(std::memory_order_relaxed);
+    maxOutputW_.store(
+        s.value(txCalKey_(QStringLiteral("tx/maxOutputW")), 0.0).toDouble(),
+        std::memory_order_relaxed);
+    {
+        const double cap = maxOutputW_.load(std::memory_order_relaxed);
+        const QString armedKey = txCalKey_(QStringLiteral("tx/capArmed"));
+        const bool hasScoped = s.contains(armedKey);
+        const bool hasFlat = s.contains(QStringLiteral("tx/capArmed"));
+        bool armed = false;
+        if (hasScoped)
+            armed = s.value(armedKey).toBool() && cap > 0.0;
+        else if (hasFlat)
+            armed = s.value(QStringLiteral("tx/capArmed")).toBool() && cap > 0.0;
+        else
+            armed = cap > 0.0;
+        capArmed_.store(armed, std::memory_order_relaxed);
+        if (!hasScoped && cap > 0.0)
+            s.setValue(armedKey, armed);
+    }
+    const double cap = maxOutputW_.load(std::memory_order_relaxed);
+    if (cap != prevCap)
+        emit maxOutputWChanged(cap);
+    const bool armed = capArmed_.load(std::memory_order_relaxed);
+    if (armed != prevArmed)
+        emit capArmedChanged(armed);
+    applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+}
+
 void HL2Stream::pushIoboardTxFreq(bool force) {
     // Protocol 1 only.  Analog is independent of the N2ADR OC checkbox:
     // I2C2 slave 0x1D (five TX-Hz bytes) whether filters are on.
@@ -2847,11 +2884,9 @@ void HL2Stream::pushIoboardTxFreq(bool force) {
         return;
     const quint64 hz = txFreqHz_.load(std::memory_order_relaxed);
     // Always latch the wanted Hz first.  The EP2 writer retries the
-    // five-byte 0x1D burst when the I2C ring has room.  Skipping that
-    // latch because lastIoboardTxHz_ already matches leaves analog on
-    // the previous band: an earlier click can fail to enqueue (ring
-    // full of 0x20 LPF writes) while the writer still flushes the
-    // *other* band's Hz, then a return click looks like a no-op.
+    // five-byte 0x1D burst until BYTE0 is on the wire.  Marking the
+    // burst "done" at enqueue left pin 8 on the previous band (80 m
+    // stuck through a 20 m click) when the Pico had not yet latched.
     lyra::wire::request_hl2_ioboard_tx_freq(hz);
     const quint64 last = lastIoboardTxHz_.load(std::memory_order_relaxed);
     const int band = lyra::paPowerBandIndexForFreq(
@@ -2884,7 +2919,7 @@ void HL2Stream::setPaGainForBand(int idx, double gain) {
     paGainByBand_[idx].store(gain, std::memory_order_relaxed);
     const char *nm = lyra::paPowerBandName(idx);
     QSettings().setValue(
-        lyra::rig::scope::rigKey(QStringLiteral("pa_gain/%1/gain")
+        txCalKey_(QStringLiteral("pa_gain/%1/gain")
             .arg((nm && nm[0]) ? QString::fromUtf8(nm) : QString::number(idx))),
         gain);
     // Re-apply live if this is the band we're transmitting on, so the
@@ -2905,7 +2940,7 @@ void HL2Stream::setFullOutputForBand(int idx, double watts) {
     fullOutputWByBand_[idx].store(watts, std::memory_order_relaxed);
     const char *nm = lyra::paPowerBandName(idx);
     QSettings().setValue(
-        lyra::rig::scope::rigKey(QStringLiteral("pa_gain/%1/fullW")
+        txCalKey_(QStringLiteral("pa_gain/%1/fullW")
             .arg((nm && nm[0]) ? QString::fromUtf8(nm) : QString::number(idx))),
         watts);
     // Re-apply if this band is live — the watts ceiling just changed.
@@ -2919,7 +2954,7 @@ void HL2Stream::setMaxOutputW(double watts) {
     if (watts < 0.0) watts = 0.0;
     if (watts == maxOutputW_.load(std::memory_order_relaxed)) return;
     maxOutputW_.store(watts, std::memory_order_relaxed);
-    QSettings().setValue(lyra::rig::scope::rigKey(QStringLiteral("tx/maxOutputW")), watts);
+    QSettings().setValue(txCalKey_(QStringLiteral("tx/maxOutputW")), watts);
     emit maxOutputWChanged(watts);
     // Clearing the cap value disarms it — an "armed but no value" state is
     // meaningless, and re-arming after re-setting a value is one explicit
@@ -2936,7 +2971,7 @@ void HL2Stream::setCapArmed(bool on) {
     // gates the arm control, but keep the invariant here too).
     if (on && maxOutputW_.load(std::memory_order_relaxed) <= 0.0) return;
     capArmed_.store(on, std::memory_order_relaxed);
-    QSettings().setValue(QStringLiteral("tx/capArmed"), on);
+    QSettings().setValue(txCalKey_(QStringLiteral("tx/capArmed")), on);
     emit capArmedChanged(on);
     // The effective ceiling just changed — re-apply on the live band.
     applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
@@ -2961,12 +2996,9 @@ void HL2Stream::clearCapLearnForBand(int idx) {
     const QString b = (nm && nm[0])
         ? QString::fromUtf8(nm) : QString::number(idx);
     QSettings s;
-    s.setValue(lyra::rig::scope::rigKey(
-                   QStringLiteral("pa_gain/%1/capCeilRaw").arg(b)), -1);
-    s.setValue(lyra::rig::scope::rigKey(
-                   QStringLiteral("pa_gain/%1/capCeilCapW").arg(b)), -1.0);
-    s.setValue(lyra::rig::scope::rigKey(
-                   QStringLiteral("pa_gain/%1/capSettled").arg(b)), false);
+    s.setValue(txCalKey_(QStringLiteral("pa_gain/%1/capCeilRaw").arg(b)), -1);
+    s.setValue(txCalKey_(QStringLiteral("pa_gain/%1/capCeilCapW").arg(b)), -1.0);
+    s.setValue(txCalKey_(QStringLiteral("pa_gain/%1/capSettled").arg(b)), false);
     // Re-apply if this band is live so a stale locked ceiling stops biting now.
     const int cur = lyra::paPowerBandIndexForFreq(
         ddsHzForRf(txFreqHz_.load(std::memory_order_relaxed)));
@@ -3284,6 +3316,8 @@ void HL2Stream::setTuneEnabled(bool on) {
     // self-wired safety.
     if (on && twoToneEnabled_.load(std::memory_order_relaxed))
         setTwoToneEnabled(false);
+    if (on && noiseEnabled_.load(std::memory_order_relaxed))
+        setNoiseEnabled(false);
     const bool prev = tuneEnabled_.exchange(on, std::memory_order_relaxed);
     if (prev == on) return;
     // Forward to the registered postgen callback (no-op if TX control
@@ -3357,6 +3391,8 @@ void HL2Stream::setTuneEnabled(bool on) {
 void HL2Stream::setTwoToneEnabled(bool on) {
     if (on && tuneEnabled_.load(std::memory_order_relaxed))
         setTuneEnabled(false);
+    if (on && noiseEnabled_.load(std::memory_order_relaxed))
+        setNoiseEnabled(false);
 
     const bool prev = twoToneEnabled_.exchange(on, std::memory_order_relaxed);
     if (prev == on) return;
@@ -3368,6 +3404,39 @@ void HL2Stream::setTwoToneEnabled(bool on) {
     }
     if (fwd) fwd(on);
     emit twoToneEnabledChanged(on);
+}
+
+void HL2Stream::setNoiseEnabled(bool on) {
+    if (on && tuneEnabled_.load(std::memory_order_relaxed))
+        setTuneEnabled(false);
+    if (on && twoToneEnabled_.load(std::memory_order_relaxed))
+        setTwoToneEnabled(false);
+
+    const bool prev = noiseEnabled_.exchange(on, std::memory_order_relaxed);
+    if (prev == on) return;
+    pushCalNoise();
+    emit noiseEnabledChanged(on);
+}
+
+void HL2Stream::setPsNoiseLevelDb(int db) {
+    db = std::clamp(db, -12, 3);
+    if (psNoiseLevelDb_ == db) return;
+    psNoiseLevelDb_ = db;
+    QSettings().setValue(QStringLiteral("tx/psNoiseLevelDb"), db);
+    emit psNoiseLevelDbChanged(db);
+    if (noiseEnabled_.load(std::memory_order_relaxed))
+        pushCalNoise();
+}
+
+void HL2Stream::pushCalNoise() {
+    std::function<void(bool, double)> fwd;
+    {
+        std::lock_guard<std::mutex> lk(txControlMtx_);
+        fwd = txControl_.setCalNoise;
+    }
+    if (!fwd) return;
+    const double mag = std::pow(10.0, 0.05 * static_cast<double>(psNoiseLevelDb_));
+    fwd(noiseEnabled_.load(std::memory_order_relaxed), mag);
 }
 
 void HL2Stream::setPsAttestation(bool on) {
@@ -3960,6 +4029,7 @@ void HL2Stream::fsmAdvance() {
         // front end 31 dB hotter than the reference in the one state
         // an operator would least expect it.  See kAttOnTxDisabledDb.
         setTxStepAttnDb(attOnTxEnabled_ ? attOnTxDb_ : kAttOnTxDisabledDb);
+        applyRx2GroundBit(/*transmitting=*/true);
         // Switch the OC pattern to the TX-side per-band bits FIRST so
         // the external filter board's relays have the mox_delay window
         // (~15 ms) to settle into TX configuration before the MOX bit
@@ -4206,6 +4276,7 @@ void HL2Stream::fsmKeyupSettled() {
     // Restore the operator's pre-keydown step-att (today always 0;
     // forward-compat for a future operator-tunable RX step-att).
     setTxStepAttnDb(savedTxStepAttn_);
+    applyRx2GroundBit(/*transmitting=*/false);
     // Switch the OC pattern back to the RX-side per-band bits.  This
     // happens AFTER the wire MOX bit has cleared (in fsmKeyupTxOff per
     // the §15.25 corrected order) AND ptt_out_delay has elapsed — so
@@ -4635,6 +4706,24 @@ void HL2Stream::setAttOnTxEnabled(bool on) {
                                        "disabled branch is still max "
                                        "attenuation, not unprotected)")
                             .arg(kAttOnTxDisabledDb)));
+}
+
+void HL2Stream::applyRx2GroundBit(bool transmitting) {
+    const bool gnd = dualAdc() && rx2GroundOnTx_ && transmitting;
+    if (lyra::wire::prbpfilter2)
+        lyra::wire::prbpfilter2->_rx2_gnd = gnd ? 1 : 0;
+}
+
+void HL2Stream::setRx2GroundOnTx(bool on) {
+    if (on == rx2GroundOnTx_) return;
+    rx2GroundOnTx_ = on;
+    QSettings().setValue(QStringLiteral("tx/rx2GroundOnTx"), on);
+    emit rx2GroundOnTxChanged(on);
+    applyRx2GroundBit(mox_.load(std::memory_order_relaxed)
+                      || requestedMox_);
+    safetyLog(QStringLiteral("TX: RX2 jack isolate -> %1")
+              .arg(on ? QStringLiteral("ON (ground while keyed)")
+                      : QStringLiteral("off")));
 }
 
 // #94 External TX Inhibit — hard operator lockout of all keying.  Gated at
@@ -5323,6 +5412,10 @@ void HL2Stream::registerTxControl(TxControl ctl) {
         ctcssFreq        = ctcssToneHz_;
         ctcssOn          = ctcssEnabled_ && (m == 5);
     }
+    // A channel that opens while the noise stimulus is already armed
+    // must pick the generator back up.  Normal starts are disarmed.
+    if (noiseEnabled_.load(std::memory_order_relaxed))
+        pushCalNoise();
     if (pushMic)          pushMic(micGainDb_);
     if (pushAlc)          pushAlc(alcMaxGainLinear_);
     if (pushAlcDecay)     pushAlcDecay(alcDecayMs_);

@@ -124,12 +124,18 @@ namespace {
 
 std::recursive_mutex g_i2c_mu;
 std::atomic<std::uint64_t> g_ioboard_want{0};
+std::atomic<std::uint64_t> g_ioboard_queued{~std::uint64_t{0}};
 std::atomic<std::uint64_t> g_ioboard_sent{~std::uint64_t{0}};
 
 // HL2 I2C2 (C0 command 0x3d).  Filter chip 0x20 and analog slave 0x1D
 // share this bus — I2C1 (0x3c) never reaches the IO board.
 constexpr unsigned char kI2cBusIoboard = 1;
 constexpr unsigned char kIoboardSlave  = 0x1D;
+
+bool is_ioboard_analog_entry(const I2cState::I2cQueueEntry& e)
+{
+    return e.bus == kI2cBusIoboard && e.address == kIoboardSlave;
+}
 
 bool enqueue_i2c_write_unlocked(unsigned char bus, unsigned char address,
                                 unsigned char control,
@@ -160,10 +166,40 @@ int i2c_free_unlocked()
     return kMaxI2cQueue - 1 - used;
 }
 
+// Pull any pending 0x1D analog bytes out of the ring.  The Pico latches
+// PWM on register 4 (BYTE0).  Two TX-Hz bursts in the ring (80 m then
+// 20 m) can mix registers so BYTE0 never matches the frequency the
+// operator just clicked — pin 8 stays on the previous band.
+void drop_pending_ioboard_unlocked()
+{
+    if (prn == nullptr)
+        return;
+    I2cState::I2cQueueEntry keep[kMaxI2cQueue];
+    int n = 0;
+    unsigned char idx = prn->i2c.out_index;
+    while (idx != prn->i2c.in_index) {
+        const unsigned char next =
+            static_cast<unsigned char>((idx + 1) % kMaxI2cQueue);
+        const auto& e = prn->i2c.i2c_queue[next];
+        if (!is_ioboard_analog_entry(e))
+            keep[n++] = e;
+        idx = next;
+    }
+    idx = prn->i2c.out_index;
+    for (int i = 0; i < n; ++i) {
+        idx = static_cast<unsigned char>((idx + 1) % kMaxI2cQueue);
+        prn->i2c.i2c_queue[idx] = keep[i];
+    }
+    prn->i2c.in_index = idx;
+    g_ioboard_queued.store(g_ioboard_sent.load(std::memory_order_relaxed),
+                           std::memory_order_relaxed);
+}
+
 bool enqueue_hl2_ioboard_tx_freq_unlocked(std::uint64_t hz)
 {
     if (prn == nullptr)
         return false;
+    drop_pending_ioboard_unlocked();
     if (i2c_free_unlocked() < 5)
         return false;
     unsigned char b[5];
@@ -175,17 +211,22 @@ bool enqueue_hl2_ioboard_tx_freq_unlocked(std::uint64_t hz)
                                         b[reg]))
             return false;
     }
+    g_ioboard_queued.store(hz, std::memory_order_relaxed);
     return true;
 }
 
 void flush_ioboard_want_unlocked()
 {
     const std::uint64_t want = g_ioboard_want.load(std::memory_order_relaxed);
-    if (want == g_ioboard_sent.load(std::memory_order_relaxed))
+    const std::uint64_t queued =
+        g_ioboard_queued.load(std::memory_order_relaxed);
+    const std::uint64_t sent =
+        g_ioboard_sent.load(std::memory_order_relaxed);
+    // queued == want: a complete 5-byte burst is already draining.
+    // sent == want: BYTE0 already went on the wire for this Hz.
+    if (want == queued || want == sent)
         return;
-    if (!enqueue_hl2_ioboard_tx_freq_unlocked(want))
-        return;
-    g_ioboard_sent.store(want, std::memory_order_relaxed);
+    enqueue_hl2_ioboard_tx_freq_unlocked(want);
 }
 
 }  // namespace
@@ -201,10 +242,7 @@ bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz)
 {
     std::lock_guard<std::recursive_mutex> lk(g_i2c_mu);
     g_ioboard_want.store(hz, std::memory_order_relaxed);
-    if (!enqueue_hl2_ioboard_tx_freq_unlocked(hz))
-        return false;
-    g_ioboard_sent.store(hz, std::memory_order_relaxed);
-    return true;
+    return enqueue_hl2_ioboard_tx_freq_unlocked(hz);
 }
 
 void request_hl2_ioboard_tx_freq(std::uint64_t hz)
@@ -1052,6 +1090,17 @@ void write_main_loop_hl2(const char* out_bufp) {
 
                 // Advance queue out-index
                 prn->i2c.out_index = next;
+
+                const auto& ov = prn->i2c.i2c_queue[next];
+                if (is_ioboard_analog_entry(ov)) {
+                    // Keep BYTE4..BYTE1 back-to-back; BYTE0 latches PWM.
+                    prn->i2c.delay = (ov.control < 4) ? 0 : 5;
+                    if (ov.control == 4) {
+                        g_ioboard_sent.store(
+                            g_ioboard_queued.load(std::memory_order_relaxed),
+                            std::memory_order_relaxed);
+                    }
+                }
 
                 // NB: I2C-overlay frames do NOT advance g_out_control_idx.
             }

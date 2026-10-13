@@ -58,6 +58,7 @@ void ivacTerminatePortAudio();// #158 DL-1 — PortAudio process shutdown (wire/
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <optional>
@@ -90,6 +91,144 @@ namespace {
 // fix the actual wedge.  Once root cause is fixed, this watchdog stays
 // as belt-and-suspenders against future regressions.
 std::atomic<bool> g_shutdown_complete{false};
+
+// PureSignal voice stimulus.  Flat noise is generated across the whole
+// input rate, then the transmit filter keeps only the passband, so most
+// of the power never leaves the radio.  This shaper puts the energy
+// where a male voice sits (chest and vowels under 1 kHz, consonants
+// falling through 3 kHz) and scales the block to the operator level.
+// The pre-generator stays off: it would replace this buffer with flat
+// noise.  One pump thread owns the filter state.
+std::atomic<int>    g_calNoiseOn{0};
+std::atomic<double> g_calNoiseMag{1.0};
+
+struct CalBiquad {
+    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
+    double z1 = 0, z2 = 0;
+    void reset() { z1 = z2 = 0; }
+    double tick(double x) {
+        const double y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        return y;
+    }
+};
+
+void designHighpass(CalBiquad& b, double fs, double f, double q) {
+    const double w0 = 6.283185307179586 * f / fs;
+    const double cw = std::cos(w0);
+    const double sw = std::sin(w0);
+    const double alpha = sw / (2.0 * q);
+    const double a0 = 1.0 + alpha;
+    const double onePlus = 1.0 + cw;
+    b.b0 = (onePlus / 2.0) / a0;
+    b.b1 = -onePlus / a0;
+    b.b2 = (onePlus / 2.0) / a0;
+    b.a1 = (-2.0 * cw) / a0;
+    b.a2 = (1.0 - alpha) / a0;
+}
+
+void designLowpass(CalBiquad& b, double fs, double f, double q) {
+    const double w0 = 6.283185307179586 * f / fs;
+    const double cw = std::cos(w0);
+    const double sw = std::sin(w0);
+    const double alpha = sw / (2.0 * q);
+    const double a0 = 1.0 + alpha;
+    const double oneMinus = 1.0 - cw;
+    b.b0 = (oneMinus / 2.0) / a0;
+    b.b1 = oneMinus / a0;
+    b.b2 = (oneMinus / 2.0) / a0;
+    b.a1 = (-2.0 * cw) / a0;
+    b.a2 = (1.0 - alpha) / a0;
+}
+
+// Low shelf, S = 1.  Positive dB lifts everything below the corner.
+void designLowShelf(CalBiquad& b, double fs, double f, double dB) {
+    const double A = std::pow(10.0, dB / 40.0);
+    const double w0 = 6.283185307179586 * f / fs;
+    const double cw = std::cos(w0);
+    const double sw = std::sin(w0);
+    const double alpha = sw / 2.0 * std::sqrt(2.0);
+    const double twoRootA = 2.0 * std::sqrt(A) * alpha;
+    const double a0 = (A + 1.0) + (A - 1.0) * cw + twoRootA;
+    b.b0 = (A * ((A + 1.0) - (A - 1.0) * cw + twoRootA)) / a0;
+    b.b1 = (2.0 * A * ((A - 1.0) - (A + 1.0) * cw)) / a0;
+    b.b2 = (A * ((A + 1.0) - (A - 1.0) * cw - twoRootA)) / a0;
+    b.a1 = (-2.0 * ((A - 1.0) + (A + 1.0) * cw)) / a0;
+    b.a2 = ((A + 1.0) + (A - 1.0) * cw - twoRootA) / a0;
+}
+
+void fillCalVoice(int nsamples, double* buff, int rate) {
+    if (!buff || nsamples <= 0)
+        return;
+    const int on = g_calNoiseOn.load(std::memory_order_acquire);
+    static int was = 0;
+    static int cachedRate = 0;
+    static bool haveSpare = false;
+    static double spare = 0;
+    static uint32_t rng = 0x6a09e667u;
+    static CalBiquad hp, lp, shelf;
+    static double gSmooth = 0;
+    if (!on) {
+        was = 0;
+        return;
+    }
+    if (rate < 8000)
+        rate = 48000;
+    if (!was || rate != cachedRate) {
+        designHighpass(hp, rate, 120.0, 0.707);
+        designLowpass(lp, rate, 2800.0, 0.707);
+        designLowShelf(shelf, rate, 500.0, 6.0);
+        hp.reset();
+        lp.reset();
+        shelf.reset();
+        haveSpare = false;
+        gSmooth = 0;
+        cachedRate = rate;
+        was = 1;
+    }
+    auto nextGauss = []() -> double {
+        if (haveSpare) {
+            haveSpare = false;
+            return spare;
+        }
+        rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+        const double u1 = ((rng & 0xFFFFFFu) + 1u) / 16777217.0;
+        rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+        const double u2 = ((rng & 0xFFFFFFu) + 1u) / 16777217.0;
+        const double radius = std::sqrt(-2.0 * std::log(u1));
+        const double theta = 6.283185307179586 * u2;
+        spare = radius * std::sin(theta);
+        haveSpare = true;
+        return radius * std::cos(theta);
+    };
+    double sumsq = 0;
+    for (int i = 0; i < nsamples; ++i) {
+        double x = nextGauss();
+        x = hp.tick(x);
+        x = shelf.tick(x);
+        x = lp.tick(x);
+        buff[2 * i]     = x;
+        buff[2 * i + 1] = 0.0;
+        sumsq += x * x;
+    }
+    const double rms = std::sqrt(sumsq / static_cast<double>(nsamples));
+    const double mag = g_calNoiseMag.load(std::memory_order_relaxed);
+    const double target = 0.50 * mag;
+    double gWant = (rms > 1e-8) ? (target / rms) : 0.0;
+    if (gWant > 4.0)
+        gWant = 4.0;
+    if (gSmooth <= 0.0)
+        gSmooth = gWant;
+    else
+        gSmooth += 0.35 * (gWant - gSmooth);
+    for (int i = 0; i < nsamples; ++i) {
+        double y = buff[2 * i] * gSmooth;
+        if (y > 0.98) y = 0.98;
+        else if (y < -0.98) y = -0.98;
+        buff[2 * i] = y;
+    }
+}
 }  // namespace
 
 #include <QCoreApplication>
@@ -624,6 +763,7 @@ int main(int argc, char *argv[])
     // constructed (MainWindow) — its ctor publishes the live engine, its
     // dtor clears it; the cb null-checks, so registration order is safe.
     lyra::wire::SendpTxEqProcessor(&lyra::ui::EqModel::txProcessCb);
+    lyra::wire::SendpTxCalNoise(&fillCalVoice);
 
     // #88 native speech rack (Auto-AGC + De-esser): register before the EQ
     // in the mic chain.  Same no-op-until-constructed safety as the EQ hook.
@@ -853,6 +993,11 @@ int main(int argc, char *argv[])
                      wdspEngine, [stream, wdspEngine]() {
                          wdspEngine->setSubEnabled(stream->subEnabled());
                      });
+    QObject::connect(stream, &lyra::ipc::HL2Stream::dualAdcChanged,
+                     wdspEngine, [stream, wdspEngine]() {
+                         wdspEngine->setRx2SpectrumWanted(stream->dualAdc());
+                     });
+    wdspEngine->setRx2SpectrumWanted(stream->dualAdc());
 
     // #158 DL-4 — mute RX out of the VAC mixer during TX (reference
     // SetIVACmox what-flag gating; RX→VAC silent on the air, the no-feedback
@@ -1884,6 +2029,20 @@ int main(int argc, char *argv[])
                         } else {
                             lyra::wire::SetTXAPostGenRun(txch, 0);
                         }
+                    },
+                    // Male-voice shaped noise, injected on the mic buffer.
+                    // Magnitude is already linear (−12..+3 dB).  The
+                    // pre-generator stays off so it cannot replace the
+                    // shaped samples with flat noise.
+                    .setCalNoise = [txch](bool on, double mag) {
+                        g_calNoiseMag.store(mag, std::memory_order_relaxed);
+                        g_calNoiseOn.store(on ? 1 : 0, std::memory_order_release);
+                        if (lyra::wire::SetTXAPreGenRun)
+                            lyra::wire::SetTXAPreGenRun(txch, 0);
+                        if (on && lyra::wire::SetTXAPostGenRun)
+                            lyra::wire::SetTXAPostGenRun(txch, 0);
+                        qInfo("[tx] cal-noise voice: %s mag=%.4f",
+                              on ? "on" : "off", mag);
                     },
                     .setPhrotRun = [txch](bool on) {   // #109 phase rotator
                         if (lyra::wire::SetTXAPHROTRun)

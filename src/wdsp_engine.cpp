@@ -185,7 +185,8 @@ constexpr double kAgcFixedGainDb   = 20.0;
 // fft - feed-block so one FFT advances per IQ feed (smooth).  Detector
 // peak + recursive time-average for a stable display.  All tunable on
 // the bench.
-constexpr int    kAnDisp        = 0;       // analyzer id (RX1)
+constexpr int    kAnDisp        = 0;       // analyzer id (RX1; borrowed while transmitting)
+constexpr int    kAnDispRx2     = 2;       // second receiver. Id 1 is the transmit display.
 constexpr int    kAnMaxFft      = 32768;   // max fft (must be >= max_w)
 constexpr int    kAnFftSize     = 4096;
 // Full FFT resolution out of the analyzer (1 pixel per bin) so the
@@ -831,6 +832,105 @@ void WdspEngine::configureAnalyzerForRx_locked() noexcept
             api.SetDisplayNumAverage(kAnDisp, 0, numAvg);
         }
     }
+}
+
+void WdspEngine::configureRx2Analyzer_locked() noexcept
+{
+    // PRECONDITION: analyzerMtx_ held. The second analyzer is already
+    // created. Does not write the transmit block size and does not
+    // look at the first analyzer's open flag.
+    if (!wdsp_) return;
+    const WdspApi &api = wdsp_->api();
+    if (!api.SetAnalyzer) return;
+
+    const int overlap =
+        std::max(0, kAnFftSize - cfg_.inRate / kAnFrameRate);
+    const int maxW = kAnFftSize +
+        std::min(cfg_.inRate / 10, kAnFftSize * kAnFrameRate / 10);
+    int flp[1] = {0};
+    api.SetAnalyzer(
+        kAnDispRx2,
+        1, 1, 1, flp,
+        kAnFftSize,
+        cfg_.inSize,
+        kAnWindow,
+        kAnKaiserPi,
+        overlap,
+        0,
+        0.0, 0.0,
+        kAnPixels,
+        1, 0,
+        0.0, 0.0,
+        maxW);
+    if (api.SetDisplaySampleRate)
+        api.SetDisplaySampleRate(kAnDispRx2, cfg_.inRate);
+    if (api.SetDisplayDetectorMode)
+        api.SetDisplayDetectorMode(kAnDispRx2, 0, kAnDetector);
+    if (api.SetDisplayAverageMode)
+        api.SetDisplayAverageMode(kAnDispRx2, 0, kAnAvgMode);
+    if (kAnAvgMode != 0) {
+        const double avb =
+            std::exp(-1.0 / (kAnFrameRate * kAnTau));
+        const int numAvg = std::max(2,
+            std::min(60, static_cast<int>(kAnFrameRate * kAnTau)));
+        if (api.SetDisplayAvBackmult)
+            api.SetDisplayAvBackmult(kAnDispRx2, 0, avb);
+        if (api.SetDisplayNumAverage)
+            api.SetDisplayNumAverage(kAnDispRx2, 0, numAvg);
+    }
+}
+
+void WdspEngine::openRx2Analyzer()
+{
+    if (rx2AnalyzerOpen_.load(std::memory_order_acquire))
+        return;
+    if (!rx2SpectrumWanted_.load(std::memory_order_acquire))
+        return;
+    if (!wdsp_)
+        return;
+    const WdspApi &api = wdsp_->api();
+    if (!api.XCreateAnalyzer || !api.SetAnalyzer)
+        return;
+
+    std::lock_guard<std::mutex> lk(analyzerMtx_);
+    if (rx2AnalyzerOpen_.load(std::memory_order_relaxed))
+        return;
+    int success = -1;
+    char appDataPath[] = "";
+    api.XCreateAnalyzer(kAnDispRx2, &success, kAnMaxFft, 1, 1, appDataPath);
+    if (success != 0) {
+        qWarning("[wdsp] RX2 spectrum analyzer create failed (%d)", success);
+        return;
+    }
+    configureRx2Analyzer_locked();
+    rx2AnalyzerOpen_.store(true, std::memory_order_release);
+    qInfo("[wdsp] RX2 spectrum analyzer open");
+}
+
+void WdspEngine::closeRx2Analyzer()
+{
+    if (!rx2AnalyzerOpen_.exchange(false, std::memory_order_acq_rel))
+        return;
+    if (!wdsp_)
+        return;
+    const WdspApi &api = wdsp_->api();
+    std::lock_guard<std::mutex> lk(analyzerMtx_);
+    if (api.DestroyAnalyzer)
+        api.DestroyAnalyzer(kAnDispRx2);
+    specCacheRx2_.clear();
+}
+
+void WdspEngine::feedRx2Spectrum(double *block) noexcept
+{
+    if (!block)
+        return;
+    if (!rx2AnalyzerOpen_.load(std::memory_order_acquire))
+        return;
+    if (!wdsp_)
+        return;
+    const WdspApi &api = wdsp_->api();
+    if (api.Spectrum0)
+        api.Spectrum0(1, kAnDispRx2, 0, 0, block);
 }
 
 void WdspEngine::configureAnalyzerForTx() noexcept
@@ -2855,6 +2955,42 @@ int WdspEngine::copySpectrum(float *dst, int maxN)
     return n;
 }
 
+int WdspEngine::copySpectrumRx2(float *dst, int maxN)
+{
+    // Full converter span. No zoom crop and no tune-carrier shift —
+    // those belong to the first receiver's panadapter.
+    if (!dst || !wdsp_)
+        return 0;
+    const WdspApi &api = wdsp_->api();
+    if (!api.GetPixels)
+        return 0;
+    const int n = std::min(maxN, kAnPixels);
+    if (n <= 0)
+        return 0;
+    {
+        std::unique_lock<std::mutex> lk(analyzerMtx_, std::try_to_lock);
+        if (lk.owns_lock()) {
+            if (!rx2AnalyzerOpen_.load(std::memory_order_acquire))
+                return 0;
+            if (static_cast<int>(specCacheRx2_.size()) != kAnPixels)
+                specCacheRx2_.assign(kAnPixels, -200.0f);
+            int flag = 0;
+            double ref = 0.0;
+            api.GetPixels(kAnDispRx2, 0, specCacheRx2_.data(), &flag, &ref);
+        }
+    }
+    if (static_cast<int>(specCacheRx2_.size()) < n)
+        return 0;
+    std::memcpy(dst, specCacheRx2_.data(),
+                static_cast<size_t>(n) * sizeof(float));
+    const float cal = static_cast<float>(
+        rxDisplayCalibrationDb_.load(std::memory_order_relaxed));
+    if (cal != 0.0f)
+        for (int i = 0; i < n; ++i)
+            dst[i] += cal;
+    return n;
+}
+
 // §15.29 C1 — waterfall-specific spectrum read.  Mirrors copySpectrum's
 // pattern (caching, zoom crop, dual-consumer ready-flag handling) but
 // reads pixout=1 (waterfall) during TX state — where configureAnalyzerForTx
@@ -2966,6 +3102,16 @@ bool WdspEngine::startAudio()
         audioSink_->setBufferSize(
             cfg_.outRate * kSinkBufferMs / 1000 * 2 *
             static_cast<int>(sizeof(qint16)));
+        // WASAPI session / Windows per-app mixer. Separate from Lyra Vol
+        // and AF (those live in audio/volume). A new QAudioSink otherwise
+        // opens at 1.0 every Stop/Start or relaunch.
+        {
+            const double osVol = std::clamp(
+                QSettings().value(QStringLiteral("audio/sinkVolume"), 1.0)
+                    .toDouble(),
+                0.0, 1.0);
+            audioSink_->setVolume(osVol);
+        }
         audioSink_->start(audioRing_);   // pull mode
     }
 
@@ -2983,6 +3129,8 @@ void WdspEngine::stopAudio()
     // we delete the ring; audioMtx_ blocks the RX worker's push().
     std::lock_guard<std::mutex> lk(audioMtx_);
     if (audioSink_) {
+        QSettings().setValue(QStringLiteral("audio/sinkVolume"),
+                             audioSink_->volume());
         audioSink_->stop();
         delete audioSink_;
         audioSink_ = nullptr;

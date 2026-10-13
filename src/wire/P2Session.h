@@ -171,9 +171,14 @@ public:
     // if the session is open).  Source defaults to ADC1 and is selectable.
     void enableDdc(int ddc, quint16 rateKhz);
     void disableDdc(int ddc);
-    // SUB on Hermes/Brick2: enable DDC1 only (radio source UDP 1036).
-    // Do not shotgun DDC2/DDC3 — those are PS-reserved on this family,
-    // and dest-port listeners on 1036–1038 stole DDC0 (14:15 bench).
+    // Two-ADC profiles (angeliaRxDdcSlots): RX1 is DDC2 / UDP 1037 on
+    // ADC 0, RX2 is DDC3 / UDP 1038 on ADC 1. One-ADC profiles stay on
+    // DDC0 / DDC1 (UDP 1035 / 1036). Firewall punches are outbound
+    // writes, never dest-port listeners.
+    bool angeliaRxSlots() const;
+    int rx1DdcIndex() const;
+    int rx2DdcIndex() const;
+    void enablePrimaryRx(quint16 rateKhz);
     void armSubSecondaryDdcs(quint16 rateKhz, quint32 freqHz);
     void disarmSubSecondaryDdcs();
     bool shouldFeedRx2(int ddc);
@@ -209,6 +214,7 @@ public:
     // is not mutated. Protection is active only while the safety gate
     // authorises transmit WITH PA enabled.
     void setAttOnTx(bool enabled, int db);
+    void setRx2GroundOnTx(bool on);
     // P7 scaffold: DeskHPSDR generic P2 PS (ALEX_PS_BIT + DDC0/DDC1 lock).
     void setPureSignalArmed(bool on);
     void setTxProducerSink(P2TxPump::InputSink sink) {
@@ -388,6 +394,7 @@ private:
     bool         warnedNoDdc1Iq_ = false;   // SUB on, DDC0 flowing, DDC1 silent
     int          subIqLatchDdc_ = -1;       // 1 once a real src-1036 frame feeds RX2
     bool         ddc1IqOkLogged_ = false;   // one-shot once DDC1 pkt/s > 0
+    bool         rx1PortLogged_ = false;   // one-shot RX1 source port
     int          ddc1IqLogLeft_  = 0;       // 1 s DDC0/DDC1 reports while silent
     int          unmatchedIqLogLeft_ = 0;   // radio UDP that is not 1444@1035+
     // S2a mic-receive diagnostic (radio->host front-panel mic, port 1026).
@@ -437,6 +444,7 @@ private:
     int          psFeedbackAttnDb_ = 0;
     bool         attOnTxEnabled_ = true;
     int          attOnTxDb_      = 31;
+    bool         rx2GroundOnTx_  = true;
     bool         psArmed_{false};
     // SUB audio from DDC1 — independent of enableDdc(1) for PS replica.
     bool         subRx2Wanted_{false};

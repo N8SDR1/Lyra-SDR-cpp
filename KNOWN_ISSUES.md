@@ -6,7 +6,7 @@ for the Hermes Lite 2 / 2+ (Protocol 1) and **BrickSDR2 / Brick3SDR** (Protocol 
 expectations so you know what's a real bug versus a feature that simply
 hasn't landed yet. (Pin or link this in Discord.)
 
-Current tree: **v0.25.16 Sheliak** (Brick3 Beta Testing). Always grab the latest from the
+Current tree: **v0.25.18 Sheliak** (analog latch · RX2 jack isolate). Always grab the latest from the
 [Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases).
 
 > **What already works** (so you don't wonder): full RX DSP, and **transmit
@@ -40,11 +40,17 @@ These are on the roadmap, not broken:
   mod, or dummy-load drive of only 2–3 W, often shows **FB ≈ 0**. Raise
   drive (typically ~5–8 W on a bare HL2) and attest in Settings → TX.
   SUB is paused while MOX+PS is live (preference is not wiped).
-* **Cross-band SUB is much weaker** (HL2 and BrickSDR2). One ADC and
-  one analog filter. With an N2ADR / filter board on, OC follows
+* **Cross-band SUB is much weaker** (HL2, BrickSDR2, ANAN-10 / 100). One
+  ADC and one analog filter. With an N2ADR / filter board on, OC follows
   **RX1** — RX2 on another amateur band sits behind that LPF/BPF.
   Same-band dual watch is full strength. The status log notes the
-  drop once when the two ham bands differ.
+  drop once when the two ham bands differ. **Brick3SDR / ANAN-100D /
+  200D** have two converters — SUB opens a **second panadapter**; that
+  path is not LPF-starved the same way. **Diversity** is not in this
+  release.
+* **Windows mixer vs Lyra Volume.** The system mixer slider for Lyra is
+  remembered across Stop / Start. **Vol** / **AF** in the app are
+  separate. If one is quiet and the other is loud, check both.
 * **First launch is slow / unresponsive for a minute.** Lyra does a one-time
   FFT optimization tuned to your CPU and caches it; later launches are fast.
   (If you change processors, **Settings → Backup & Restore → Rebuild FFT

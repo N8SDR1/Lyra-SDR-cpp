@@ -8,7 +8,7 @@ import QtQuick.Layouts
 
 Rectangle {
     id: root
-    implicitHeight: 72
+    implicitHeight: 44
     implicitWidth: 900
     color: "#101820"
     border.color: "#2a4a5a"
@@ -49,7 +49,10 @@ Rectangle {
     RowLayout {
         id: body
         anchors.fill: parent
-        anchors.margins: 8
+        anchors.leftMargin: 8
+        anchors.topMargin: 8
+        anchors.bottomMargin: 8
+        anchors.rightMargin: 18
         spacing: 10
 
         Label {
@@ -128,6 +131,58 @@ Rectangle {
             ToolTip.visible: hovered && Prefs.tooltipsEnabled
         }
 
+        Button {
+            id: noiseBtn
+            focusPolicy: Qt.NoFocus
+            implicitWidth: 72
+            implicitHeight: 26
+            text: qsTr("Voice")
+            font.bold: true
+            font.pixelSize: 12
+            enabled: Stream.psAttestation && root.liveOn
+                     && (!Stream.tuneEnabled || Stream.noiseEnabled)
+            onClicked: {
+                if (!Stream.noiseEnabled) {
+                    Stream.setNoiseEnabled(true)
+                    Stream.requestMox(true)
+                } else {
+                    Stream.requestMox(false)
+                    Stream.setNoiseEnabled(false)
+                }
+            }
+            background: Rectangle {
+                radius: 4
+                color: Stream.noiseEnabled ? "#103038" : "#161e28"
+                border.color: Stream.noiseEnabled ? "#2ec4d4" : "#2a3a4a"
+                border.width: 2
+            }
+            contentItem: Text {
+                text: noiseBtn.text
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                color: Stream.noiseEnabled ? "#2ec4d4" : root.cText
+                font: noiseBtn.font
+            }
+            ToolTip.text: qsTr("Male-voice shaped noise for PureSignal. Most energy about 300 Hz to 1 kHz, consonants through 3 kHz. Dummy load. Short tests.")
+            ToolTip.delay: 800
+            ToolTip.visible: hovered && Prefs.tooltipsEnabled
+        }
+
+        LyraSpinBox {
+            id: noiseDb
+            from: -12
+            to: 3
+            stepSize: 1
+            editable: true
+            value: Stream.psNoiseLevelDb
+            implicitWidth: 72
+            enabled: Stream.psAttestation && root.liveOn
+            onValueModified: Stream.psNoiseLevelDb = value
+            ToolTip.text: qsTr("Voice-noise level, dB. −12 is quiet. +3 is the top. Shaped like a male voice. The TX filter still sets the width, so the wattmeter stays under a full tune carrier.")
+            ToolTip.delay: 800
+            ToolTip.visible: hovered && Prefs.tooltipsEnabled
+        }
+
         Rectangle {
             id: attChip
             implicitHeight: 26
@@ -172,26 +227,6 @@ Rectangle {
             ToolTip.visible: fbHover.hovered && Prefs.tooltipsEnabled
         }
 
-        Label {
-            Layout.fillWidth: true
-            text: {
-                var d0s = Stream.psFeedSpr <= 0 ? "n/a"
-                          : (Stream.psDdc0Dbfs <= -999 ? "n/a"
-                             : (Stream.psDdc0Dbfs + " dB"))
-                var d1s = Stream.psFeedSpr <= 0 ? "n/a"
-                          : (Stream.psDdc1Dbfs <= -999 ? "n/a"
-                             : (Stream.psDdc1Dbfs + " dB"))
-                return qsTr("st %1  cal %2  %3    D0 %4  D1 %5  in %6")
-                    .arg(Stream.psFsmState)
-                    .arg(Stream.psCalCount)
-                    .arg(Stream.psCorrecting ? qsTr("correcting") : qsTr("idle"))
-                    .arg(d0s).arg(d1s).arg(Stream.psFeedSpr)
-            }
-            color: Stream.moxActive && root.liveOn ? root.cText : root.cMuted
-            font.pixelSize: 12
-            elide: Text.ElideRight
-        }
-
         Button {
             id: resetBtn
             focusPolicy: Qt.NoFocus
@@ -214,7 +249,7 @@ Rectangle {
                 color: root.cText
                 font: resetBtn.font
             }
-            ToolTip.text: qsTr("Restart the calibrator. Works in RX and in TX. st / cal / correcting and the Amp View graph clear until a new collection. The ATT pad is left as-is. FB is a live coupler reading — ~0 in RX, back if you are still keyed.")
+            ToolTip.text: qsTr("Restart the calibrator. Works in RX and in TX. Amp View clears until a new collection. The ATT pad is left as-is. FB is a live coupler reading — ~0 in RX, back if you are still keyed.")
             ToolTip.delay: 800
             ToolTip.visible: hovered && Prefs.tooltipsEnabled
         }

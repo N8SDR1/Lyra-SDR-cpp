@@ -38,8 +38,8 @@ public:
     // Independent of RX1 memory so dual-watch can keep two last-freqs.
     Q_INVOKABLE int freqForRx2(const QString &band) const;
 
-    // Restore SUB demod for <band> (saved modeRx2, else the band default).
-    // Does NOT touch RX1 mode, LNA, TX drive, or panadapter ranges.
+    // Restore SUB demod + SUB pan/waterfall dB for <band>.
+    // Does NOT touch RX1 mode, LNA, TX drive, or Main panadapter ranges.
     Q_INVOKABLE void applyRx2Band(const QString &band);
 
     // Band string for a frequency (Hz): "" / "40m" / "bc_49m" / "cb_11m".
@@ -48,10 +48,12 @@ public:
 
 private:
     void onFreqChanged();          // band-edge crossing → restore new band
-    void onRx2FreqChanged();       // remember SUB last-freq; no RX1 restore
+    void onRx2FreqChanged();       // remember SUB last-freq; restore SUB scale
     void saveCurrent();            // live-save the current band on a change
     void saveRx2Mode();            // live-save SUB mode on the current RX2 band
+    void saveRx2Scale();           // live-save SUB dB range on the current RX2 band
     void applyBand(const QString &band);
+    void applyRx2Scale(const QString &band);
     static QString defaultModeFor(const QString &band);   // band-table default mode
 
     Prefs                *prefs_  = nullptr;

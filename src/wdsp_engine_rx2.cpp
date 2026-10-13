@@ -94,6 +94,7 @@ bool WdspEngine::openRx2()
     subMixActive_.store(true, std::memory_order_release);
     recomputePassbandRx2();
     emitLog(QStringLiteral("[wdsp] channel 2 opened (SUB / RX2)"));
+    openRx2Analyzer();
     return true;
 }
 
@@ -105,6 +106,8 @@ void WdspEngine::closeRx2()
     std::lock_guard<std::mutex> lk(rx2Mtx_);
     if (!rx2Opened_)
         return;
+
+    closeRx2Analyzer();
 
     const WdspApi &api = wdsp_->api();
     if (api.SetChannelState)
@@ -135,6 +138,20 @@ void WdspEngine::setSubEnabled(bool on)
         closeRx2();
 }
 
+void WdspEngine::setRx2SpectrumWanted(bool on)
+{
+    // rx2Mtx_ then analyzerMtx_ (inside open/close). Never channelMtx_:
+    // setSubEnabled already holds that and then takes rx2Mtx_.
+    rx2SpectrumWanted_.store(on, std::memory_order_release);
+    std::lock_guard<std::mutex> lk(rx2Mtx_);
+    if (on) {
+        if (rx2Opened_)
+            openRx2Analyzer();
+    } else {
+        closeRx2Analyzer();
+    }
+}
+
 void WdspEngine::feedIqRx2(const double *iq, int nframes)
 {
     if (!haveRx2_.load(std::memory_order_acquire) || nframes <= 0)
@@ -160,6 +177,7 @@ void WdspEngine::feedIqRx2(const double *iq, int nframes)
             api.xnobEXT(rx2Channel_, rx2Accum_.data(), rx2NbBuf_.data());
             blockPtr = rx2NbBuf_.data();
         }
+        feedRx2Spectrum(blockPtr);
         api.fexchange0(rx2Channel_, blockPtr, rx2OutBuf_.data(), &fexErrRx2_);
         rx2Accum_.erase(rx2Accum_.begin(),
                         rx2Accum_.begin() + static_cast<std::ptrdiff_t>(blockDoubles));

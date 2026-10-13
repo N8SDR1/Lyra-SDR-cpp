@@ -20,6 +20,7 @@
 #include <QList>
 #include <QPoint>
 #include <QStringList>
+#include <QVariant>
 
 class QAction;
 class QDockWidget;
@@ -262,6 +263,19 @@ private:
     void saveNamedLayout(int slot);
     void recallNamedLayout(int slot);
     void refreshLayoutMenus();         // refresh slot labels on menu open
+    // Two-converter radios only: SUB adds a second spectrum dock. Qt
+    // otherwise grows the bottom control docks. Steal height from the
+    // main pan instead, and optionally recall a Settings-chosen named
+    // layout. SUB off restores the full pre-SUB snapshot (geometry +
+    // docks + pan split) — the same restore View → Recall uses.
+    void syncRx2Pan();
+    void showRx2KeepingControlHeights(QDockWidget *rx2);
+    void hideRx2ReturningHeight(QDockWidget *rx2);
+    void capturePreSubLayout();
+    bool restorePreSubLayout(QDockWidget *rx2);
+    void applySubOnArrangement(QDockWidget *rx2);
+    void applyDockLayout(const QByteArray &geo, const QByteArray &st,
+                         const QVariant &split, bool persistSession);
     // Multi-rig: the menu-bar "Rig" dropdown — rebuilt from the rig
     // registry on open; switch = set active rig + restart-to-load.
     void rebuildRigMenu();

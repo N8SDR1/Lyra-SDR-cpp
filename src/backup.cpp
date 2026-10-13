@@ -102,7 +102,10 @@ const QVector<Section> &catalogue() {
           QStringLiteral("ui/geometry"),
           QStringLiteral("ui/windowState"), QStringLiteral("ui/userGeometry"),
           QStringLiteral("ui/userWindowState"), QStringLiteral("ui/panadapterSplit"),
-          QStringLiteral("ui/userPanadapterSplit"), QStringLiteral("ui/panelsLocked")},
+          QStringLiteral("ui/userPanadapterSplit"), QStringLiteral("ui/panelsLocked"),
+          QStringLiteral("visuals/subLayoutEnabled"),
+          QStringLiteral("visuals/subLayoutSlot"),
+          QStringLiteral("ui/subOff/")},
          true},
     };
     return kS;

@@ -38,6 +38,12 @@ constexpr auto kDbMax  = "panadapter/dbMax";
 constexpr auto kTxDbMin = "panadapter/txDbMin";
 constexpr auto kTxDbMax = "panadapter/txDbMax";
 constexpr auto kDbAuto = "panadapter/dbAuto";
+constexpr auto kRx2DbMin = "panadapter/rx2DbMin";
+constexpr auto kRx2DbMax = "panadapter/rx2DbMax";
+constexpr auto kRx2DbAuto = "panadapter/rx2DbAuto";
+constexpr auto kRx2WfDbMin = "panadapter/rx2WaterfallDbMin";
+constexpr auto kRx2WfDbMax = "panadapter/rx2WaterfallDbMax";
+constexpr auto kRx2WfDbAuto = "panadapter/rx2WaterfallDbAuto";
 constexpr auto kTrace  = "panadapter/traceColor";
 constexpr auto kMode   = "panadapter/traceMode";
 constexpr auto kPal    = "panadapter/tracePalette";
@@ -89,6 +95,8 @@ constexpr auto kXhairSty = "panadapter/crosshairStyle";
 constexpr auto kZeroBeat = "visuals/zeroBeatMarkers";
 constexpr auto kDspGrouped = "visuals/dspPanelsGrouped";
 constexpr auto kOptGrouped = "visuals/optionsPanelsGrouped";
+constexpr auto kSubLayoutEn = "visuals/subLayoutEnabled";
+constexpr auto kSubLayoutSlot = "visuals/subLayoutSlot";
 constexpr auto kZoom   = "panadapter/zoom";
 constexpr auto kRxMode = "modefilter/mode";
 constexpr auto kRxModeRx2 = "modefilter/modeRx2";
@@ -256,6 +264,18 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     txWaterfallDbMin_ = s.value(scaledKey(kTxWfDbMin), -70.0).toDouble();
     txWaterfallDbMax_ = s.value(scaledKey(kTxWfDbMax),  30.0).toDouble();
     waterfallDbAuto_  = s.value(kWfDbAuto, false).toBool();
+    // SUB pan scale: seed from Main on first use so a second spectrum
+    // does not jump to factory defaults. Keys are per-rig (scaledKey).
+    rx2DbMin_ = s.contains(scaledKey(kRx2DbMin))
+                    ? s.value(scaledKey(kRx2DbMin)).toDouble()
+                    : rxDbMin_;
+    rx2DbMax_ = s.contains(scaledKey(kRx2DbMax))
+                    ? s.value(scaledKey(kRx2DbMax)).toDouble()
+                    : rxDbMax_;
+    rx2DbAuto_ = false;
+    rx2WaterfallDbMin_ = rx2DbMin_;
+    rx2WaterfallDbMax_ = rx2DbMax_;
+    rx2WaterfallDbAuto_ = false;
     panadapterSplit_  = s.value(kPanSplit);   // invalid (= QML undefined) if unset
     cursorReadout_    = s.value(kCursorRdt, true).toBool();
     panafallCrosshair_ = s.value(kXhair, false).toBool();
@@ -264,6 +284,18 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     zeroBeatMarkers_  = s.value(kZeroBeat, false).toBool();
     dspPanelsGrouped_     = s.value(kDspGrouped, false).toBool();
     optionsPanelsGrouped_ = s.value(kOptGrouped, false).toBool();
+    subLayoutEnabled_     = s.value(kSubLayoutEn, false).toBool();
+    subLayoutSlot_        = std::clamp(s.value(kSubLayoutSlot, 1).toInt(), 1, 4);
+    // One-time adopt of the short-lived View → Layouts pin (0 = off, 1–4 = slot).
+    if (!s.contains(kSubLayoutEn)) {
+        const int legacy = s.value(QStringLiteral("ui/subLayoutSlot"), 0).toInt();
+        if (legacy >= 1 && legacy <= 4) {
+            subLayoutEnabled_ = true;
+            subLayoutSlot_ = legacy;
+            s.setValue(kSubLayoutEn, true);
+            s.setValue(kSubLayoutSlot, subLayoutSlot_);
+        }
+    }
     zoom_             = std::clamp(s.value(kZoom, 1.0).toDouble(), 1.0, 32.0);
     mode_             = s.value(kRxMode, QStringLiteral("USB")).toString();
     modeRx2_          = s.value(kRxModeRx2, QStringLiteral("USB")).toString();
@@ -486,6 +518,32 @@ void Prefs::setRxDbMax(double v) {
         rxDbMax_ = v;
         QSettings().setValue(scaledKey(kDbMax), v);
         if (!moxActive_) emit dbMaxChanged();
+    }
+}
+
+void Prefs::setRx2DbMin(double v) {
+    if (v != rx2DbMin_) {
+        rx2DbMin_ = v;
+        QSettings().setValue(scaledKey(kRx2DbMin), v);
+        emit rx2DbMinChanged();
+    }
+    setRx2WaterfallDbMin(v);
+}
+
+void Prefs::setRx2DbMax(double v) {
+    if (v != rx2DbMax_) {
+        rx2DbMax_ = v;
+        QSettings().setValue(scaledKey(kRx2DbMax), v);
+        emit rx2DbMaxChanged();
+    }
+    setRx2WaterfallDbMax(v);
+}
+
+void Prefs::setRx2DbAuto(bool v) {
+    if (v != rx2DbAuto_) {
+        rx2DbAuto_ = v;
+        QSettings().setValue(kRx2DbAuto, v);
+        emit rx2DbAutoChanged();
     }
 }
 
@@ -967,6 +1025,30 @@ void Prefs::setTxWaterfallDbMax(double v) {
     }
 }
 
+void Prefs::setRx2WaterfallDbMin(double v) {
+    if (v != rx2WaterfallDbMin_) {
+        rx2WaterfallDbMin_ = v;
+        QSettings().setValue(scaledKey(kRx2WfDbMin), v);
+        emit rx2WaterfallDbMinChanged();
+    }
+}
+
+void Prefs::setRx2WaterfallDbMax(double v) {
+    if (v != rx2WaterfallDbMax_) {
+        rx2WaterfallDbMax_ = v;
+        QSettings().setValue(scaledKey(kRx2WfDbMax), v);
+        emit rx2WaterfallDbMaxChanged();
+    }
+}
+
+void Prefs::setRx2WaterfallDbAuto(bool v) {
+    if (v != rx2WaterfallDbAuto_) {
+        rx2WaterfallDbAuto_ = v;
+        QSettings().setValue(kRx2WfDbAuto, v);
+        emit rx2WaterfallDbAutoChanged();
+    }
+}
+
 void Prefs::setWaterfallDbAuto(bool v) {
     if (v != waterfallDbAuto_) {
         waterfallDbAuto_ = v;
@@ -1029,6 +1111,23 @@ void Prefs::setOptionsPanelsGrouped(bool v) {
         optionsPanelsGrouped_ = v;
         QSettings().setValue(kOptGrouped, v);
         emit optionsPanelsGroupedChanged();
+    }
+}
+
+void Prefs::setSubLayoutEnabled(bool v) {
+    if (v != subLayoutEnabled_) {
+        subLayoutEnabled_ = v;
+        QSettings().setValue(kSubLayoutEn, v);
+        emit subLayoutEnabledChanged();
+    }
+}
+
+void Prefs::setSubLayoutSlot(int slot) {
+    slot = std::clamp(slot, 1, 4);
+    if (slot != subLayoutSlot_) {
+        subLayoutSlot_ = slot;
+        QSettings().setValue(kSubLayoutSlot, slot);
+        emit subLayoutSlotChanged();
     }
 }
 

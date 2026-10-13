@@ -1727,7 +1727,7 @@ Item {
 
                 // CB channel markers — only when the 11m/CB band is enabled.
                 readonly property var cbChans:
-                    Prefs.cbBandEnabled
+                    (Prefs.cbBandEnabled && BandPlan.region.length)
                     ? BandPlan.cbChannels(root.centerHz, bandPlan.spanHz) : []
 
                 // EiBi shortwave broadcasters active in this span.  Eibi
@@ -1946,13 +1946,17 @@ Item {
                     }
                 }
 
-                // CB channel ticks + numbers (Ch1…Ch40) — click to QSY (AM).
+                // CB channel ticks + numbers (Ch1…Ch40) — click to QSY
+                // (AM / USB / LSB from Hardware band-plan region).
                 Repeater {
                     model: bandPlan.cbChans
                     delegate: Item {
                         id: cbItem
                         required property var modelData
                         readonly property real cx: bandPlan.xOf(modelData.freq)
+                        readonly property string md:
+                            (modelData.mode && modelData.mode.length)
+                            ? modelData.mode : "AM"
                         Rectangle {
                             x: cbItem.cx - 0.5; y: 14; width: 1; height: 9
                             color: "#b0c4d4"; opacity: 0.6
@@ -1983,16 +1987,16 @@ Item {
                             onClicked: {
                                 if (Stream.txBlocksBandJump(Math.round(cbItem.modelData.freq)))
                                     return
-                                Prefs.mode = "AM"
+                                Prefs.mode = cbItem.md
                                 Stream.setRx1FreqHz(Math.round(cbItem.modelData.freq))
                                 Status.show(qsTr("Tuned to CB ") + cbItem.modelData.label
                                     + " — " + (cbItem.modelData.freq / 1.0e6).toFixed(4)
-                                    + " MHz AM", 2000)
+                                    + " MHz " + cbItem.md, 2000)
                             }
                             ToolTip.visible: (containsMouse) && Prefs.tooltipsEnabled
                             ToolTip.text: "CB " + cbItem.modelData.label + "  "
                                 + (cbItem.modelData.freq / 1.0e6).toFixed(3)
-                                + qsTr(" MHz AM")
+                                + " MHz " + cbItem.md
                                 + (cbItem.modelData.note !== ""
                                    ? "\n" + cbItem.modelData.note : "")
                                 + qsTr("\nClick to tune")

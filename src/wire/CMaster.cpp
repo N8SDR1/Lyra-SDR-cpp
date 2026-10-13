@@ -481,6 +481,11 @@ void xcmaster (int stream)
 		}
 		if (pcm->TxBurstProcess)
 			(*pcm->TxBurstProcess)(pcm->xcm_insize[stream], pcm->in[stream]);
+		// Speech-shaped cal stimulus.  Last writer before the modulator
+		// so the mic rack cannot recolor it.  No-op unless armed.
+		if (pcm->TxCalNoise)
+			(*pcm->TxCalNoise)(pcm->xcm_insize[stream], pcm->in[stream],
+				pcm->xcm_inrate[stream]);
 		// #90 TX-monitor tap — capture the post-rack mic (== the fexchange0
 			// input, "what you sound like") for the operator monitor.  Sits
 			// OUTSIDE the rack-bypass gate so digital/CW are captured too (just
@@ -594,6 +599,12 @@ void SendpTxMicRecordTap (void (*Tap)(int nsamples, double* buff))			// #89
 void SendpTxClipInject (int (*Inject)(int nsamples, double* buff))			// #89
 {
 	pcm->TxClipInject = Inject;
+}
+
+PORT
+void SendpTxCalNoise (void (*Fill)(int nsamples, double* buff, int rate))
+{
+	pcm->TxCalNoise = Fill;
 }
 
 // #88 — register the native TX speech pre-processor (runs before the EQ).

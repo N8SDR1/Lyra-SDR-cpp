@@ -455,9 +455,16 @@ QString BandPlan::ncdxfStation(double freqHz) const {
 QVariantList BandPlan::cbChannels(double centerHz, double spanHz) const {
     QVariantList out;
     if (spanHz <= 0 || !prefs_ || !prefs_->cbBandEnabled()) return out;
-    // US 40-channel CB plan (channel number → kHz), incl. the 23/24/25
-    // ordering anomaly.  A few channels carry their well-known nicknames.
-    static const struct { int ch; int khz; const char *note; } chans[40] = {
+    // Same 40 CEPT/FCC channel centres worldwide (incl. the 23/24/25
+    // ordering anomaly).  Click-tune mode follows Settings → Hardware
+    // band-plan region — 11m is not a separate "always US" table:
+    //   US / IARU R2  — 1–35 AM; 36–40 USB except Ch38 LSB calling
+    //   IARU R1       — 1–35 AM; 36–40 USB
+    //   IARU R3       — 1–35 AM; 36–40 LSB (VK/ZL 11m SSB convention)
+    //   NONE          — AM on every channel
+    const QString reg = region();
+    const bool na = (reg == QLatin1String("US"));
+    static const struct { int ch; int khz; const char *noteNa; } chans[40] = {
         {1,26965,""},{2,26975,""},{3,26985,""},{4,27005,""},{5,27015,""},
         {6,27025,"Super Bowl"},{7,27035,""},{8,27055,""},
         {9,27065,"Emergency"},{10,27075,""},{11,27085,"Calling"},
@@ -466,17 +473,39 @@ QVariantList BandPlan::cbChannels(double centerHz, double spanHz) const {
         {20,27205,""},{21,27215,""},{22,27225,""},{23,27255,""},{24,27235,""},
         {25,27245,""},{26,27265,""},{27,27275,""},{28,27285,""},{29,27295,""},
         {30,27305,""},{31,27315,""},{32,27325,""},{33,27335,""},{34,27345,""},
-        {35,27355,""},{36,27365,""},{37,27375,""},{38,27385,"SSB LSB"},
-        {39,27395,""},{40,27405,"SSB"}};
+        {35,27355,""},{36,27365,""},{37,27375,""},{38,27385,""},
+        {39,27395,""},{40,27405,""}};
     const double lo = centerHz - spanHz / 2;
     const double hi = centerHz + spanHz / 2;
     for (const auto &c : chans) {
         const double f = double(c.khz) * 1000.0;
         if (f < lo || f > hi) continue;
+        QString mode = QStringLiteral("AM");
+        QString note;
+        if (na)
+            note = QString::fromLatin1(c.noteNa);
+        else if (c.ch == 9)
+            note = QStringLiteral("Emergency");
+        else if (c.ch == 11)
+            note = QStringLiteral("Calling");
+        if (c.ch >= 36 && c.ch <= 40 && reg != QLatin1String("NONE")) {
+            if (reg == QLatin1String("IARU_R3")) {
+                mode = QStringLiteral("LSB");
+                note = QStringLiteral("SSB LSB");
+            } else if (na && c.ch == 38) {
+                mode = QStringLiteral("LSB");
+                note = QStringLiteral("SSB LSB");
+            } else {
+                // US 36/37/39/40 and all of IARU R1 36–40.
+                mode = QStringLiteral("USB");
+                note = QStringLiteral("SSB");
+            }
+        }
         QVariantMap m;
         m["freq"]  = f;
         m["label"] = QStringLiteral("Ch%1").arg(c.ch);
-        m["note"]  = QString::fromLatin1(c.note);
+        m["note"]  = note;
+        m["mode"]  = mode;
         out.append(m);
     }
     return out;

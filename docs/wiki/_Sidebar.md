@@ -26,5 +26,5 @@
 - ⬇️ [Download (latest)](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest)
 - 🐞 [Report a bug](https://github.com/N8SDR1/Lyra-SDR-cpp/issues)
 - 📦 [Source / README](https://github.com/N8SDR1/Lyra-SDR-cpp)
-- 🙏 [Credits / contributors](https://github.com/N8SDR1/Lyra-SDR-cpp/blob/main/CREDITS.md)
+- 🙏 [Credits](Credits) — DeskHPSDR, Heiko, Anton, testers
 - 📜 [License (GPL-3.0+)](https://github.com/N8SDR1/Lyra-SDR-cpp/blob/main/NOTICE.md)

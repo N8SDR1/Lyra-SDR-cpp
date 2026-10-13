@@ -45,6 +45,10 @@ class Panadapter : public QQuickItem {
     Q_OBJECT
     Q_PROPERTY(QObject *engine READ engineObj WRITE setEngineObj
                NOTIFY engineChanged)
+    // 1 = first receiver (default). 2 = second receiver, full converter
+    // span, its own analyzer. The main panadapter stays on 1.
+    Q_PROPERTY(int receiver READ receiver WRITE setReceiver
+               NOTIFY receiverChanged)
     // dB display window (vertical scale).  Operator-tunable later.
     Q_PROPERTY(double dbMin READ dbMin WRITE setDbMin NOTIFY rangeChanged)
     Q_PROPERTY(double dbMax READ dbMax WRITE setDbMax NOTIFY rangeChanged)
@@ -135,6 +139,8 @@ public:
 
     QObject *engineObj() const;
     void     setEngineObj(QObject *o);
+    int      receiver() const { return receiver_; }
+    void     setReceiver(int v);
 
     double dbMin() const { return dbMin_; }
     void   setDbMin(double v);
@@ -194,6 +200,7 @@ public:
 
 signals:
     void engineChanged();
+    void receiverChanged();
     void rangeChanged();
     void autoScaleChanged();
     void effRangeChanged();   // effective (auto or manual) range changed
@@ -233,6 +240,7 @@ private:
     void passbandPx(int W, int *lo, int *hi) const;
 
     lyra::dsp::WdspEngine *engine_ = nullptr;
+    int                    receiver_ = 1;
     std::vector<float>     pix_;        // dB pixels (post-EWMA, what renders)
     std::vector<float>     rawPix_;     // latest raw frame from the analyzer
     bool                   smoothInit_ = false;  // pix_ seeded yet?

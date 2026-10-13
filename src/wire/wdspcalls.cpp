@@ -75,6 +75,9 @@ void (*SetTXAPostGenToneMag)(int, double) = nullptr;
 void (*SetTXAPostGenToneFreq)(int, double) = nullptr;
 void (*SetTXAPostGenTTMag)(int, double, double) = nullptr;
 void (*SetTXAPostGenTTFreq)(int, double, double) = nullptr;
+void (*SetTXAPreGenRun)(int, int) = nullptr;
+void (*SetTXAPreGenMode)(int, int) = nullptr;
+void (*SetTXAPreGenNoiseMag)(int, double) = nullptr;
 void (*SetTXAMode)(int, int) = nullptr;
 void (*SetTXABandpassFreqs)(int, double, double) = nullptr;
 void (*SetTXAPanelGain1)(int, double) = nullptr;
@@ -161,6 +164,9 @@ void (*SetPSFeedbackRate)(int, int) = nullptr;
     X(SetTXAPostGenToneFreq)\
     X(SetTXAPostGenTTMag)   \
     X(SetTXAPostGenTTFreq)  \
+    X(SetTXAPreGenRun)      \
+    X(SetTXAPreGenMode)     \
+    X(SetTXAPreGenNoiseMag) \
     X(SetTXAMode)           \
     X(SetTXABandpassFreqs)  \
     X(SetTXAPanelGain1)     \

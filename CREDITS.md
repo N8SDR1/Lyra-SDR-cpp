@@ -108,6 +108,12 @@ Both are MIT-licensed — see [NOTICE.md](NOTICE.md).
 These projects are referenced in Lyra-cpp's investigation
 trail but **no code is incorporated from them**:
 
+- **DeskHPSDR** (Heiko, DL1BZ) — first-class HPSDR host for
+  Hermes Lite 2 / BrickSDR and Protocol 2.  Cross-checked
+  for P2 RX/TX, Brick / Angelia DDC maps, PureSignal host
+  dataflow, analog filter / Band Volts, and portable I/O.
+  Lyra studies the published behaviour, then writes
+  Lyra-native code — nothing is copied from DeskHPSDR.
 - **pihpsdr** (John Melton, G0ORX) — used as a cross-
   reference for HL2 protocol verification during the
   PA-enable + ATT-on-TX reconcile work (see CLAUDE.md
@@ -153,6 +159,13 @@ credited here with their consent.
 
 ## Special thanks
 
+- **Heiko (DL1BZ)** — again, and especially: DeskHPSDR is
+  the working Protocol 2 / Brick reference we keep coming
+  back to, and Heiko has been generous with time, builds,
+  and straight talk whenever Lyra needed a sanity check.
+- **Anton (linoobs)** — BrickSDR / Brick3SDR FPGA images
+  and flash help so operators can run Protocol 2 (the
+  layout Lyra actually transmits on).
 - The **openHPSDR community** — for keeping HPSDR Protocol
   alive and documented over many years.
 - **TAPR** — for hosting the openHPSDR project

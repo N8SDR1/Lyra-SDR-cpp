@@ -18,7 +18,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.25.16
+    VERSION 0.25.18
     DESCRIPTION "Lyra Sheliak — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
@@ -589,6 +589,7 @@ qt_add_qml_module(lyra
         src/qml/LyraSpinBox.qml
         src/qml/LyraComboBox.qml
         src/qml/PanadapterPanel.qml
+        src/qml/Rx2PanadapterPanel.qml
         src/qml/TuningPanel.qml
         src/qml/AudioPanel.qml
         src/qml/TxPanel.qml

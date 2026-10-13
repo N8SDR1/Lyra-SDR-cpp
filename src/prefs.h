@@ -90,6 +90,20 @@ class Prefs : public QObject {
                NOTIFY wfIdIntervalMinChanged)
     // Auto-fit the panadapter dB range (ignores dbMin/dbMax).
     Q_PROPERTY(bool dbAuto READ dbAuto WRITE setDbAuto NOTIFY dbAutoChanged)
+    // Independent SUB (second pan) scale. Live keys are per-rig; band
+    // recall is BandMemory dbMinRx2 / dbMaxRx2 / wfMinRx2 / wfMaxRx2.
+    Q_PROPERTY(double rx2DbMin READ rx2DbMin WRITE setRx2DbMin
+               NOTIFY rx2DbMinChanged)
+    Q_PROPERTY(double rx2DbMax READ rx2DbMax WRITE setRx2DbMax
+               NOTIFY rx2DbMaxChanged)
+    Q_PROPERTY(bool rx2DbAuto READ rx2DbAuto WRITE setRx2DbAuto
+               NOTIFY rx2DbAutoChanged)
+    Q_PROPERTY(double rx2WaterfallDbMin READ rx2WaterfallDbMin
+               WRITE setRx2WaterfallDbMin NOTIFY rx2WaterfallDbMinChanged)
+    Q_PROPERTY(double rx2WaterfallDbMax READ rx2WaterfallDbMax
+               WRITE setRx2WaterfallDbMax NOTIFY rx2WaterfallDbMaxChanged)
+    Q_PROPERTY(bool rx2WaterfallDbAuto READ rx2WaterfallDbAuto
+               WRITE setRx2WaterfallDbAuto NOTIFY rx2WaterfallDbAutoChanged)
     Q_PROPERTY(int traceMode READ traceMode WRITE setTraceMode
                NOTIFY traceModeChanged)
     Q_PROPERTY(QString traceColor READ traceColor WRITE setTraceColor
@@ -216,6 +230,13 @@ class Prefs : public QObject {
                NOTIFY dspPanelsGroupedChanged)
     Q_PROPERTY(bool optionsPanelsGrouped READ optionsPanelsGrouped
                WRITE setOptionsPanelsGrouped NOTIFY optionsPanelsGroupedChanged)
+    // Two-converter radios: optional named layout while SUB is on.
+    // Off = split the panadapter in place. On = recall layouts/<slot>.
+    // SUB off always returns to the arrangement that was running before.
+    Q_PROPERTY(bool subLayoutEnabled READ subLayoutEnabled
+               WRITE setSubLayoutEnabled NOTIFY subLayoutEnabledChanged)
+    Q_PROPERTY(int subLayoutSlot READ subLayoutSlot
+               WRITE setSubLayoutSlot NOTIFY subLayoutSlotChanged)
     // Panadapter zoom: 1.0 = full IQ span, higher magnifies the centre.
     // Drives WdspEngine.zoom (display-side crop, old-Lyra method).
     Q_PROPERTY(double zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
@@ -465,6 +486,12 @@ public:
     void   setRxDbMin(double v);
     double rxDbMax() const { return rxDbMax_; }
     void   setRxDbMax(double v);
+    double rx2DbMin() const { return rx2DbMin_; }
+    void   setRx2DbMin(double v);
+    double rx2DbMax() const { return rx2DbMax_; }
+    void   setRx2DbMax(double v);
+    bool   rx2DbAuto() const { return rx2DbAuto_; }
+    void   setRx2DbAuto(bool v);
     double txDbMin() const { return txDbMin_; }
     void   setTxDbMin(double v);
     double txDbMax() const { return txDbMax_; }
@@ -587,6 +614,12 @@ public:
     void   setTxWaterfallDbMax(double v);
     bool waterfallDbAuto() const { return waterfallDbAuto_; }
     void setWaterfallDbAuto(bool v);
+    double rx2WaterfallDbMin() const { return rx2WaterfallDbMin_; }
+    void   setRx2WaterfallDbMin(double v);
+    double rx2WaterfallDbMax() const { return rx2WaterfallDbMax_; }
+    void   setRx2WaterfallDbMax(double v);
+    bool   rx2WaterfallDbAuto() const { return rx2WaterfallDbAuto_; }
+    void   setRx2WaterfallDbAuto(bool v);
     QVariant panadapterSplit() const { return panadapterSplit_; }
     void     setPanadapterSplit(const QVariant &v);
     bool cursorReadout() const { return cursorReadout_; }
@@ -603,6 +636,10 @@ public:
     void setDspPanelsGrouped(bool v);
     bool optionsPanelsGrouped() const { return optionsPanelsGrouped_; }
     void setOptionsPanelsGrouped(bool v);
+    bool subLayoutEnabled() const { return subLayoutEnabled_; }
+    void setSubLayoutEnabled(bool v);
+    int  subLayoutSlot() const { return subLayoutSlot_; }
+    void setSubLayoutSlot(int slot);
     double zoom() const { return zoom_; }
     void   setZoom(double v);
     QString mode() const { return mode_; }
@@ -724,6 +761,12 @@ signals:
     void targetFpsChanged();
     void dbMinChanged();
     void dbMaxChanged();
+    void rx2DbMinChanged();
+    void rx2DbMaxChanged();
+    void rx2DbAutoChanged();
+    void rx2WaterfallDbMinChanged();
+    void rx2WaterfallDbMaxChanged();
+    void rx2WaterfallDbAutoChanged();
     void txDbMinChanged();
     void txDbMaxChanged();
     void tuneDriveModeChanged();
@@ -783,6 +826,8 @@ signals:
     void zeroBeatMarkersChanged();
     void dspPanelsGroupedChanged();
     void optionsPanelsGroupedChanged();
+    void subLayoutEnabledChanged();
+    void subLayoutSlotChanged();
     void zoomChanged();
     void modeChanged();
     void rxBandwidthChanged();
@@ -836,6 +881,9 @@ private:
     double  rxDbMax_;
     double  txDbMin_;
     double  txDbMax_;
+    double  rx2DbMin_ = -130.0;
+    double  rx2DbMax_ = -20.0;
+    bool    rx2DbAuto_ = false;
     bool    moxActive_ = false;
     // Task #74 — TUN separate-drive state (defaults applied in ctor).
     int     tuneDriveMode_ = 0;   // 0 slider / 1 tune / 2 fixed
@@ -896,6 +944,9 @@ private:
     double  txWaterfallDbMin_;
     double  txWaterfallDbMax_;
     bool    waterfallDbAuto_;
+    double  rx2WaterfallDbMin_ = -120.0;
+    double  rx2WaterfallDbMax_ = -20.0;
+    bool    rx2WaterfallDbAuto_ = false;
     QVariant panadapterSplit_;
     bool    cursorReadout_;
     bool    panafallCrosshair_ = false;
@@ -911,6 +962,8 @@ private:
     int     digitalDrivePct_ = 100;   // 10..100 % of set drive in DIGU/DIGL
     bool    dspPanelsGrouped_ = false;
     bool    optionsPanelsGrouped_ = false;
+    bool    subLayoutEnabled_ = false;
+    int     subLayoutSlot_ = 1;
     double  zoom_;
     QString mode_;
     QString modeRx2_;
