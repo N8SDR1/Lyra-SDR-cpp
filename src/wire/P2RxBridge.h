@@ -49,10 +49,12 @@
 #include <QTimer>
 #include <QVariant>
 #include <QVariantList>
+#include <atomic>
 #include <limits>
+#include <memory>
 
 namespace lyra::ipc { class HL2Stream; }
-namespace lyra::dsp { class WdspEngine; }
+namespace lyra::dsp { class WdspEngine; class DivExt; }
 
 namespace lyra::wire {
 
@@ -250,6 +252,11 @@ private:
 
     lyra::ipc::HL2Stream  *stream_  = nullptr;
     lyra::dsp::WdspEngine *engine_  = nullptr;
+    std::unique_ptr<lyra::dsp::DivExt> divExt_;
+    // Operator mix, copied from the stream on the UI thread and read
+    // on the session thread before each diversity frame.
+    std::atomic<double> divGainDb_{0.0};
+    std::atomic<double> divPhaseDeg_{0.0};
     QThread    thread_;
     P2Session *session_ = nullptr;   // lives on thread_
     // open_  = an open() attempt is in flight or a session is live —

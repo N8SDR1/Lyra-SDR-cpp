@@ -296,11 +296,39 @@ bool P2Session::angeliaRxSlots() const {
 }
 
 int P2Session::rx1DdcIndex() const {
+    if (diversityOverlayLive())
+        return 0;
     return angeliaRxSlots() ? 2 : 0;
 }
 
 int P2Session::rx2DdcIndex() const {
     return angeliaRxSlots() ? 3 : 1;
+}
+
+bool P2Session::diversityOverlayLive() const {
+    if (!diversityArmed_ || !angeliaRxSlots())
+        return false;
+    if (!profile_ || profile_->adcCount < 2)
+        return false;
+    if (isPureSignalLive())
+        return false;
+    if (P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit)
+        return false;
+    return true;
+}
+
+void P2Session::setDiversityArmed(bool on) {
+    if (diversityArmed_ == on)
+        return;
+    if (on && subRx2Wanted_)
+        disarmSubSecondaryDdcs();
+    diversityArmed_ = on;
+    if (!open_)
+        return;
+    sendDdcSpecificToRadio(true);
+    sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_,
+                        kPortHpToSdr);
+    punchEnabledDdcIqFirewalls();
 }
 
 void P2Session::enablePrimaryRx(quint16 rateKhz) {
@@ -349,6 +377,8 @@ void P2Session::disableDdc(int ddc) {
 }
 
 void P2Session::armSubSecondaryDdcs(quint16 rateKhz, quint32 freqHz) {
+    if (diversityArmed_)
+        diversityArmed_ = false;
     subRx2Wanted_ = true;
     const int rx2 = rx2DdcIndex();
     const auto slot = static_cast<std::size_t>(rx2);
@@ -420,7 +450,8 @@ bool P2Session::shouldFeedRx2(int ddc) {
     if (ddc != want || !subRx2Wanted_ ||
         !ddcEnabled_[static_cast<std::size_t>(want)])
         return false;
-    if (isPureSignalLive()) return false;
+    if (isPureSignalLive() || diversityOverlayLive())
+        return false;
     if (subIqLatchDdc_ != want) {
         subIqLatchDdc_ = want;
         emit logLine(QStringLiteral(
@@ -443,6 +474,10 @@ void P2Session::punchEnabledDdcIqFirewalls() {
         if (ddcEnabled_[static_cast<std::size_t>(d)])
             punchDdcIqFirewall(d);
     }
+    // Angelia leaves DDC0 disabled (it is the feedback port). The
+    // diversity overlay still needs UDP 1035 or RX1 stays silent.
+    if (diversityOverlayLive())
+        punchDdcIqFirewall(0);
 }
 
 void P2Session::scheduleDdc1FirewallPunch() {
@@ -590,6 +625,17 @@ QByteArray P2Session::buildDdcSpecificPacket() const {
         // keep DDC2/DDC3; Lyra is not duplex during PS.
         mask = 0x0001;
         pkt[1363] = 0x02;
+    } else if (diversityOverlayLive()) {
+        // Stock diversity: DDC0 ADC0 + DDC1 ADC1, one rate, enable
+        // 0x01, sync 0x02. Never 0x03 (both bits) and never 0x0F.
+        // Dither and random stay the current RX1 bytes (both 0).
+        const quint16 rx1Rate = ddcRateKhz_[2] ? ddcRateKhz_[2]
+                                : (ddcRateKhz_[0] ? ddcRateKhz_[0]
+                                                 : quint16{192});
+        writeDdcSlot(0, 0, rx1Rate);
+        writeDdcSlot(1, 1, rx1Rate);
+        mask = 0x0001;
+        pkt[1363] = 0x02;
     }
     pkt[7] = static_cast<char>(mask & 0xFF);           // LE enable mask
     pkt[8] = static_cast<char>(mask >> 8);
@@ -650,7 +696,10 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     // [5] CWX off; [6..8] must be zero (hardened p2app rejects the
     // packet otherwise — protocol2_command.c validation).
     if (profile_ && profile_->angeliaRxDdcSlots) {
-        const quint32 rx2 = subRx2Wanted_ ? ddcFreqHz_[1] : ddcFreqHz_[0];
+        const quint32 rx2 = diversityOverlayLive()
+                                 ? ddcFreqHz_[0]
+                                 : (subRx2Wanted_ ? ddcFreqHz_[1]
+                                                  : ddcFreqHz_[0]);
         wrBeU32(pkt.data() + 9, phaseWord(ddcFreqHz_[0]));   // DDC0 STM32
         wrBeU32(pkt.data() + 13, phaseWord(rx2));            // DDC1 STM32
         wrBeU32(pkt.data() + 17, phaseWord(ddcFreqHz_[0]));  // DDC2 RX1
@@ -868,6 +917,8 @@ quint8 P2Session::overlayAdcAttByte(int adcIndex, bool keyedWithPa) const {
         return static_cast<quint8>(std::clamp(psFeedbackAttnDb_, 0, 31));
     if (keyedWithPa && attOnTxEnabled_)
         return static_cast<quint8>(std::clamp(attOnTxDb_, 0, 31));
+    if (diversityOverlayLive() && adcIndex == 1 && !adcAttenuation_.empty())
+        return adcAttenuation_[0];
     if (adcIndex < 0 ||
         adcIndex >= static_cast<int>(adcAttenuation_.size()))
         return 0;
@@ -881,6 +932,8 @@ quint8 P2Session::overlayHpAdcAttByte(int adcIndex, bool keyedWithPa) const {
         return static_cast<quint8>(std::clamp(psFeedbackAttnDb_, 0, 31));
     if (keyedWithPa && attOnTxEnabled_)
         return static_cast<quint8>(std::clamp(attOnTxDb_, 0, 31));
+    if (diversityOverlayLive() && adcIndex == 1 && !adcAttenuation_.empty())
+        return adcAttenuation_[0];
     if (adcIndex < 0 ||
         adcIndex >= static_cast<int>(adcAttenuation_.size()))
         return 0;

@@ -94,6 +94,38 @@ struct RxConfig {
     int    block      = 1;
 };
 
+// Host combiner for two converters on one carrier.  create_div leaves
+// the rotate at zero and output at 0, so ensure() sets output to "sum"
+// and the stored rotate before anything calls setRunning(true).
+// Defaults are 0 dB / 0°.  setMix is the operator control.
+class DivExt {
+public:
+    DivExt() = default;
+    ~DivExt();
+    DivExt(const DivExt &) = delete;
+    DivExt &operator=(const DivExt &) = delete;
+
+    bool ensure(WdspNative *wdsp);
+    // Path 0 stays identity.  Path 1 is amp = 10^(dB/20), angle in degrees.
+    // Safe before ensure(); the DLL call waits until the combiner is open.
+    void setMix(double gainDb, double phaseDeg);
+    void setRunning(bool on);
+    bool running() const { return running_; }
+    // s0/s1/out are interleaved I,Q doubles, 2*n each.
+    bool process(int n, double *s0, double *s1, double *out);
+
+private:
+    void applyRotate();
+
+    WdspNative *wdsp_ = nullptr;
+    double gainDb_ = 0.0;
+    double phaseDeg_ = 0.0;
+    double irot_[2]{1.0, 1.0};
+    double qrot_[2]{0.0, 0.0};
+    bool open_ = false;
+    bool running_ = false;
+};
+
 class WdspEngine : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool   running   READ isRunning  NOTIFY runningChanged)

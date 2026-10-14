@@ -4,6 +4,64 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-14 — Diversity mix confirmed; fine steps
+
+Operator: the mix works on Brick3 into a dummy load. The
+messy null is the AM broadcast on the open RX2 jack, not
+the combiner. Steppers and the polar step 0.05 dB and 0.1°.
+The stream setters use a 1e-4 deadband so a 0.05 dB step
+is not swallowed.
+
+## 2026-10-14 — Diversity polar (same gain / phase)
+
+The Diversity dock keeps the switch and the two steppers, and
+adds a polar plane of those same numbers. Distance is gain
+(−27 at the centre, 0 dB on the bright ring, +27 at the rim).
+Angle is phase, 0° to the right. Double-click returns to
+0 dB / 0°. Drag is ignored while transmitting. No new state.
+
+## 2026-10-14 — Diversity D4 (chip + dock)
+
+DIV chip on the Options strip, right after Amp View. It only
+opens the Diversity dock. The dock has the lit switch, gain
+(−27..+27 dB) and phase (−180..180°). Opening the dock does
+not arm. Chip is hidden on HL2 and Brick2. Switch stays dark
+while transmitting; the saved arm comes back on unkey. DIV on
+turns SUB off and does not turn it back on. Defaults 0 dB / 0°.
+`lyra` built; `test_div_overlay` still passed. Dummy-load
+listen is still the operator's bench.
+
+## 2026-10-14 — Diversity D2+D3 (overlay + DDC0 consumer)
+
+Armed stays off. Brick3 / 100D RX overlay is enable `0x01`,
+sync `0x02`, DDC0=ADC0 and DDC1=ADC1 at the RX1 rate, both HP
+phase words = RX1, ADC1 attenuation follows ADC0. Never `0x03`
+or `0x0F`. PS live and TX drop it and keep the arm. RX1 follows
+DDC0 and the bridge de-interleaves into `divEXT` (identity
+0 dB / 0°). Port 1035 is punched while the overlay is live.
+SUB and DIV cannot both be wanted. One-ADC arm changes nothing.
+`scratch/test_div_overlay.cpp` passed. No DIV button, no polar,
+no dummy-load listen (nothing in the UI arms it).
+
+## 2026-10-14 — Diversity D0 + D1 (no wire, no UI)
+
+WDSP re-check before any bind: TAPR README still stops at 2.10
+(`6c8aad86` / `b02d5bac`). Bundled `_native/wdsp.dll`
+`GetWDSPVersion` = **210**. No engine bump.
+
+D0: capability comment retargeted at
+`diversity_include_plan.md`. Flag still unread. HL2 / Brick2
+stay false. Checklist locked: Brick3 dummy first, extra-DDC
+`0x0F` off, DIV exclusive with SUB, second RF = RX2 jack
+(Ext1), PS/TX drops the overlay.
+
+D1: `divEXT` bound in `wdsp_native` (nine exports). Synthetic
+IQ test `scratch/test_divext.cpp` vs the `div.c` mix
+(0 dB/0°, 180° null, +6 dB, run=0 copy, zero-rotate silence).
+No DIV button, no polar, no packet change.
+
+---
+
 ## 2026-10-13 — GitHub #17 analog stuck on 20 m (0.25.18 regression)
 
 Randy W7CPA: 0.25.10/16 intermittent; **0.25.18 total fail** —

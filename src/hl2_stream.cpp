@@ -282,6 +282,23 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     subEnabled_.store(
         QSettings().value(QStringLiteral("rx/subEnabled"), false).toBool(),
         std::memory_order_relaxed);
+    diversityArmed_.store(
+        QSettings().value(QStringLiteral("diversity/enabled"), false).toBool(),
+        std::memory_order_relaxed);
+    diversityGainDb_ = std::clamp(
+        QSettings().value(QStringLiteral("diversity/gain_db"), 0.0).toDouble(),
+        -27.0, 27.0);
+    diversityPhaseDeg_ = std::clamp(
+        QSettings().value(QStringLiteral("diversity/phase_deg"), 0.0).toDouble(),
+        -180.0, 180.0);
+    // One mix or two receivers.  A saved pair that has both on keeps
+    // diversity and drops SUB.  Do not turn SUB back on when diversity
+    // is later switched off.
+    if (diversityArmed_.load(std::memory_order_relaxed)
+        && subEnabled_.load(std::memory_order_relaxed)) {
+        subEnabled_.store(false, std::memory_order_relaxed);
+        QSettings().setValue(QStringLiteral("rx/subEnabled"), false);
+    }
     rx2FreqHz_.store(
         QSettings().value(QStringLiteral("rx/rx2FreqHz"), persistedRxHz).toUInt(),
         std::memory_order_relaxed);
@@ -2258,6 +2275,8 @@ void HL2Stream::setVfoBHz(quint32 hz) {
 }
 
 void HL2Stream::setSubEnabled(bool on) {
+    if (on && diversityArmed_.load(std::memory_order_relaxed))
+        setDiversityArmed(false);
     const bool prev = subEnabled_.exchange(on, std::memory_order_relaxed);
     if (prev == on)
         return;
@@ -2281,6 +2300,52 @@ void HL2Stream::setSubEnabled(bool on) {
     emit logLine(QStringLiteral("SUB %1")
                      .arg(on ? QStringLiteral("on") : QStringLiteral("off")));
     pushEffectiveRxFreq();
+}
+
+void HL2Stream::setDiversityCapable(bool on) {
+    const bool prev = diversityCapable_.exchange(on, std::memory_order_relaxed);
+    if (prev == on)
+        return;
+    emit diversityCapableChanged();
+}
+
+void HL2Stream::setDiversityArmed(bool on) {
+    if (on && !diversityCapable_.load(std::memory_order_relaxed))
+        return;
+    const bool prev = diversityArmed_.load(std::memory_order_relaxed);
+    if (prev == on)
+        return;
+    if (on && subEnabled_.load(std::memory_order_relaxed)) {
+        subEnabled_.store(false, std::memory_order_relaxed);
+        QSettings().setValue(QStringLiteral("rx/subEnabled"), false);
+        emit subEnabledChanged();
+        emit logLine(QStringLiteral("SUB off — diversity is on"));
+    }
+    diversityArmed_.store(on, std::memory_order_relaxed);
+    QSettings().setValue(QStringLiteral("diversity/enabled"), on);
+    emit diversityArmedChanged(on);
+    emit logLine(on ? QStringLiteral("Diversity on")
+                    : QStringLiteral("Diversity off"));
+}
+
+void HL2Stream::setDiversityGainDb(double db) {
+    db = std::clamp(db, -27.0, 27.0);
+    // Finer than the 0.05 dB step. A deadband of 0.05 would swallow
+    // that step when the subtraction lands just under the threshold.
+    if (std::abs(diversityGainDb_ - db) < 1e-4)
+        return;
+    diversityGainDb_ = db;
+    QSettings().setValue(QStringLiteral("diversity/gain_db"), db);
+    emit diversityGainDbChanged();
+}
+
+void HL2Stream::setDiversityPhaseDeg(double deg) {
+    deg = std::clamp(deg, -180.0, 180.0);
+    if (std::abs(diversityPhaseDeg_ - deg) < 1e-4)
+        return;
+    diversityPhaseDeg_ = deg;
+    QSettings().setValue(QStringLiteral("diversity/phase_deg"), deg);
+    emit diversityPhaseDegChanged();
 }
 
 void HL2Stream::setDualAdc(bool on) {

@@ -215,17 +215,20 @@ until the gate passes.
   unlike a stock ANAN. Out of scope for single-RX P2-2 but note it so a
   future diversity/RX2 pass doesn't rediscover it.
 
-## Diversity (parked — future feature)
+## Diversity
 
-**Authoritative include plan (2026-10-13):**
-`docs/architecture/diversity_include_plan.md` — Thetis + DeskHPSDR
-deep read, Lyra gap map, phased D0–D7. **No feature code until
-operator go-ahead.** Dummy-load only; no VK amp.
+**Authoritative include plan:**
+`docs/architecture/diversity_include_plan.md`. D0 through D4
+and the polar plane are in the tree as of 2026-10-14. Armed
+defaults off. The DIV chip opens the dock; the switch inside
+arms the mix. Dummy-load only; no VK amp.
 
-**Operator lock 2026-10-10:** Thetis and DeskHPSDR offer diversity on
-ANAN-100D, Brick3, and other dual-ADC boxes. **Lyra does not.** Parked;
-do not implement until a dedicated pass (DeskHPSDR/Thetis Brick3 read
-first). Dummy-load only; no VK amp.
+**Operator locks (2026-10-14):** first hardware is Brick3SDR, then
+100D, dummy load. Extra-DDC `0x0F` stays off (D6 only). DIV is
+exclusive with SUB. Second RF is the RX2 jack (Alex Ext1), not
+ANT2. PS live or TX/MOX/TUN drops the DIV overlay; the operator
+"armed" flag stays true. Plain-TX drop is a deliberate divergence
+from Thetis.
 
 Diversity is **not** SUB, **not** MAP, **not** the Settings ADC combo.
 
@@ -237,14 +240,16 @@ Diversity is **not** SUB, **not** MAP, **not** the Settings ADC combo.
 | **Diversity** (reference) | Two ADCs, **same frequency**, operator phase/gain, WDSP `divEXT` combiner. |
 
 Hardware that *can* (adcCount>1): Brick3 / 100D / 200D / 7000 / 8000 / G2.
-`RadioCapabilities::diversityCapable` is **true** on AnanP2 and **unread**.
-Brick2 / HL2: one ADC → `diversityCapable=false`.
+`RadioCapabilities::diversityCapable` is **true** on AnanP2.
+The chip reads it. Brick2 / HL2: one ADC → `diversityCapable=false`.
 
-When it lands: DDC0→ADC0 / DDC1→ADC1 at the same VFO, WDSP
-`create_divEXT` / `SetEXTDIV` (not bound today), phase/gain UI, P1
-`P1_en_diversity` stays 0 until then. DeskHPSDR Brick3 extra-DDC enable
-(`p2_diversity_brick3_mode_active`) must be read before coding. **Off
-while PureSignal is live** — PS owns the second ADC / coupler.
+While armed and receiving, DDC0→ADC0 / DDC1→ADC1 at the RX1 VFO
+and the host mixes them through `divEXT`. Phase/gain UI is D4.
+`P1_en_diversity` stays 0. Brick3 extra-DDC (`0x0F`) stays off
+unless that image needs D6. **Off while PureSignal is live, and
+off while transmitting** — PS owns the second ADC / coupler; a
+plain key-up also drops the overlay.
+
 - **Windows UDP flow-state (Jerry, Windows-only note).** Windows Firewall
   drops inbound UDP unless the host recently sent outbound to that exact
   remote port, so the HP-status stream (radio→PC `:1025`) goes silent

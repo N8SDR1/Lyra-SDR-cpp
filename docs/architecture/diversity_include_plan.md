@@ -1,7 +1,7 @@
 # Native Diversity — include plan for Lyra
 
-**Status:** RESEARCH + PLAN ONLY. No feature code until operator go-ahead.  
-**Date:** 2026-10-13 (amended after red-team consensus + Thetis confirm + polar/WDSP lock)  
+**Status:** D0–D4 and the polar are in tree (2026-10-14). Armed defaults off. DIV chip sits on the Options strip after Amp View and only shows the dock. Inside: lit switch, gain and phase steppers (0.05 dB / 0.1°), and a polar plane of those same two numbers (drag the point; bright ring is 0 dB; 0° is to the right; double-click returns to 0 dB / 0°). Chip is hidden unless the radio is two-ADC Angelia-class. Opening the dock does not arm. Switch and polar stay dark while transmitting. No extra-DDC. Packet tests passed. Operator confirmed the mix on Brick3 into a dummy load. A deep null is limited by the open RX2 jack until a brickwall is on that port.  
+**Date:** 2026-10-13 plan; 2026-10-14 WDSP re-check + D0 comments + D1 `divEXT` bind.  
 **Sources:** Thetis 2.10.3.13 (`D:\sdrprojects\OpenHPSDR-Thetis-2.10.3.13\`) and DeskHPSDR DL1BZ (`D:\sdrprojects\deskhpsdr\src\`). First-pass reads plus four senior red-teams ([Thetis red-team](6cdfac59-85e7-403a-9ea5-95771dad9ca0), [Thetis confirm](6ea4e2ef-aa40-40b0-a986-9f645d45b6fc)). WDSP files are `wdsp/div.c` / `div.h` (there is no `divext.c`).  
 **Operator locks (2026-10-10 / this session):** diversity is **not** SUB, **not** MAP, **not** the Settings ADC combo. Second RF is the **RX2 jack (Alex Ext1)**, **not ANT2**. Diversity is **inactive while PureSignal is live / transmitting**. Single-ADC boxes cannot do it. Audit items E/F (non-blocking `SetChannelState`, infinite `WaitForMultipleObjects`) stay **parked**. **UI sequence (2026-10-13):** working mix first (dB/phase); **polar with Lyra flare later** — do not start polar until DIV is on the air. **WDSP (2026-10-13 check):** latest published engine is **2.10** (2026-09-04); Lyra already ships it — **no bump before DIV**.
 
@@ -30,6 +30,8 @@ This document is the include plan. Implement later in staged commits after opera
 - **Lyra already ships WDSP 2.10** (`wdsp.dll`, `GetWDSPVersion` → 210; USER_GUIDE / wiki Roadmap v0.25.8). `wdsp_native.h` already has optional NNR binds. `divEXT` is unchanged in 2.10.
 
 **Decision:** adopt-newer-if-true is the right rule. It is **not true today**. Do **not** bump WDSP as a DIV prerequisite. Re-check TAPR README + `GetWDSPVersion` **the day D1 starts**; if a 2.11+ note exists then, bump first (PS 3.x / NNR / `wdsp.h` regen — own commit, dummy-load, not mixed into D2+D3).
+
+**Re-check (2026-10-14, D1 day):** TAPR master README still stops at 2.10 (notes 2026-09-04). Tip is still `6c8aad86` (README-only, 2026-09-09) on `b02d5bac` “Release Version 2.10”. No 2.11 / 2.20. Bundled `_native/wdsp.dll` `GetWDSPVersion()` returned **210**. `create_divEXT`, `destroy_divEXT`, `flush_divEXT`, `xdivEXT`, `SetEXTDIVRun`, `SetEXTDIVBuffsize`, `SetEXTDIVNr`, `SetEXTDIVOutput`, `SetEXTDIVRotate` all resolve. **No bump.**
 
 ---
 
@@ -298,14 +300,14 @@ Each phase is one revertable commit + tests. Dummy load only. No antenna until t
 
 | Phase | Goal | Gate |
 |---|---|---|
-| **D0** | Doc-only / capability comment. **No UI.** `diversityCapable` stays unread until D4. Zero wire change. | Spec is this file. HL2/Brick2 unchanged. |
-| **D1** | Bind `divEXT` in `wdsp_native`. Unit-test rotate math vs DeskHPSDR / `div.c` formula (synthetic IQ). | Green tests; no radio. |
-| **D2+D3 (ONE commit)** | P2 overlay **and** host consumer together: `buildDdcSpecificPacket` + HP freq lock + **interleaved DDC0 ingest** (clone/reuse `ingestPsccInterleaved`) + `xdivEXT` → RX1. Angelia: `rx1DdcIndex` / bridge slot **must** follow the overlay (DDC0 interleave, not DDC2). Composer tests: enable `0x01`, `[1363]=0x02`, ADC0/1, both freqs = RX1, **never** mask `0x03`; PS overlay still wins when live. | Packet bytes vs DeskHPSDR capture. Dummy: DIV off = today’s RX1; DIV on = audio present; gain +25 vs −25 audible; 0° vs 180° peak vs null on a local carrier. **Silent RX1 after this commit = FAIL** (forgot the consumer switch). |
-| **D4** | DIV panel + persistence + Option A vs SUB. First time the operator sees a DIV button. | UI: HL2 has no button; Brick3 has it. SUB and DIV cannot latch together. |
+| **D0** | Doc-only / capability comment. **No UI.** `diversityCapable` stays unread until D4. Zero wire change. | **Done 2026-10-14.** Spec is this file. HL2/Brick2 unchanged. |
+| **D1** | Bind `divEXT` in `wdsp_native`. Unit-test rotate math vs DeskHPSDR / `div.c` formula (synthetic IQ). | **Done 2026-10-14.** `scratch/test_divext.cpp`. No radio. |
+| **D2+D3 (ONE commit)** | P2 overlay **and** host consumer together: `buildDdcSpecificPacket` + HP freq lock + **interleaved DDC0 ingest** (clone/reuse `ingestPsccInterleaved`) + `xdivEXT` → RX1. Angelia: `rx1DdcIndex` / bridge slot **must** follow the overlay (DDC0 interleave, not DDC2). Composer tests: enable `0x01`, `[1363]=0x02`, ADC0/1, both freqs = RX1, **never** mask `0x03`; PS overlay still wins when live. | **Code + packet tests 2026-10-14** (`scratch/test_div_overlay.cpp`). Dummy listen still open: DIV off = today’s RX1; DIV on = audio; +25 vs −25; 0° vs 180°. No UI arm yet, so that bench waits on D4. **Silent RX1 after arming = FAIL.** |
+| **D4** | DIV panel + persistence + Option A vs SUB. First time the operator sees a DIV button. | **Done 2026-10-14.** Chip + dock. HL2/Brick2 have no chip. SUB and DIV cannot latch together. Operator confirmed the mix on Brick3. |
 | **D5** | TX / PS: drop DIV wire overlay, `SetEXTDIVRun(0)`, restore on RX if still armed. Priority table §3.4. | Key TUN with PS on: receive_specific is the **PS** packet, not DIV; DDC0 UDP goes to PS ingest, not the combiner. RX2 jack stays isolated on TX (v0.25.18). |
 | **D6** | Optional Brick3 `0x0F` + DDC2/DDC3 HP mirror. | **Only if D2+D3 fail** on a specific Brick3 image that DeskHPSDR needs the checkbox for. Not in the v1 happy path. |
 | **D7** | Per-band memory + (optional) ADC1 monitor pane. | After v1 is operator-clean. |
-| **D8** | Polar UI with **Lyra flare** (same gain/phase state as D4). | **After** D2+D3+D5 dummy-load peak/null + PS/TX interlock. Not a v1 blocker. |
+| **D8** | Polar UI with **Lyra flare** (same gain/phase state as D4). | **Done 2026-10-14** on the D4 dock. Same two numbers. Fine grid 0.05 dB / 0.1°. |
 
 **Out of v1:** P1 ANAN diversity, Thetis polar *clone*, `sync.c` port, 7000/8000 until that hardware is in scope, CAT ZZDB–ZZDH, TCI DIV, items E/F. Polar-with-Lyra-flare is **wanted**, just not first.
 
@@ -361,7 +363,7 @@ Each phase is one revertable commit + tests. Dummy load only. No antenna until t
 | File | Role |
 |---|---|
 | `src/wdsp_native.h/.cpp` | `divEXT` binds |
-| `src/wdsp_engine.cpp` | thin `DivExt` wrapper (create/run/rotate/process) |
+| `src/wdsp_engine.cpp` | thin `DivExt` wrapper (create/run/rotate/process) — **D2**, not D1 |
 | `src/wire/P2Session.cpp` | HP freq lock + `buildDdcSpecificPacket` overlay; reuse `ingestPsccInterleaved` (or sibling) for DIV |
 | `src/wire/P2RxBridge.cpp` | Interleaved pair → combiner → RX1; DIV vs SUB latch; Angelia `rx1DdcIndex` follows overlay |
 | `src/rig/RadioCapabilities.*` | already flagged; start **reading** `diversityCapable` at D4 |
@@ -376,9 +378,9 @@ Each phase is one revertable commit + tests. Dummy load only. No antenna until t
 
 - [x] **v1 = Option A** (DIV exclusive with SUB) — locked in this amendment.
 - [x] **UI sequence** — v1 = dB/phase (DeskHPSDR axes). **Polar later, Lyra flare** (D8). Do not start polar until the mix works.
-- [x] **WDSP** — latest published is **2.10** (2026-09-04); Lyra already on it. No bump before DIV. Re-check TAPR the day D1 starts.
-- [ ] **First hardware = Brick3SDR** (then 100D), dummy load only?
-- [ ] **Brick3 extra-DDC checkbox** default off, only if that image needs it? (D6, not happy-path)
-- [x] **PS/TX always kills the DIV overlay** — locked; plain-TX drop is a **deliberate** Thetis divergence.
+- [x] **WDSP** — latest published is **2.10** (2026-09-04); Lyra already on it. No bump before DIV. **Re-checked 2026-10-14:** TAPR still 2.10, bundled `GetWDSPVersion` = 210. No bump.
+- [x] **First hardware = Brick3SDR** (then 100D), dummy load only. Locked 2026-10-14.
+- [x] **Brick3 extra-DDC checkbox** default off, only if that image needs it (D6, not the happy path). `0x0F` stays off. Locked 2026-10-14.
+- [x] **PS/TX always kills the DIV overlay** — locked; plain-TX drop is a **deliberate** Thetis divergence. Operator "armed" stays true; the overlay drops while PS is live or transmitting.
 
-When the remaining boxes are ticked, start at **D0** (doc/capability comment only, no UI, no wire).
+**D0–D3 are in the tree (2026-10-14).** Armed defaults off. No DIV button, no polar. Second RF is the RX2 jack (Alex Ext1), not ANT2. DIV is exclusive with SUB. Next code is **D4** (the button). The dummy-load listen is still open.

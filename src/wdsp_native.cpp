@@ -397,6 +397,18 @@ bool WdspNative::resolveSymbols() {
     resolve(api_.xnobEXT,              "xnobEXT");
     resolve(api_.SetEXTNOBRun,         "SetEXTNOBRun");
     resolve(api_.SetEXTNOBThreshold,   "SetEXTNOBThreshold");
+    // Diversity combiner.  Present since WDSP 1.x; required on the
+    // bundled 2.10 DLL (GetWDSPVersion → 210).  DivExt calls these
+    // only while the DDC0 overlay is live.
+    resolve(api_.create_divEXT,        "create_divEXT");
+    resolve(api_.destroy_divEXT,       "destroy_divEXT");
+    resolve(api_.flush_divEXT,         "flush_divEXT");
+    resolve(api_.xdivEXT,              "xdivEXT");
+    resolve(api_.SetEXTDIVRun,         "SetEXTDIVRun");
+    resolve(api_.SetEXTDIVBuffsize,    "SetEXTDIVBuffsize");
+    resolve(api_.SetEXTDIVNr,          "SetEXTDIVNr");
+    resolve(api_.SetEXTDIVOutput,      "SetEXTDIVOutput");
+    resolve(api_.SetEXTDIVRotate,      "SetEXTDIVRotate");
     resolve(api_.SetRXABiQuadRun,        "SetRXABiQuadRun");
     resolve(api_.SetRXABiQuadFreq,       "SetRXABiQuadFreq");
     resolve(api_.SetRXABiQuadBandwidth,  "SetRXABiQuadBandwidth");

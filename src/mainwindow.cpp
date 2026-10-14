@@ -241,7 +241,8 @@ inline bool isChipSummonedPanel(const QString &objectName) {
         || objectName == QLatin1String("freqcal")
         || objectName == QLatin1String("recorder")
         || objectName == QLatin1String("ps")
-        || objectName == QLatin1String("ampview");
+        || objectName == QLatin1String("ampview")
+        || objectName == QLatin1String("diversity");
 }
 
 // Diagnostic: LYRA_TEST_SIZE=WxH opens the window at exactly that LOGICAL size.
@@ -1718,6 +1719,10 @@ void MainWindow::buildDocks() {
                  QStringLiteral("AmpViewPanel.qml"),
                  QStringLiteral("ampview"), Qt::BottomDockWidgetArea,
                  /*resizable=*/true);
+    addQuickDock(QStringLiteral("diversity"), tr("Diversity"),
+                 QStringLiteral("DiversityPanel.qml"),
+                 QStringLiteral("diversity"), Qt::BottomDockWidgetArea,
+                 /*resizable=*/true);
     // TX Speech (#88) — Noise Gate + Auto-AGC + De-esser, the pre-EQ mic
     // rack stage.  Its OWN dock so it moves / resizes / floats / collapses
     // like every Lyra panel; drag it onto the TX EQ dock to tab the two into
@@ -1831,7 +1836,7 @@ void MainWindow::buildDocks() {
     // remembers what's open + where.  restoreLayout() below overrides this
     // with the operator's saved arrangement when one exists.
     for (const char *nm : {"txspeech", "txeq", "txcombinator", "txplate",
-                           "rxeq", "ps", "ampview"}) {
+                           "rxeq", "ps", "ampview", "diversity"}) {
         if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
             d->setFloating(true);
             d->hide();
@@ -1911,7 +1916,8 @@ void MainWindow::buildMenus() {
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
     for (auto it = docks_.cbegin(); it != docks_.cend(); ++it) {
         // Amp View is a header chip only — not a View-menu item.
-        if (it.key() == QLatin1String("ampview"))
+        if (it.key() == QLatin1String("ampview")
+            || it.key() == QLatin1String("diversity"))
             continue;
         viewMenu->addAction(it.value()->toggleViewAction());
     }
@@ -2720,6 +2726,31 @@ void MainWindow::buildToolbar() {
         };
         addOptDockChip("ps", tr("PureSignal"));
         addOptDockChip("ampview", tr("Amp View"));
+        addOptDockChip("diversity", tr("DIV"));
+        if (QDockWidget *divDock = docks_.value(QStringLiteral("diversity"))) {
+            if (QAction *act = divDock->toggleViewAction()) {
+                if (auto *btn = qobject_cast<QToolButton *>(
+                        tb->widgetForAction(act))) {
+                    auto *divSt = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+                    btn->setToolTip(tr(
+                        "Two converters, same frequency. Second RF is the "
+                        "RX2 jack (Ext1), not ANT2. Off while transmitting "
+                        "or PureSignal is live."));
+                    auto syncDivChip = [btn, divDock, divSt]() {
+                        const bool show = divSt && divSt->diversityCapable();
+                        btn->setVisible(show);
+                        if (!show)
+                            divDock->hide();
+                    };
+                    if (divSt) {
+                        connect(divSt,
+                                &lyra::ipc::HL2Stream::diversityCapableChanged,
+                                btn, syncDivChip);
+                    }
+                    syncDivChip();
+                }
+            }
+        }
 
         auto *appsBtn = new QToolButton(tb);
         appsBtn->setObjectName(QStringLiteral("txDspChip"));

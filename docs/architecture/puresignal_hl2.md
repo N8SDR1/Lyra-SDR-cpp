@@ -66,9 +66,10 @@ run PureSignal on Brick.
   lock **both** DDC0 and DDC1 to TX.
 - Brick3 / Angelia extras (`p2_diversity_brick3_mode_active`,
   `p2_angelia_ddc0_map`) **must not** override the PS TX DDC0/DDC1 lock
-  (`new_protocol.c` ~1548–1554). Diversity itself is **parked** (Lyra has
-  no combiner; see `p2_rx_design.md` "Diversity (parked)"). Live PS and
-  diversity both want the second ADC — they conflict; PS wins while armed.
+  (`new_protocol.c` ~1548–1554). The diversity overlay
+  (`diversity_include_plan.md`, D2+D3) is dropped while PS is
+  live: both want the second ADC, and the PS packet wins. TX
+  drops the overlay too. Unarmed sessions do not send it.
 
 ## PS analog input — no Internal/EXT1 switch (LOCKED 2026-10-10)
 

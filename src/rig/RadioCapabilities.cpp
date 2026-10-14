@@ -68,8 +68,10 @@ RadioCapabilities capabilitiesFor(RadioFamily family) {
         c.puresignalRequiresMod = false;
         c.nRx                   = 2;
         c.independentBand       = true;  // dual-ADC path later; not this SUB slice
-        c.diversityCapable      = true;  // hardware can; UI/DSP combiner not built
-                                         // (parked — SUB/MAP/ADC combo are not diversity)
+        c.diversityCapable      = true;  // read by the DIV chip. The session
+                                         // combiner stays off unless armed.
+                                         // SUB/MAP/ADC are not diversity. See
+                                         // diversity_include_plan.md.
         c.psDdcReserved         = true;
         c.psDdcFirst            = 2;
         c.psDdcCount            = 2;

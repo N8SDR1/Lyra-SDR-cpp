@@ -10,6 +10,7 @@
 #include "bands.h"
 #include "hardware/HardwareCatalog.h"
 #include "hl2_stream.h"
+#include "rig/RadioCapabilities.h"
 #include "rig/RigRegistry.h"
 #include "rig/RigScope.h"
 #include "wdsp_engine.h"
@@ -49,7 +50,8 @@ QString frontEndBandPrefix(const QString &rigId, const QString &band) {
 
 P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                        lyra::dsp::WdspEngine *engine, QObject *parent)
-    : QObject(parent), stream_(stream), engine_(engine) {
+    : QObject(parent), stream_(stream), engine_(engine),
+      divExt_(std::make_unique<lyra::dsp::DivExt>()) {
     session_ = new P2Session();          // parentless — moves to thread_
     session_->moveToThread(&thread_);
     connect(&thread_, &QThread::finished, session_, &QObject::deleteLater);
@@ -63,9 +65,13 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
     // Q, big-endian signed 24-bit placed in the top 3 bytes of an
     // int32, scaled by 1/2^31.
     connect(session_, &P2Session::iqFrameReceived, session_,
-            [sess = session_](int ddc, quint32 /*seq*/, const QByteArray &iq) {
+            [sess = session_, div = divExt_.get(),
+             gain = &divGainDb_, phase = &divPhaseDeg_,
+             eng = engine_](int ddc, quint32 /*seq*/, const QByteArray &iq) {
                 // One-ADC: DDC0 → RX1, DDC1 → RX2. Two-ADC class: DDC2 →
-                // RX1, DDC3 → RX2. Live PS still consumes DDC0 only.
+                // RX1, DDC3 → RX2, unless diversity is live — then DDC0
+                // is the interleaved pair and RX1 is the mix. Live PS
+                // still consumes DDC0 only and wins over diversity.
                 if (ddc < 0 || ddc > 3)
                     return;
                 static thread_local std::vector<double> buf;
@@ -85,10 +91,48 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                         qRaw / 2147483648.0 * scale;
                 }
                 if (sess->isPureSignalLive()) {
+                    if (div && div->running())
+                        div->setRunning(false);
                     if (ddc == 0)
                         sess->ingestPsccInterleaved(buf.data(), n);
                     return;
                 }
+                if (sess->diversityOverlayLive() && ddc == 0) {
+                    const int pairs = n / 2;
+                    if (pairs <= 0)
+                        return;
+                    static thread_local std::vector<double> s0, s1, mixed;
+                    s0.resize(static_cast<std::size_t>(pairs) * 2);
+                    s1.resize(static_cast<std::size_t>(pairs) * 2);
+                    mixed.resize(static_cast<std::size_t>(pairs) * 2);
+                    for (int i = 0; i < pairs; ++i) {
+                        s0[static_cast<std::size_t>(2 * i)]     = buf[4 * i];
+                        s0[static_cast<std::size_t>(2 * i) + 1] = buf[4 * i + 1];
+                        s1[static_cast<std::size_t>(2 * i)]     = buf[4 * i + 2];
+                        s1[static_cast<std::size_t>(2 * i) + 1] = buf[4 * i + 3];
+                    }
+                    if (div) {
+                        div->setMix(gain->load(std::memory_order_relaxed),
+                                    phase->load(std::memory_order_relaxed));
+                    }
+                    const bool mixedOk =
+                        div && div->ensure(eng ? eng->wdspNative() : nullptr) &&
+                        (div->setRunning(true), div->process(
+                            pairs, s0.data(), s1.data(), mixed.data()));
+                    if (!mixedOk) {
+                        static bool logged = false;
+                        if (!logged) {
+                            logged = true;
+                            qWarning("P2: diversity combiner unavailable — "
+                                     "RX1 is ADC0 only");
+                        }
+                    }
+                    xrouter(router_instance(0), 0, 0, pairs,
+                            mixedOk ? mixed.data() : s0.data());
+                    return;
+                }
+                if (div && div->running())
+                    div->setRunning(false);
                 sess->ingestPsccIq(ddc, buf.data(), n);
                 if (ddc == sess->rx1DdcIndex())
                     xrouter(router_instance(0), 0, 0, n, buf.data());
@@ -242,6 +286,29 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 [this]() { pushDialToSession(); });
         connect(stream_, &lyra::ipc::HL2Stream::subEnabledChanged, this,
                 [this]() { syncRx2Ddc(); });
+        divGainDb_.store(stream_->diversityGainDb(), std::memory_order_relaxed);
+        divPhaseDeg_.store(stream_->diversityPhaseDeg(),
+                           std::memory_order_relaxed);
+        connect(stream_, &lyra::ipc::HL2Stream::diversityArmedChanged, this,
+                [this](bool on) {
+                    if (!open_ || !session_) return;
+                    auto *s = session_;
+                    QMetaObject::invokeMethod(s, [s, on]() {
+                        s->setDiversityArmed(on);
+                    });
+                });
+        connect(stream_, &lyra::ipc::HL2Stream::diversityGainDbChanged, this,
+                [this]() {
+                    if (stream_)
+                        divGainDb_.store(stream_->diversityGainDb(),
+                                         std::memory_order_relaxed);
+                });
+        connect(stream_, &lyra::ipc::HL2Stream::diversityPhaseDegChanged, this,
+                [this]() {
+                    if (stream_)
+                        divPhaseDeg_.store(stream_->diversityPhaseDeg(),
+                                           std::memory_order_relaxed);
+                });
         connect(stream_, &lyra::ipc::HL2Stream::rx2FreqChanged, this,
                 [this]() { syncRx2Ddc(); });
         connect(stream_, &lyra::ipc::HL2Stream::splitEnabledChanged, this,
@@ -1090,6 +1157,16 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     // id alone is insufficient (e.g. a Brick and a genuine Hermes-class
     // ANAN can share discovery identity but not front-end hardware).
     const auto *p2hw = lyra::wire::p2ProfileForModel(modelKey);
+    if (stream_) {
+        const bool angeliaTwo =
+            p2hw && p2hw->angeliaRxDdcSlots && p2hw->adcCount > 1;
+        const auto caps = lyra::rig::capabilitiesFor(
+            prof.isValid() ? prof.family : lyra::rig::RadioFamily::Unknown);
+        const bool familyOk = caps.diversityCapable
+            || !prof.isValid()
+            || prof.family == lyra::rig::RadioFamily::Unknown;
+        stream_->setDiversityCapable(angeliaTwo && familyOk);
+    }
     // A P2 hardware profile ungreys TX. On-air-validated models skip the
     // dummy-load arm (BrickSDR2, Brick3SDR, ANAN-10/10E, 100-line).
     txHardwareSupported_ = p2hw != nullptr;
@@ -1137,14 +1214,15 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
         if (hw)
             st->applyPsHwPeakDefault(hw->psDefaultPeakP2);
     }
-    const bool subOn = st && st->subEnabled();
+    const bool divOn = st && st->diversityCapable() && st->diversityArmed();
+    const bool subOn = st && st->subEnabled() && !divOn;
     const bool psOn = st && st->psLiveArmed();
     const quint32 rx2Hz = st ? st->rx2FreqHz() : 0;
     QMetaObject::invokeMethod(s, [s, ip, correctedHz, correctedTx, rate,
                                   bandAnt, p2hw,
                                   att, adc, input, bypass,
                                   attOnTxEn, attOnTxDb, rx2Gnd, st,
-                                  subOn, psOn, rx2Hz]() {
+                                  divOn, subOn, psOn, rx2Hz]() {
         s->setTxProducerSink([](const double *iq, int samples) {
             return feedP2TxCmasterInput(iq, samples);
         });
@@ -1170,7 +1248,11 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
         // dial-update path continues to track later changes.
         s->setDucFrequencyHz(correctedTx);
         s->enablePrimaryRx(rate);
-        if (subOn) {
+        if (divOn) {
+            // Stores the flag.  open() has not run, so the first packet
+            // already carries the overlay.
+            s->setDiversityArmed(true);
+        } else if (subOn) {
             s->armSubSecondaryDdcs(
                 rate,
                 static_cast<quint32>(corrected_freq(static_cast<int>(rx2Hz))));
@@ -1229,8 +1311,10 @@ void P2RxBridge::close() {
     ip_.clear();
     rigId_.clear();
     hardwareModelKey_.clear();
-    if (stream_)
+    if (stream_) {
         stream_->refreshDualAdcFromSettings();
+        stream_->setDiversityCapable(false);
+    }
     modelLabel_.clear();
     supplyV_ = std::numeric_limits<double>::quiet_NaN();
     paA_     = std::numeric_limits<double>::quiet_NaN();

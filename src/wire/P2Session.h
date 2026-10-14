@@ -173,10 +173,16 @@ public:
     void enableDdc(int ddc, quint16 rateKhz);
     void disableDdc(int ddc);
     // Two-ADC profiles (angeliaRxDdcSlots): RX1 is DDC2 / UDP 1037 on
-    // ADC 0, RX2 is DDC3 / UDP 1038 on ADC 1. One-ADC profiles stay on
-    // DDC0 / DDC1 (UDP 1035 / 1036). Firewall punches are outbound
-    // writes, never dest-port listeners.
+    // ADC 0, RX2 is DDC3 / UDP 1038 on ADC 1, until diversity is armed.
+    // Armed diversity (RX, not transmitting, PureSignal not live) moves
+    // the live pair to DDC0+DDC1 interleaved on UDP 1035. One-ADC
+    // profiles stay on DDC0 / DDC1 (UDP 1035 / 1036) and ignore the
+    // flag. Firewall punches are outbound writes, never dest-port
+    // listeners.
     bool angeliaRxSlots() const;
+    void setDiversityArmed(bool on);
+    bool diversityArmed() const { return diversityArmed_; }
+    bool diversityOverlayLive() const;
     int rx1DdcIndex() const;
     int rx2DdcIndex() const;
     void enablePrimaryRx(quint16 rateKhz);
@@ -449,6 +455,9 @@ private:
     bool         psArmed_{false};
     // SUB audio from DDC1 — independent of enableDdc(1) for PS replica.
     bool         subRx2Wanted_{false};
+    // Host diversity. Default off: the packet and the RX1 port stay
+    // today's map. Not a UI control.
+    bool         diversityArmed_{false};
     std::vector<double> psccRx_;
     std::vector<double> psccTx_;
     quint32      ddcSpecificSeq_ = 0;             // DDC-specific (receive_specific)

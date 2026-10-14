@@ -147,6 +147,13 @@ class HL2Stream : public QObject {
     // True when the selected radio (or the live connection) has two
     // converters. The second spectrum follows this and subEnabled.
     Q_PROPERTY(bool    dualAdc READ dualAdc NOTIFY dualAdcChanged)
+    // Diversity: two converters, one carrier, mixed into RX1.  The chip
+    // is absent unless capable.  Armed is the operator preference; the
+    // wire overlay drops itself while transmitting or PureSignal is live.
+    Q_PROPERTY(bool   diversityCapable READ diversityCapable NOTIFY diversityCapableChanged)
+    Q_PROPERTY(bool   diversityArmed READ diversityArmed WRITE setDiversityArmed NOTIFY diversityArmedChanged)
+    Q_PROPERTY(double diversityGainDb READ diversityGainDb WRITE setDiversityGainDb NOTIFY diversityGainDbChanged)
+    Q_PROPERTY(double diversityPhaseDeg READ diversityPhaseDeg WRITE setDiversityPhaseDeg NOTIFY diversityPhaseDegChanged)
     Q_PROPERTY(quint32 rx2FreqHz  READ rx2FreqHz  WRITE setRx2FreqHz  NOTIFY rx2FreqChanged)
     Q_PROPERTY(int     focusedRx  READ focusedRx  WRITE setFocusedRx  NOTIFY focusedRxChanged)
     // RIT (RX incremental tuning) + XIT (TX incremental tuning) — signed
@@ -796,6 +803,10 @@ public:
     quint32 vfoBHz()            const { return vfoBHz_.load(std::memory_order_relaxed); }
     bool    subEnabled()        const { return subEnabled_.load(std::memory_order_relaxed); }
     bool    dualAdc()           const { return dualAdc_.load(std::memory_order_relaxed); }
+    bool    diversityCapable()  const { return diversityCapable_.load(std::memory_order_relaxed); }
+    bool    diversityArmed()    const { return diversityArmed_.load(std::memory_order_relaxed); }
+    double  diversityGainDb()   const { return diversityGainDb_; }
+    double  diversityPhaseDeg() const { return diversityPhaseDeg_; }
     quint32 rx2FreqHz()         const { return rx2FreqHz_.load(std::memory_order_relaxed); }
     int     focusedRx()         const { return focusedRx_.load(std::memory_order_relaxed); }
     // Effective TX carrier the wire NCO is set to (0x02/0x08/0x0a).  Tracks
@@ -1272,6 +1283,10 @@ public slots:
     void setVfoBHz(quint32 hz);
     void setSubEnabled(bool on);
     void setDualAdc(bool on);
+    void setDiversityCapable(bool on);
+    void setDiversityArmed(bool on);
+    void setDiversityGainDb(double db);
+    void setDiversityPhaseDeg(double deg);
     void refreshDualAdcFromSettings();
     void setRx2FreqHz(quint32 hz);
     void setFocusedRx(int rx);
@@ -1669,6 +1684,10 @@ signals:
     void vfoBHzChanged();
     void subEnabledChanged();
     void dualAdcChanged();
+    void diversityCapableChanged();
+    void diversityArmedChanged(bool on);
+    void diversityGainDbChanged();
+    void diversityPhaseDegChanged();
     void rx2FreqChanged();
     void focusedRxChanged();
     void ritChanged();   // RIT enable and/or offset
@@ -2194,6 +2213,10 @@ private:
     std::atomic<quint32> vfoBHz_{7074000};
     std::atomic<bool>    subEnabled_{false};
     std::atomic<bool>    dualAdc_{false};
+    std::atomic<bool>    diversityCapable_{false};
+    std::atomic<bool>    diversityArmed_{false};
+    double               diversityGainDb_{0.0};
+    double               diversityPhaseDeg_{0.0};
     std::atomic<quint32> rx2FreqHz_{7074000};
     int lastSubWarnBandA_{-1};
     int lastSubWarnBandB_{-1};
