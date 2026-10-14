@@ -5,6 +5,9 @@
 //
 // Layout, top to bottom: the arc (its scale figures outside it) ends a
 // fixed gap above the bar block, so figures and rows never overlap.
+//
+// Colours follow the app theme (theme.h): navy face, cyan accent window,
+// blue-grey text, and the shared MeterInk zone palette for lamps and bars.
 
 import QtQuick
 import "MeterInk.js" as MeterInk
@@ -12,6 +15,20 @@ import "MeterInk.js" as MeterInk
 Item {
     id: cluster
     anchors.fill: parent
+
+    // Theme colours (theme.h / MeterPanel.qml).
+    readonly property string accent: "#00e5ff"
+    readonly property string textCol: "#cdd9e5"
+    readonly property string labelCol: "#8a9aac"
+    readonly property string unlit: "#16222c"
+    readonly property string windowBg: "#0c1218"
+
+    // "#rrggbb" → "rgba(r,g,b,a)" for the lamp glow.
+    function alpha(hex, a) {
+        return "rgba(" + parseInt(hex.substr(1, 2), 16) + ","
+             + parseInt(hex.substr(3, 2), 16) + ","
+             + parseInt(hex.substr(5, 2), 16) + "," + a + ")"
+    }
 
     function round(ctx, x, y, w, h, r) {
         var rr = Math.min(r, w / 2, h / 2)
@@ -57,7 +74,11 @@ Item {
             var ctx = getContext("2d")
             ctx.reset()
             var w = width, h = height
-            ctx.fillStyle = "#050505"
+            var bg = ctx.createLinearGradient(0, 0, 0, h)
+            bg.addColorStop(0, "#18222c")
+            bg.addColorStop(0.45, "#101820")
+            bg.addColorStop(1, "#0b1117")
+            ctx.fillStyle = bg
             ctx.fillRect(0, 0, w, h)
 
             var rows = Meter.ladderRows ? Meter.ladderRows : []
@@ -79,8 +100,8 @@ Item {
             // Faint vertical rules and the left-hand 100..25 scale.
             var gridTop = h * 0.04
             var gridBot = cy - tickPx
-            ctx.strokeStyle = "rgba(255,255,255,0.28)"
-            ctx.fillStyle = "rgba(255,255,255,0.55)"
+            ctx.strokeStyle = "rgba(42,74,90,0.85)"
+            ctx.fillStyle = cluster.labelCol
             ctx.lineWidth = Math.max(1, w * 0.002)
             ctx.font = Math.round(Math.max(8, h * 0.035)) + "px Consolas, Menlo, monospace"
             ctx.textAlign = "right"
@@ -114,20 +135,17 @@ Item {
                 var p = cluster.arcPoint(cx, cy, R, t)
                 var on = t <= level + 0.5 / dots
                 if (on) {
+                    var lampInk = MeterInk.ink(t, danger)
                     var glow = ctx.createRadialGradient(p[0], p[1], 0, p[0], p[1], rad * 3.2)
-                    glow.addColorStop(0, "rgba(255,170,40,0.85)")
-                    glow.addColorStop(1, "rgba(255,120,0,0)")
+                    glow.addColorStop(0, cluster.alpha(lampInk, 0.75))
+                    glow.addColorStop(1, cluster.alpha(lampInk, 0))
                     ctx.fillStyle = glow
                     ctx.beginPath()
                     ctx.arc(p[0], p[1], rad * 3.2, 0, 7)
                     ctx.fill()
-                    ctx.fillStyle = "#fff4c8"
-                    ctx.beginPath()
-                    ctx.arc(p[0], p[1], rad * 0.55, 0, 7)
-                    ctx.fill()
-                    ctx.fillStyle = "#ff9a18"
+                    ctx.fillStyle = lampInk
                 } else {
-                    ctx.fillStyle = "#2a1608"
+                    ctx.fillStyle = cluster.unlit
                 }
                 ctx.beginPath()
                 ctx.arc(p[0], p[1], rad, 0, 7)
@@ -147,7 +165,7 @@ Item {
                 // Keep a foot figure inside the panel edge.
                 var half = ctx.measureText(tk.label).width / 2
                 var tx = Math.max(half + 1, Math.min(w - half - 1, tp[0]))
-                ctx.fillStyle = tk.pos >= danger ? "#ffb199" : "rgba(230,230,230,0.8)"
+                ctx.fillStyle = tk.pos >= danger ? MeterInk.facePalette[2] : cluster.textCol
                 ctx.fillText(tk.label, tx, tp[1])
             }
 
@@ -160,12 +178,11 @@ Item {
             var boxX = cx - boxW / 2
             var boxY = cy - R * 0.62
             cluster.round(ctx, boxX, boxY, boxW, boxH, boxH * 0.12)
-            var bezel = ctx.createLinearGradient(boxX, boxY, boxX, boxY + boxH)
-            bezel.addColorStop(0, "#ff3a2a")
-            bezel.addColorStop(0.45, "#c01010")
-            bezel.addColorStop(1, "#6a0606")
-            ctx.fillStyle = bezel
+            ctx.fillStyle = cluster.windowBg
             ctx.fill()
+            ctx.strokeStyle = cluster.accent
+            ctx.lineWidth = Math.max(1, boxH * 0.03)
+            ctx.stroke()
             var rd = cluster.splitReading(hero ? hero.value : "")
             var pad = Math.max(3, boxH * 0.14)
             var sidePx = Math.round(Math.max(8, boxH * 0.40))
@@ -182,7 +199,7 @@ Item {
                 digitPx = Math.max(8, Math.floor(digitPx * numRoom / reserve))
             var midY = boxY + boxH * 0.54
             ctx.textBaseline = "middle"
-            ctx.fillStyle = "#ffe14a"
+            ctx.fillStyle = cluster.accent
             ctx.font = "bold " + digitPx + "px \"DSEG7 Classic\""
             ctx.textAlign = "right"
             ctx.fillText(rd.num, numRight, midY)
@@ -195,7 +212,7 @@ Item {
             var unit = hero && hero.label ? hero.label : ""
             if (unit.length && unit !== rd.prefix) {
                 ctx.font = "bold " + Math.round(Math.max(8, Math.min(tickPx, boxH * 0.36))) + "px Consolas, Menlo, monospace"
-                ctx.fillStyle = "#b6ff4a"
+                ctx.fillStyle = cluster.labelCol
                 ctx.textAlign = "center"
                 ctx.fillText(unit, cx, (boxY + boxH + cy) / 2)
             }
@@ -225,7 +242,7 @@ Item {
                 var dg = row.danger
                 ctx.textBaseline = "top"
                 ctx.textAlign = "left"
-                ctx.fillStyle = MeterInk.clusterInk(lv, dg)
+                ctx.fillStyle = MeterInk.ink(lv, dg)
                 ctx.font = "bold " + textPx + "px Consolas, Menlo, monospace"
                 ctx.fillText(row.label, x0, y)
                 var labelW = ctx.measureText(row.label).width
@@ -240,7 +257,7 @@ Item {
                     ctx.font = valPx + "px Consolas, Menlo, monospace"
                 }
                 ctx.textAlign = "right"
-                ctx.fillStyle = "rgba(220,220,220,0.75)"
+                ctx.fillStyle = cluster.textCol
                 ctx.fillText(value, x1, y + (textPx - valPx))
 
                 var by = y + textPx + 2
@@ -253,7 +270,7 @@ Item {
                     var pos = segs === 1 ? 0 : s / (segs - 1)
                     var on = s < lit
                     var sx = x0 + s * (sw + gap)
-                    ctx.fillStyle = on ? MeterInk.clusterInk(pos, dg) : "#101010"
+                    ctx.fillStyle = on ? MeterInk.ink(pos, dg) : cluster.unlit
                     ctx.fillRect(sx, by, sw, bh)
                     if (on && s === lit - 1) {
                         ctx.fillStyle = "rgba(255,255,255,0.65)"

@@ -20,17 +20,11 @@ function zone(v, danger) {
     return 0
 }
 
-// The single-hue faces (Porthole, Iris, Sonar, Drum, Phosphor).
+// The single-hue faces (Iris, Sonar, Drum, Phosphor) and Cluster.
 var facePalette = ["#3ad7ff", "#3dff9a", "#ff9a3c", "#ff4d4d"]
-// Cluster's lamp-green instrument palette.
-var clusterPalette = ["#7dff3a", "#39ff4a", "#ffe14a", "#ff2a2a"]
 
 function ink(v, danger) {
     return facePalette[zone(v, danger)]
-}
-
-function clusterInk(v, danger) {
-    return clusterPalette[zone(v, danger)]
 }
 
 // Glass faces (VFD) keep their tube colour and carry a separate red
