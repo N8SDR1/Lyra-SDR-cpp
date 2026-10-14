@@ -1974,10 +1974,10 @@ void MainWindow::buildDocks() {
                                       qobject_cast<lyra::ipc::HL2Stream *>(stream_),
                                       bandMemory_, gen_, this);
     auto bandBlocked = [this] {
-        statusBus_->show(tr("Band change ignored while transmitting"), 3000);
+        statusBus_->show(tr("Band change blocked — transmit stopped"), 3000);
     };
-    connect(solarPanel, &SolarPanel::bandChangeBlocked, this, bandBlocked);
-    // One-click jumps (GEN/TIME/Mem/XVTR, band-plan markers) that would cross bands.
+    // Any refused band jump (heat-map, band chips, GEN/TIME/Mem/XVTR, band-plan
+    // markers, spots, CAT/TCI) un-keys and reports through the stream.
     if (auto *hl2 = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
         connect(hl2, &lyra::ipc::HL2Stream::txBandChangeBlocked, this, bandBlocked);
     addWidgetDock(QStringLiteral("propagation"), tr("Solar / Propagation"),

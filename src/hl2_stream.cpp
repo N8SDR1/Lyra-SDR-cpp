@@ -2353,8 +2353,16 @@ bool HL2Stream::txBlocksVfoBJump(quint32 targetHz) {
 bool HL2Stream::txBlocksJumpFrom(quint32 fromHz, quint32 targetHz) {
     if (!txDisplayActive_) return false;
     if (!lyra::bandJumpCrosses(int(fromHz), int(targetHz))) return false;
-    emit txBandChangeBlocked();
+    stopTxForBlockedJump();
     return true;
+}
+
+void HL2Stream::stopTxForBlockedJump() {
+    safetyLog(QStringLiteral("TX: band jump refused while transmitting — un-keying"));
+    if (cwKeyingActive_)
+        abortCw();
+    requestMox(false);              // keyup always passes; TUN clears on the MOX-off edge
+    emit txBandChangeBlocked();
 }
 
 void HL2Stream::setSubEnabled(bool on) {

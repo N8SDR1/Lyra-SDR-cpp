@@ -3360,20 +3360,24 @@ A compact strip showing current **HF propagation** conditions from
   the focused one. **Right-click** or **Shift+click** parks the SUB receiver
   on that band instead. Band memory is honoured, so you land on the
   frequency you last used there.
-- **Band changes are ignored while transmitting.** Switching bands re-selects
-  filters and PA/relay outputs, so during transmit (including CW keying) a
-  click on the heat-map or on any Band-panel band chip does nothing except
-  post "Band change ignored while transmitting" in the status bar. The other
+- **Band changes are blocked while transmitting, and transmit stops.** Switching
+  bands re-selects filters and PA/relay outputs, so during transmit (including
+  CW keying) a click on the heat-map or on any Band-panel band chip does not
+  change band. Instead Lyra un-keys (MOX and TUN drop, any CW being sent is
+  aborted) and posts "Band change blocked — transmit stopped" in the status
+  bar. Press PTT again to resume on the same frequency. The other
   one-click jumps (GEN, TIME, Mem recall, XVTR chips, DX spot labels, and the
   band-plan, CB and broadcast markers on the panadapter) are blocked the same way only when
   they would **leave the current amateur band**; a jump within the same band
   still works. The same rule covers the VFO itself: the **1→2**, **2→1** and
-  **⇄** (copy/swap) buttons and a typed frequency are ignored if they would
-  move VFO A — or VFO B while it is live (SPLIT or SUB) — out of its band.
+  **⇄** (copy/swap) buttons and a typed frequency are refused, and transmit
+  stops, if they would move VFO A — or VFO B while it is live (SPLIT or SUB) —
+  out of its band.
   Frequency changes from a logger or other program over **CAT** or **TCI**
   follow the same rule (VFO B counts there only in SPLIT, where it is the TX
-  frequency); a TCI client is sent the unchanged frequency so its display
-  stays in step. The NCDXF **Follow** feature
+  frequency), so a program that jumps band mid-transmission un-keys the
+  radio; a TCI client is sent the unchanged frequency so its display stays in
+  step. The NCDXF **Follow** feature
   pauses silently while you transmit and resumes on its next tick after you
   release.
 

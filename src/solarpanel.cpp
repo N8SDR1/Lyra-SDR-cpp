@@ -257,7 +257,7 @@ bool SolarPanel::eventFilter(QObject *watched, QEvent *event) {
 void SolarPanel::tuneBand(const QString &bandKey, bool forceSub) {
     if (!stream_ || bandKey.isEmpty()) return;
     if (stream_->txDisplayActive()) {
-        emit bandChangeBlocked();
+        stream_->stopTxForBlockedJump();   // emits txBandChangeBlocked → status cue
         return;
     }
     int defaultHz = 0;

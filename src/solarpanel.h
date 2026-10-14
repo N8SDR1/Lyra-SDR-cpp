@@ -29,10 +29,6 @@ public:
                lyra::ipc::HL2Stream *stream, BandMemory *bandMemory,
                GenSlots *gen, QWidget *parent = nullptr);
 
-signals:
-    // A band click was ignored because the radio is transmitting.
-    void bandChangeBlocked();
-
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 

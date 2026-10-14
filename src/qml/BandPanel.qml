@@ -65,8 +65,9 @@ Rectangle {
     }
     function goBand(key, defaultHz, forceSub) {
         // A band change retunes filters / OC outputs / PA band — never under power.
+        // Refuse it and stop transmitting (the stream posts the status cue).
         if (Stream.txDisplayActive) {
-            Status.show(qsTr("Band change ignored while transmitting"), 3000)
+            Stream.stopTxForBlockedJump()
             return
         }
         if (forceSub) {
