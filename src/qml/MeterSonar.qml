@@ -1,5 +1,9 @@
 // Sonar — port of paintSonar() in the browser mock.
-// Range rings, dim sweep, noise disc, one bloomed return, peak ring.
+// Range rings, compass bearing ring, sweep, noise disc, peak ring.
+// The return rides the sweep all the way round: each bearing the beam
+// passes keeps the level it saw there and fades over one turn, so the
+// scope shows the last rotation of signal history.  Distance from the
+// rim is strength (a strong signal sits near the centre).
 
 import QtQuick
 import "MeterInk.js" as MeterInk
@@ -7,6 +11,12 @@ import "MeterInk.js" as MeterInk
 Item {
     id: sonar
     anchors.fill: parent
+
+    // Afterglow: one stored level per bearing bin, written as the sweep
+    // passes.  -1 = nothing painted there yet.
+    readonly property int bins: 120
+    property var hits: []
+    property real lastSweep: -1
 
     Canvas {
         id: cv
@@ -23,7 +33,11 @@ Item {
             var g = ctx.createRadialGradient(w * 0.42, h * 0.52, 8, w * 0.42, h * 0.52, w * 0.5)
             g.addColorStop(0, "#102028"); g.addColorStop(1, "#070c10")
             ctx.fillStyle = g; ctx.fillRect(0, 0, w, h)
-            var cx = w * 0.40, cy = h * 0.52, R = Math.min(w, h) * 0.40
+            // Leave room outside the scope for the compass figures, and keep
+            // the ring clear of the readout column at w * 0.70.
+            var labPx = Math.round(Math.max(8, h * 0.055))
+            var cx = w * 0.36, cy = h * 0.5
+            var R = Math.max(10, Math.min(h * 0.5 - labPx * 2.0, w * 0.70 - cx - labPx * 2.6))
             ctx.strokeStyle = "rgba(0,229,255,0.18)"; ctx.lineWidth = 1
             for (var i = 1; i <= 4; ++i) {
                 ctx.beginPath(); ctx.arc(cx, cy, R * i / 4, 0, 7); ctx.stroke()
@@ -47,7 +61,65 @@ Item {
                 ctx.fillRect(cx + Math.cos(ang) * rr, cy + Math.sin(ang) * rr, 1.2, 1.2)
             }
             ctx.restore()
-            var sweep = (t * 0.35) % (Math.PI * 2)
+            // Compass ring: a tick every 10°, longer every 30°, figures
+            // every 30° with N/E/S/W in the accent.  Bearing 0 is up and
+            // runs clockwise, the same way as the sweep.
+            ctx.lineWidth = 1
+            for (var d = 0; d < 360; d += 10) {
+                var ca = -Math.PI / 2 + d * Math.PI / 180
+                var major = d % 30 === 0
+                var r0 = R + 1, r1 = R + (major ? labPx * 0.55 : labPx * 0.3)
+                ctx.strokeStyle = major ? "rgba(0,229,255,0.55)" : "rgba(0,229,255,0.28)"
+                ctx.beginPath()
+                ctx.moveTo(cx + r0 * Math.cos(ca), cy + r0 * Math.sin(ca))
+                ctx.lineTo(cx + r1 * Math.cos(ca), cy + r1 * Math.sin(ca))
+                ctx.stroke()
+            }
+            ctx.textAlign = "center"; ctx.textBaseline = "middle"
+            var cardinal = { 0: "N", 90: "E", 180: "S", 270: "W" }
+            for (var b = 0; b < 360; b += 30) {
+                var la = -Math.PI / 2 + b * Math.PI / 180
+                var lr = R + labPx * 1.3
+                var isCard = cardinal[b] !== undefined
+                ctx.fillStyle = isCard ? "#00e5ff" : "#8a9aac"
+                ctx.font = (isCard ? "bold " + labPx : Math.round(labPx * 0.85)) + "px Consolas, Menlo, monospace"
+                ctx.fillText(isCard ? cardinal[b] : String(b), cx + lr * Math.cos(la), cy + lr * Math.sin(la))
+            }
+
+            var twoPi = Math.PI * 2
+            var sweep = (t * 0.35) % twoPi
+            // Record the current level in every bin the beam crossed since
+            // the last frame (a slow frame can skip several).
+            if (sonar.hits.length !== sonar.bins) {
+                var fresh = []
+                for (var z = 0; z < sonar.bins; ++z) fresh.push(-1)
+                sonar.hits = fresh
+                sonar.lastSweep = sweep
+            }
+            var binW = twoPi / sonar.bins
+            var from = Math.floor(sonar.lastSweep / binW)
+            var to = Math.floor(sweep / binW)
+            var steps = Math.max(1, (to - from + sonar.bins) % sonar.bins)
+            for (var st = 0; st < steps; ++st)
+                sonar.hits[(to - st + sonar.bins) % sonar.bins] = Meter.level
+            sonar.lastSweep = sweep
+            // Afterglow returns: brightest just behind the beam, gone after a turn.
+            for (var hb = 0; hb < sonar.bins; ++hb) {
+                var lv = sonar.hits[hb]
+                if (lv < 0) continue
+                var ba0 = (hb + 0.5) * binW
+                var age = ((sweep - ba0) % twoPi + twoPi) % twoPi / twoPi
+                var fade = Math.pow(1 - age, 1.6)
+                if (fade < 0.03) continue
+                var hr = R * (1 - Math.max(0, Math.min(1, lv)))
+                ctx.globalAlpha = fade
+                ctx.fillStyle = MeterInk.ink(lv, Meter.normAtS9)
+                ctx.beginPath()
+                ctx.arc(cx + Math.cos(ba0) * hr, cy + Math.sin(ba0) * hr,
+                        Math.max(1.5, R * 0.025), 0, 7)
+                ctx.fill()
+            }
+            ctx.globalAlpha = 1
             ctx.save()
             ctx.translate(cx, cy); ctx.rotate(sweep)
             var sg = ctx.createLinearGradient(0, 0, R, 0)
@@ -56,15 +128,17 @@ Item {
             ctx.fillStyle = sg
             ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, R, -0.4, 0); ctx.closePath(); ctx.fill()
             ctx.restore()
-            // Strongest return sits on the center. A weak reading stays on the rim.
-            var ba = -Math.PI / 2 + 0.35 * Math.sin(t * 0.4)
+            // Live return on the beam. Strongest sits on the center, a weak
+            // reading stays on the rim.
+            var ba = sweep
             var br = R * (1 - Meter.level)
             var bx = cx + Math.cos(ba) * br, by = cy + Math.sin(ba) * br
-            var blip = ctx.createRadialGradient(bx, by, 0, bx, by, 14)
+            var blipR = Math.max(6, R * 0.12)
+            var blip = ctx.createRadialGradient(bx, by, 0, bx, by, blipR)
             blip.addColorStop(0, "#ffffff")
             blip.addColorStop(0.25, MeterInk.ink(Meter.level, Meter.normAtS9))
             blip.addColorStop(1, "rgba(0,0,0,0)")
-            ctx.fillStyle = blip; ctx.beginPath(); ctx.arc(bx, by, 14, 0, 7); ctx.fill()
+            ctx.fillStyle = blip; ctx.beginPath(); ctx.arc(bx, by, blipR, 0, 7); ctx.fill()
             ctx.beginPath(); ctx.arc(cx, cy, R * (1 - Meter.peak), 0, 7)
             ctx.strokeStyle = "rgba(255,214,130,0.45)"; ctx.lineWidth = 1; ctx.stroke()
             ctx.textAlign = "left"; ctx.textBaseline = "middle"
