@@ -108,11 +108,10 @@ first:
   mic via VAC1, or TCI for digital.
 - **TX power / drive**, and **enable the PA** if your build needs it
   (Settings → TX → Advanced). Brick3 first RF: **dummy load**.
-- **HL2 analog amp (GP100 / J4 pin 8):** analog band-follow is always on
-  I2C **0x1D** — you do **not** need **Enable N2ADR**. Leave **Band Volts
-  on J3** off unless the amp is on the fan header. v0.25.19 spaces analog
-  I2C with **delay=5** and latches on **BYTE0** so a fast band hop should
-  not stick on the old voltage (0.25.18 `delay=0` hung some Picos).
+- **HL2 filter board (J4 pin 8):** follow is always on. You do **not**
+  need **Enable N2ADR**. Leave **Band Volts on J3** off unless the amp
+  is on the fan header. **v0.25.20** writes the voltage after the band
+  change finishes, including a return to a band already on the dial.
 - **Running an amplifier?** Read
   **[User Guide → Operating with an external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**
   first — Lyra has TR‑sequencing and hot‑switch protection you should

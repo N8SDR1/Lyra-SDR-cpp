@@ -1,19 +1,17 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.19 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.20 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**Diversity**, the **three-frequency band stack**, and **separate RX / TX
-filter lows** are on the current build and are not in the 0.25.19
-installer.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.15 → 0.25.19)
+### Last several builds (0.25.16 → 0.25.20)
 
 | Build | What landed |
 |---|---|
-| **0.25.19** | HL2 analog I2C **delay=5** (Issue #17 — 0.25.18 stuck on 20 m) · IQ backlog cap · PC-ring underrun fade · NB/AF atomics |
+| **0.25.20** | **Diversity** (Brick3 / 100D / 200D) · **band stack** (three frequencies per chip) · **separate RX and TX filter lows** · filter-board voltage follows a return to a band already on the dial (Issue #17) |
+| **0.25.19** | IQ backlog cap · PC-ring underrun fade · NB/AF atomics |
 | **0.25.18** | HL2 analog J4 / Pico **BYTE0** latch (no leftover-band voltage) · **RX2 jack isolate on TX** (two-converter) · **11 m / CB chips on the SUB pane** (mode follows Hardware Region) |
 | **0.25.17** | Dual-ADC **SUB second panadapter** (Brick3 / 100D / 200D) · Brick3 TX like Brick2 (no dummy-load arm) · ANAN-10 = Brick2 TX, 100-series = Brick3 TX · PureSignal **Voice** + engine chips on Amp View · Windows mixer volume remembered (Issue #18) |
 | **0.25.16** | **Brick3 Beta Testing** · **MAP** ANT / RX chips · Protocol 2 **Auto Step** 0–31 · per-band PureSignal pad · PS Reset |
@@ -22,13 +20,13 @@ installer.
 ## Radio &amp; connection
 
 - ✅ HPSDR **Protocol 1** discovery (multi-NIC, subnet-directed broadcast) + **Add by IP** for fixed-IP / cross-subnet radios
-- ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** and **Brick3SDR** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator); discovery firmware shown as **v10.6**-style, not “fw v0”. **TX DUC follows the VFO after retune** (v0.25.15). **Brick3 Beta Testing** (v0.25.16–0.25.19): MAP ANT/RX chips, Auto Step 0–31, per-band PS pad, TX like BrickSDR2 (no dummy-load arm), **SUB second pan**, **RX2 jack isolate on TX**. **P1 Brick / P1 ANAN: Discover lists, Open refuses** (HL2 TX layout) — flash P2; Brick FPGA help: Anton (linoobs)
+- ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** and **Brick3SDR** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator); discovery firmware shown as **v10.6**-style, not “fw v0”. **TX DUC follows the VFO after retune** (v0.25.15). **Brick3 Beta Testing** (v0.25.16–0.25.20): MAP ANT/RX chips, Auto Step 0–31, per-band PS pad, TX like BrickSDR2 (no dummy-load arm), **SUB second pan**, **RX2 jack isolate on TX**. **P1 Brick / P1 ANAN: Discover lists, Open refuses** (HL2 TX layout) — flash P2; Brick FPGA help: Anton (linoobs)
 - ✅ **Keyboard VFO** (global arrows: 1 kHz / 10 Hz), **startup profile** (mode binding → last-used → Default), **Tuning Mem** left-click after idle (v0.25.15)
 - 🚧 **ANAN-10 / 10E** Protocol 2 — classic Alex; **BrickSDR2 TX** (on-air, no dummy-load arm). Pick marketed model in Settings (Hermes discovery still defaults to Brick). Boxes that shipped P1 should use a P2 FPGA when they can.
 - 🚧 **ANAN-100 / 100B / 100D / 200D** Protocol 2 — **Brick3SDR TX** (on-air, independent Enable PA). **100D / 200D**: two converters, **SUB** opens a second panadapter.
 - ✅ **SUB / RX2 on HL2, BrickSDR2, Brick3SDR, and P2 ANAN** — second DDC; orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2 overlay; band chips **red** (RX1) vs **green** (SUB); **Shift+click / right-click** hops SUB; off-span **◀ RX2** / **RX2 ▶**. One ADC (HL2 / Brick2 / 10 / 100): overlay + N2ADR follows RX1. Two ADC (Brick3 / 100D / 200D): **SUB pane** with own waterfall, band-plan, click-tune, **Visuals SUB floor/ceiling** (per RX2 band), optional **SUB layout** recall. **SUB and SPLIT are independent**. SUB + SPLIT click-tune on the SUB pane moves **VFO B** only. Diversity is a different mode (below) and turns SUB off.
 - ✅ **Diversity** — two converters, **same frequency**, phase/gain combine. Not SUB. **DIV** chip opens the dock; **ON** arms the mix. Second RF is the **RX2 jack** (Ext1), not ANT2. Gain **−27…+27 dB**, phase **−180…+180°**. Per-band pair (unset band starts at 0 dB / 0°); master on/off is global. Drops while transmitting or while PureSignal is live, and returns on unkey. Confirmed on **Brick3SDR**; same path on **ANAN-100D / 200D**. HL2 and BrickSDR2 do not show the chip (one ADC).
-- ✅ **Band stack** (current build) — each Ham / BC / 11m chip stores **three** frequencies. Corner digit **1 / 2 / 3**. A click from another band returns the last-used slot and does not skip. Click the band you are already on to step. SUB has its own three. Shift+click and right-click still hop SUB. Solar chips tune VFO A to the current slot and do not step it.
+- ✅ **Band stack** — each Ham / BC / 11m chip stores **three** frequencies. Corner digit **1 / 2 / 3**. A click from another band returns the last-used slot and does not skip. Click the band you are already on to step. SUB has its own three. Shift+click and right-click still hop SUB. Solar chips tune VFO A to the current slot and do not step it.
 - ✅ **Protocol 2 Auto Step** — DSP+Audio **Step** walks ADC pad 0–31 (clip +3 / unwind −1), frozen while keyed. Default off. Brick3 **MAP** ANT / RX jack chips.
 - ✅ **SPLIT** pile-up — TX on VFO B independent of SUB; gray TX pips; right-click SPLIT 1/5/10 kHz shift; lime TX marker (red on key); **◀ TX** / **TX ▶** when TX is off-span
 - ✅ Multi-radio list, auto-connect to the last radio, installer firewall rules (connect without admin rights)
@@ -36,7 +34,7 @@ installer.
 - ✅ Graphics **crash ladder** (OpenGL → software, MSAA off on software) so a bad GPU driver does not leave Lyra with no window
 - ✅ **MSAA** picker **Off / 2× / 4× / 8×** (Settings → Visuals; default 4×; restart)
 - ✅ **Xvtr** band chips — RF dial (ten-digit LED, ~2.147 GHz), IF NCO, Disable PA default on; Shift+click SUB hop; right-click slot editor. Band-plan **region does not rewrite** slot MHz — set RF low/high/LO for your allocation. See User Guide **Band panel**.
-- ✅ HL2 **N2ADR / IO board** — OC LPF (I2C **0x20**) is the **Enable N2ADR / IO board** checkbox. Analog band-follow is **always** Protocol 1 TX Hz on I2C **0x1D** (I2C2), not gated on that box. Leftover analog bursts are dropped; Pico latches on **BYTE0**. **v0.25.19 / #17:** analog I2C uses Thetis **delay=5** between every byte (0.25.18 `delay=0` hung the Pico — stuck on 20 m). Optional **Band Volts on J3** is a separate fan-PWM gateware path, default off.
+- ✅ HL2 **N2ADR / IO board** — OC LPF (I2C **0x20**) is the **Enable N2ADR / IO board** checkbox. Filter-board follow is always Protocol 1 TX frequency on I2C **0x1D**, not gated on that box. **v0.25.20 / #17:** a return to a band already on the dial is written again. Leave **Band Volts on J3** off unless the amp is on the fan header.
 
 ## Receive (RX)
 

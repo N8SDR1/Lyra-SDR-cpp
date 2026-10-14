@@ -22,9 +22,26 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
+**v0.25.20 Sheliak.** See [What's new in 0.25.20](#whats-new-in-02520).
+
+## What's new in 0.25.20
+
 - **Diversity** mixes the two converters on one frequency. Confirmed on
-  **Brick3SDR**; the same path is **ANAN-100D / 200D**. Not in the
-  0.25.19 installer. See [Diversity](#diversity).
+  **Brick3SDR**; the same path is **ANAN-100D / 200D**. The **DIV** chip
+  opens the dock; **ON** arms the mix. Second RF is the **RX2 jack**
+  (Ext1), not ANT2. Each band keeps its own gain and phase. The mix
+  drops while you transmit or while PureSignal is live. Not a second
+  VFO — that is **SUB**. See [Diversity](#diversity).
+- **Band stack.** Each band chip stores three frequencies (corner digit
+  **1 / 2 / 3**). A click from another band returns the slot you last
+  used. A second click on the band you are already on steps to the next.
+  SUB has its own three. Solar chips tune VFO A and do not step the stack.
+- **Separate RX and TX filter lows.** On the Filters dock, under the
+  bandwidths (**RX lo** / **TX lo**, 0–500 Hz). The lock keeps them
+  together; unlock and they stay apart. Older profiles copy the old
+  shared low onto both sides.
+- **Issue #17.** Filter-board voltage follows the band you selected,
+  including a return to a band already showing on the dial.
 
 ## What's new in 0.25.19
 
@@ -313,6 +330,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.20](#whats-new-in-02520)
 - [What's new in 0.25.19](#whats-new-in-02519)
 - [What's new in 0.25.18](#whats-new-in-02518)
 - [What's new in 0.25.17](#whats-new-in-02517)

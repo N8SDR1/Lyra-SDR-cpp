@@ -4,6 +4,13 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-14 — v0.25.20 Sheliak RELEASED
+
+Diversity, three-frequency band stack, separate RX and TX filter
+lows, and the filter-board write that follows a return to a band
+already on the dial (Issue #17). Randy gets the bench note by
+email. Do not merge `main`.
+
 ## 2026-10-14 — Diversity mix confirmed; fine steps
 
 Operator: the mix works on Brick3 into a dummy load. The

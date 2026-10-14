@@ -184,16 +184,11 @@ actually jumpered to the **fan header**. 0 V on J3 with that box off is
 expected when J3 is GND. Protocol 2 Brick/ANAN do not use the Pico 0x1D
 path.
 
-**Analog stuck on 20 m / no voltage change after 0.25.18.**
-v0.25.18 collapsed the I2C gap on analog BYTE4..BYTE1 (`delay=0`).
-Two 0x1D writes then rode one UDP datagram; Pico `n2adr_basic`
-missed the BYTE0 latch, so J4 stayed on leftover PWM (often 20 m)
-with **no** change on band clicks. **v0.25.19** restores the
-Thetis/Quisk **delay=5** between every analog byte, still drops a
-leftover 0x1D burst before a new Hz, and only coalesces when BYTE0
-is actually on the wire. Install 0.25.19 and recheck **J4 pin 8**
-on 160 → 80 → 20 → 15. Leave **HL2 Band Volts on J3** off unless
-the amp is on the fan header.
+**Filter board stuck on the previous band.**
+Install **v0.25.20**. The voltage is written after the band change
+finishes, and a return to a band already showing on the dial is written
+again. Stock PWM is **J4 pin 8**. Leave **Band Volts on J3** off unless
+the amp is on the fan header. Protocol 2 Brick/ANAN do not use this path.
 
 **I'm running an amplifier — anything to set first?**
 Yes — configure **TR‑sequencing** and the **RF‑delay / ATT‑on‑TX**
