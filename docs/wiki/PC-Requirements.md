@@ -36,7 +36,7 @@ all of them fully reachable, nothing cut off:
 | **Panadapter + waterfall** | See the band, click to tune |
 | **Tuning** | VFO, step, mode, RIT / XIT, split |
 | **Band** | Band switching |
-| **Filters** | Sample rate, RX and TX bandwidth |
+| **Filters** | Sample rate, RX and TX bandwidth on the top line, RX lo and TX lo underneath |
 | **Audio** | LNA, volume, AF gain, mute, and the RX DSP row (NB / NR / ANF / LMS / SQ …) |
 | **Meter** | S-meter on receive; power / SWR / ALC on transmit |
 | **TX** | Drive, mic gain, ATT, PROT, VOX, Tune, MOX |

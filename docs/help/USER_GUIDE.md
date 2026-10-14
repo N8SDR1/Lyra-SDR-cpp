@@ -20,6 +20,12 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## Current build
+
+- **Diversity** mixes the two converters on one frequency. Confirmed on
+  **Brick3SDR**; the same path is **ANAN-100D / 200D**. Not in the
+  0.25.19 installer. See [Diversity](#diversity).
+
 ## What's new in 0.25.19
 
 - **HL2 analog J4 follows band hops again (Issue #17).** v0.25.18
@@ -341,6 +347,7 @@ Dummy load first.
   - [SUB — second receiver](#sub--second-receiver)
   - [SPLIT — receive A, transmit B](#split--receive-a-transmit-b)
 - [Second receiver (SUB / RX2) — how it works](#second-receiver-sub--rx2--how-it-works)
+- [Diversity](#diversity)
 - [Filters panel](#filters-panel)
 - [Band panel](#band-panel)
   - [Xvtr (transverters)](#xvtr-transverters)
@@ -471,7 +478,7 @@ Lyra **opens** these today:
 |---|---|---|
 | **Hermes Lite 2 / 2+** | Protocol 1 | Full RX + TX. HL2+ adds the on-board mic / headphone jacks. |
 | **BrickSDR2** | **Protocol 2 only** | Full RX + TX, SUB / SPLIT, PureSignal. |
-| **Brick3SDR** | **Protocol 2 only** | **Brick3 Beta Testing.** Angelia-class (2 ADC, Alex, 2 ANT, RX2 jack). Pick **Brick3SDR** in **Settings → Hardware**. TX keys like BrickSDR2 (Enable PA + MOX + Drive — no dummy-load arm). First RF into a dummy load. With **SUB** on, a **second panadapter** opens. **RX2 jack isolate on TX** default on. |
+| **Brick3SDR** | **Protocol 2 only** | **Brick3 Beta Testing.** Angelia-class (2 ADC, Alex, 2 ANT, RX2 jack). Pick **Brick3SDR** in **Settings → Hardware**. TX keys like BrickSDR2 (Enable PA + MOX + Drive — no dummy-load arm). First RF into a dummy load. With **SUB** on, a **second panadapter** opens. **RX2 jack isolate on TX** default on. **Diversity** mixes both converters on one frequency (RX2 jack, not ANT2) and turns SUB off. |
 
 A Brick (or classic ANAN) that still answers **Protocol 1** can show in
 **Discover**. Lyra **will not Open** that row. Protocol 1 TX in Lyra is the
@@ -492,7 +499,7 @@ to BrickSDR2). Leftover P1 rows stay refused.
 |---|---|
 | **ANAN-10 / 10E** (and **HERMES**) | Like **BrickSDR2**: on-air, Enable PA + MOX + Drive, no dummy-load arm. Classic Alex. One ADC — SUB is overlay, not a second pane. |
 | **ANAN-100 / 100B** | Like **Brick3SDR** TX (on-air, independent Enable PA). One ADC + classic Alex — SUB overlay, not a second pane. |
-| **ANAN-100D / 200D** | Like **Brick3SDR** TX **and** two converters: **SUB** opens a second panadapter. **RX2 jack isolate on TX** default on. |
+| **ANAN-100D / 200D** | Like **Brick3SDR** TX **and** two converters: **SUB** opens a second panadapter. **Diversity** is the same path as Brick3. **RX2 jack isolate on TX** default on. |
 | **ANAN-G2 / G2-1K** | Dummy-load **Arm P2 TX** until a tester validates RF. Two ADC. |
 | **7000DLE / 8000** | Stay locked. |
 
@@ -674,7 +681,8 @@ a CPU change.)
 - **Tuning panel** — set the **RX1** frequency on the LED readout, and pick
   the **mode** (USB/LSB/CW/…) and **step** right under the VFO; see
   [Tuning panel](#tuning-panel).
-- **Filters panel** — set the **RX/TX filter bandwidth** and sample rate;
+- **Filters panel** — sample rate, **RX/TX bandwidth** on the top line,
+  and **RX lo / TX lo** directly under them;
   see [Filters panel](#filters-panel).
 - **Band panel** — jump between bands.
 - **Audio panel** — the **DSP + AUDIO** strip: **Vol / MUTE**, the **AGC**
@@ -1221,8 +1229,9 @@ differ. RX2 is the **green overlay** on the main panadapter.
 **Two converters** (Brick3SDR, ANAN-100D / 200D, G2): RX1 and RX2 sit
 on **separate ADCs**. **SUB** opens a **second panadapter** (own
 waterfall, band-plan, click-tune). MAP **RX2** is that converter's
-antenna jack, **not** the PureSignal coupler. **Diversity** (same
-frequency on both ADCs) is not in this release.
+antenna jack, **not** the PureSignal coupler. **Diversity** is a
+different mode: both converters on the **same** frequency. Turning it
+on turns SUB off. See [Diversity](#diversity).
 
 RX2 has its own frequency, mode, last-band memory, passband, and audio
 ear. Click-tune on the SUB pane: **SUB** → RX2; **SUB + SPLIT** →
@@ -1293,10 +1302,63 @@ DSP+Audio **NR / AGC / notches** follow the **focused** RX (the one
 
 ---
 
+## Diversity
+
+**Diversity** mixes the two converters on **one** frequency so a
+fading signal can be filled in from a second antenna. It is not a
+second VFO. **SUB** is the second VFO. They do not run together:
+pressing **ON** turns **SUB** off.
+
+HL2 and BrickSDR2 have one converter. The **DIV** chip stays hidden
+on those radios. It shows on **Brick3SDR** and on **ANAN-100D /
+200D**. Confirmed on Brick3SDR.
+
+### Where it is
+
+The **DIV** chip sits with **PureSignal** and **Amp View** on the
+Options row. It only opens and closes the dock. The dock remembers
+its size and place the next time you open it.
+
+**ON** inside the dock arms the mix. Opening the dock does not.
+While the mix is armed the button reads **ON** and lights green.
+
+### The second antenna
+
+Put the second antenna on the **RX2 jack**. On the MAP chips that
+jack is **Ext1**, not ANT2, and not the PureSignal coupler. RX1
+stays on the ANT jack you already selected.
+
+### Gain and phase
+
+The polar dot and the **Gain** / **Phase** steppers are the same two
+numbers.
+
+- **Gain** is **−27 to +27 dB** (0.05 dB steps). Distance from the
+  centre of the disc.
+- **Phase** is **−180 to +180 degrees** (0.1° steps). The angle of
+  the dot.
+
+Each **band** keeps the last pair you used. Change bands and the
+dot moves back to that band's pair. A band you have never set starts
+at **0 dB / 0°**. The **ON / OFF** switch is global — it does not
+change when you change bands.
+
+### While you transmit
+
+The mix drops for the whole key, including Tune, MOX, footswitch,
+two-tone, and while PureSignal is live. The steppers grey out. It
+comes back when you unkey. **RX2 jack isolate on TX** (default on)
+still grounds that jack for the key, which is what you want: the
+second antenna is not left connected while RF is up.
+
+---
+
 ## Filters panel
 
-Sets the sample rate and how wide the RX/TX filters are. (The **mode**
-picker moved to the Tuning panel, under the VFO.)
+Sets the sample rate, how wide the RX/TX filters are, and where each
+sideband opens at the low end. Bandwidths are the **top** line. The
+low-edge spins sit in the **same columns underneath**, so the dock stays
+short. (The **mode** picker moved to the Tuning panel, under the VFO.)
 
 - **Rate** — the IQ sample rate / panadapter span: **96 k / 192 k /
   384 k**. Higher shows more spectrum at once (wider waterfall) for a bit
@@ -1310,32 +1372,40 @@ picker moved to the Tuning panel, under the VFO.)
   always matches what you're actually hearing; pick a preset to snap back.
   With **SUB** focused (**TUNE B**), this control reads **RX2 BW** and
   drives the **green** passband; RX1's width stays on the cyan box.
-- **🔗 (Lock)** — links RX and TX bandwidths so changes to either side
-  mirror the other for the current mode. Click to toggle. Toggling it
-  ON pulls the RX bandwidth into TX. With the lock OFF, RX and TX BW
-  are independent per-mode. (Disabled in **FM** — there's no separate
-  TX width to lock to; see TX BW below.)
+- **🔗 (Lock)** — links RX and TX **bandwidths and low edges** so a
+  change on either side mirrors the other for the current mode. Click
+  to toggle. Toggling it ON pulls the RX bandwidth **and** the RX low
+  into TX. With the lock OFF, RX and TX widths and lows are
+  independent. (Disabled in **FM** — there's no separate TX width or
+  low to lock to; see TX BW below.)
 - **TX BW** — the transmit filter bandwidth. Per-mode just like RX BW.
   For **SSB / digital** it's the high edge: the TX passband runs from
-  the **Filter Low edge** (Settings → Audio, shared with RX) up to this
-  high edge — e.g. Filter Low = 70 Hz and TX BW = 4 kHz gives a
-  70-4000 Hz single sideband. For the **double-sideband modes (AM,
-  DSB, SAM)** the value is the **total occupied width**: the TX
-  filter is symmetric around the carrier at **±(TX BW / 2)**, so AM at
-  TX BW = 6 kHz transmits ±3 kHz = 6 kHz total and lands exactly inside
-  the on-screen filter markers (matching RX). Sign-codes correctly per
-  mode (USB positive, LSB negative-and-swapped, double-sideband
-  symmetric) inside the WDSP TXA chain. In **FM** the TX BW is **not
-  editable** — it shows the auto-derived occupied width
-  `2 × (deviation + 3 kHz)` (e.g. **"16 k (auto)"** at ±5 kHz), which
-  updates live as you change the FM Deviation. The RX BW presets in FM
-  are FM channel widths (8 / 10 / 12 / 16 kHz) and follow the deviation
-  too (see the FM section).
+  **TX lo** up to this high edge — e.g. TX lo = 50 Hz and TX BW = 4 kHz
+  gives a 50–4000 Hz single sideband, even if RX lo stays at 150 Hz.
+  For the **double-sideband modes (AM, DSB, SAM)** the value is the
+  **total occupied width**: the TX filter is symmetric around the
+  carrier at **±(TX BW / 2)**, so AM at TX BW = 6 kHz transmits ±3 kHz
+  = 6 kHz total and lands exactly inside the on-screen filter markers
+  (matching RX). Sign-codes correctly per mode (USB positive, LSB
+  negative-and-swapped, double-sideband symmetric) inside the WDSP TXA
+  chain. In **FM** the TX BW is **not editable** — it shows the
+  auto-derived occupied width `2 × (deviation + 3 kHz)` (e.g. **"16 k
+  (auto)"** at ±5 kHz), which updates live as you change the FM
+  Deviation. The RX BW presets in FM are FM channel widths (8 / 10 /
+  12 / 16 kHz) and follow the deviation too (see the FM section).
+- **RX lo** — under **RX BW**. Receive low cutoff, **0–500 Hz**, step
+  10 Hz, default **100 Hz**. SSB and digital only. Dragging the RX
+  passband's low edge on the panadapter writes this same value.
+- **TX lo** — under **TX BW**. Transmit low cutoff, same range. Greyed
+  out in **FM**. With the lock on it follows RX lo. With the lock off
+  it stays where you set it. The same two spins live on
+  **Settings → Audio**.
 
-SSB and digital filters open at the **Filter Low edge** (Settings → Audio
-→ Filter Low edge, shared RX+TX, default 100 Hz); CW filters are
-centered on your **CW Pitch**; AM/DSB/FM are symmetric around the
-carrier (the Filter Low edge doesn't apply to those modes).
+SSB and digital filters open at those lows. CW filters are centered on
+your **CW Pitch**. AM/DSB/FM are symmetric around the carrier (the low
+spins don't apply to those modes). An older profile that stored one
+shared low loads that number on **both** sides until you pull them
+apart.
 
 ---
 
@@ -1344,10 +1414,21 @@ carrier (the Filter Low edge doesn't apply to those modes).
 Quick band switching, in four rows:
 
 - **Ham** — the HF/6m amateur bands (**160m … 6m**). Click one and Lyra
-  returns the **focused** receiver to **the last frequency you were on in
-  that band** (the band's default the first time). That is **VFO A /
+  returns the **focused** receiver to a stored frequency on that band
+  (the band's default the first time). Each chip keeps **three**
+  frequencies. A small **1**, **2**, or **3** in the corner is the slot
+  you are on. The first click, arriving from another band, lands on the
+  slot you last used and does **not** skip ahead. Click that **same**
+  chip again and it steps to the next slot. An empty slot starts as a
+  copy of the frequency you just left, so the first extra click changes
+  the digit without jumping the dial; tune from there and that slot
+  keeps what you set. The digit and the three frequencies survive a
+  restart. **Shift+click** and **right-click** still open SUB and do
+  not use this cycle. The Solar heat-map chips tune **VFO A** to the
+  current slot and do not cycle it either. The click tunes **VFO A /
   RX1** unless the panadapter already shows **TUNE B** (SPLIT VFO B, or
-  SUB focused). **Colour:** RX1's band chip has a **red** glow; SUB's
+  SUB focused). VFO B shares RX1's three slots for that band.
+  **Colour:** RX1's band chip has a **red** glow; SUB's
   band (when SUB is on) has a **green** glow. Same band on both VFOs →
   one chip can carry both stories (red + green treatment). Full map:
   [Second receiver](#second-receiver-sub--rx2--how-it-works).
@@ -1382,15 +1463,17 @@ Quick band switching, in four rows:
   when the radio has no antenna ladder. Not on the TX dock — that strip
   is already full.
 
-  **Diversity** (Thetis / DeskHPSDR: two ADCs, same frequency, phase/gain
-  combine) is **not in Lyra**. SUB, MAP, and the Settings ADC combo are
-  not that. Parked as a future feature on dual-ADC radios (Brick3 /
-  ANAN-100D class). Brick2 and HL2 have one ADC and cannot.
+  **Diversity** is the phase/gain mix of both converters on one
+  frequency. It is not SUB, not MAP, and not the Settings ADC combo.
+  The second antenna is the **RX2** chip (Ext1). See
+  [Diversity](#diversity). Brick2 and HL2 have one ADC and do not
+  show the DIV chip.
 
 **SUB hops (HL2 / BrickSDR2).** **Shift+click** or **right-click** a Ham / BC /
 11m chip to park **SUB** on that band (turns SUB on if it was off, keeps
-VFO A focused). SUB remembers **its own last frequency and mode** per
-band — independent of RX1. A SUB hop does **not** apply RX1's band
+VFO A focused). SUB remembers **its own three frequencies and mode** per
+band — independent of RX1. A second Shift+click or right-click on the
+band SUB is already on steps SUB's next slot. A SUB hop does **not** apply RX1's band
 memory (LNA, TX drive, panadapter range). **GEN / TIME / Mem** stay
 RX1-only (not SUB hops). **Xvtr** Shift+click is a SUB hop; right-click
 opens the slot editor.
@@ -1487,8 +1570,9 @@ Pick the **mode** under the VFO (Tuning panel) and the **filter width**
 in the **Filters** panel.
 
 **Per-band memory.** Lyra remembers each band's settings independently and
-restores them when you move to that band: the **last frequency** (recalled
-by the band buttons), the **demod mode**, the **panadapter dB min/max**
+restores them when you move to that band: the **three stored
+frequencies** (the band-chip stack; the current slot is the one a click
+from another band recalls), the **demod mode**, the **panadapter dB min/max**
 (reference-level range), and the **waterfall dB min/max**. Set 40m to LSB with a tight waterfall range and 20m to a wider
 one, and each comes back the way you left it as you hop between them — no
 need to re-adjust every time. (Auto-scale on/off is global; RX filter
@@ -2416,6 +2500,8 @@ still uses the mic rack, but PureSignal stays off.
   window** so DDC0/DDC1 can carry TX + feedback. Your saved SUB
   preference is **not** flipped off in Settings; SUB comes back when
   you unkey / disarm.
+- **Diversity** — the mix drops for the same keyed window and comes
+  back when you unkey. The ON switch stays where you left it.
 - **FB** chip — glance **feedback level** (0–255-class count). Colour
   while armed **and** keyed:
   - **Teal** — too low (below 129): raise drive / coupler coupling, or
@@ -3130,7 +3216,8 @@ setup and an FT8/digital setup without re-touching a dozen controls. This
 is the openHPSDR "TX profile" idea, done Lyra-native.
 
 **What a profile stores:** RX bandwidth, TX bandwidth + the BW-lock,
-filter low edge; mic source, mic gain, 20 dB mic boost; the Tune-drive
+**RX filter low** and **TX filter low** (separate; the lock keeps them
+equal while it is on); mic source, mic gain, 20 dB mic boost; the Tune-drive
 toggle + tune-drive %, and the TX drive level (your power knob); the TCI
 RX and TX gains; the **VAC source** (VAC1 enable, auto-enable-for-digital,
 and the VAC RX/TX gains); AGC mode; auto-mute-on-TX; and the TX
@@ -3188,14 +3275,17 @@ The complete manager lives in **Settings → Profiles**:
   last fallback — see [What happens at startup](#what-happens-at-startup).
 - A status line showing the active profile and a `● modified` flag.
 - **View & quick edit** — under the list, a panel shows the selected
-  profile's core chain (**RX/TX bandwidth**, filter low, **Lock TX/RX BW**,
+  profile's core chain (**RX/TX bandwidth**, **RX low**, **TX low**, **Lock TX/RX BW**,
   **mic source / gain / boost**, **AGC**, **Leveler**, **PHROT**,
   **auto-mute on TX**). Change any of them and click **Apply changes** to
   save them back into that profile; **Revert** discards your edits. A
   `● You have unsaved changes` notice appears while edits are pending. This
   edits the **saved** profile only — it does **not** change what's on the
-  air; click **Load** to apply it live. (The RX and TX *filter low* boxes
-  currently share one value, so editing either moves both.)
+  air; click **Load** to apply it live. **RX low** and **TX low** are
+  stored separately. With the lock checked they stay equal, and turning
+  the lock on copies the RX low into the TX low. With the lock off a
+  profile can hold different lows (TX at 50 Hz, RX at 150 Hz). An older
+  profile that only stored one low loads that value on both sides.
 - **Auto-recall by mode family** — one dropdown per family:
   **CW, SSB, Digital, AM, SAM, DSB, FM**. Bind a profile to a family and
   it's recalled automatically whenever you switch into a mode in that
@@ -3323,7 +3413,9 @@ A compact strip showing current **HF propagation** conditions from
   HamQSL last updated.
 - **A 10-band heat-map** — `160` through `6` m, each tinted **green
   (Good)**, **amber (Fair)**, **red (Poor)**, or **gray (no prediction)**.
-  Hover a band for its rating.
+  Hover a band for its rating. **Click a chip** to tune **VFO A** to
+  that band's current stored frequency (the slot the Band panel would
+  land on). It does not step the 1 / 2 / 3 stack.
 
 The ratings are shown for **your current day or night** — Lyra works out
 whether it's daylight at your location and picks HamQSL's day or night
@@ -4059,9 +4151,12 @@ Pick your output device here; everyday **Mute** and **Vol** stay on the
 remembers its own output path and device across rig switches (see
 [Multiple radios & switching rigs](#multiple-radios--switching-rigs)).
 
-**Filter Low edge (RX + TX)** — single shared low cutoff for the
-SSB / DIG audio bandpass on both receive and transmit. Range
-**0–500 Hz**, default **100 Hz**.
+**RX filter low** and **TX filter low** — the low cutoff for the
+SSB / DIG audio bandpass, one spin each. Range **0–500 Hz**, default
+**100 Hz**. The same controls sit on the
+[Filters panel](#filters-panel), under the bandwidth combos. With
+**Lock TX/RX BW** on, the two lows track and turning the lock on
+copies the RX low into the TX low. With the lock off they stay apart.
 
 - **100–200 Hz** suppresses 50/60 Hz mains coupling on the mic path
   and reduces low-end rumble on receive — safe choice for narrow
@@ -4077,9 +4172,10 @@ Applies to **SSB and DIG modes only** (USB / LSB / DIGU / DIGL —
 the asymmetric passband case). CW is pitch-centred and AM / DSB /
 FM are symmetric around DC; those modes ignore this setting.
 
-You can also **drag the low edge of the passband rectangle** on the
-panadapter (left edge on USB / right edge on LSB) to set this value
-in real time. Dragging below 0 just pins at 0.
+You can also **drag the low edge of the RX passband** on the
+panadapter (left edge on USB / right edge on LSB) to set **RX filter
+low** in real time. Dragging below 0 just pins at 0. **TX filter low**
+is the spin, not that drag.
 
 > **Profiles carry their own bandwidth.** A saved
 > [profile](#profiles-txrx-chain-presets) stores its own RX + TX
@@ -4459,8 +4555,8 @@ jack.
 **Settings → TX → RX2 jack isolate on TX** (default ON, hidden on
 one-converter radios) grounds/disconnects the RX2 jack for the
 duration of every transmission, then restores it on key-up. Leave it
-on unless you have a specific reason to keep RX2 open while keyed
-(for example a future diversity experiment). SUB itself does not
+on. Diversity uses that jack in receive and drops the mix for the
+key, so isolate and the pause agree. SUB itself does not
 change this — isolate still applies whenever you transmit, SUB or
 not.
 

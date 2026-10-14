@@ -94,9 +94,11 @@ gear — all native, all in front of the WDSP transmitter:
 
 ✅ **v0.25.19 Sheliak** · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
 Brick3 PS jack) · ✅ **VAC2** · ✅ **SUB / SPLIT** (second pan on Brick3 /
-100D; RX2 jack isolate on TX) · 🗺️ **Diversity** (next — RX2 jack / Ext1,
-not ANT2) · 🚧 **ANAN-10…200D** P2 (10/10E = Brick2 TX; 100-series =
-Brick3 TX; G2 dummy-load) · 🗺️ **7000DLE / 8000** · 🗺️ **Linux, then macOS**.
+100D; RX2 jack isolate on TX) · ✅ **Diversity** (Brick3 / 100D / 200D —
+RX2 jack / Ext1, not ANT2; not a second VFO) · ✅ **Band stack** (three
+frequencies per chip) · ✅ **Separate RX / TX filter lows** · 🚧 **ANAN-10…200D** P2
+(10/10E = Brick2 TX; 100-series = Brick3 TX; G2 dummy-load) ·
+🗺️ **7000DLE / 8000** · 🗺️ **Linux, then macOS**.
 
 Details, ordering, and status on the **[Roadmap](Roadmap)**.
 

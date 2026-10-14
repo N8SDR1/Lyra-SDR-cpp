@@ -268,15 +268,13 @@ class Prefs : public QObject {
     // touches the CURRENT mode's pair.
     Q_PROPERTY(bool bwLocked READ bwLocked WRITE setBwLocked
                NOTIFY bwLockedChanged)
-    // Task #53 — shared RX+TX filter low edge (Hz, single global
-    // value).  Replaces the previously-hardcoded 0 (RX SSB low)
-    // and 200 (TX SSB low).  Operator-tunable for ESSB-profile
-    // low-end body (50-70 Hz) vs narrow-comms mains rejection
-    // (100-200 Hz).  Interim — when TX Profile Manager (#49) lands,
-    // each named profile carries its own (rx_lo, rx_hi, tx_lo,
-    // tx_hi) tuple that overrides this default on profile load.
+    // RX filter low (Hz, 0..500).  txFilterLow is the transmit low.
+    // When bwLocked is on, the two lows track.  Turning the lock on
+    // copies this RX low into the TX low.
     Q_PROPERTY(int filterLow READ filterLow WRITE setFilterLow
                NOTIFY filterLowChanged)
+    Q_PROPERTY(int txFilterLow READ txFilterLow WRITE setTxFilterLow
+               NOTIFY txFilterLowChanged)
     // IQ sample rate (Hz): 96000 / 192000 / 384000.  Drives the HL2 wire
     // speed bits + the WDSP channel rate (panadapter span follows).
     Q_PROPERTY(int sampleRate READ sampleRate WRITE setSampleRate
@@ -651,9 +649,11 @@ public:
     void setTxBandwidth(int hz);
     bool bwLocked() const { return bwLocked_; }
     void setBwLocked(bool v);
-    // Task #53 — shared RX+TX filter low edge.
+    // RX filter low.  Transmit uses txFilterLow.
     int  filterLow() const { return filterLow_; }
     void setFilterLow(int hz);
+    int  txFilterLow() const { return txFilterLow_; }
+    void setTxFilterLow(int hz);
     int  sampleRate() const { return sampleRate_; }
     void setSampleRate(int hz);
     bool waterfallCollapsed() const { return waterfallCollapsed_; }
@@ -830,6 +830,7 @@ signals:
     void txBandwidthChanged();
     void bwLockedChanged();
     void filterLowChanged();
+    void txFilterLowChanged();
     void sampleRateChanged();
     void waterfallCollapsedChanged();
     void callsignChanged();
@@ -971,9 +972,10 @@ private:
     // operator hasn't picked a TX BW for that family yet (fresh install).
     QHash<QString, int> txBwByMode_;
     bool                bwLocked_ = false;
-    // Task #53 — shared RX+TX filter low edge.  Default 100 Hz
-    // (safe mains-rejection middle ground).
+    // RX low edge.  Default 100 Hz.  txFilterLow_ defaults to the same
+    // until the operator (or a profile) sets them apart.
     int                 filterLow_ = 100;
+    int                 txFilterLow_ = 100;
     int     sampleRate_;
     bool    waterfallCollapsed_;
     QString callsign_;

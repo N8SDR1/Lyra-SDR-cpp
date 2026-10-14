@@ -37,4 +37,9 @@ double p2TxCmasterLastPeak();
 // ILV output routes to the P2 DUC FIFO, never the P1 EP2 path.
 void setP2TxCmasterChannelRunning(bool on);
 
+// True while the P2 DUC producer owns the shared TX channel. The key
+// sequencer must not start/stop that channel on each key: it is already
+// running so port 1029 stays primed, and a key-up stop starves the writer.
+bool p2TxCmasterProducerActive();
+
 } // namespace lyra::wire

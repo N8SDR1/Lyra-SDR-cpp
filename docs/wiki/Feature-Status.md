@@ -3,6 +3,9 @@
 Where Lyra stands today. Everything marked ✅ is shipped and working in
 **v0.25.19 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
+**Diversity**, the **three-frequency band stack**, and **separate RX / TX
+filter lows** are on the current build and are not in the 0.25.19
+installer.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
@@ -23,7 +26,9 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **Keyboard VFO** (global arrows: 1 kHz / 10 Hz), **startup profile** (mode binding → last-used → Default), **Tuning Mem** left-click after idle (v0.25.15)
 - 🚧 **ANAN-10 / 10E** Protocol 2 — classic Alex; **BrickSDR2 TX** (on-air, no dummy-load arm). Pick marketed model in Settings (Hermes discovery still defaults to Brick). Boxes that shipped P1 should use a P2 FPGA when they can.
 - 🚧 **ANAN-100 / 100B / 100D / 200D** Protocol 2 — **Brick3SDR TX** (on-air, independent Enable PA). **100D / 200D**: two converters, **SUB** opens a second panadapter.
-- ✅ **SUB / RX2 on HL2, BrickSDR2, Brick3SDR, and P2 ANAN** — second DDC; orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2 overlay; band chips **red** (RX1) vs **green** (SUB); **Shift+click / right-click** hops SUB; off-span **◀ RX2** / **RX2 ▶**. One ADC (HL2 / Brick2 / 10 / 100): overlay + N2ADR follows RX1. Two ADC (Brick3 / 100D / 200D): **SUB pane** with own waterfall, band-plan, click-tune, **Visuals SUB floor/ceiling** (per RX2 band), optional **SUB layout** recall. **Diversity** is next, not this cut. **SUB and SPLIT are independent**. SUB + SPLIT click-tune on the SUB pane moves **VFO B** only.
+- ✅ **SUB / RX2 on HL2, BrickSDR2, Brick3SDR, and P2 ANAN** — second DDC; orange **TUNE A** / cyan RX1 vs lime **TUNE B** / green RX2 overlay; band chips **red** (RX1) vs **green** (SUB); **Shift+click / right-click** hops SUB; off-span **◀ RX2** / **RX2 ▶**. One ADC (HL2 / Brick2 / 10 / 100): overlay + N2ADR follows RX1. Two ADC (Brick3 / 100D / 200D): **SUB pane** with own waterfall, band-plan, click-tune, **Visuals SUB floor/ceiling** (per RX2 band), optional **SUB layout** recall. **SUB and SPLIT are independent**. SUB + SPLIT click-tune on the SUB pane moves **VFO B** only. Diversity is a different mode (below) and turns SUB off.
+- ✅ **Diversity** — two converters, **same frequency**, phase/gain combine. Not SUB. **DIV** chip opens the dock; **ON** arms the mix. Second RF is the **RX2 jack** (Ext1), not ANT2. Gain **−27…+27 dB**, phase **−180…+180°**. Per-band pair (unset band starts at 0 dB / 0°); master on/off is global. Drops while transmitting or while PureSignal is live, and returns on unkey. Confirmed on **Brick3SDR**; same path on **ANAN-100D / 200D**. HL2 and BrickSDR2 do not show the chip (one ADC).
+- ✅ **Band stack** (current build) — each Ham / BC / 11m chip stores **three** frequencies. Corner digit **1 / 2 / 3**. A click from another band returns the last-used slot and does not skip. Click the band you are already on to step. SUB has its own three. Shift+click and right-click still hop SUB. Solar chips tune VFO A to the current slot and do not step it.
 - ✅ **Protocol 2 Auto Step** — DSP+Audio **Step** walks ADC pad 0–31 (clip +3 / unwind −1), frozen while keyed. Default off. Brick3 **MAP** ANT / RX jack chips.
 - ✅ **SPLIT** pile-up — TX on VFO B independent of SUB; gray TX pips; right-click SPLIT 1/5/10 kHz shift; lime TX marker (red on key); **◀ TX** / **TX ▶** when TX is off-span
 - ✅ Multi-radio list, auto-connect to the last radio, installer firewall rules (connect without admin rights)
@@ -55,6 +60,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **CW** — internal iambic keyer (paddle / straight key), keyboard send, **CWX**, contest **macro bank** ({CALL}/{RST}/{NAME}…), QSK / semi / manual break-in, adjustable sidetone
 - ✅ **Digital** via **TCI** and **VAC1 / VAC2** — WSJT-X / MSHV / JTDX / FLDigi / VarAC, or a logger on a second cable. VAC **Enable** is RX; **Mic source = VAC1 or VAC2** is TX. VAC2 carries **RX2** (turn **SUB** on). TCI audio and VAC TX are mutually exclusive.
 - ✅ TX power / drive, separate **tune drive**, AM carrier level, mic gain + **20 dB mic boost**; Protocol 2 uses analog drive (HP [345]) plus per-band **PA Gain / Full Output / CAP**, including a dedicated **11m** slot
+- ✅ **Separate RX and TX filter lows** (current build) — **RX lo** under **RX BW**, **TX lo** under **TX BW** on the Filters dock (also Settings → Audio). **0–500 Hz**. The lock keeps them equal; unlock and a profile can hold different lows. Older profiles copy the old shared low onto both sides.
 - ✅ Always-on **ALC** + operator **Leveler**, **PHROT** phase rotator
 - ✅ **PureSignal** — adaptive TX predistortion (HL2 / HL2+ coupler mod; BrickSDR2 ADC0 pad; Brick3 rear **PS** jack). Compact dock: ON / 2-tone / **Voice** / ATT / FB / Reset. Engine chips (st / cal / D0 / D1) on **Amp View**. Auto-att persisted **per TX band** (v0.25.16). Attestation in Settings → TX (default off).
 - ✅ **Waterfall callsign ID** — paints your call in the SSB passband (ham bands only)
@@ -100,14 +106,13 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; **CW terminal** (key line stays up between letters; callsign correct mid-send) and **TX sensors** that keep reporting at receive; handshake sends `start` only when the radio session is running (otherwise `stop` then `ready`); **STOP** never closes the radio and never drops MOX (echoes `start` while live so WSJT-X / JTDX stay attached and can key); **TUNE** keys the host TUN path, **TRX** keys MOX, **CHRONO** TX-audio headers use the negotiated rate / samples / format / channels (v0.25.14; MSHV / WSJT-X / JTDX / SDRLogger+); **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log)
 - ✅ **USB-BCD** band data for linear-amp band switching
 - ✅ **Backup &amp; Restore** — export config, dated snapshots (survive reinstall), selective restore
-- ✅ Solar / propagation panel, weather alerts
+- ✅ Solar / propagation panel (band chips tune VFO A to that band's current stored frequency; they do not step the 1 / 2 / 3 stack), weather alerts
 - ✅ **Apps** — named shortcuts for third-party programs; **Tested with and recommended** links (Open SSTV, MSHV / WSJT-X, VarAC, midi2tci); auto-start after Hardware Startup (default off)
 - ✅ **USB encoder (HID wheel)** — Settings → Hardware → Navigation (Windows); tunes the focused VFO by the Tuning **Step**
 - ✅ **MIDI via TCI sidecar** — not native MIDI; Browse an operator-installed MIDI→TCI program under Settings → Apps (default TCI port **40001**)
 
 ## Not yet — see the Roadmap 🗺️
 
-- 🗺️ **Diversity** — two ADCs, same frequency, phase/gain combine. Next dual-ADC feature. Not SUB. Brick2 / HL2 cannot.
 - 🚧 **ANAN-G2 / G2-1K** — Saturn BPF; TX still dummy-load arm until on-air validated. **ANAN-10…200D** already use Brick2 / Brick3 TX (see above).
 - 🗺️ **ANAN-7000DLE / 8000** — OrionMkII BPF / PA not in this pass
 - 🗺️ **Linux, then macOS**

@@ -4,11 +4,12 @@ Where Lyra is headed. This is a **direction, not a dated schedule** — items la
 when they're solid. Everything shipped today is on the [Feature Status](Feature-Status)
 page.
 
-**Now (v0.25.19 Sheliak):** HL2 / HL2+ P1, BrickSDR2 / Brick3SDR P2, SUB +
-SPLIT, PureSignal, TX rack. Brick3 / ANAN-100D get a second SUB panadapter.
-**Next major feature:** [Diversity](#diversity-next-dual-adc-feature) (two ADCs,
-same frequency — not a second VFO). **Then:** G2 on-air validation, 7000/8000
-when OrionMkII BPF is in scope, Linux then macOS.
+**Now (v0.25.19 Sheliak, plus Diversity on the current build):** HL2 / HL2+
+P1, BrickSDR2 / Brick3SDR P2, SUB + SPLIT, PureSignal, TX rack. Brick3 /
+ANAN-100D get a second SUB panadapter. **Diversity** (two ADCs, same
+frequency) is in and confirmed on Brick3SDR.
+**Next:** G2 on-air validation, 7000/8000 when OrionMkII BPF is in scope,
+Linux then macOS.
 
 > **Legend:** ✅ done · 🚧 in progress · 🗺️ planned · 💡 exploring (early idea, not scheduled)
 
@@ -27,11 +28,22 @@ red vs green band chips, off-span **◀ RX2** / **RX2 ▶**, lime **TX**
 marker (red on key). TCI: `channel_count:2`; `vfo:0,1` is SPLIT VFO B;
 `vfo:1,0` / `dds:1` is SUB. Logger Combo RST still uses **RX1**.
 
-### 🗺️ Diversity (next dual-ADC feature)
+### ✅ Diversity (two ADCs, same frequency)
 
-Two converters, **same frequency**, phase/gain combine — not a second VFO
-(that is SUB). Parked until we start it. Brick2 / HL2 cannot (one ADC).
-Does **not** use ANT2; the second RF is the **RX2 jack** (Alex Ext1).
+Phase/gain combine of the two converters on **one** frequency — not a
+second VFO (that is **SUB**). Confirmed on **Brick3SDR**. The same
+two-converter path is **ANAN-100D / 200D**. HL2 and BrickSDR2 have one
+ADC and do not show the chip.
+
+The **DIV** chip opens the dock (size and position are remembered).
+**ON** inside the dock arms the mix; opening the dock does not. Turning
+Diversity on turns **SUB** off. Second RF is the **RX2 jack** (Ext1),
+not ANT2. Gain **−27…+27 dB**, phase **−180…+180°**, on the polar dot
+or the steppers. Each band keeps its own pair; a band you have not set
+starts at **0 dB / 0°**. The master on/off is global. While you
+transmit, or while PureSignal is live, the mix drops and comes back
+when you unkey. **RX2 jack isolate on TX** still grounds that jack for
+the key.
 
 ### ✅ PureSignal — adaptive predistortion
 
@@ -72,6 +84,7 @@ these are real roadmap items, not "maybe someday."
 - ✅ **First-run FFTW vs companion launch** — Hardware Startup waits until FFTW and the radio layer are up (v0.25.11).
 - ✅ **TCI STOP** does not close the radio (v0.25.11) and does not drop MOX (v0.25.13). **TUNE / TRX / CHRONO** key like the host panel (v0.25.14).
 - ✅ **Brick3 Beta Testing** — Protocol 2 RX+TX, MAP, Auto Step, per-band PS pad, Reset wipe (v0.25.16); dual-ADC SUB pane, on-air TX, ANAN mapping (v0.25.17); RX2 jack isolate on TX (v0.25.18).
+- ✅ **Diversity** — two-ADC phase/gain combine on the current build (Brick3SDR confirmed; 100D / 200D same path). Not SUB. See above.
 - ✅ **HL2 analog J4 pin 8** — leftover I2C burst dropped; Pico latches on BYTE0 (v0.25.18); I2C **delay=5** so hops actually latch (v0.25.19, Issue #17).
 - ✅ **11 m / CB chips on the SUB pane** — click-tune mode follows Hardware Region (v0.25.18).
 - ✅ **Windows per-app mixer** volume remembered across Stop / Start (v0.25.17).
@@ -87,7 +100,8 @@ these are real roadmap items, not "maybe someday."
   device names stay global.
 - ✅ **2-tone test generator** — on the TX panel (linearity / dummy-load
   tune-up); PureSignal uses it as the usual tune-up carrier
-- 🗺️ Per-profile independent RX/TX filter lows
+- ✅ **Band stack** — each band chip stores three frequencies (corner digit **1 / 2 / 3**). A click from another band returns the slot you last used; a second click on the band you are already on steps to the next. SUB has its own three. On the current build, not in the 0.25.19 installer.
+- ✅ **Separate RX and TX filter lows** — Filters dock, under the bandwidths (**RX lo** / **TX lo**, 0–500 Hz). The lock keeps them together; unlock and they stay apart. Older profiles copy the old shared low onto both sides. On the current build, not in the 0.25.19 installer.
 - 🗺️ Continued polish across the DSP, UI, and metering as testers report back
 - ✅ **Companion Apps** — third-party digital / SSTV / logger programs launched from Lyra (native RTTY modem will not return; CW stays in-radio)
 

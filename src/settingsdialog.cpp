@@ -450,43 +450,44 @@ QWidget *SettingsDialog::buildAudioTab() {
     note->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
     form->addRow(note);
 
-    // ── Task #53 — Shared RX+TX Filter Low edge ─────────────────
-    // Single global filter-low setting applied to BOTH the WDSP RX
-    // bandpass (replaces the previously-hardcoded 0 Hz low cut for
-    // SSB/DIG modes) AND the HL2Stream TX bandpass (replaces the
-    // previously-hardcoded 200 Hz low cut).  Interim until the TX
-    // Profile Manager (Task #49) ships per-profile (lo, hi) pairs
-    // that override this default on profile load.  Tooltip carries
-    // the 50/60 Hz mains-coupling warning.
+    // ── RX and TX filter low edges ──────────────────────────────
+    // Two cutoffs, 0..500 Hz.  With the RX/TX lock on they track.
+    // SSB and digital use them.  CW is pitch-centred; AM / DSB / FM
+    // are symmetric around the carrier and ignore the low edge.
     {
-        auto *flSpin = new QSpinBox(page);
-        flSpin->setRange(0, 500);
-        flSpin->setSingleStep(10);
-        flSpin->setSuffix(tr(" Hz"));
-        flSpin->setValue(prefs_->filterLow());
-        flSpin->setToolTip(
-            tr("Low cutoff frequency for the RX and TX audio bandpass "
-               "(shared).  Higher values (100-200 Hz) suppress 50 / 60 Hz "
-               "mains coupling on the microphone path and reduce low-end "
-               "rumble on receive.  Lower values (50-70 Hz) preserve "
-               "chest-resonance / low-end body for ESSB-style wide "
-               "audio — verify your station isn't picking up mains hum "
-               "at very low cuts.\n\n"
-               "Applies to SSB / DIG modes only (asymmetric passband, "
-               "low edge offset from carrier).  CW is pitch-centred and "
-               "AM / DSB / FM are symmetric around DC — those modes "
-               "ignore this setting.\n\n"
-               "Interim setting: when the TX Profile Manager ships, "
-               "each named profile will carry its own RX + TX (low, "
-               "high) pair that overrides this default on load."));
-        connect(flSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+        auto *rxLo = new QSpinBox(page);
+        rxLo->setRange(0, 500);
+        rxLo->setSingleStep(10);
+        rxLo->setSuffix(tr(" Hz"));
+        rxLo->setValue(prefs_->filterLow());
+        rxLo->setToolTip(
+            tr("Receive low cutoff, 0–500 Hz.  Higher values "
+               "(100–200 Hz) cut rumble.  Lower values (50–70 Hz) "
+               "keep low-end body.  SSB and digital only."));
+        connect(rxLo, qOverload<int>(&QSpinBox::valueChanged), this,
                 [this](int v) { prefs_->setFilterLow(v); });
-        connect(prefs_, &Prefs::filterLowChanged, flSpin, [this, flSpin]() {
-            if (flSpin->value() != prefs_->filterLow()) {
-                flSpin->setValue(prefs_->filterLow());
-            }
+        connect(prefs_, &Prefs::filterLowChanged, rxLo, [this, rxLo]() {
+            if (rxLo->value() != prefs_->filterLow())
+                rxLo->setValue(prefs_->filterLow());
         });
-        form->addRow(tr("Filter Low edge (RX + TX):"), flSpin);
+        form->addRow(tr("RX filter low:"), rxLo);
+
+        auto *txLo = new QSpinBox(page);
+        txLo->setRange(0, 500);
+        txLo->setSingleStep(10);
+        txLo->setSuffix(tr(" Hz"));
+        txLo->setValue(prefs_->txFilterLow());
+        txLo->setToolTip(
+            tr("Transmit low cutoff, 0–500 Hz.  With the lock on, "
+               "this follows the receive low.  Unlock it to keep a "
+               "deeper transmit cut than you listen to, or the reverse."));
+        connect(txLo, qOverload<int>(&QSpinBox::valueChanged), this,
+                [this](int v) { prefs_->setTxFilterLow(v); });
+        connect(prefs_, &Prefs::txFilterLowChanged, txLo, [this, txLo]() {
+            if (txLo->value() != prefs_->txFilterLow())
+                txLo->setValue(prefs_->txFilterLow());
+        });
+        form->addRow(tr("TX filter low:"), txLo);
     }
 
     // ── #158 — Virtual Audio Cable (VAC1) ───────────────────────────
@@ -10752,9 +10753,8 @@ QWidget *SettingsDialog::buildProfilesTab() {
     auto *loSpin = new QSpinBox(editGrp);
     loSpin->setRange(0, 5000); loSpin->setSingleStep(10);
     loSpin->setSuffix(tr(" Hz"));
-    // TX filter low mirrors the SAME shared low edge (Profile.filterLow —
-    // RX+TX share one low edge today, Task #53).  Shown for RX/TX symmetry;
-    // editing either box moves both.
+    // TX filter low is its own edge.  While "Lock TX/RX BW" is checked
+    // in this editor, the two lows stay equal.
     auto *txLoSpin = new QSpinBox(editGrp);
     txLoSpin->setRange(0, 5000); txLoSpin->setSingleStep(10);
     txLoSpin->setSuffix(tr(" Hz"));
@@ -10844,7 +10844,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
     // record.  Shows the amber notice + enables Apply/Revert only when there's
     // something to save.  syncEdit() re-baselines (clean); the widget-change
     // connects below re-evaluate live.
-    auto editDirty = [this, selectedName, rxBwSpin, txBwSpin, loSpin, lockChk,
+    auto editDirty = [this, selectedName, rxBwSpin, txBwSpin, loSpin, txLoSpin, lockChk,
                       micCombo, micGainSpin, micBoostChk, agcCombo, levelerChk,
                       phrotChk, autoMuteChk]() -> bool {
         const QString name = selectedName();
@@ -10854,6 +10854,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
         return rxBwSpin->value()   != p.rxBandwidth
             || txBwSpin->value()   != p.txBandwidth
             || loSpin->value()     != p.filterLow
+            || txLoSpin->value()   != p.txFilterLow
             || lockChk->isChecked() != p.bwLocked
             || micCombo->currentData().toString() != p.micSource
             || qAbs(micGainSpin->value() - p.micGainDb) > 0.05
@@ -10870,12 +10871,21 @@ QWidget *SettingsDialog::buildProfilesTab() {
         applyEditBtn->setEnabled(d);
         revertEditBtn->setEnabled(d);
     };
-    // RX/TX filter-low mirror the single shared low edge — editing either
-    // moves both so they always match (guarded so it can't loop).
+    // While the profile's lock is on, the two lows stay equal.
     connect(loSpin, QOverload<int>::of(&QSpinBox::valueChanged), editGrp,
-            [txLoSpin](int v) { if (txLoSpin->value() != v) txLoSpin->setValue(v); });
+            [txLoSpin, lockChk](int v) {
+                if (lockChk->isChecked() && txLoSpin->value() != v)
+                    txLoSpin->setValue(v);
+            });
     connect(txLoSpin, QOverload<int>::of(&QSpinBox::valueChanged), editGrp,
-            [loSpin](int v) { if (loSpin->value() != v) loSpin->setValue(v); });
+            [loSpin, lockChk](int v) {
+                if (lockChk->isChecked() && loSpin->value() != v)
+                    loSpin->setValue(v);
+            });
+    connect(lockChk, &QCheckBox::toggled, editGrp, [loSpin, txLoSpin](bool on) {
+        if (on && txLoSpin->value() != loSpin->value())
+            txLoSpin->setValue(loSpin->value());
+    });
     // Re-evaluate dirty on any edit.
     for (QSpinBox *s : {rxBwSpin, txBwSpin, loSpin, txLoSpin})
         connect(s, QOverload<int>::of(&QSpinBox::valueChanged), editGrp,
@@ -11050,7 +11060,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
         rxBwSpin->setValue(p.rxBandwidth);
         txBwSpin->setValue(p.txBandwidth);
         loSpin->setValue(p.filterLow);
-        txLoSpin->setValue(p.filterLow);   // shared low edge — mirror
+        txLoSpin->setValue(p.txFilterLow);
         lockChk->setChecked(p.bwLocked);
         { int i = micCombo->findData(p.micSource);
           micCombo->setCurrentIndex(i < 0 ? 0 : i); }
@@ -11067,7 +11077,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
     // Write the quick-edit widgets back into the selected profile's stored
     // record (never touches live state).  updateStoredProfile re-evaluates
     // the "● modified" flag when the active profile's baseline moves.
-    auto applyEdit = [this, selectedName, rxBwSpin, txBwSpin, loSpin, lockChk,
+    auto applyEdit = [this, selectedName, rxBwSpin, txBwSpin, loSpin, txLoSpin, lockChk,
                       micCombo, micGainSpin, micBoostChk, agcCombo, levelerChk,
                       phrotChk, autoMuteChk, updateEditDirty]() {
         const QString name = selectedName();
@@ -11077,6 +11087,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
         p.rxBandwidth  = rxBwSpin->value();
         p.txBandwidth  = txBwSpin->value();
         p.filterLow    = loSpin->value();
+        p.txFilterLow  = txLoSpin->value();
         p.bwLocked     = lockChk->isChecked();
         p.micSource    = micCombo->currentData().toString();
         p.micGainDb    = micGainSpin->value();

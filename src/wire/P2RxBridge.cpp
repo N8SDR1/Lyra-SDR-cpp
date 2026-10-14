@@ -349,9 +349,13 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                         syncTxIntentToSession(on);
                 });
         connect(stream_, &lyra::ipc::HL2Stream::paEnabledChanged, this,
-                [this](bool) {
-                    if (open_ && stream_ && stream_->moxActive())
-                        syncTxIntentToSession(true);
+                [this](bool on) {
+                    if (!open_ || !session_)
+                        return;
+                    auto *s = session_;
+                    QMetaObject::invokeMethod(s, [s, on]() {
+                        s->setPaHold(on);
+                    });
                 });
         connect(stream_, &lyra::ipc::HL2Stream::txDriveLevelChanged, this,
                 [this](int) {
@@ -518,9 +522,11 @@ void P2RxBridge::setTxBenchArmed(bool on) {
     if (on == txBenchArmed_)
         return;
     txBenchArmed_ = on;
+    const bool pa = on && stream_ && stream_->paEnabled();
     auto *s = session_;
-    QMetaObject::invokeMethod(s, [s, on]() {
+    QMetaObject::invokeMethod(s, [s, on, pa]() {
         s->setTxOperatorArmed(on);
+        s->setPaHold(pa);
     });
     if (!on && stream_ && stream_->moxActive())
         stream_->requestMox(false);

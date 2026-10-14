@@ -1643,13 +1643,11 @@ public slots:
     // txAnalyzerOffsetChanged → WdspEngine::setTxAnalyzerOffsetHz.
     int txAnalyzerOffsetHz() const;
 
-    // TX-1 component 8c / Task #53 — operator TX bandpass.  Forwards
-    // (low, high) Hz straight to TxControl.setBandpass.  Pulled
-    // through from Prefs.filterLow (shared with the RX bandpass) +
-    // Prefs.txBandwidth — see the QObject::connect block in
-    // main.cpp.  TxChannel internally sign-codes per WDSP mode
-    // (USB pass-through, LSB negate-and-swap), so we always pass
-    // positive edges.  No-op if hz<=0 or no TxControl registered.
+    // Operator TX bandpass.  Forwards (low, high) Hz straight to
+    // TxControl.setBandpass.  Low comes from Prefs.txFilterLow, high
+    // from Prefs.txBandwidth — see the connect block in main.cpp.
+    // The channel sign-codes the edges (USB pass-through, LSB
+    // negate-and-swap), so we always pass positive edges.
     void setTxBandpass(int lowHz, int highHz);
     void setTxStopDelayMs(int ms);
 

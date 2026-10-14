@@ -163,7 +163,7 @@ public:
     // DDC frequency (Hz) — DDC 0..9 on Saturn.  Applied on the next
     // 100 ms HP tick (control cadence, not a hot path).
     void setDdcFrequencyHz(int ddc, quint32 hz);
-    void setDucFrequencyHz(quint32 hz) { ducFreqHz_ = hz; }
+    void setDucFrequencyHz(quint32 hz);
 
     // Phase C — enable a DDC's IQ stream.  rateKhz must be one of the
     // Protocol 2 legal rates (48/96/192/384/768/1536; p2app validates
@@ -249,6 +249,11 @@ public:
     // effective-drive evaluation.
     void setTxDriveCeiling(int ceilingByte);
     void setTransmitIntent(bool on, bool paRequested, int drive);
+    // PA-enable bit stays set while the operator's PA checkbox is on,
+    // including in receive. The radio latches that bit on a rising MOX
+    // edge; sending it in the same burst as the first MOX leaves the
+    // first key (and the first key after a band change) with no RF.
+    void setPaHold(bool on);
     // Live analog-drive byte for HP [345].  Read at packet-build so a
     // watts-cap servo can update the wire without queuing a new intent.
     // Empty provider keeps the safety-gate drive (tests / fail-closed).
@@ -467,6 +472,7 @@ private:
     // P2TxSafetyGate. Session open/reset leaves them fail-closed.
     P2TxIntent       txIntent_;
     P2TxSafetyInputs txSafety_;
+    bool             paHold_ = false;
     std::function<int()> wireDriveProvider_;
     P2DucConfig      ducConfig_;
     QString          txStateDetail_;

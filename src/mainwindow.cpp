@@ -2001,7 +2001,9 @@ void MainWindow::buildDocks() {
     // A plain QtWidgets strip (not QML); docks at the bottom like the
     // other control panels.
     addWidgetDock(QStringLiteral("propagation"), tr("Solar / Propagation"),
-                  new SolarPanel(solar_, ncdxfFollow_, this),
+                  new SolarPanel(solar_, ncdxfFollow_,
+                                 qobject_cast<lyra::ipc::HL2Stream *>(stream_),
+                                 bandMemory_, gen_, this),
                   QStringLiteral("propagation"), Qt::BottomDockWidgetArea);
 }
 

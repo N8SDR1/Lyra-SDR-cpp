@@ -67,12 +67,20 @@ CPU — a one-time step. Let it finish; it opens by itself.)*
 - Turn the **Volume** up.
 - **Click on the panadapter or the waterfall** to tune to a signal, and set
   the **mode** — SSB (**USB** above 10 MHz, **LSB** below), or **AM** / **FM**.
+- Click a **band chip** to jump. Click the band you are already on
+  again to step through its **three** stored frequencies (the small
+  **1 / 2 / 3** on the chip). **Filters** has the bandwidths on top and
+  **RX lo / TX lo** underneath.
 - **SUB** is a second receiver (independent of **SPLIT** pile-up TX on VFO
   B). Shift+click or right-click a band chip to hop SUB (**green** chip =
   RX2's band, **red** = RX1). One-converter radios (HL2, BrickSDR2) draw
   RX2 as a **green** overlay on the main pane. Two-converter radios
   (Brick3SDR, ANAN-100D / 200D) open a **second panadapter** when SUB is
-  on. Details: User Guide — **Second receiver (SUB / RX2)**.
+  on. **Diversity** (Brick3SDR, ANAN-100D / 200D) is different: both
+  converters on **one** frequency, second antenna on the **RX2 jack**.
+  The **DIV** chip opens the dock; **ON** arms the mix and turns SUB
+  off. Details: User Guide — **Second receiver (SUB / RX2)** and
+  **Diversity**.
 
 ## 5 — Talk 🎙️
 

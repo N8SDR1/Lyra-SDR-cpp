@@ -663,7 +663,7 @@ Item {
                     var carrier = root.vfoBHz
                     var mode = (Prefs.mode || "").toUpperCase()
                     var hi = Prefs.txBandwidth
-                    var lo = Prefs.filterLow
+                    var lo = Prefs.txFilterLow
                     if (mode === "CWU" || mode === "CWL" || mode === "CW")
                         return [carrier - 150, carrier + 150]
                     if (mode === "USB" || mode === "DIGU")
@@ -1646,7 +1646,7 @@ Item {
                         return { out: false, text: "" }
                     var mode = (Prefs.mode || "").toUpperCase()
                     var hi = Prefs.txBandwidth       // TX high edge (Hz)
-                    var lo = Prefs.filterLow         // TX low edge (Hz)
+                    var lo = Prefs.txFilterLow         // TX low edge (Hz)
                     var minF, maxF
                     if (mode === "CWU" || mode === "CWL" || mode === "CW") {
                         minF = carrier - 150; maxF = carrier + 150

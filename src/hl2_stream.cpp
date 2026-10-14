@@ -5337,7 +5337,7 @@ void HL2Stream::setTxMode(int wdspMode) {
 // TxChannel internally sign-codes per the current WDSP mode (USB
 // pass-through, LSB negate-and-swap), so we always pass positive
 // edges.  Both edges are pulled from Prefs at the call site:
-//   low  = Prefs.filterLow   (shared with the RX bandpass; Task #53)
+//   low  = Prefs.txFilterLow
 //   high = Prefs.txBandwidth (per-mode TX BW combo; component 8c)
 // No-op if high<=0 or low<0 or low>=high (defence — Prefs clamps
 // both sides into sane ranges but the safety check is cheap).

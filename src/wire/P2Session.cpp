@@ -102,10 +102,26 @@ quint16 saturnAlexRxWord(quint32 hz, P2RxInput input, bool hpfBypass) {
     return w | (1u << 12); // outside Thetis's configured BPF1 table
 }
 
+// Orion MkII BPF board (ANAN-7000DLE / 8000DLE). Same band windows and
+// wire bits as saturnAlexRxWord. Input routing differs: Bypass is bit
+// 11, and Ext1 / Xvtr also set bit 14 (that bit connects the external
+// jack on this board). Trx is the shared ladder with no route bits.
+quint16 orionMkiiAlexRxWord(quint32 hz, P2RxInput input, bool hpfBypass) {
+    quint16 route = 0;
+    switch (input) {
+        case P2RxInput::Bypass: route |= 1u << 11; break;
+        case P2RxInput::Ext1:   route |= (1u << 9) | (1u << 14); break;
+        case P2RxInput::Xvtr:   route |= (1u << 8) | (1u << 14); break;
+        case P2RxInput::Trx: break;
+    }
+    return static_cast<quint16>(
+        route | saturnAlexRxWord(hz, P2RxInput::Trx, hpfBypass));
+}
+
 // Classic Alex HPF (ANAN-10 / 10E / 100 / 100B / 100D / 200D). deskHPSDR
 // new_protocol.c default HPF path — same wire bits as Saturn BPF, older
 // band edges (1.8 / 6.5 / 9.5 / 13 / 20 / 50 MHz). Do not use on
-// OrionMkII / Saturn (those stay saturnAlexRxWord).
+// OrionMkII (orionMkiiAlexRxWord) or Saturn (saturnAlexRxWord).
 quint16 classicAlexRxWord(quint32 hz, P2RxInput input, bool hpfBypass) {
     quint16 w = 0;
     switch (input) {
@@ -151,6 +167,15 @@ quint16 saturnAlexTxWord(quint32 hz, int trxAnt) {
 const P2HardwareProfile kSaturnProfile = {
     "ANAN-G2", "Saturn (ANAN G2)", 10, 10, 2,
     &saturnAlexRxWord, &saturnAlexTxWord,
+};
+
+// Two BPF banks. Byte [59] = 0x03 enables both. RX IQ is DDC2/DDC3
+// so the band decoder tracks the dial. TX stays dummy-load armed.
+const P2HardwareProfile kOrionMkiiProfile = {
+    "ANAN-7000DLE", "Orion MkII (ANAN-7000/8000)",
+    5, 7, 2,
+    &orionMkiiAlexRxWord, &saturnAlexTxWord,
+    false, false, 0x03, true,
 };
 
 // ANAN-10 / 10E / HERMES: 1 ADC, classic Alex (they have a filter
@@ -232,6 +257,15 @@ const P2HardwareProfile *p2ProfileForModel(const QString &modelKey) {
     if (modelKey.compare(QLatin1String("ANAN-100D"), Qt::CaseInsensitive) == 0 ||
         modelKey.compare(QLatin1String("ANAN-200D"), Qt::CaseInsensitive) == 0)
         return &kAngeliaOrionAlexP2;
+    // Orion MkII BPF. ORIONMKII is the discovery alias (catalog maps it
+    // to ANAN-7000DLE, but a saved key may still be the board name).
+    // Anvelina Pro3 is the same board. Red Pitaya shares the board id
+    // and is not this filter set.
+    if (modelKey.compare(QLatin1String("ANAN-7000DLE"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ANAN-8000DLE"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ORIONMKII"), Qt::CaseInsensitive) == 0 ||
+        modelKey.compare(QLatin1String("ANVELINA-PRO3"), Qt::CaseInsensitive) == 0)
+        return &kOrionMkiiProfile;
     return nullptr;
 }
 
@@ -278,6 +312,18 @@ P2Session::P2Session(QObject *parent)
 
 P2Session::~P2Session() {
     if (open_) close();
+}
+
+void P2Session::setDucFrequencyHz(quint32 hz) {
+    ducFreqHz_ = hz;
+    // Alex LPF and the TX phase word are rebuilt from this on every HP
+    // packet. A band change that waits for the 100 ms tick ships the new
+    // filter in the same datagram as the first MOX, and that key produces
+    // no RF. Push the new word while still in receive.
+    if (!open_)
+        return;
+    sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_,
+                        kPortHpToSdr);
 }
 
 void P2Session::setDdcFrequencyHz(int ddc, quint32 hz) {
@@ -524,7 +570,6 @@ void P2Session::setDdcAdc(int ddc, int adc) {
 
 QByteArray P2Session::buildGeneralPacket() const {
     QByteArray pkt(kGeneralLen, char{0});
-    const auto tx = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
     // [0..3] sequence stays 0 (control packets never increment — see
     // header).  [4] = 0x00 general command.
     //
@@ -542,9 +587,16 @@ QByteArray P2Session::buildGeneralPacket() const {
     // radio unkeys and idles ~1 s later instead of holding a dead
     // session — the RF-safe failure mode.
     pkt[38] = char{0x01};
-    // [58] bit0 is PA enable. The safety gate returns false unless every
-    // live prerequisite is healthy and the operator bench arm is set.
-    pkt[58] = tx.paEnabled ? char{0x01} : char{0x00};
+    // [58] bit0 is PA enable. It must already be set in receive: the radio
+    // latches it on the rising MOX edge. Tying it to the keyed gate made
+    // the first key (and the first key after a band change) send PA-enable
+    // in the same burst as MOX, and that key produced no RF. MOX and drive
+    // stay on the keyed gate; this bit follows the operator PA checkbox.
+    const bool paBit = paHold_ && txSafety_.operatorArmed &&
+                       txSafety_.sessionRunning &&
+                       txSafety_.telemetryHealthy &&
+                       !txSafety_.faultLatched;
+    pkt[58] = paBit ? char{0x01} : char{0x00};
     // [59] = Alex-board enable. Classic-Alex profiles set bit0; BrickSDR
     // and Saturn leave 0 (no SPI Alex / onboard filters already clocked).
     pkt[59] = profile_ ? static_cast<char>(profile_->alexEnableBits) : char{0};
@@ -739,6 +791,19 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
         pkt[1433] = static_cast<char>(txw & 0xFF);
         pkt[1434] = static_cast<char>(rxw >> 8);
         pkt[1435] = static_cast<char>(rxw & 0xFF);
+        // Second BPF bank (Alex1 RX, bytes 1430-31). Only when Alex1
+        // is enabled. Follows the second receiver, or the main dial
+        // when that receiver is not on its own frequency. A later
+        // keyed ground-RX2 OR into [1430] still applies.
+        if (profile_->alexEnableBits & 0x02) {
+            const quint32 rx2hz = diversityOverlayLive()
+                ? ddcFreqHz_[0]
+                : (subRx2Wanted_ ? ddcFreqHz_[1] : ddcFreqHz_[0]);
+            const quint16 rx2w =
+                profile_->alexRxWord(rx2hz, analogIn, hpfBypass_);
+            pkt[1430] = static_cast<char>(rx2w >> 8);
+            pkt[1431] = static_cast<char>(rx2w & 0xFF);
+        }
         // saturnAlexTxWord is LPF+ANT only. The T/R relay is Alex word
         // bit 27 → TX halfword bit 11 → [1432]|=0x08. Without it the
         // PA never sees the antenna (driver leak / tenths of a watt).
@@ -976,8 +1041,10 @@ void P2Session::diagnosticArmHealthyTx(bool transmit, bool pa, int drive) {
 }
 
 void P2Session::setTxOperatorArmed(bool armed) {
-    if (!armed)
+    if (!armed) {
         txIntent_ = {};
+        paHold_ = false;
+    }
     txSafety_.operatorArmed = armed;
     if (open_)
         applyTxControlNow();
@@ -1036,6 +1103,7 @@ void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
         txIntent_.transmitRequested = true;
         txIntent_.paRequested = paRequested;
         txIntent_.drive = std::clamp(drive, 0, 255);
+        paHold_ = paRequested;
     } else {
         txIntent_ = {};
         if (txSafety_.faultLatched) {
@@ -1068,6 +1136,14 @@ void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
                           : QStringLiteral("Receive")));
 }
 
+void P2Session::setPaHold(bool on) {
+    paHold_ = on && txSafety_.operatorArmed;
+    if (!open_)
+        return;
+    // General only. An HP write here would move the MOX bit.
+    sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
+}
+
 void P2Session::applyTxControlNow() {
     if (!open_)
         return;
@@ -1081,14 +1157,19 @@ void P2Session::applyTxControlNow() {
     // Keydown: authorize the PA in General before raising HP transmit.
     // Keyup/fault: clear HP transmit first, then remove PA authorization.
     // The 100 ms HP cadence reinforces the resulting state afterward.
+    // Three copies: one lost datagram used to swallow the first MOX, or
+    // leave RF up after key-up until the next 100 ms tick. Sequence on
+    // these packets stays 0, same as the disconnect path.
+    const QByteArray general = buildGeneralPacket();
+    const QByteArray hp = buildHighPriorityPacket(true);
     if (transmitting) {
-        sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
-        sock_.writeDatagram(buildHighPriorityPacket(true),
-                            radioAddr_, kPortHpToSdr);
+        sock_.writeDatagram(general, radioAddr_, kPortCommand);
+        for (int i = 0; i < 3; ++i)
+            sock_.writeDatagram(hp, radioAddr_, kPortHpToSdr);
     } else {
-        sock_.writeDatagram(buildHighPriorityPacket(true),
-                            radioAddr_, kPortHpToSdr);
-        sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
+        for (int i = 0; i < 3; ++i)
+            sock_.writeDatagram(hp, radioAddr_, kPortHpToSdr);
+        sock_.writeDatagram(general, radioAddr_, kPortCommand);
     }
     sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_, kPortDucConfig);
     sendDdcSpecificToRadio(psArmed_);

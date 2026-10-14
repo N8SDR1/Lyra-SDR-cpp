@@ -121,6 +121,10 @@ bool feedP2TxCmasterInput(const double *iq, int samples) {
     return true;
 }
 
+bool p2TxCmasterProducerActive() {
+    return active.load(std::memory_order_acquire);
+}
+
 void setP2TxCmasterChannelRunning(bool on) {
     // Only run the channel while the outbound seam is active, so its ILV
     // output routes to the P2 DUC FIFO (p2TxCmasterOutbound), never the P1
