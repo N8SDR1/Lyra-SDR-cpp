@@ -19,7 +19,7 @@ enum Style : int {
     HorizonArc     = 0,
     PlasmaBar      = 1,
     VerticalLadder = 2,
-    Porthole       = 3,
+    // 3 Porthole (retired)
     // 4 Fader (retired)
     // 5 Nixie (retired)
     // 6 Numitron (retired)
@@ -47,7 +47,8 @@ constexpr bool usesLadderRows(int style)
 constexpr int keptStyle(int s)
 {
     switch (s) {
-    case 4:  return Porthole;      // Fader
+    case 3:                        // Porthole
+    case 4:  return Iris;          // Fader — the remaining round face
     case 5:                        // Nixie
     case 6:                        // Numitron
     case 8:                        // Dekatron

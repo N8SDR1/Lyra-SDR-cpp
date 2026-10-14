@@ -37,7 +37,6 @@ Rectangle {
         { "sid": 0,  "name": "Arc" },
         { "sid": 1,  "name": "Bar" },
         { "sid": 2,  "name": "Ladder" },
-        { "sid": 3,  "name": "Porthole" },
         { "sid": 7,  "name": "VFD" },
         { "sid": 10, "name": "Drum" },
         { "sid": 11, "name": "Iris" },
@@ -171,7 +170,6 @@ Rectangle {
             switch (Meter.activeStyle) {
             case 1:  return barFace
             case 2:  return ladderFace
-            case 3:  return portholeFace
             case 7:  return vfdFace
             case 10: return drumFace
             case 11: return irisFace
@@ -186,7 +184,6 @@ Rectangle {
     Component { id: arcFace;      HorizonArc {} }
     Component { id: barFace;      PlasmaBar {} }
     Component { id: ladderFace;   VerticalLadder {} }
-    Component { id: portholeFace; MeterPorthole {} }
     Component { id: vfdFace;      MeterVfd {} }
     Component { id: drumFace;     MeterDrum {} }
     Component { id: irisFace;     MeterIris {} }

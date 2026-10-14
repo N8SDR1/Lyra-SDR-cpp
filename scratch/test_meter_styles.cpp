@@ -24,7 +24,7 @@ int main()
     std::printf("test_meter_styles\n");
 
     // Kept faces load as themselves.
-    for (int s : {0, 1, 2, 3, 7, 10, 11, 12, 16}) {
+    for (int s : {0, 1, 2, 7, 10, 11, 12, 16, 17}) {
         char name[48];
         std::snprintf(name, sizeof name, "kept %d", s);
         check(name, keptStyle(s), s);
@@ -34,7 +34,8 @@ int main()
     check("kStyleMax is the last face",  kStyleMax, Cluster);
 
     // Retired faces.
-    check("4 Fader -> Porthole",         keptStyle(4), 3);
+    check("3 Porthole -> Iris",          keptStyle(3), 11);
+    check("4 Fader -> Iris",             keptStyle(4), 11);
     check("5 Nixie -> VFD",              keptStyle(5), 7);
     check("6 Numitron -> VFD",           keptStyle(6), 7);
     check("8 Dekatron -> VFD",           keptStyle(8), 7);
