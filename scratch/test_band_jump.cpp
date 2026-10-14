@@ -25,7 +25,12 @@ int main()
     check("different band (20m -> 40m)",        bandJumpCrosses(14200000, 7100000), true);
     check("in-band -> out-of-band (20m -> 14.5)", bandJumpCrosses(14200000, 14500000), true);
     check("out-of-band -> in-band (WWV 10 -> 30m)", bandJumpCrosses(10000000 - 200000, 10100000), true);
-    check("out-of-band -> out-of-band (WWV 10 -> 15)", bandJumpCrosses(10000000, 15000000), false);
+    check("out-of-band -> out-of-band (WWV 10 -> 15)", bandJumpCrosses(10000000, 15000000), true);
+    check("out-of-band -> out-of-band (WWV 5 -> 15)", bandJumpCrosses(5000000, 15000000), true);
+    check("same gap (WWV 10.000 -> 10.050)",     bandJumpCrosses(10000000, 10050000), false);
+    check("below 160m (0.5 -> 1.0 MHz)",         bandJumpCrosses(500000, 1000000), false);
+    check("below 160m -> 80/160 gap (1.0 -> 2.5)", bandJumpCrosses(1000000, 2500000), true);
+    check("above 6m, same region (60 -> 70 MHz)", bandJumpCrosses(60000000, 70000000), false);
     check("low edge inclusive (20m 14.000)",    bandJumpCrosses(14200000, 14000000), false);
     check("high edge inclusive (20m 14.350)",   bandJumpCrosses(14200000, 14350000), false);
     check("just below low edge (13.999999)",    bandJumpCrosses(14200000, 13999999), true);
