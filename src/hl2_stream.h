@@ -2217,6 +2217,10 @@ private:
     std::atomic<bool>    diversityArmed_{false};
     double               diversityGainDb_{0.0};
     double               diversityPhaseDeg_{0.0};
+    // Band the live pair belongs to.  A null on one band is the wrong
+    // phase on the next (spacing versus wavelength), so each band keeps
+    // its own pair.  Empty until the ctor names the restored RX1 band.
+    QString              diversityBand_;
     std::atomic<quint32> rx2FreqHz_{7074000};
     int lastSubWarnBandA_{-1};
     int lastSubWarnBandB_{-1};
@@ -2327,6 +2331,14 @@ private:
     QString psTxAttBandKey() const;
     QString psTxAttSettingsKey(const QString &band) const;
     void persistPsTxAtt(int db);
+
+    // Diversity pair follows the RX1 band.  A band with no saved pair
+    // is 0 dB / 0°.  The on/off switch stays one radio-wide setting.
+    QString diversityBandName() const;
+    static QString diversityBandGainKey(const QString &band);
+    static QString diversityBandPhaseKey(const QString &band);
+    void persistLiveDiversity();
+    void syncDiversityToRxBand();
 
     // Task #36 — Hardware PTT input forwarder.
     //

@@ -63,7 +63,159 @@ Rectangle {
         Stream.setDiversityPhaseDeg(deg)
     }
 
+    // Decoration only. The polar disc covers the middle, so the band and
+    // the two comets live in the corner gutters that stay visible.
+    Canvas {
+        id: sky
+        anchors.fill: parent
+        z: 0
+        renderStrategy: Canvas.Cooperative
+        property real t: 0
+        property var field: []
+
+        Component.onCompleted: {
+            var s = []
+            for (var i = 0; i < 140; ++i) {
+                var x = Math.random()
+                var y = Math.random()
+                var dx = x - 0.5
+                var dy = y - 0.58
+                if (Math.sqrt(dx * dx + dy * dy) < 0.28 && Math.random() < 0.7)
+                    continue
+                s.push({
+                    x: x,
+                    y: y,
+                    r: Math.random() < 0.05 ? 1.4 : (0.3 + Math.random() * 0.55),
+                    a: 0.14 + Math.random() * 0.5,
+                    tw: Math.random() * 6.2832,
+                    spike: Math.random() < 0.045
+                })
+            }
+            field = s
+            requestPaint()
+        }
+
+        Timer {
+            interval: 50
+            repeat: true
+            running: sky.window !== null && sky.window.visible
+            onTriggered: {
+                sky.t = (sky.t + 0.00115) % 1
+                sky.requestPaint()
+            }
+        }
+
+        // Orbit sits outside the disc so a comet shows in each corner, then
+        // slips behind the instrument.
+        function stage(w, h) {
+            var head = 46
+            var cx = w * 0.5
+            var cy = head + (h - head) * 0.50
+            var corner = Math.sqrt(w * w * 0.25 + (h - head) * (h - head) * 0.25)
+            return { cx: cx, cy: cy, rad: corner * 0.72 }
+        }
+
+        function comet(ctx, ang, st, rgb) {
+            var n = 16
+            var span = 0.55
+            var pts = []
+            for (var i = 0; i <= n; ++i) {
+                var a = ang - span * (1 - i / n)
+                pts.push({
+                    x: st.cx + Math.cos(a) * st.rad,
+                    y: st.cy + Math.sin(a) * st.rad * 0.90
+                })
+            }
+            var tail = pts[0]
+            var hd = pts[n]
+            var g = ctx.createLinearGradient(tail.x, tail.y, hd.x, hd.y)
+            g.addColorStop(0, "rgba(" + rgb + ",0)")
+            g.addColorStop(0.40, "rgba(" + rgb + ",0.08)")
+            g.addColorStop(0.78, "rgba(" + rgb + ",0.40)")
+            g.addColorStop(1, "rgba(" + rgb + ",0.92)")
+            ctx.strokeStyle = g
+            ctx.lineWidth = 2.4
+            ctx.lineCap = "round"
+            ctx.beginPath()
+            ctx.moveTo(pts[0].x, pts[0].y)
+            for (var k = 1; k <= n; ++k)
+                ctx.lineTo(pts[k].x, pts[k].y)
+            ctx.stroke()
+            ctx.fillStyle = "rgba(" + rgb + ",0.28)"
+            ctx.beginPath()
+            ctx.arc(hd.x, hd.y, 4.2, 0, 6.2832)
+            ctx.fill()
+            ctx.fillStyle = "rgba(255,255,255,0.95)"
+            ctx.beginPath()
+            ctx.arc(hd.x, hd.y, 1.5, 0, 6.2832)
+            ctx.fill()
+        }
+
+        onPaint: {
+            var ctx = getContext("2d")
+            var w = width
+            var h = height
+            ctx.clearRect(0, 0, w, h)
+            if (w < 8 || h < 8)
+                return
+            var st = stage(w, h)
+
+            ctx.save()
+            ctx.translate(st.cx, st.cy)
+            ctx.scale(1, 0.90)
+            ctx.beginPath()
+            ctx.arc(0, 0, st.rad, 0, 6.2832)
+            ctx.lineWidth = 54
+            ctx.strokeStyle = "rgba(42, 74, 128, 0.20)"
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.arc(0, 0, st.rad, 0, 6.2832)
+            ctx.lineWidth = 16
+            ctx.strokeStyle = "rgba(186, 210, 255, 0.11)"
+            ctx.stroke()
+            ctx.restore()
+
+            var n = field.length
+            for (var i = 0; i < n; ++i) {
+                var s = field[i]
+                var tw = s.spike
+                        ? (0.62 + 0.38 * Math.sin(t * 12.566 + s.tw))
+                        : (0.84 + 0.16 * Math.sin(t * 6.2832 + s.tw))
+                var px = s.x * w
+                var py = s.y * h
+                ctx.globalAlpha = s.a * tw
+                ctx.fillStyle = s.spike ? "#f7f9ff" : "#d5e6ff"
+                ctx.beginPath()
+                ctx.arc(px, py, s.r, 0, 6.2832)
+                ctx.fill()
+                if (s.spike) {
+                    ctx.strokeStyle = "rgba(220,232,255,0.50)"
+                    ctx.lineWidth = 0.6
+                    var arm = 4 + s.r * 3
+                    ctx.beginPath()
+                    ctx.moveTo(px - arm, py)
+                    ctx.lineTo(px + arm, py)
+                    ctx.moveTo(px, py - arm)
+                    ctx.lineTo(px, py + arm)
+                    ctx.stroke()
+                }
+            }
+            ctx.globalAlpha = 1
+
+            var vg = ctx.createRadialGradient(st.cx, st.cy, st.rad * 0.55,
+                                               st.cx, st.cy, Math.max(w, h) * 0.75)
+            vg.addColorStop(0, "rgba(6,10,16,0)")
+            vg.addColorStop(1, "rgba(3,7,12,0.42)")
+            ctx.fillStyle = vg
+            ctx.fillRect(0, 0, w, h)
+
+            comet(ctx, t * 6.2832, st, "214,228,255")
+            comet(ctx, t * 6.2832 + Math.PI, st, "232,196,130")
+        }
+    }
+
     ColumnLayout {
+        z: 1
         anchors.fill: parent
         anchors.margins: 8
         spacing: 8

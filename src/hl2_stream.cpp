@@ -291,6 +291,33 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     diversityPhaseDeg_ = std::clamp(
         QSettings().value(QStringLiteral("diversity/phase_deg"), 0.0).toDouble(),
         -180.0, 180.0);
+    // One pair per band.  The single pair saved before this existed
+    // belongs to whatever band RX1 is on at this launch.  Later bands
+    // with no saved pair come up at 0 dB / 0°.
+    diversityBand_ = diversityBandName();
+    {
+        QSettings s;
+        const QString gk = diversityBandGainKey(diversityBand_);
+        const QString pk = diversityBandPhaseKey(diversityBand_);
+        const bool perBand = s.value(
+            QStringLiteral("diversity/perBand"), false).toBool();
+        if (s.contains(gk) || s.contains(pk)) {
+            diversityGainDb_ = std::clamp(s.value(gk, 0.0).toDouble(),
+                                          -27.0, 27.0);
+            diversityPhaseDeg_ = std::clamp(s.value(pk, 0.0).toDouble(),
+                                            -180.0, 180.0);
+            s.setValue(QStringLiteral("diversity/perBand"), true);
+        } else if (!perBand) {
+            s.setValue(gk, diversityGainDb_);
+            s.setValue(pk, diversityPhaseDeg_);
+            s.setValue(QStringLiteral("diversity/perBand"), true);
+        } else {
+            diversityGainDb_ = 0.0;
+            diversityPhaseDeg_ = 0.0;
+            s.setValue(QStringLiteral("diversity/gain_db"), 0.0);
+            s.setValue(QStringLiteral("diversity/phase_deg"), 0.0);
+        }
+    }
     // One mix or two receivers.  A saved pair that has both on keeps
     // diversity and drops SUB.  Do not turn SUB back on when diversity
     // is later switched off.
@@ -1963,6 +1990,7 @@ void HL2Stream::setRx1FreqHz(quint32 hz) {
         emit rx1FreqChanged();
         emit logLine(QStringLiteral("RX1 -> %1 Hz (%2 MHz)")
                      .arg(hz).arg(hz / 1.0e6, 0, 'f', 6));
+        syncDiversityToRxBand();
         updateOcPattern();
     }
 }
@@ -2335,7 +2363,7 @@ void HL2Stream::setDiversityGainDb(double db) {
     if (std::abs(diversityGainDb_ - db) < 1e-4)
         return;
     diversityGainDb_ = db;
-    QSettings().setValue(QStringLiteral("diversity/gain_db"), db);
+    persistLiveDiversity();
     emit diversityGainDbChanged();
 }
 
@@ -2344,8 +2372,51 @@ void HL2Stream::setDiversityPhaseDeg(double deg) {
     if (std::abs(diversityPhaseDeg_ - deg) < 1e-4)
         return;
     diversityPhaseDeg_ = deg;
-    QSettings().setValue(QStringLiteral("diversity/phase_deg"), deg);
+    persistLiveDiversity();
     emit diversityPhaseDegChanged();
+}
+
+QString HL2Stream::diversityBandName() const {
+    const QString name = lyra::ui::BandMemory::bandNameFor(
+        static_cast<int>(rx1FreqHz_.load(std::memory_order_relaxed)));
+    return name.isEmpty() ? QStringLiteral("other") : name;
+}
+
+QString HL2Stream::diversityBandGainKey(const QString &band) {
+    return QStringLiteral("diversity/band/%1/gain_db").arg(band);
+}
+
+QString HL2Stream::diversityBandPhaseKey(const QString &band) {
+    return QStringLiteral("diversity/band/%1/phase_deg").arg(band);
+}
+
+void HL2Stream::persistLiveDiversity() {
+    QSettings s;
+    s.setValue(QStringLiteral("diversity/gain_db"), diversityGainDb_);
+    s.setValue(QStringLiteral("diversity/phase_deg"), diversityPhaseDeg_);
+    if (diversityBand_.isEmpty())
+        return;
+    s.setValue(diversityBandGainKey(diversityBand_), diversityGainDb_);
+    s.setValue(diversityBandPhaseKey(diversityBand_), diversityPhaseDeg_);
+}
+
+void HL2Stream::syncDiversityToRxBand() {
+    const QString band = diversityBandName();
+    if (band == diversityBand_)
+        return;
+    persistLiveDiversity();
+    diversityBand_ = band;
+    QSettings s;
+    const QString gk = diversityBandGainKey(band);
+    const QString pk = diversityBandPhaseKey(band);
+    const double gain = (s.contains(gk) || s.contains(pk))
+        ? std::clamp(s.value(gk, 0.0).toDouble(), -27.0, 27.0)
+        : 0.0;
+    const double phase = (s.contains(gk) || s.contains(pk))
+        ? std::clamp(s.value(pk, 0.0).toDouble(), -180.0, 180.0)
+        : 0.0;
+    setDiversityGainDb(gain);
+    setDiversityPhaseDeg(phase);
 }
 
 void HL2Stream::setDualAdc(bool on) {

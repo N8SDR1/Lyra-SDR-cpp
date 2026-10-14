@@ -287,6 +287,126 @@ inline bool safeBootLayout() {
     return qEnvironmentVariableIsSet("LYRA_SAFE");
 }
 
+// A floating chip dock loses its frame the moment it is hidden: the next
+// show comes back at the size hint, wherever Qt drops it. Remember the last
+// on-screen position and size while the window is still floating, and put
+// that frame back on the next show. Reads happen on Move/Resize/Hide, before
+// Qt folds the float back into the dock area.
+class FloatingDockMemory : public QObject {
+public:
+    FloatingDockMemory(QDockWidget *dock, const QString &settingsKey,
+                       const bool *layoutRestoring, QObject *parent)
+        : QObject(parent), dock_(dock), key_(settingsKey),
+          layoutRestoring_(layoutRestoring), debounce_(this) {
+        QSettings s;
+        pos_ = s.value(key_ + QStringLiteral("/pos")).toPoint();
+        size_ = s.value(key_ + QStringLiteral("/size")).toSize();
+        have_ = size_.width() >= 160 && size_.height() >= 160;
+        dock_->installEventFilter(this);
+        debounce_.setSingleShot(true);
+        debounce_.setInterval(150);
+        connect(&debounce_, &QTimer::timeout, this, [this]() { persist(); });
+        connect(dock_, &QDockWidget::visibilityChanged, this, [this](bool vis) {
+            if (!vis)
+                return;
+            // Qt resizes a float back to its size hint before this signal.
+            // tracking_ stays false across that, so the hint cannot replace
+            // the frame we stored on the way down.
+            if (!layoutBusy() && have_)
+                armRecall();
+            else
+                QTimer::singleShot(80, this, [this]() {
+                    tracking_ = dock_->isVisible();
+                });
+        });
+    }
+
+protected:
+    bool eventFilter(QObject *o, QEvent *e) override {
+        if (o != dock_ || recalling_ || !tracking_)
+            return QObject::eventFilter(o, e);
+        const bool live = dock_->isFloating()
+                          && (dock_->isVisible() || e->type() == QEvent::Hide);
+        if (live && (e->type() == QEvent::Move || e->type() == QEvent::Resize
+                     || e->type() == QEvent::Hide)) {
+            const QSize sz = dock_->size();
+            if (sz.width() >= 160 && sz.height() >= 160) {
+                pos_ = dock_->pos();
+                size_ = sz;
+                have_ = true;
+                if (e->type() == QEvent::Hide) {
+                    tracking_ = false;
+                    persist();
+                } else if (!layoutBusy()) {
+                    debounce_.start();
+                }
+            } else if (e->type() == QEvent::Hide) {
+                tracking_ = false;
+            }
+        }
+        return QObject::eventFilter(o, e);
+    }
+
+private:
+    bool layoutBusy() const {
+        return (layoutRestoring_ && *layoutRestoring_)
+               || safeBootLayout()
+               || testWindowSize().isValid();
+    }
+
+    void persist() {
+        if (!have_ || layoutBusy())
+            return;
+        QSettings s;
+        s.setValue(key_ + QStringLiteral("/pos"), pos_);
+        s.setValue(key_ + QStringLiteral("/size"), size_);
+    }
+
+    void armRecall() {
+        if (!have_ || layoutBusy())
+            return;
+        recalling_ = true;
+        QTimer::singleShot(0, this, [this]() { apply(); });
+        QTimer::singleShot(60, this, [this]() {
+            apply();
+            recalling_ = false;
+            tracking_ = dock_->isVisible();
+        });
+    }
+
+    void apply() {
+        if (!have_ || !dock_->isVisible())
+            return;
+        if (!dock_->isFloating())
+            dock_->setFloating(true);
+        dock_->resize(size_);
+        dock_->move(clampPos(pos_, size_));
+    }
+
+    static QPoint clampPos(QPoint p, const QSize &sz) {
+        QScreen *scr = QGuiApplication::screenAt(p + QPoint(sz.width() / 2, 24));
+        if (!scr)
+            scr = QGuiApplication::primaryScreen();
+        if (!scr)
+            return p;
+        const QRect a = scr->availableGeometry();
+        const QRect frame(p, sz);
+        if (a.intersects(frame.adjusted(0, 0, -sz.width() + 80, -sz.height() + 48)))
+            return p;
+        return a.topLeft() + QPoint(48, 48);
+    }
+
+    QDockWidget *dock_ = nullptr;
+    QString key_;
+    const bool *layoutRestoring_ = nullptr;
+    QTimer debounce_;
+    QPoint pos_;
+    QSize size_;
+    bool have_ = false;
+    bool recalling_ = false;
+    bool tracking_ = false;
+};
+
 // The session layout is stored per DISPLAY SETUP, not in one global slot.
 //
 // A dock layout is only meaningful on the screen it was built for: panel widths
@@ -1768,6 +1888,8 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("cwconsole"))) {
         d->setFloating(true);
         d->hide();
+        new FloatingDockMemory(d, QStringLiteral("ui/cwConsoleDock"),
+                               &layoutRestoring_, d);
     }
     // CW Decoder (#173 CW-5b) — separate from the CW console so a user can run
     // the decoder alone, the keyer alone, or both.  Own floating dock + "CW
@@ -1780,6 +1902,8 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("cwdecoder"))) {
         d->setFloating(true);
         d->hide();
+        new FloatingDockMemory(d, QStringLiteral("ui/cwDecoderDock"),
+                               &layoutRestoring_, d);
     }
     // Voice Keyer (#89 Build 1) — floating clip-message panel (labelled clips,
     // ▶ OTA / ▶ Review / F-keys), chip-summoned like the CW console.  Own dock;
@@ -1791,6 +1915,8 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("voicekeyer"))) {
         d->setFloating(true);
         d->hide();
+        new FloatingDockMemory(d, QStringLiteral("ui/voiceKeyerDock"),
+                               &layoutRestoring_, d);
     }
     // Tuner — native manual-ATU memory (the "Tuner Reminder" idea built in):
     // tracks the dial vs the active antenna's stored Input/Output/Inductor
@@ -1803,6 +1929,9 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("tuner"))) {
         d->setFloating(true);
         d->hide();
+        // Same as Diversity: hide/show drops the float, so remember the frame.
+        new FloatingDockMemory(d, QStringLiteral("ui/tunerDock"),
+                               &layoutRestoring_, d);
     }
     // Frequency Calibration — chip-launched floating instrument: tap a time
     // station, it auto-tunes USB + measures the carrier offset and suggests a
@@ -1841,6 +1970,12 @@ void MainWindow::buildDocks() {
             d->setFloating(true);
             d->hide();
         }
+    }
+    // Diversity is a float-only chip. Hide/show drops the frame Qt was
+    // using, so the next open would ignore where the operator left it.
+    if (QDockWidget *div = docks_.value(QStringLiteral("diversity"))) {
+        new FloatingDockMemory(div, QStringLiteral("ui/diversityDock"),
+                               &layoutRestoring_, div);
     }
     // Profiles — front-facing quick recall of a saved TX/RX profile
     // (dropdown + Save + ● modified).  Full editor (create / rename /
