@@ -223,6 +223,10 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     autoLnaTimer_.setInterval(kAutoLnaPeriodMs);
     connect(&autoLnaTimer_, &QTimer::timeout,
             this, &HL2Stream::onAutoLnaTick);
+    ioboardSettleTimer_.setSingleShot(true);
+    ioboardSettleTimer_.setInterval(50);
+    connect(&ioboardSettleTimer_, &QTimer::timeout,
+            this, &HL2Stream::onIoboardSettle);
     // Stage 2b2-fix-v2 — HW-PTT-in poll timer (Qt main thread).
     // 50 ms cadence (20 Hz) — fast enough that foot-switch
     // press-to-key feels instantaneous, slow enough that the
@@ -1392,8 +1396,6 @@ void HL2Stream::open(const QString &ip) {
             txFreqHz_.load(std::memory_order_relaxed));
         lyra::wire::set_tx_freq(            // TX NCO + DDC2/3 mirror (case 1/5/6)
             ddsHzForRf(static_cast<quint32>(txRfTune < 0 ? 0 : txRfTune)));
-        lastIoboardTxHz_.store(~quint64{0}, std::memory_order_relaxed);
-        lastIoboardBand_.store(-1, std::memory_order_relaxed);
         pushIoboardTxFreq(true);
         lyra::wire::set_rx_step_attn_db(    // LNA gain (case 11 !XmitBit)
             std::clamp(lnaGainDb_.load(std::memory_order_relaxed),
@@ -1695,6 +1697,8 @@ void HL2Stream::close() {
     lyra::wire::destroy_obbuffs(1);
 
     statsTimer_.stop();
+    ioboardSettleTimer_.stop();
+    ++ioboardEpoch_;
     autoLnaTimer_.stop();
     hwPttTimer_.stop();   // Stage 2b2-fix-v2 — HW-PTT poll
     if (adcOverloadTier_) { adcOverloadTier_ = 0; emit adcOverloadChanged(); }
@@ -1992,6 +1996,11 @@ void HL2Stream::setRx1FreqHz(quint32 hz) {
                      .arg(hz).arg(hz / 1.0e6, 0, 'f', 6));
         syncDiversityToRxBand();
         updateOcPattern();
+    } else if (!splitEnabled_.load(std::memory_order_relaxed)) {
+        // Same dial Hz (band chip re-selected, stack slot unchanged).
+        // Still write analog: a missed latch otherwise stays on the
+        // previous band's voltage until some other frequency is chosen.
+        pushIoboardTxFreq();
     }
 }
 
@@ -2831,11 +2840,8 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
 void HL2Stream::setP2DrivePath(bool on) {
     const bool was = p2DrivePath_.exchange(on, std::memory_order_relaxed);
     applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
-    if (was && !on) {
-        lastIoboardTxHz_.store(~quint64{0}, std::memory_order_relaxed);
-        lastIoboardBand_.store(-1, std::memory_order_relaxed);
+    if (was && !on)
         pushIoboardTxFreq(true);
-    }
 }
 
 QString HL2Stream::txCalKey_(const QString &logical) const {
@@ -2916,41 +2922,39 @@ void HL2Stream::loadTxPowerCal_() {
 }
 
 void HL2Stream::pushIoboardTxFreq(bool force) {
-    // Protocol 1 only.  Analog is independent of the N2ADR OC checkbox:
-    // I2C2 slave 0x1D (five TX-Hz bytes) whether filters are on.
+    // Protocol 1 only.  Analog is I2C2 slave 0x1D, five TX-Hz bytes,
+    // whether or not the OC filter checkbox is on.
+    (void)force;
+    if (p2DrivePath_.load(std::memory_order_relaxed))
+        return;
+    // Restart the settle window.  The bytes go out from onIoboardSettle,
+    // after this call and the rest of the band-change (mode, OC) have
+    // returned — not while that setup is still running.
+    ++ioboardEpoch_;
+    ioboardSettleTimer_.start();
+}
+
+void HL2Stream::onIoboardSettle() {
     if (p2DrivePath_.load(std::memory_order_relaxed))
         return;
     const quint64 hz = txFreqHz_.load(std::memory_order_relaxed);
-    // Always latch the wanted Hz first.  The EP2 writer retries the
-    // five-byte 0x1D burst until BYTE0 is on the wire.  Marking the
-    // burst "done" at enqueue left pin 8 on the previous band (80 m
-    // stuck through a 20 m click) when the Pico had not yet latched.
+    const int epoch = ioboardEpoch_;
     lyra::wire::request_hl2_ioboard_tx_freq(hz);
-    const quint64 onWire = lyra::wire::hl2_ioboard_tx_freq_on_wire();
-    const quint64 last = lastIoboardTxHz_.load(std::memory_order_relaxed);
-    const int band = lyra::paPowerBandIndexForFreq(
-        static_cast<int>(qMin(hz, quint64(std::numeric_limits<int>::max()))));
-    const int lastBand = lastIoboardBand_.load(std::memory_order_relaxed);
-    const qint64 now = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::steady_clock::now().time_since_epoch())
-                           .count();
-    const bool bandChanged = (onWire == ~quint64{0}) || band != lastBand;
-    const bool latched = (onWire == hz);
-    const bool due =
-        (now - lastIoboardTxMs_.load(std::memory_order_relaxed)) >= 500;
-    // Analog is band-shaped.  Same-band VFO ticks coalesce to 0.5 s so
-    // the I2C steal cannot starve C&C.  Cross-band always tries now.
-    // Coalesce on BYTE0-on-wire, not enqueue-success (#17 / 0.25.18:
-    // last=hz at enqueue hid a failed Pico latch — stuck on 20 m).
-    if (!force && latched && !bandChanged && !due)
-        return;
-    if (!force && !latched && hz == last && !bandChanged && !due)
-        return;
-    if (!lyra::wire::enqueue_hl2_ioboard_tx_freq(hz))
-        return;
-    lastIoboardTxHz_.store(hz, std::memory_order_relaxed);
-    lastIoboardBand_.store(band, std::memory_order_relaxed);
-    lastIoboardTxMs_.store(now, std::memory_order_relaxed);
+    lyra::wire::enqueue_hl2_ioboard_tx_freq(hz);
+    // Second copy.  BYTE0 on the wire is not a Pico latch.  One missed
+    // burst used to stick the previous band until a different frequency
+    // was written.  A newer band click bumps ioboardEpoch_ and this
+    // copy is dropped.
+    QTimer::singleShot(80, this, [this, hz, epoch]() {
+        if (ioboardEpoch_ != epoch)
+            return;
+        if (p2DrivePath_.load(std::memory_order_relaxed))
+            return;
+        if (txFreqHz_.load(std::memory_order_relaxed) != hz)
+            return;
+        lyra::wire::request_hl2_ioboard_tx_freq(hz);
+        lyra::wire::enqueue_hl2_ioboard_tx_freq(hz);
+    });
 }
 
 double HL2Stream::paGainForBand(int idx) const {
