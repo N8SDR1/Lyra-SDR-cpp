@@ -206,15 +206,18 @@ int main(int argc, char **argv) {
         const auto *a200d = p2ProfileForModel(QStringLiteral("ANAN-200D"));
         ok &= expect(a100 != nullptr && a100->alexRxWord != g2->alexRxWord,
                      "ANAN-100 uses classic Alex HPF, not Saturn BPF");
-        ok &= expect(a100->adcCount == 1 && !a100->txOnAirValidated,
-                     "Hermes-class ANAN is 1 ADC and dummy-load TX only");
-        ok &= expect(a10 == a100 && a10e == a100 && a100b == a100 &&
-                         hermes == a100,
-                     "ANAN-10 / 10E / 100 / 100B / HERMES share Hermes Alex");
+        ok &= expect(a10 != nullptr && a10e == a10 && hermes == a10 &&
+                         a10->adcCount == 1 && a10->txOnAirValidated &&
+                         !a10->fixedTxFrontEnd && !a10->angeliaRxDdcSlots,
+                     "ANAN-10 / 10E / HERMES: 1 ADC, classic Alex, Brick2 TX");
+        ok &= expect(a100->adcCount == 1 && a100->txOnAirValidated &&
+                         a100b == a100 && !a100->angeliaRxDdcSlots &&
+                         a100->alexRxWord == a10->alexRxWord,
+                     "ANAN-100 / 100B: 1 ADC Alex, Brick3 TX (not 2-ADC map)");
         ok &= expect(a100d != nullptr && a200d == a100d && a100d->adcCount == 2 &&
-                         !a100d->txOnAirValidated &&
+                         a100d->txOnAirValidated && a100d->angeliaRxDdcSlots &&
                          a100d->alexRxWord == a100->alexRxWord,
-                     "ANAN-100D / 200D share 2-ADC classic Alex, dummy-load TX");
+                     "ANAN-100D / 200D: 2-ADC classic Alex, Brick3 TX");
         ok &= expect(p2ProfileForModel(QStringLiteral("ANAN-7000DLE")) == nullptr,
                      "7000DLE stays profile-locked (OrionMkII BPF)");
 

@@ -673,8 +673,10 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     // (the verified reference's HL2 working posture); clamped on load.
     attOnTxEnabled_ = QSettings().value(QStringLiteral("tx/attOnTxEnabled"),
                                         kDefaultAttOnTxEnabled).toBool();
-    rx2GroundOnTx_ = QSettings().value(QStringLiteral("tx/rx2GroundOnTx"),
-                                       kDefaultRx2GroundOnTx).toBool();
+    rx2GroundOnTx_.store(
+        QSettings().value(QStringLiteral("tx/rx2GroundOnTx"),
+                          kDefaultRx2GroundOnTx).toBool(),
+        std::memory_order_relaxed);
     // #94 External TX Inhibit — persisted, fail-safe (stays locked across
     // restarts until the operator clears it).
     txInhibit_ = QSettings().value(QStringLiteral("tx/inhibit"), false).toBool();
@@ -2888,6 +2890,7 @@ void HL2Stream::pushIoboardTxFreq(bool force) {
     // burst "done" at enqueue left pin 8 on the previous band (80 m
     // stuck through a 20 m click) when the Pico had not yet latched.
     lyra::wire::request_hl2_ioboard_tx_freq(hz);
+    const quint64 onWire = lyra::wire::hl2_ioboard_tx_freq_on_wire();
     const quint64 last = lastIoboardTxHz_.load(std::memory_order_relaxed);
     const int band = lyra::paPowerBandIndexForFreq(
         static_cast<int>(qMin(hz, quint64(std::numeric_limits<int>::max()))));
@@ -2895,12 +2898,17 @@ void HL2Stream::pushIoboardTxFreq(bool force) {
     const qint64 now = std::chrono::duration_cast<std::chrono::milliseconds>(
                            std::chrono::steady_clock::now().time_since_epoch())
                            .count();
-    const bool bandChanged = (last == ~quint64{0}) || band != lastBand;
+    const bool bandChanged = (onWire == ~quint64{0}) || band != lastBand;
+    const bool latched = (onWire == hz);
     const bool due =
         (now - lastIoboardTxMs_.load(std::memory_order_relaxed)) >= 500;
     // Analog is band-shaped.  Same-band VFO ticks coalesce to 0.5 s so
     // the I2C steal cannot starve C&C.  Cross-band always tries now.
-    if (!force && hz == last && !bandChanged && !due)
+    // Coalesce on BYTE0-on-wire, not enqueue-success (#17 / 0.25.18:
+    // last=hz at enqueue hid a failed Pico latch — stuck on 20 m).
+    if (!force && latched && !bandChanged && !due)
+        return;
+    if (!force && !latched && hz == last && !bandChanged && !due)
         return;
     if (!lyra::wire::enqueue_hl2_ioboard_tx_freq(hz))
         return;
@@ -4709,14 +4717,18 @@ void HL2Stream::setAttOnTxEnabled(bool on) {
 }
 
 void HL2Stream::applyRx2GroundBit(bool transmitting) {
-    const bool gnd = dualAdc() && rx2GroundOnTx_ && transmitting;
+    const bool gnd = dualAdc() &&
+                    rx2GroundOnTx_.load(std::memory_order_relaxed) &&
+                    transmitting;
     if (lyra::wire::prbpfilter2)
         lyra::wire::prbpfilter2->_rx2_gnd = gnd ? 1 : 0;
 }
 
 void HL2Stream::setRx2GroundOnTx(bool on) {
-    if (on == rx2GroundOnTx_) return;
-    rx2GroundOnTx_ = on;
+    bool expected = !on;
+    if (!rx2GroundOnTx_.compare_exchange_strong(
+            expected, on, std::memory_order_relaxed))
+        return;
     QSettings().setValue(QStringLiteral("tx/rx2GroundOnTx"), on);
     emit rx2GroundOnTxChanged(on);
     applyRx2GroundBit(mox_.load(std::memory_order_relaxed)

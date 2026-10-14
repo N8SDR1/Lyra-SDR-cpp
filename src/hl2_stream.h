@@ -1085,7 +1085,9 @@ public:
     bool    phrotEnabled()          const { return phrotEnabled_;          }
     // §15.31 — ATT-on-TX operator surface getters.
     bool    attOnTxEnabled()        const { return attOnTxEnabled_;        }
-    bool    rx2GroundOnTx()         const { return rx2GroundOnTx_;         }
+    bool    rx2GroundOnTx()         const {
+        return rx2GroundOnTx_.load(std::memory_order_relaxed);
+    }
     bool    txInhibit()             const { return txInhibit_;             }
     int     attOnTxDb()             const { return attOnTxDb_;             }
     // #201 — transient convert lockout: the offline MP4 converter blocks
@@ -2648,7 +2650,8 @@ private:
     static constexpr bool kDefaultAttOnTxEnabled = true;
     static constexpr bool kDefaultRx2GroundOnTx  = true;
     bool   attOnTxEnabled_         = kDefaultAttOnTxEnabled;
-    bool   rx2GroundOnTx_          = kDefaultRx2GroundOnTx;
+    // UI write / wire-thread read (P1 apply + P2 HP overlay).
+    std::atomic<bool> rx2GroundOnTx_{kDefaultRx2GroundOnTx};
     bool   txInhibit_             = false;   // #94 External TX Inhibit (persisted)
     bool   convertLockout_        = false;   // #201 transient MP4-convert keying lockout
     int    attOnTxDb_              = kAttOnTxDb;   // 0..31; default 31

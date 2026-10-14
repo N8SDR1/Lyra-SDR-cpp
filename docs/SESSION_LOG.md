@@ -4,6 +4,150 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-13 — GitHub #17 analog stuck on 20 m (0.25.18 regression)
+
+Randy W7CPA: 0.25.10/16 intermittent; **0.25.18 total fail** —
+10 min of band clicks, **zero** J4 voltage change, leftover **20 m**.
+
+Cause (file:line, not guess): `FrameComposer.cpp` I2C overlay set
+`delay=0` on analog BYTE4..BYTE1. Two 0x1D writes in one UDP
+datagram. Pico `n2adr_basic` never latched BYTE0. Host also
+coalesced on **enqueue** (`lastIoboardTxHz_`) so a failed latch
+looked done. I2C2 / 0x1D packing / `ctrl_read=0` were already
+Thetis-correct. LPF 0x20 is **not** on this 32-slot ring.
+
+Fix: restore Thetis/Quisk **delay=5** after every analog steal;
+coalesce on `hl2_ioboard_tx_freq_on_wire()` (BYTE0 overlaid);
+keep drop-pending (that part was right).
+
+**Released v0.25.19 Sheliak** — installer + tag + wiki. Also ships
+IQ backlog cap, PC-ring underrun fade, NB/AF atomics. Do not merge
+`main`. Diversity still parked (plan in
+`docs/architecture/diversity_include_plan.md`). Bench: J4 pin 8
+160→80→20→15, J3 Band Volts off.
+
+---
+
+## 2026-10-13 — DIV UI sequence + WDSP 2.10 check (saved)
+
+Operator: polar **yes**, with **Lyra flare** — **after** a working mix.
+Do not start polar first. Check whether WDSP newer than 2.10 exists;
+adopt it if true.
+
+**UI lock** (in `diversity_include_plan.md` §7 + D8 + checklist):
+v1 / D4 = DIV button + dB + phase. D8 = polar on the same two
+numbers, Lyra glass/stepper look, not a Thetis DiversityForm clone.
+D8 gated on D2+D3+D5 dummy-load peak/null + PS/TX interlock.
+
+**WDSP check (2026-10-13):** TAPR `OpenHPSDR-wdsp` README latest
+note is **2.10 (2026-09-04)**. Master tip is README-only
+`6c8aad86` (2026-09-09) on top of “Release Version 2.10”. No 2.11
+or 2.20. DL1BZ mirror + DeskHPSDR #207 + Apache Core all still
+cite 2.10. **Lyra already ships 2.10** (`GetWDSPVersion` 210,
+v0.25.8). `divEXT` is unchanged. **No bump before DIV.** Re-check
+TAPR the day D1 starts. Do not confuse Thetis **app** 2.10.3.13
+with the WDSP **library** version.
+
+Still no `src/` DIV code. Remaining ticks: first HW Brick3 then
+100D dummy; extra-DDC D6-only.
+
+---
+
+## 2026-10-13 — Diversity include plan (research only)
+
+Operator: park audit E/F; deep-seek Thetis + DeskHPSDR diversity;
+plan for Lyra. Two agents + Lyra gap map + four senior red-teams.
+**No feature code.**
+
+Plan: `docs/architecture/diversity_include_plan.md` (amended after
+consensus + Thetis confirm). Locked: interleaved DDC0 / port 1035
+ingest (not two ports); mask `0x01`/`0x0F` never `0x03`;
+overlay+consumer one commit; PS > TX-drop > DIV RX; hide DIV
+until D4; TX-drop is a deliberate Thetis divergence. CAT later =
+ZZDB–ZZDH. ATT link RX-only. E/F stay parked.
+
+Confirm fold: DeskHPSDR Q-line
+`q0+(div_sin·i1+div_cos·q1)` (`receiver.c:1643`); create_div
+zeros → Output+Rotate before Run; no Thetis phase-table import;
+PS restore gives 1035 to PS / RX1 back to DDC2; copy RX1
+dither+IQ-gain+rate; no RX2 auto-enable; Option A is Lyra-only
+(Thetis keeps DDC3 RX2).
+
+---
+
+## 2026-10-11 — START HERE: PS noise stimulus (in, pending dummy-load bench)
+
+Operator (2026-10-10 night): DeskHPSDR's Noise button looks like a
+better PureSignal stimulus than TUNE or two-tone. Do something
+similar. Optional later: tilt it toward an average adult male voice.
+Dummy load only. Do not merge `main`.
+
+What it is (DeskHPSDR `e88b7d2`, DL1BZ, 2026-07-26, `ps_menu.c` +
+`transmitter.c` `tx_set_noise`):
+
+- A third TX test source beside Two Tone. Mutually exclusive.
+  Turning Noise on stops Two Tone, and the reverse.
+- WDSP **pre-gen** mode 2 (Gaussian), not post-gen. Calls:
+  `SetTXAPreGenNoiseMag`, `SetTXAPreGenMode(id, 2)`,
+  `SetTXAPreGenRun`. Injected **before** the TX chain, so the
+  normal TX bandpass limits it to the selected passband.
+- Level spin **−12..+3 dB**, default 0. Magnitude
+  `pow(10, 0.05 * dB)`. 0 dB is full-scale noise: average PA
+  power is high. Tooltip says keep the test short.
+- Does **not** start the two-tone auto-attenuate timer. If PS is
+  already on, keying with Noise is enough for calcc (any solid MOX).
+
+Why it is the better stimulus:
+
+- TUNE is one amplitude. Two-tone is only 700 Hz and 1900 Hz.
+- Noise fills the whole TX passband with a changing envelope.
+- An average male voice already sits in a normal SSB filter
+  (pitch ~85–155 Hz, most power ~300 Hz–1 kHz, consonants
+  ~1–3 kHz). Flat noise through the existing SSB filter is the
+  first cut. A male long-term tilt (more low, falling above
+  ~500 Hz) is a second control only if flat noise calibrates
+  cleanly. No formant synthesizer.
+
+Shipped this morning (not committed): White button on the PS panel
+only (not the TX dock — “Noise” collides with NR). Mutually exclusive
+with TUNE and two-tone.
+Level spin −12..0 dB on the PS panel, default −6, persisted
+`tx/psNoiseLevelDb`. Pre-gen mode 2 via `SetTXAPreGenNoiseMag` /
+`Mode` / `Run`. MOX-off, stream start, and force-release clear it
+the same way as two-tone. Male-voice tilt is still the second
+step, not in this cut.
+
+TUNE mag stays 0.99999, two-tone stays 0.49999/0.49999.
+Two-tone average watts read about half of TUNE at the same drive
+(2026-10-10 bench: 40 m, PS off, Drive 100, TUNE ~18–20 W,
+two-tone ~8–11 W). That is the magnitude pair, not a drive lock
+and not PROT. Bare-rig FB ~126 sits just under the 129 window
+at pad 0 / Drive 100. First bench: dummy load, short key-downs,
+compare FB and watts against two-tone at the same drive. 0 dB is
+full-scale average power.
+
+Also locked tonight, do not redo: Thetis calibrates on any solid
+MOX, including TUNE; two-tone is not a gate. Jose's VAC echo was
+VAC1 output pointed at the speaker plus a live mic; no TX voice
+was VAC1 input left at (none).
+
+### Dual-ADC class order (Brick3 / 100D-class) — recorded 2026-10-11
+
+This numbered order was not in the log until now. Diversity stays
+parked on its own pass. No Internal/EXT1 picker.
+
+1. **Per-band PS pad — DONE** in v0.25.16 (`ps/txAtt/<band>`, 0–31).
+   That was the live-PS hole. Do not rebuild it.
+2. **Dual-ADC wire (Step 1)** — not started. Assign the second ADC
+   on the P2 wire so RX2 is not a second DDC on the same ADC.
+3. **Second pan (Step 2)** — not started. Independent panadapter
+   pane, only on radios that can actually run two ADCs.
+4. **Always-visible RX2 knobs (Step 3)** — not started. After the
+   second pane exists.
+
+Do not start 2 until the noise-stimulus dummy-load bench is done,
+unless the operator says otherwise.
+
 ## 2026-10-10 — v0.25.16 Sheliak RELEASED (Brick3 Beta Testing)
 
 - Full GitHub release (not prerelease) so the in-app updater and

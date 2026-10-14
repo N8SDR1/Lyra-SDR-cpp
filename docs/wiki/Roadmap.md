@@ -4,7 +4,7 @@ Where Lyra is headed. This is a **direction, not a dated schedule** — items la
 when they're solid. Everything shipped today is on the [Feature Status](Feature-Status)
 page.
 
-**Now (v0.25.18 Sheliak):** HL2 / HL2+ P1, BrickSDR2 / Brick3SDR P2, SUB +
+**Now (v0.25.19 Sheliak):** HL2 / HL2+ P1, BrickSDR2 / Brick3SDR P2, SUB +
 SPLIT, PureSignal, TX rack. Brick3 / ANAN-100D get a second SUB panadapter.
 **Next major feature:** [Diversity](#diversity-next-dual-adc-feature) (two ADCs,
 same frequency — not a second VFO). **Then:** G2 on-air validation, 7000/8000
@@ -47,7 +47,7 @@ Operator detail: **[User Guide → PureSignal](User-Guide#puresignal)**.
 
 HPSDR **Protocol 2** is live on **BrickSDR2** and **Brick3SDR** (RX + TX,
 including radio mic → modulator, analog drive, watts-cap, ATT-on-TX).
-Brick3 is **beta testing** (v0.25.18) — TX like BrickSDR2 (no dummy-load
+Brick3 is **beta testing** (v0.25.19) — TX like BrickSDR2 (no dummy-load
 arm); first RF dummy load. **SUB** opens a second panadapter. A Brick that
 still answers **Protocol 1** is **discovered but not opened** — P1 TX in
 Lyra is HL2-only. Flash **P2** (Anton / linoobs for Brick images).
@@ -72,7 +72,7 @@ these are real roadmap items, not "maybe someday."
 - ✅ **First-run FFTW vs companion launch** — Hardware Startup waits until FFTW and the radio layer are up (v0.25.11).
 - ✅ **TCI STOP** does not close the radio (v0.25.11) and does not drop MOX (v0.25.13). **TUNE / TRX / CHRONO** key like the host panel (v0.25.14).
 - ✅ **Brick3 Beta Testing** — Protocol 2 RX+TX, MAP, Auto Step, per-band PS pad, Reset wipe (v0.25.16); dual-ADC SUB pane, on-air TX, ANAN mapping (v0.25.17); RX2 jack isolate on TX (v0.25.18).
-- ✅ **HL2 analog J4 pin 8** — leftover I2C burst dropped; Pico latches on BYTE0 (v0.25.18).
+- ✅ **HL2 analog J4 pin 8** — leftover I2C burst dropped; Pico latches on BYTE0 (v0.25.18); I2C **delay=5** so hops actually latch (v0.25.19, Issue #17).
 - ✅ **11 m / CB chips on the SUB pane** — click-tune mode follows Hardware Region (v0.25.18).
 - ✅ **Windows per-app mixer** volume remembered across Stop / Start (v0.25.17).
 - ✅ **PureSignal Voice** on the compact dock; engine chips on Amp View (v0.25.17).

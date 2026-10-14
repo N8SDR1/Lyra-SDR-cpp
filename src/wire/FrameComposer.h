@@ -136,6 +136,12 @@ bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz);
 // queueing the burst is not the same as the Pico latching PWM.
 void request_hl2_ioboard_tx_freq(std::uint64_t hz);
 
+// Hz whose analog BYTE0 (register 4) has been stolen onto an EP2
+// I2C overlay.  ~0 until the first BYTE0 goes out.  Band-follow
+// coalesce must use this — not "we enqueued" — or a dropped burst
+// looks done while J4 stays on the leftover PWM (issue #17).
+std::uint64_t hl2_ioboard_tx_freq_on_wire();
+
 // HL2 "Band Volts" output enable (MI0BOT / Ramdor gateware feature).
 // Writes the C0=0x00 frame's C3 bit 3 — the ADC "dither" bit — which the
 // gateware decodes as `band_volts_enabled` (control.v:582-584,

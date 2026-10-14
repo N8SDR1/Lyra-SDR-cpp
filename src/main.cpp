@@ -15,6 +15,7 @@
 #include "wdsp_engine.h"
 #include "mic_source.h"
 #include "mainwindow.h"
+#include "statusbus.h"
 #include "hid_vfo_wheel.h"
 #include "single_instance.h"   // one-instance guard (TCI-port / double-radio collision)
 // TX-rip Phase 1 (Q2): tci_mic_source.h / tx_dsp_worker.h removed —
@@ -2176,16 +2177,42 @@ int main(int argc, char *argv[])
                 // while keyed in DIGU/DIGL.  Mode-edge re-apply is already
                 // handled by setTxMode's applyTxPower_ call, so this only
                 // needs to track the two Prefs (+ the persisted startup value).
+                // Status-bar notice when the scale is actually live: sliders
+                // stay at 100% by design, so without this the cut is invisible.
                 {
                     auto pushDigitalDrive = [prefs, stream]() {
                         stream->setDigitalDriveEnabled(prefs->digitalDriveEnabled());
                         stream->setDigitalDrivePct(prefs->digitalDrivePct());
                     };
+                    auto announceDigitalDrive = [prefs, win]() {
+                        if (!prefs->digitalDriveEnabled()) return;
+                        const QString m = prefs->mode().toUpper();
+                        if (m != QLatin1String("DIGU")
+                            && m != QLatin1String("DIGL"))
+                            return;
+                        const int pct = prefs->digitalDrivePct();
+                        if (pct >= 100) return;
+                        if (auto *sb = win->statusBus()) {
+                            sb->show(QObject::tr(
+                                "Digital TX drive is at %1% of the Drive/Tune "
+                                "sliders (Settings → TX → Digital modes). "
+                                "The sliders stay at 100%.")
+                                         .arg(pct),
+                                     8000);
+                        }
+                    };
                     QObject::connect(prefs, &lyra::ui::Prefs::digitalDriveEnabledChanged,
                                      stream, pushDigitalDrive);
                     QObject::connect(prefs, &lyra::ui::Prefs::digitalDrivePctChanged,
                                      stream, pushDigitalDrive);
+                    QObject::connect(prefs, &lyra::ui::Prefs::modeChanged,
+                                     win, announceDigitalDrive);
+                    QObject::connect(prefs, &lyra::ui::Prefs::digitalDriveEnabledChanged,
+                                     win, announceDigitalDrive);
+                    QObject::connect(prefs, &lyra::ui::Prefs::digitalDrivePctChanged,
+                                     win, announceDigitalDrive);
                     pushDigitalDrive();
+                    announceDigitalDrive();
                 }
 
                 // #175 — waterfall-ID arm/cadence orchestrator.  Owns the

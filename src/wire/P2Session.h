@@ -79,6 +79,7 @@
 #include <QUdpSocket>
 #include <QTimer>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -444,7 +445,7 @@ private:
     int          psFeedbackAttnDb_ = 0;
     bool         attOnTxEnabled_ = true;
     int          attOnTxDb_      = 31;
-    bool         rx2GroundOnTx_  = true;
+    std::atomic<bool> rx2GroundOnTx_{true};
     bool         psArmed_{false};
     // SUB audio from DDC1 — independent of enableDdc(1) for PS replica.
     bool         subRx2Wanted_{false};

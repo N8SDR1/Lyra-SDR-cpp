@@ -74,7 +74,8 @@ bool WdspEngine::openRx2()
     pushAgcMode();
     pushAgcThresh();
     if (api.SetRXAPanelGain1)
-        api.SetRXAPanelGain1(rx2Channel_, std::pow(10.0, afGainDb_ / 20.0));
+        api.SetRXAPanelGain1(rx2Channel_,
+            std::pow(10.0, afGainDb_.load(std::memory_order_relaxed) / 20.0));
     pushNrState();
     pushAnfState();
     pushLmsState();
@@ -167,12 +168,13 @@ void WdspEngine::feedIqRx2(const double *iq, int nframes)
     rx2Accum_.insert(rx2Accum_.end(), iq,
                      iq + static_cast<size_t>(2 * nframes));
     const size_t blockDoubles = static_cast<size_t>(2 * cfg_.inSize);
+    trimIqAccum(rx2Accum_, blockDoubles);
     if (rx2OutBuf_.size() < static_cast<size_t>(2 * outSize_))
         rx2OutBuf_.assign(static_cast<size_t>(2 * outSize_), 0.0);
 
     while (rx2Accum_.size() >= blockDoubles) {
         double *blockPtr = rx2Accum_.data();
-        if (nbEnabled_ && nbCreatedRx2_ && api.xnobEXT &&
+        if (nbEnabled_.load(std::memory_order_relaxed) && nbCreatedRx2_ && api.xnobEXT &&
             rx2NbBuf_.size() >= blockDoubles) {
             api.xnobEXT(rx2Channel_, rx2Accum_.data(), rx2NbBuf_.data());
             blockPtr = rx2NbBuf_.data();
