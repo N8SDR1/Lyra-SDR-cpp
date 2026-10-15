@@ -22,7 +22,27 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.20 Sheliak.** See [What's new in 0.25.20](#whats-new-in-02520).
+**v0.25.21 Sheliak.** See [What's new in 0.25.21](#whats-new-in-02521).
+
+## What's new in 0.25.21
+
+- **Lyra Remote.** A separate browser desk. Download it from
+  [Lyra Remote releases](https://github.com/N8SDR1/Lyra-Remote/releases).
+  How the page works is in the
+  [Lyra Remote wiki](https://github.com/N8SDR1/Lyra-Remote/wiki).
+  Lyra does not host the page. **Settings → Remote** is the password,
+  the address lists, and the voice session. See
+  [Settings → Remote](#settings--remote).
+- **Voice session.** **Start voice** on the page proves the password
+  once. Then **MOX** uses that browser's microphone and **Tune** sends
+  a carrier from Lyra. The desk microphone, rack, and leveler come back
+  when the session ends. A digital program on the radio computer is not
+  asked for the password. End the voice session before that program
+  transmits.
+- **Brick3 first key.** The first key after Lyra starts waits until PA
+  enable is already in receive, so RF is there without a stop and start.
+- **ALC on the TCI meter line.** A fifth number, ALC headroom in dB,
+  rides with the TX sensors. It is −200 while receiving.
 
 ## What's new in 0.25.20
 
@@ -330,6 +350,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.21](#whats-new-in-02521)
 - [What's new in 0.25.20](#whats-new-in-02520)
 - [What's new in 0.25.19](#whats-new-in-02519)
 - [What's new in 0.25.18](#whats-new-in-02518)
@@ -5050,7 +5071,9 @@ through. SDRLogger+, N1MM and similar work this way.
 
 **TX sensors** (mic dBm, RMS watts, peak watts, SWR) keep streaming
 while you are receiving, so a client's transmit meters do not go blank
-between overs.
+between overs. A fifth number, ALC headroom in dB, rides on the same
+line. It is −200 while receiving, and a client that reads the first
+four numbers is unchanged.
 
 ### Digital modes over TCI (FT8 / FT4 / MSK144 / Q65 / etc.)
 
@@ -5323,7 +5346,7 @@ of whichever colour mode you choose.
 
 ## Settings → Remote
 
-The browser desk is a separate package, [Lyra Remote](https://github.com/N8SDR1/Lyra-Remote). Lyra does not host the page. On the computer you are sitting at, double-click **Open Lyra Remote.cmd**. The browser opens `http://127.0.0.1:4173/`. That address is the page. The box at the top of the page is Lyra, `ws://` plus the radio computer and the TCI port from **Settings → Network** (default `40001`).
+The browser desk is a separate package, [Lyra Remote](https://github.com/N8SDR1/Lyra-Remote). Download it from [Lyra Remote releases](https://github.com/N8SDR1/Lyra-Remote/releases). How the page works is in the [Lyra Remote wiki](https://github.com/N8SDR1/Lyra-Remote/wiki). Lyra does not host the page. On the computer you are sitting at, double-click **Open Lyra Remote.cmd**. The browser opens `http://127.0.0.1:4173/`. That address is the page. The box at the top of the page is Lyra, `ws://` plus the radio computer and the TCI port from **Settings → Network** (default `40001`).
 
 Same computer: leave the box at `ws://127.0.0.1:40001` and leave **Bind address** at `127.0.0.1`.
 
@@ -5398,7 +5421,7 @@ A remote program that asks to start a voice session receives one challenge. The 
 
 When a token is granted, Lyra moves transmit audio to that connection, steps the speech rack aside, and parks the leveler. Those three stay live only. Settings keep the desk microphone. Unkey leaves the session up. Releasing the token, or dropping the link, puts the desk microphone, rack, and leveler back.
 
-The page asks for the password only after **Start voice**. A normal connection leaves the desk profile alone. After the session is on, **MOX** sends that computer's microphone and **Tune** sends a carrier from Lyra. Open the page with **Open Lyra Remote**. A file opened by double-click can still listen, and it cannot prove the password or open a microphone. **Password required to listen** is saved. It does not hold the spectrum, and it does not drop a connection. The address lists and an unforwarded port keep other computers out. The running Lyra shows this paragraph after the next build.
+The page asks for the password only after **Start voice**. A normal connection leaves the desk profile alone. After the session is on, **MOX** sends that computer's microphone and **Tune** sends a carrier from Lyra. Open the page with **Open Lyra Remote**. A file opened by double-click can still listen, and it cannot prove the password or open a microphone. **Password required to listen** is saved. It does not hold the spectrum, and it does not drop a connection. The address lists and an unforwarded port keep other computers out.
 
 Save the password before you allow a remote to transmit. The proof is checked by Lyra, on the Lyra computer, for that connection alone.
 

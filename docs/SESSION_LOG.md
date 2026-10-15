@@ -4,6 +4,14 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-15 — v0.25.21 Sheliak RELEASED
+
+Lyra Remote is a separate browser desk. Settings → Remote holds
+the password and the voice session. Brick3 holds the first key
+until PA enable is already in receive. The TCI meter line carries
+ALC headroom. Wiki and the in-app guide link the remote package
+and its wiki. Do not merge `main`.
+
 ## 2026-10-14 — v0.25.20 Sheliak RELEASED
 
 Diversity, three-frequency band stack, separate RX and TX filter

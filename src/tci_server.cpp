@@ -2901,12 +2901,23 @@ void TciServer::onSmeterTick() {
         swr = (1.0 + rho) / (1.0 - rho);
         if (swr > 99.0) swr = 99.0;
     }
+    // Fifth field is ALC headroom, the same number the front-panel ALC
+    // meter shows: max(0, TXA_ALC_GAIN + the operator ALC ceiling). It is
+    // only meaningful while keyed. −200 while receiving, so a client that
+    // reads the first four numbers is unchanged.
+    double alc = -200.0;
+    if (engine_ && (stream_->moxActive() || stream_->tuneEnabled())) {
+        const double raw = engine_->txMeterRaw(14);   // TXA_ALC_GAIN
+        if (std::isfinite(raw))
+            alc = std::max(0.0, raw + stream_->alcMaxGainLinear());
+    }
     broadcast(QStringLiteral("tx_sensors"),
-              QStringLiteral("tx_sensors:0,%1,%2,%3,%4")
+              QStringLiteral("tx_sensors:0,%1,%2,%3,%4,%5")
                   .arg(QString::number(mic, 'f', 1))
                   .arg(QString::number(rms, 'f', 1))
                   .arg(QString::number(peak, 'f', 1))
-                  .arg(QString::number(swr, 'f', 1)));
+                  .arg(QString::number(swr, 'f', 1))
+                  .arg(QString::number(alc, 'f', 1)));
 }
 
 } // namespace lyra::ui

@@ -15,6 +15,7 @@ Curated pages (edit here, then push to the wiki):
 - `Feature-Status.md`
 - `Roadmap.md`
 - `SDRLogger-Plus-Combo.md`
+- `Lyra-Remote.md` — browser desk (separate download; links to its wiki and releases)
 - `FAQ-and-Troubleshooting.md`
 - `Credits.md` — reference projects (DeskHPSDR / Heiko) and special thanks (Heiko, Anton / linoobs)
 - `_Sidebar.md` — wiki navigation (shows on every page)

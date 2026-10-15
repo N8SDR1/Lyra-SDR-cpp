@@ -1,15 +1,16 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.20 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.21 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.20)
+### Last several builds (0.25.16 → 0.25.21)
 
 | Build | What landed |
 |---|---|
+| **0.25.21** | **[Lyra Remote](Lyra-Remote)** voice session (separate browser desk) · Brick3 holds the first key until PA enable is already in receive · TCI meter line carries ALC headroom |
 | **0.25.20** | **Diversity** (Brick3 / 100D / 200D) · **band stack** (three frequencies per chip) · **separate RX and TX filter lows** · filter-board voltage follows a return to a band already on the dial (Issue #17) |
 | **0.25.19** | IQ backlog cap · PC-ring underrun fade · NB/AF atomics |
 | **0.25.18** | HL2 analog J4 / Pico **BYTE0** latch (no leftover-band voltage) · **RX2 jack isolate on TX** (two-converter) · **11 m / CB chips on the SUB pane** (mode follows Hardware Region) |
@@ -101,7 +102,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
   panadapter snapshots (Vulkan-safe) → a synced **MP4**; default folder
   `%USERPROFILE%\Lyra\Recordings` (v0.25.12, never Program Files)
 - ✅ **CAT / Serial** — Kenwood TS-480/2000 CAT over COM/TCP, serial PTT input, Winkeyer
-- ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; **CW terminal** (key line stays up between letters; callsign correct mid-send) and **TX sensors** that keep reporting at receive; handshake sends `start` only when the radio session is running (otherwise `stop` then `ready`); **STOP** never closes the radio and never drops MOX (echoes `start` while live so WSJT-X / JTDX stay attached and can key); **TUNE** keys the host TUN path, **TRX** keys MOX, **CHRONO** TX-audio headers use the negotiated rate / samples / format / channels (v0.25.14; MSHV / WSJT-X / JTDX / SDRLogger+); **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log)
+- ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; **CW terminal** (key line stays up between letters; callsign correct mid-send) and **TX sensors** that keep reporting at receive; handshake sends `start` only when the radio session is running (otherwise `stop` then `ready`); **STOP** never closes the radio and never drops MOX (echoes `start` while live so WSJT-X / JTDX stay attached and can key); **TUNE** keys the host TUN path, **TRX** keys MOX, **CHRONO** TX-audio headers use the negotiated rate / samples / format / channels (v0.25.14; MSHV / WSJT-X / JTDX / SDRLogger+); **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log); **[Lyra Remote](Lyra-Remote)** voice session (password proof, then that browser's microphone) and a fifth TX-sensor number, ALC headroom (v0.25.21)
 - ✅ **USB-BCD** band data for linear-amp band switching
 - ✅ **Backup &amp; Restore** — export config, dated snapshots (survive reinstall), selective restore
 - ✅ Solar / propagation panel (band chips tune VFO A to that band's current stored frequency; they do not step the 1 / 2 / 3 stack), weather alerts
