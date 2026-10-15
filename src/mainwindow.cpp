@@ -1012,6 +1012,13 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     // contact row (CwMacros, created above) with a linked logger.  Same
     // lifetime story — both parented to this window.
     tci_->setCwMacros(cwMacros_);
+    connect(tci_, &TciServer::remoteLockChanged, this,
+            [this](const QString &text) {
+                if (!text.isEmpty())
+                    statusBar()->showMessage(
+                        text, Prefs::kRemoteLockoutSec * 1000);
+                updateTciStatus();
+            });
     // Serial PTT input — a digital app (WSJT-X / VarAC / fldigi) asserts
     // RTS/DTR on a (virtual) COM port → crosses to our CTS/DSR → keys Lyra
     // (which keys the rig downstream).  Default-OFF; configured in
@@ -2227,7 +2234,25 @@ void MainWindow::rebuildRigMenu() {
         QAction *none = rigMenu_->addAction(tr("(no rigs yet)"));
         none->setEnabled(false);
     }
-    for (const auto &r : rigs) {
+    for (auto r : rigs) {
+        // A P2 rig can still be stored under the coarse family name
+        // after the operator picked a model.  Use that rig's own model
+        // key, or the active rig's saved model, then persist the
+        // marketed name (Brick3SDR, ANAN-100D, …).  A custom rename
+        // is left alone.
+        if (r.hardwareModelKey.isEmpty() && r.rigId == active
+            && (r.family == lyra::rig::RadioFamily::AnanP2
+                || r.family == lyra::rig::RadioFamily::AnanP1)) {
+            QSettings s;
+            if (s.contains(QStringLiteral("radio/hardwareModel"))) {
+                const QString key =
+                    s.value(QStringLiteral("radio/hardwareModel")).toString();
+                if (!key.isEmpty())
+                    r.hardwareModelKey = key;
+            }
+        }
+        if (lyra::rig::registry::adoptHardwareLabel(r))
+            lyra::rig::registry::upsertRig(r);
         const QString label = r.label.isEmpty() ? r.rigId : r.label;
         QAction *a = rigMenu_->addAction(label);
         a->setCheckable(true);
@@ -3469,6 +3494,7 @@ void MainWindow::updateTciStatus() {
     }
     const int n = tci_->clientCount();
     tciStatus_->setVisible(true);
+    const QString lock = tci_->remoteLockText();
     if (n > 0) {
         tciStatus_->setText(tr("● TCI: %1").arg(n));
         tciStatus_->setStyleSheet(QStringLiteral("color:#4caf50;font-weight:bold;"));
@@ -3478,6 +3504,8 @@ void MainWindow::updateTciStatus() {
         tciStatus_->setStyleSheet(QStringLiteral("color:#f0c040;"));
         tciStatus_->setToolTip(tr("TCI server listening — no clients connected"));
     }
+    if (!lock.isEmpty())
+        tciStatus_->setToolTip(tciStatus_->toolTip() + QLatin1Char('\n') + lock);
 }
 
 bool MainWindow::event(QEvent *e) {

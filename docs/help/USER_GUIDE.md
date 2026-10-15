@@ -421,6 +421,11 @@ Dummy load first.
 - [Settings → Network (TCI)](#settings--network-tci)
   - [SDRLogger+ Combo link](#sdrlogger-combo-link)
   - [CW keying over TCI](#cw-keying-over-tci)
+- [Settings → Remote](#settings--remote)
+  - [A direct connection](#a-direct-connection)
+  - [Who may connect](#who-may-connect)
+  - [Password and the voice session](#password-and-the-voice-session)
+  - [What Lyra applies today](#what-lyra-applies-today)
 - [Settings → CAT / Serial (rig control over COM / TCP)](#settings--cat--serial-rig-control-over-com--tcp)
   - [Digital modes over TCI](#digital-modes-over-tci-ft8--ft4--msk144--q65--etc)
   - [Digital modes over VAC](#digital-modes-over-vac-virtual-audio-cable)
@@ -1983,6 +1988,9 @@ Mic source**:
 - **PC Soundcard (VAC2)** — the second cable (RX2 audio; enable **SUB**).
 - **TCI (digital modes)** — audio streamed from a digital-mode program
   (MSHV, JTDX, WSJT-X, FLDigi…) over Lyra's TCI link; the mic is bypassed.
+  A browser voice session is separate. It does not use this picker, and
+  it does not leave the desk microphone on TCI. See
+  [Settings → Remote](#settings--remote).
 
 Only one source is live at a time — whatever's selected goes on the air.
 
@@ -4908,6 +4916,8 @@ Lyra runs a TCI **server**; the other program connects to it as a client.
 - **Bind address** — which network interface to listen on. Leave blank /
   `0.0.0.0` to accept connections from any interface (e.g. another PC on
   your LAN); use `127.0.0.1` to allow only programs on this same PC.
+  Who may connect, and the password for a remote voice session, live on
+  [Settings → Remote](#settings--remote).
 - **Port** — the TCI listening port (Lyra default **40001**, same as
   ExpertSDR3). Older Expert gear and some logger templates still use
   **50001** — match whatever is in this box, not a guess.
@@ -5308,6 +5318,89 @@ of whichever colour mode you choose.
 - **Spot lifetime** — how long (in **minutes**) a spot stays before it
   ages out.
 - **Clear spots now** — wipe the current spot list.
+
+---
+
+## Settings → Remote
+
+The browser desk is a separate package, [Lyra Remote](https://github.com/N8SDR1/Lyra-Remote). Lyra does not host the page. On the computer you are sitting at, double-click **Open Lyra Remote.cmd**. The browser opens `http://127.0.0.1:4173/`. That address is the page. The box at the top of the page is Lyra, `ws://` plus the radio computer and the TCI port from **Settings → Network** (default `40001`).
+
+Same computer: leave the box at `ws://127.0.0.1:40001` and leave **Bind address** at `127.0.0.1`.
+
+Another computer on the house network: copy the package there and open the page on that computer. Do not browse to the radio computer to get the page. On the Lyra computer set **Bind address** to `0.0.0.0`, allow inbound TCP on the TCI port for private networks, and fill the page box with `ws://` plus this computer's house-network address and that port.
+
+Keep the port on the house network. Do not forward it to the internet.
+
+The same **Settings → Remote** choices cover this page and the later full IP remote. The listen address and port stay on **Settings → Network**.
+
+### A direct connection
+
+The browser opens a link straight to the Lyra that is already running. Audio, the spectrum, and tuning commands travel between those two programs on your own network.
+
+No outside server carries the link. No account is created anywhere else. No authentication service is contacted, and nothing is sent away to be checked. Lyra decides, on the computer where Lyra is running, which addresses may connect and how the password is kept.
+
+### Who may connect
+
+**Accept only these** and **Refuse these** take one full address, or a range written as a prefix.
+
+- `192.168.1.40` is one computer.
+- `192.168.1.0/24` is `192.168.1.0` through `192.168.1.255`.
+- `192.168.0.0/16` and `10.0.0.0/8` are wider ranges.
+
+A short piece, a star, or a dash range is refused. Separate entries with a new line, a comma, or a space.
+
+Leave the Network bind address at `127.0.0.1` and another computer cannot open the port. A remote TCI program there is blocked. A program on this computer still connects. Set the bind address to `0.0.0.0` only when another computer on this network should reach Lyra, and do not forward the TCI port to the internet.
+
+Both boxes blank: every address that can reach the port may connect. With the bind address open and Accept left blank, that includes every other remote TCI program that can reach the port.
+
+Any entry in Accept: every other address is dropped before it can hear the radio. That is how you block other remote TCI programs. A remote TCI program on another computer connects only when that computer's address, or a range that covers it, is in Accept.
+
+An address on Refuse is dropped even when it is also on Accept.
+
+The computer running Lyra is always allowed, including when the page on that computer uses the house-network address. That computer cannot be refused, so a digital program on the radio computer keeps its connection.
+
+A valid entry is applied as soon as you leave the box. A refused or unlisted address is dropped at the door and never counts as a password try.
+
+### Password and the voice session
+
+The password is one phrase you set on the Lyra computer.
+
+- 12 to 128 characters. Spaces are allowed, so a short phrase works.
+- Include a word. A string of only numbers is refused, and so is one character repeated.
+- The callsign alone is refused, and so are `password`, `lyra`, `letmein`, `qwerty`, and `changeme`.
+- Type it twice. The two lines have to match.
+- Lyra stores a one-way hash on that computer. The phrase itself is not kept. Reopen the tab and the box is empty; type a new phrase only when you want to replace the saved one.
+- Clear password removes the hash. With no password saved, remote transmit stays off.
+
+A remote proves that phrase once, when it starts a voice session. The phrase stays off the wire. A correct proof receives a session token: a long random value held only in memory, and only for that connection. Closing the page or dropping the link drops the token. The next connection proves the password again. The password is not sent again for each transmission, and it is not put in the address or stored in the browser.
+
+Five wrong proofs from one address lock that address for 15 minutes. The waits between tries are 1, 2, 4, 8, and 16 seconds. A correct proof clears the count. While an address is locked, Lyra offers it no new proof. Listening for everyone else stays up. Programs on the radio computer are not asked, so WSJT-X and MSHV there keep keying.
+
+Taking the token is what moves the microphone. A TCI connection by itself leaves the desk microphone, the rack, and the leveler where they were. While the voice session is held:
+
+- Transmit audio comes from that browser.
+- On USB, LSB, and AM the host EQ, speech, combinator, and tube plating step aside for the session. The mode stays what it was. FM already runs with that rack aside.
+- The host leveler is parked for the same span. ALC stays on.
+
+Unkey only stops the transmit audio. The remote profile stays until the session ends or the link drops, and then the previous microphone, rack, and leveler come back. Lyra does not write those changes into Settings, so a crash comes back on the desk profile.
+
+One password covers three things: listening, when you tick the box below; changing the radio; and transmit. A listen-only connection does not receive a transmit token.
+
+**Password required to listen** is off unless you tick it. The box is saved. Spectrum and receiver audio stay open. The later hold, where spectrum and audio wait for the same proof, is not applied yet. Programs on the computer running Lyra are not asked.
+
+The browser chooses its own microphone and applies its own EQ before the samples are sent. Lyra never sees the device name.
+
+### What Lyra applies today
+
+The address lists are already applied. Lyra drops a refused or unlisted address when it tries to connect.
+
+A remote program that asks to start a voice session receives one challenge. The password stays off the wire. A correct proof receives a session token held only in memory for that connection. Five wrong proofs lock that address for 15 minutes, and Lyra names the locked address. Listening stays up. A program on this computer is not asked, so it keeps keying.
+
+When a token is granted, Lyra moves transmit audio to that connection, steps the speech rack aside, and parks the leveler. Those three stay live only. Settings keep the desk microphone. Unkey leaves the session up. Releasing the token, or dropping the link, puts the desk microphone, rack, and leveler back.
+
+The page asks for the password only after **Start voice**. A normal connection leaves the desk profile alone. After the session is on, **MOX** sends that computer's microphone and **Tune** sends a carrier from Lyra. Open the page with **Open Lyra Remote**. A file opened by double-click can still listen, and it cannot prove the password or open a microphone. **Password required to listen** is saved. It does not hold the spectrum, and it does not drop a connection. The address lists and an unforwarded port keep other computers out. The running Lyra shows this paragraph after the next build.
+
+Save the password before you allow a remote to transmit. The proof is checked by Lyra, on the Lyra computer, for that connection alone.
 
 ---
 

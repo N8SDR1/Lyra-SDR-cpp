@@ -4569,6 +4569,17 @@ void HL2Stream::setLevelerOn(bool on) {
     if (fwd) fwd(on, topLinear);
 }
 
+void HL2Stream::pushLevelerRun(bool on) {
+    std::function<void(bool,double)> fwd;
+    double topLinear;
+    {
+        std::lock_guard<std::mutex> lk(txControlMtx_);
+        fwd = txControl_.setLevelerOn;
+        topLinear = levelerMaxGainLinear_;
+    }
+    if (fwd) fwd(on, topLinear);
+}
+
 // #109 — compute the EFFECTIVE PHROT run state and push it to the WDSP
 // TX channel.  Phase rotation is a voice-only trick — it distorts digital
 // waveforms (FT8/FT4/RTTY/etc.) — so the WDSP run state is the operator's

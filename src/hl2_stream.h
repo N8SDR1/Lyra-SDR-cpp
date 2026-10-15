@@ -1516,6 +1516,9 @@ public slots:
     // and forwards to the registered TxControl callback.
     void setAlcDecayMs(int decay_ms);
     void setLevelerOn(bool on);
+    // Live run flag only. The desk checkbox and tx/levelerOn stay put,
+    // so a crash still comes up on the saved profile.
+    void pushLevelerRun(bool on);
     void setLevelerMaxGainLinear(double linear);
     void setLevelerDecayMs(int decay_ms);
     void setPhrotEnabled(bool on);   // #109 phase rotator on/off

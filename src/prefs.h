@@ -12,7 +12,9 @@
 
 #pragma once
 
+#include <QByteArray>
 #include <QHash>
+#include <QHostAddress>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -504,6 +506,33 @@ public:
     void   setTciRxGainDb(double v);
     double tciTxGainDb() const { return tciTxGainDb_; }
     void   setTciTxGainDb(double v);
+    // Remote access (TCI remote and the later IP remote share these).
+    // The password is a one-way hash; the clear phrase is never stored.
+    // A blank password means remote transmit stays off once a session
+    // asks for proof. Address lists apply at accept time.
+    static constexpr int kRemoteMaxAttempts = 5;
+    static constexpr int kRemoteLockoutSec  = 15 * 60;
+    bool    remotePasswordSet() const { return !remotePwHash_.isEmpty(); }
+    QString remotePasswordProblem(const QString &password) const;
+    QString setRemotePassword(const QString &password); // empty = saved
+    bool    remotePasswordMatches(const QString &password) const;
+    // Salt and iteration count for one voice-session challenge. The
+    // stored hash is not returned.
+    void    remotePasswordChallenge(QByteArray *salt, int *iters) const;
+    // HMAC-SHA256(stored hash, nonce), compared in constant time.
+    bool    remoteVoiceProofMatches(const QByteArray &nonce,
+                                    const QByteArray &mac) const;
+    void    clearRemotePassword();
+    bool    remoteListenRequiresPassword() const {
+        return remoteListenRequiresPassword_;
+    }
+    void    setRemoteListenRequiresPassword(bool on);
+    QString remoteAcceptIps() const { return remoteAcceptIps_; }
+    QString remoteRefuseIps() const { return remoteRefuseIps_; }
+    static QString remoteIpListProblem(const QString &text);
+    QString setRemoteAcceptIps(const QString &text); // empty = saved
+    QString setRemoteRefuseIps(const QString &text);
+    bool    remotePeerAllowed(const QHostAddress &addr) const;
     double wfIdLevel() const { return wfIdLevel_; }       // #175
     void   setWfIdLevel(double v);                        // #175 (clamps 0..0.065)
     bool   wfIdEnabled() const { return wfIdEnabled_; }   // #175 (non-persist)
@@ -768,6 +797,10 @@ signals:
     void fixedTuneDrivePctChanged();
     void tciRxGainDbChanged();
     void tciTxGainDbChanged();
+    void remotePasswordChanged();
+    void remoteListenRequiresPasswordChanged();
+    void remoteAcceptIpsChanged();
+    void remoteRefuseIpsChanged();
     void wfIdLevelChanged();   // #175
     void wfIdEnabledChanged();
     void wfIdIntervalMinChanged();
@@ -888,6 +921,12 @@ private:
     // Task #108 — symmetric INBOUND TCI gain (MSHV → Lyra TXA).
     // Default 0 dB = unity = byte-identical to pre-#108 behaviour.
     double  tciTxGainDb_ = 0.0;
+    QByteArray remotePwSalt_;
+    QByteArray remotePwHash_;
+    int     remotePwIters_ = 0;
+    bool    remoteListenRequiresPassword_ = false;
+    QString remoteAcceptIps_;
+    QString remoteRefuseIps_;
     double  wfIdLevel_       = 0.06;   // #175 — waterfall-ID burst level (0..0.065)
     bool    wfIdEnabled_     = false;  // #175 — NON-persist; OFF every session
     int     wfIdIntervalMin_ = 0;      // #175 — auto-cadence 0..20 (0 = once)

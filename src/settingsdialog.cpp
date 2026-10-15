@@ -75,7 +75,9 @@
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QHostAddress>
+#include <QNetworkInterface>
 #include <QColor>
 #include <QFont>
 #include <QBrush>
@@ -393,6 +395,9 @@ SettingsDialog::SettingsDialog(Prefs *prefs, lyra::ipc::HL2Stream *stream,
     // --- Integrations ---
     if (tci_) {
         tabs_->addTab(wrapScroll(buildNetworkTab()), tr("Network"));
+    }
+    if (prefs_) {
+        tabs_->addTab(wrapScroll(buildRemoteTab()), tr("Remote"));
     }
     if (serialPtt_) {
         tabs_->addTab(wrapScroll(buildCatSerialTab()), tr("CAT / Serial"));
@@ -2468,6 +2473,319 @@ static QString detectSdrLoggerPlusExe() {
     }
 #endif
     return QString();
+}
+
+QWidget *SettingsDialog::buildRemoteTab() {
+    auto *page = new QWidget(this);
+    auto *v = new QVBoxLayout(page);
+    v->setSpacing(12);
+
+    auto *intro = new QLabel(
+        tr("The remote link runs only between this Lyra host and the remote. "
+           "It stays on your own network. No outside server carries it, and "
+           "no outside account or other service is required.\n\n"
+           "These settings cover the local remote and the later full IP remote. "
+           "The listen address and port stay on the Network tab."),
+        page);
+    intro->setWordWrap(true);
+    intro->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    v->addWidget(intro);
+
+    const int tciPort = QSettings().value(QStringLiteral("tci/port"), 40001).toInt();
+    QStringList lanAddrs;
+    for (const QHostAddress &addr : QNetworkInterface::allAddresses()) {
+        if (addr.protocol() != QAbstractSocket::IPv4Protocol) continue;
+        if (addr.isLoopback() || addr.isLinkLocal()) continue;
+        lanAddrs.append(addr.toString());
+    }
+    QString lanBox;
+    if (lanAddrs.isEmpty()) {
+        lanBox = tr("ws://&lt;this computer's house-network address&gt;:%1").arg(tciPort);
+    } else {
+        QStringList boxes;
+        for (const QString &ip : lanAddrs)
+            boxes.append(QStringLiteral("ws://%1:%2").arg(ip).arg(tciPort));
+        lanBox = boxes.join(tr(" or "));
+    }
+
+    auto *open = new QGroupBox(tr("Open the page"), page);
+    auto *openLay = new QVBoxLayout(open);
+    openLay->setSpacing(10);
+    auto *how = new QLabel(
+        tr("Lyra does not serve the page. Get Lyra Remote from "
+           "<a href=\"https://github.com/N8SDR1/Lyra-Remote\">github.com/N8SDR1/Lyra-Remote</a>. "
+           "Unzip it on the computer you are sitting at and double-click "
+           "<b>Open Lyra Remote.cmd</b>. That opens "
+           "<b>http://127.0.0.1:4173/</b> in the browser on that computer. "
+           "Leave the small server window running. Opening the page file itself does not connect."),
+        open);
+    how->setWordWrap(true);
+    how->setTextFormat(Qt::RichText);
+    how->setOpenExternalLinks(true);
+    how->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    how->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    openLay->addWidget(how);
+    auto *where = new QLabel(
+        tr("On this same computer, leave the box at the top of the page on "
+           "<b>ws://127.0.0.1:%1</b>. On the Network tab, turn the TCI server on "
+           "and leave the bind address at 127.0.0.1.<br><br>"
+           "From another computer on this network, run that same package there "
+           "and open <b>http://127.0.0.1:4173/</b> on that computer. You do not "
+           "browse to this radio to get the page. On this radio, set the Network "
+           "bind address to 0.0.0.0. In the page, set the box to "
+           "<b>%2</b>. Allow inbound TCP port %1 through the firewall. "
+           "The port is the TCI port on the Network tab.")
+            .arg(tciPort)
+            .arg(lanBox),
+        open);
+    where->setWordWrap(true);
+    where->setTextFormat(Qt::RichText);
+    where->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    openLay->addWidget(where);
+    v->addWidget(open);
+
+    auto *who = new QGroupBox(tr("Who may connect"), page);
+    auto *whoLay = new QVBoxLayout(who);
+    whoLay->setSpacing(10);
+    auto *whoNote = new QLabel(
+        tr("Other remote TCI programs use this same port. Leave the Network "
+           "bind address at 127.0.0.1 and another computer cannot open it, "
+           "so a remote TCI program there is blocked. A program on this "
+           "computer still connects.\n\n"
+           "Set the bind address to 0.0.0.0 only when another computer on "
+           "this network should reach Lyra. Then put that computer in "
+           "Accept only these. Any entry drops every other address, "
+           "including other remote TCI programs, unless that computer or a "
+           "range that covers it is listed. This computer stays allowed. "
+           "Do not forward the TCI port to the internet. With the bind "
+           "address open and Accept left blank, every TCI client that can "
+           "reach the port may connect."),
+        who);
+    whoNote->setWordWrap(true);
+    whoNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    whoLay->addWidget(whoNote);
+    auto *whoForm = new QFormLayout();
+    whoForm->setVerticalSpacing(10);
+    whoLay->addLayout(whoForm);
+
+    auto *accept = new QPlainTextEdit(prefs_->remoteAcceptIps(), who);
+    accept->setPlaceholderText(
+        tr("Blank accepts every address that can reach this radio.\n"
+           "192.168.1.40\n"
+           "192.168.1.0/24"));
+    accept->setFixedHeight(88);
+    accept->setToolTip(
+        tr("One address or a range per line, or separated by commas. "
+           "With any entry, every other address is dropped, including "
+           "other remote TCI programs. This computer is always allowed. "
+           "Leave this blank and leave the Network bind address at "
+           "127.0.0.1 to keep other computers off the port."));
+    auto *acceptErr = new QLabel(who);
+    acceptErr->setWordWrap(true);
+    acceptErr->setStyleSheet(QStringLiteral("color:#e0736b;"));
+    whoForm->addRow(tr("Accept only these:"), accept);
+    whoForm->addRow(QString(), acceptErr);
+
+    auto *refuse = new QPlainTextEdit(prefs_->remoteRefuseIps(), who);
+    refuse->setPlaceholderText(
+        tr("Blank refuses nobody.\n"
+           "192.168.1.40\n"
+           "192.168.1.0/24"));
+    refuse->setFixedHeight(88);
+    refuse->setToolTip(
+        tr("An address here is dropped even when it is also on the accept "
+           "list. This computer cannot be refused."));
+    auto *refuseErr = new QLabel(who);
+    refuseErr->setWordWrap(true);
+    refuseErr->setStyleSheet(QStringLiteral("color:#e0736b;"));
+    whoForm->addRow(tr("Refuse these:"), refuse);
+    whoForm->addRow(QString(), refuseErr);
+
+    auto *listNote = new QLabel(
+        tr("One full address is one computer. A range uses a prefix, such as "
+           "192.168.1.0/24 for 192.168.1.0 through 192.168.1.255. A short "
+           "piece or a star is not accepted. Both boxes use the same forms. "
+           "A blank accept list and a blank refuse list let every reachable "
+           "address connect, and listening stays open. The lists apply as "
+           "soon as you leave a valid entry. A refused or unlisted address "
+           "is dropped at the door and never counts as a password try. "
+           "Changing the radio and transmitting use the password below; "
+           "the remote asks for that proof when those controls are on."),
+        who);
+    listNote->setWordWrap(true);
+    listNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    whoForm->addRow(listNote);
+    v->addWidget(who);
+
+    connect(accept, &QPlainTextEdit::textChanged, this,
+            [this, accept, acceptErr]() {
+                const QString text = accept->toPlainText();
+                const QString problem = Prefs::remoteIpListProblem(text);
+                acceptErr->setText(problem);
+                if (!problem.isEmpty()) return;
+                prefs_->setRemoteAcceptIps(text);
+            });
+    connect(refuse, &QPlainTextEdit::textChanged, this,
+            [this, refuse, refuseErr]() {
+                const QString text = refuse->toPlainText();
+                const QString problem = Prefs::remoteIpListProblem(text);
+                refuseErr->setText(problem);
+                if (!problem.isEmpty()) return;
+                prefs_->setRemoteRefuseIps(text);
+            });
+
+    auto *pw = new QGroupBox(tr("Password"), page);
+    auto *pwForm = new QFormLayout(pw);
+    pwForm->setVerticalSpacing(10);
+
+    auto *phrase = new QLineEdit(pw);
+    phrase->setEchoMode(QLineEdit::Password);
+    phrase->setPlaceholderText(
+        prefs_->remotePasswordSet()
+            ? tr("Saved — type a new phrase to replace it")
+            : tr("At least 12 characters, spaces allowed"));
+    auto *again = new QLineEdit(pw);
+    again->setEchoMode(QLineEdit::Password);
+    again->setPlaceholderText(tr("Type the same phrase again"));
+    pwForm->addRow(tr("Password:"), phrase);
+    pwForm->addRow(tr("Confirm:"), again);
+
+    auto *pwStatus = new QLabel(pw);
+    pwStatus->setWordWrap(true);
+    auto refreshPw = [this, pwStatus, phrase]() {
+        if (prefs_->remotePasswordSet()) {
+            pwStatus->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+            pwStatus->setText(
+                tr("A password is saved on this computer only. The phrase "
+                   "itself is not kept. A remote session must prove it "
+                   "before it may change the radio or transmit. Five wrong "
+                   "proofs from one address lock that address for 15 minutes, "
+                   "with waits of 1, 2, 4, 8, and 16 seconds. A correct proof "
+                   "clears the count. A session token then lives only in "
+                   "memory for that connection and is dropped when the link "
+                   "closes. The next connection proves the password again."));
+            phrase->setPlaceholderText(
+                tr("Saved — type a new phrase to replace it"));
+        } else {
+            pwStatus->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+            pwStatus->setText(
+                tr("No password is saved, so remote transmit stays off. "
+                   "Use 12 to 128 characters. Spaces are allowed, so a short "
+                   "phrase works. The callsign alone, and words such as "
+                   "password or lyra, are refused."));
+            phrase->setPlaceholderText(
+                tr("At least 12 characters, spaces allowed"));
+        }
+    };
+    refreshPw();
+    pwForm->addRow(pwStatus);
+
+    auto *lockNotice = new QLabel(tr("No address is locked."), pw);
+    lockNotice->setWordWrap(true);
+    lockNotice->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    pwForm->addRow(lockNotice);
+    if (tci_) {
+        connect(tci_, &TciServer::remoteLockChanged, lockNotice,
+                [lockNotice, this](const QString &text) {
+                    if (text.isEmpty()) {
+                        lockNotice->setStyleSheet(
+                            QStringLiteral("color:#8fa6ba;"));
+                        lockNotice->setText(tr("No address is locked."));
+                    } else {
+                        lockNotice->setStyleSheet(
+                            QStringLiteral("color:#e0736b;"));
+                        lockNotice->setText(text);
+                    }
+                });
+    }
+
+    auto *pwErr = new QLabel(pw);
+    pwErr->setWordWrap(true);
+    pwErr->setStyleSheet(QStringLiteral("color:#e0736b;"));
+    pwForm->addRow(pwErr);
+
+    auto *pwButtons = new QWidget(pw);
+    auto *pwRow = new QHBoxLayout(pwButtons);
+    pwRow->setContentsMargins(0, 0, 0, 0);
+    auto *setPw = new QPushButton(tr("Save password"), pwButtons);
+    auto *clearPw = new QPushButton(tr("Clear password"), pwButtons);
+    clearPw->setEnabled(prefs_->remotePasswordSet());
+    pwRow->addWidget(setPw);
+    pwRow->addWidget(clearPw);
+    pwRow->addStretch(1);
+    pwForm->addRow(QString(), pwButtons);
+
+    connect(setPw, &QPushButton::clicked, this,
+            [this, phrase, again, pwErr, clearPw, refreshPw]() {
+                if (phrase->text() != again->text()) {
+                    pwErr->setText(tr("The two phrases do not match."));
+                    return;
+                }
+                QApplication::setOverrideCursor(Qt::WaitCursor);
+                const QString problem = prefs_->setRemotePassword(phrase->text());
+                QApplication::restoreOverrideCursor();
+                if (!problem.isEmpty()) {
+                    pwErr->setText(problem);
+                    return;
+                }
+                phrase->clear();
+                again->clear();
+                pwErr->clear();
+                clearPw->setEnabled(true);
+                refreshPw();
+            });
+    connect(clearPw, &QPushButton::clicked, this,
+            [this, phrase, again, pwErr, clearPw, refreshPw]() {
+                const auto answer = QMessageBox::question(
+                    this, tr("Clear remote password"),
+                    tr("Clear the saved password? Remote transmit stays off "
+                       "until a new one is saved."));
+                if (answer != QMessageBox::Yes) return;
+                prefs_->clearRemotePassword();
+                phrase->clear();
+                again->clear();
+                pwErr->clear();
+                clearPw->setEnabled(false);
+                refreshPw();
+            });
+    connect(prefs_, &Prefs::remotePasswordChanged, clearPw,
+            [this, clearPw]() {
+                clearPw->setEnabled(prefs_->remotePasswordSet());
+            });
+
+    auto *listen = new QCheckBox(
+        tr("Password required to listen"), pw);
+    listen->setChecked(prefs_->remoteListenRequiresPassword());
+    listen->setToolTip(
+        tr("Off: spectrum and audio stay open on your network. "
+           "On: spectrum and audio wait for the same password. "
+           "Programs on this computer are always let through."));
+    connect(listen, &QCheckBox::toggled, prefs_,
+            &Prefs::setRemoteListenRequiresPassword);
+    connect(prefs_, &Prefs::remoteListenRequiresPasswordChanged, listen,
+            [this, listen]() {
+                const bool on = prefs_->remoteListenRequiresPassword();
+                if (listen->isChecked() != on) {
+                    QSignalBlocker block(listen);
+                    listen->setChecked(on);
+                }
+            });
+    pwForm->addRow(QString(), listen);
+
+    auto *listenNote = new QLabel(
+        tr("One password covers listening (when the box is ticked), "
+           "changing the radio, and transmit. A listen-only connection "
+           "does not receive a transmit token. Programs on this computer "
+           "keep working without the password, so a digital program here "
+           "is not asked for it."),
+        pw);
+    listenNote->setWordWrap(true);
+    listenNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    pwForm->addRow(listenNote);
+    v->addWidget(pw);
+
+    v->addStretch(1);
+    return page;
 }
 
 QWidget *SettingsDialog::buildHardwareTab() {
@@ -8465,6 +8783,7 @@ bool SettingsDialog::selectTopic(const QString &topic) {
         {QStringLiteral("band"),       QStringLiteral("Bands")},
         {QStringLiteral("memory"),     QStringLiteral("Bands")},
         {QStringLiteral("bands"),      QStringLiteral("Bands")},
+        {QStringLiteral("remote"),     QStringLiteral("Remote")},
     };
     const QString want = kTabFor.value(topic);
     if (want.isEmpty()) return false;

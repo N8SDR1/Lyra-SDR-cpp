@@ -249,6 +249,10 @@ private:
     // first HP-status confirmation so Ready-before-started cannot
     // leave the first PTT rejected.
     void maybeAutoArmTx();
+    // PA enable is latched by the radio on the rising MOX edge. The
+    // enable packet has to already be in receive before a key is
+    // accepted, or that key produces no RF until the stream is restarted.
+    void noteTxPaSettled(quint32 epoch);
 
     lyra::ipc::HL2Stream  *stream_  = nullptr;
     lyra::dsp::WdspEngine *engine_  = nullptr;
@@ -273,6 +277,10 @@ private:
     bool       running_ = false;
     bool       txProducerSeamActive_ = false;
     bool       txBenchArmed_ = false;
+    // True only after a receive-state PA-enable packet has been out
+    // long enough for the radio to latch it before the next key.
+    bool       txPaSettled_ = false;
+    quint32    txArmEpoch_ = 0;
     bool       txAutoArm_ = false;
     bool       txHardwareSupported_ = false;
     bool       txOnAirValidated_ = false;

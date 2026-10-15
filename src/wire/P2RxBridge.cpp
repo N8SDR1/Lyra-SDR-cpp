@@ -239,6 +239,8 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                    const QString &detail) {
                 txTransportReady_ = ready;
                 txBenchArmed_ = armed;
+                if (!armed)
+                    txPaSettled_ = false;
                 txTransmitting_ = transmitting;
                 txPaEnabled_ = paEnabled;
                 txEffectiveDrive_ = drive;
@@ -330,9 +332,17 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 [this]() {
                     if (!open_)
                         return;
-                    if (txBenchArmed_ && txTransportReady_ &&
-                        !txFaultLatched_)
+                    if (txBenchArmed_ && txPaSettled_ &&
+                        txTransportReady_ && !txFaultLatched_)
                         return;
+                    if (txTransportReady_ && txBenchArmed_ &&
+                        !txPaSettled_ && !txFaultLatched_) {
+                        emit logLine(QStringLiteral(
+                            "P2 TX: key held until PA enable has been "
+                            "in receive"));
+                        stream_->requestMox(false);
+                        return;
+                    }
                     emit logLine(txOnAirValidated_
                         ? QStringLiteral(
                               "P2 TX: key request rejected - TX transport not "
@@ -519,14 +529,31 @@ void P2RxBridge::setTxBenchArmed(bool on) {
         emit txStateChanged();
         return;
     }
-    if (on == txBenchArmed_)
+    if (on == txBenchArmed_ && (!on || txPaSettled_))
         return;
     txBenchArmed_ = on;
+    txPaSettled_ = false;
+    const quint32 epoch = ++txArmEpoch_;
     const bool pa = on && stream_ && stream_->paEnabled();
     auto *s = session_;
-    QMetaObject::invokeMethod(s, [s, on, pa]() {
+    QMetaObject::invokeMethod(s, [this, s, on, pa, epoch]() {
         s->setTxOperatorArmed(on);
         s->setPaHold(pa);
+        if (!on || !pa) {
+            QMetaObject::invokeMethod(this, [this, epoch, on]() {
+                if (epoch == txArmEpoch_ && on)
+                    txPaSettled_ = true;
+            }, Qt::QueuedConnection);
+            return;
+        }
+        // Second copy, then the key gate. A key in the same burst as
+        // the first enable latches PA off for the rest of the session.
+        QTimer::singleShot(200, s, [this, s, pa, epoch]() {
+            s->setPaHold(pa);
+            QMetaObject::invokeMethod(this, [this, epoch]() {
+                noteTxPaSettled(epoch);
+            }, Qt::QueuedConnection);
+        });
     });
     if (!on && stream_ && stream_->moxActive())
         stream_->requestMox(false);
@@ -567,8 +594,19 @@ void P2RxBridge::maybeAutoArmTx() {
         setTxBenchArmed(true);
 }
 
+void P2RxBridge::noteTxPaSettled(quint32 epoch) {
+    if (epoch != txArmEpoch_ || !open_ || !txBenchArmed_ || txFaultLatched_)
+        return;
+    txPaSettled_ = true;
+    emit logLine(QStringLiteral(
+        "P2 TX: PA enable is in receive; a key can produce RF"));
+    emit txStateChanged();
+}
+
 void P2RxBridge::resetTxUiState() {
+    ++txArmEpoch_;
     txBenchArmed_ = false;
+    txPaSettled_ = false;
     txHardwareSupported_ = false;
     txTransportReady_ = false;
     txTransmitting_ = false;

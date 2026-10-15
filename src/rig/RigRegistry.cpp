@@ -7,6 +7,8 @@
 
 #include "RigRegistry.h"
 
+#include "hardware/HardwareCatalog.h"
+
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -165,8 +167,50 @@ QList<RigProfile> rigs() {
     return out;
 }
 
-void upsertRig(const RigProfile &p) {
-    if (p.rigId.isEmpty()) return;
+bool adoptHardwareLabel(RigProfile &p) {
+    const auto *model = lyra::hardware::modelByKey(p.hardwareModelKey);
+    if (!model || !model->displayName || !model->displayName[0])
+        return false;
+    const QString name = QString::fromLatin1(model->displayName);
+    if (name.isEmpty() || p.label == name)
+        return false;
+
+    bool automatic = p.label.isEmpty();
+    if (!automatic) {
+        const RadioFamily coarse[] = {
+            RadioFamily::AnanP2, RadioFamily::AnanP1, RadioFamily::Unknown
+        };
+        for (RadioFamily f : coarse) {
+            if (p.label.compare(capabilitiesFor(f).familyName,
+                                Qt::CaseInsensitive) == 0) {
+                automatic = true;
+                break;
+            }
+        }
+    }
+    if (!automatic) {
+        int n = 0;
+        const auto *rows = lyra::hardware::catalog(&n);
+        for (int i = 0; i < n; ++i) {
+            if (!rows[i].displayName || !rows[i].displayName[0])
+                continue;
+            if (p.label.compare(QLatin1String(rows[i].displayName),
+                                Qt::CaseInsensitive) == 0) {
+                automatic = true;
+                break;
+            }
+        }
+    }
+    if (!automatic)
+        return false;
+    p.label = name;
+    return true;
+}
+
+void upsertRig(const RigProfile &in) {
+    if (in.rigId.isEmpty()) return;
+    RigProfile p = in;
+    adoptHardwareLabel(p);
     QSettings s;
     s.beginGroup(rigGroup(p.rigId));
     s.setValue(QStringLiteral("label"),  p.label);

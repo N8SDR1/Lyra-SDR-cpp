@@ -7,6 +7,12 @@
 #include "rig/RigScope.h"   // multi-rig Stage 4d — per-rig panadapter dB-scale keys
 #include "win_perf.h"       // process-priority apply (Settings → Hardware → Performance)
 
+#include <QCryptographicHash>
+#include <QHostAddress>
+#include <QMessageAuthenticationCode>
+#include <QNetworkInterface>
+#include <QPasswordDigestor>
+#include <QRandomGenerator>
 #include <QSettings>
 
 #include <algorithm>
@@ -159,6 +165,13 @@ constexpr auto kFixedTuneDrive = "tx/fixed_tune_drive_pct";  // #95
 constexpr auto kTciRxGainDb  = "tci/rx_gain_db";
 // Task #108 — symmetric inbound (MSHV/JTDX/WSJT-X → Lyra TXA) gain.
 constexpr auto kTciTxGainDb  = "tci/tx_gain_db";
+constexpr auto kRemotePwSalt = "remote/password_salt";
+constexpr auto kRemotePwHash = "remote/password_hash";
+constexpr auto kRemotePwIters = "remote/password_iters";
+constexpr auto kRemoteListenPw = "remote/listen_requires_password";
+constexpr auto kRemoteAccept = "remote/accept_ips";
+constexpr auto kRemoteRefuse = "remote/refuse_ips";
+constexpr int  kRemotePwItersDefault = 600000;
 constexpr auto kWfIdLevel       = "tx/wf_id_level";       // #175 (0..0.065)
 constexpr auto kWfIdIntervalMin = "tx/wf_id_interval_min"; // #175 (0..20; enable is non-persist)
 // Segment-kind default colours (mirror band_plan.py SEGMENT_COLORS).
@@ -187,6 +200,46 @@ const QStringList kModes = {
     QStringLiteral("SAM"),  QStringLiteral("FM"),
     QStringLiteral("DIGU"), QStringLiteral("DIGL"),
 };
+
+QStringList remoteIpTokens(const QString &text) {
+    QString flat = text;
+    flat.replace(QLatin1Char(','), QLatin1Char(' '));
+    flat.replace(QLatin1Char(';'), QLatin1Char(' '));
+    flat.replace(QLatin1Char('\n'), QLatin1Char(' '));
+    flat.replace(QLatin1Char('\r'), QLatin1Char(' '));
+    flat.replace(QLatin1Char('\t'), QLatin1Char(' '));
+    return flat.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+}
+
+QHostAddress normalizedPeer(const QHostAddress &addr) {
+    if (addr.protocol() == QAbstractSocket::IPv6Protocol) {
+        bool ok = false;
+        const quint32 v4 = addr.toIPv4Address(&ok);
+        if (ok) return QHostAddress(v4);
+    }
+    return addr;
+}
+
+bool addressInList(const QHostAddress &peer, const QString &text) {
+    const QHostAddress want = normalizedPeer(peer);
+    for (const QString &tok : remoteIpTokens(text)) {
+        const auto sub = QHostAddress::parseSubnet(tok);
+        if (sub.second < 0) continue;
+        if (want.isInSubnet(normalizedPeer(sub.first), sub.second))
+            return true;
+    }
+    return false;
+}
+
+bool isThisComputer(const QHostAddress &peer) {
+    const QHostAddress want = normalizedPeer(peer);
+    if (want.isLoopback()) return true;
+    const QList<QHostAddress> locals = QNetworkInterface::allAddresses();
+    for (const QHostAddress &local : locals) {
+        if (normalizedPeer(local) == want) return true;
+    }
+    return false;
+}
 } // namespace
 
 Prefs::Prefs(QObject *parent) : QObject(parent) {
@@ -212,6 +265,20 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
         s.value(kTciRxGainDb, 0.0).toDouble(), -40.0, 10.0);
     tciTxGainDb_  = std::clamp(
         s.value(kTciTxGainDb, 0.0).toDouble(), -40.0, 10.0);
+    remotePwSalt_ = QByteArray::fromBase64(
+        s.value(kRemotePwSalt).toString().toLatin1());
+    remotePwHash_ = QByteArray::fromBase64(
+        s.value(kRemotePwHash).toString().toLatin1());
+    remotePwIters_ = s.value(kRemotePwIters, 0).toInt();
+    if (remotePwSalt_.size() < 8 || remotePwHash_.size() < 16
+        || remotePwIters_ < 1) {
+        remotePwSalt_.clear();
+        remotePwHash_.clear();
+        remotePwIters_ = 0;
+    }
+    remoteListenRequiresPassword_ = s.value(kRemoteListenPw, false).toBool();
+    remoteAcceptIps_ = s.value(kRemoteAccept).toString();
+    remoteRefuseIps_ = s.value(kRemoteRefuse).toString();
     wfIdLevel_       = std::clamp(
         s.value(kWfIdLevel, 0.06).toDouble(), 0.0, 0.065);  // #175
     wfIdIntervalMin_ = std::clamp(
@@ -595,6 +662,147 @@ void Prefs::setTciTxGainDb(double v) {
     tciTxGainDb_ = v;
     QSettings().setValue(kTciTxGainDb, v);
     emit tciTxGainDbChanged();
+}
+
+QString Prefs::remotePasswordProblem(const QString &password) const {
+    const QString phrase = password.trimmed();
+    if (phrase.size() < 12)
+        return tr("Use at least 12 characters. A short phrase is fine.");
+    if (phrase.size() > 128)
+        return tr("Use at most 128 characters.");
+    bool letter = false;
+    bool allSame = true;
+    for (const QChar c : phrase) {
+        if (c.isLetter()) letter = true;
+        if (c != phrase.at(0)) allSame = false;
+    }
+    if (!letter)
+        return tr("Include a word, not only numbers.");
+    if (allSame)
+        return tr("Use a phrase, not one repeated character.");
+    const QString low = phrase.toLower();
+    const QString call = callsign_.trimmed().toLower();
+    if (!call.isEmpty() && low == call)
+        return tr("The callsign alone is not a password.");
+    static const char *kEasy[] = {
+        "password", "lyra", "letmein", "qwerty", "changeme"
+    };
+    for (const char *word : kEasy) {
+        if (low == QLatin1String(word))
+            return tr("That word is too easy to guess.");
+    }
+    return {};
+}
+
+QString Prefs::setRemotePassword(const QString &password) {
+    const QString problem = remotePasswordProblem(password);
+    if (!problem.isEmpty()) return problem;
+    QByteArray salt(16, 0);
+    auto *rng = QRandomGenerator::system();
+    for (int i = 0; i < salt.size(); ++i)
+        salt[i] = char(rng->generate() & 0xff);
+    const QByteArray dk = QPasswordDigestor::deriveKeyPbkdf2(
+        QCryptographicHash::Sha256, password.trimmed().toUtf8(),
+        salt, kRemotePwItersDefault, 32);
+    remotePwSalt_ = salt;
+    remotePwHash_ = dk;
+    remotePwIters_ = kRemotePwItersDefault;
+    QSettings s;
+    s.setValue(QLatin1String(kRemotePwSalt), QString::fromLatin1(salt.toBase64()));
+    s.setValue(QLatin1String(kRemotePwHash), QString::fromLatin1(dk.toBase64()));
+    s.setValue(QLatin1String(kRemotePwIters), remotePwIters_);
+    emit remotePasswordChanged();
+    return {};
+}
+
+bool Prefs::remotePasswordMatches(const QString &password) const {
+    if (remotePwHash_.isEmpty() || remotePwIters_ < 1) return false;
+    const QByteArray dk = QPasswordDigestor::deriveKeyPbkdf2(
+        QCryptographicHash::Sha256, password.trimmed().toUtf8(),
+        remotePwSalt_, remotePwIters_, quint64(remotePwHash_.size()));
+    if (dk.size() != remotePwHash_.size()) return false;
+    unsigned diff = 0;
+    for (int i = 0; i < dk.size(); ++i)
+        diff |= unsigned(quint8(dk.at(i)) ^ quint8(remotePwHash_.at(i)));
+    return diff == 0;
+}
+
+void Prefs::remotePasswordChallenge(QByteArray *salt, int *iters) const {
+    if (salt) *salt = remotePwSalt_;
+    if (iters) *iters = remotePwIters_;
+}
+
+bool Prefs::remoteVoiceProofMatches(const QByteArray &nonce,
+                                    const QByteArray &mac) const {
+    if (remotePwHash_.isEmpty() || remotePwIters_ < 1 || nonce.isEmpty())
+        return false;
+    const QByteArray expect = QMessageAuthenticationCode::hash(
+        nonce, remotePwHash_, QCryptographicHash::Sha256);
+    const int n = expect.size();
+    unsigned diff = unsigned(mac.size() ^ n);
+    for (int i = 0; i < n; ++i) {
+        const quint8 got = (i < mac.size()) ? quint8(mac.at(i)) : 0;
+        diff |= unsigned(got ^ quint8(expect.at(i)));
+    }
+    return diff == 0;
+}
+
+void Prefs::clearRemotePassword() {
+    if (remotePwHash_.isEmpty()) return;
+    remotePwSalt_.clear();
+    remotePwHash_.clear();
+    remotePwIters_ = 0;
+    QSettings s;
+    s.remove(QLatin1String(kRemotePwSalt));
+    s.remove(QLatin1String(kRemotePwHash));
+    s.remove(QLatin1String(kRemotePwIters));
+    emit remotePasswordChanged();
+}
+
+void Prefs::setRemoteListenRequiresPassword(bool on) {
+    if (on == remoteListenRequiresPassword_) return;
+    remoteListenRequiresPassword_ = on;
+    QSettings().setValue(QLatin1String(kRemoteListenPw), on);
+    emit remoteListenRequiresPasswordChanged();
+}
+
+QString Prefs::remoteIpListProblem(const QString &text) {
+    for (const QString &tok : remoteIpTokens(text)) {
+        const auto sub = QHostAddress::parseSubnet(tok);
+        if (sub.second < 0) {
+            return tr("“%1” is not an address or a range such as "
+                      "192.168.1.0/24.").arg(tok);
+        }
+    }
+    return {};
+}
+
+QString Prefs::setRemoteAcceptIps(const QString &text) {
+    const QString problem = remoteIpListProblem(text);
+    if (!problem.isEmpty()) return problem;
+    if (text == remoteAcceptIps_) return {};
+    remoteAcceptIps_ = text;
+    QSettings().setValue(QLatin1String(kRemoteAccept), text);
+    emit remoteAcceptIpsChanged();
+    return {};
+}
+
+QString Prefs::setRemoteRefuseIps(const QString &text) {
+    const QString problem = remoteIpListProblem(text);
+    if (!problem.isEmpty()) return problem;
+    if (text == remoteRefuseIps_) return {};
+    remoteRefuseIps_ = text;
+    QSettings().setValue(QLatin1String(kRemoteRefuse), text);
+    emit remoteRefuseIpsChanged();
+    return {};
+}
+
+bool Prefs::remotePeerAllowed(const QHostAddress &addr) const {
+    const QHostAddress peer = normalizedPeer(addr);
+    if (isThisComputer(peer)) return true;
+    if (addressInList(peer, remoteRefuseIps_)) return false;
+    if (remoteIpTokens(remoteAcceptIps_).isEmpty()) return true;
+    return addressInList(peer, remoteAcceptIps_);
 }
 
 void Prefs::setWfIdLevel(double v) {
