@@ -28,6 +28,8 @@ class Prefs;
 
 class SpotStore : public QObject {
     Q_OBJECT
+    // Panadapter comets aim at new spots only while spots are shown.
+    Q_PROPERTY(bool showSpots READ showSpots NOTIFY changed)
 public:
     SpotStore(Prefs *prefs, lyra::ipc::HL2Stream *stream,
               lyra::dsp::WdspEngine *engine, QObject *parent = nullptr);
@@ -113,6 +115,10 @@ public:
 
 signals:
     void changed();   // bank changed → panadapter re-queries
+    // A callsign not already in the bank was just added (a re-spot does not
+    // fire).  Emitted after changed(), so spotsInSpan() already includes it;
+    // the panadapter aims a comet at it.
+    void spotArrived(const QString &call);
     void spotActivated(const QString &call, const QString &mode,
                        qint64 freqHz, quint32 argb);
     // The operator's own callsign was just spotted (rate-limited by the

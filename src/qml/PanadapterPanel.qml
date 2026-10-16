@@ -434,7 +434,11 @@ Item {
                 }
             }
 
-            // ---- Meteor streaks (rare ambient shooting stars) ----
+            // ---- Meteor streaks ----
+            // With DX spots shown, each newly arrived spot that is on screen
+            // gets one comet aimed at its marker (rate-limited: one in flight,
+            // kSpotGapS apart, newest kSpotQueueMax kept).  With spots hidden,
+            // rare random ambient shooting stars as before.
             Canvas {
                 id: meteorCanvas
                 anchors.fill: parent
@@ -445,6 +449,12 @@ Item {
                 property var meteors: []
                 property real nextSpawn: 0
                 property bool schedInit: false
+                readonly property bool spotMode: Spots.showSpots
+                property var spotQueue: []      // [{ call, t }], oldest first
+                property real lastSpotLaunch: 0
+                readonly property real kSpotGapS: 1.5
+                readonly property int  kSpotQueueMax: 5
+                readonly property real kSpotStaleS: 20.0
 
                 readonly property real durMin: 0.50
                 readonly property real durMax: 0.85
@@ -484,6 +494,47 @@ Item {
                              dur: dur, gold: gold };
                 }
 
+                // A comet aimed at a spot marker: enters from above, off to one
+                // side, and arrives on the marker line as it fades out.
+                function spawnAt(x) {
+                    var w = width
+                    var side = Math.random() < 0.5 ? -1 : 1
+                    var sx = Math.max(-10, Math.min(w + 10, x + side * rnd(0.12 * w, 0.30 * w)))
+                    var sy = -10
+                    var tx = x, ty = 52              // middle of the marker line
+                    var dur = rnd(durMin, durMax)
+                    var g = gravity * 0.25
+                    var vx = (tx - sx) / dur
+                    var vy = (ty - sy - 0.5 * g * dur * dur) / dur
+                    var gold = Math.random() < (Prefs.meteorGold / 100.0)
+                    return { t0: nowS(), sx: sx, sy: sy, vx: vx, vy: vy, ay: g,
+                             dur: dur, gold: gold }
+                }
+
+                // x of <call>'s marker if it is drawn now (in span and passing
+                // the display filters), else -1.
+                function spotX(call) {
+                    var list = bandPlan.spotsList
+                    for (var i = 0; i < list.length; i++)
+                        if (list[i].call === call) {
+                            var x = bandPlan.xOf(list[i].freqHz)
+                            return (x >= 0 && x <= width) ? x : -1
+                        }
+                    return -1
+                }
+
+                Connections {
+                    target: Spots
+                    function onSpotArrived(call) {
+                        if (!meteorCanvas.visible || !meteorCanvas.spotMode) return
+                        var q = meteorCanvas.spotQueue
+                        q.push({ call: call, t: meteorCanvas.nowS() })
+                        while (q.length > meteorCanvas.kSpotQueueMax) q.shift()
+                        meteorCanvas.spotQueue = q
+                    }
+                }
+                onSpotModeChanged: spotQueue = []
+
                 Timer {
                     interval: 33; repeat: true; running: meteorCanvas.visible
                     onTriggered: meteorCanvas.tick()
@@ -491,10 +542,28 @@ Item {
 
                 function tick() {
                     var now = nowS();
-                    if (!schedInit) { scheduleNext(now); schedInit = true; }
-                    if (now >= nextSpawn && meteors.length < 1) {
-                        meteors.push(spawn());
-                        scheduleNext(now);
+                    if (spotMode) {
+                        // Newest first; skip stale or off-screen spots.
+                        if (meteors.length < 1 && spotQueue.length > 0
+                                && now - lastSpotLaunch >= kSpotGapS) {
+                            var q = spotQueue
+                            while (q.length > 0) {
+                                var s = q.pop()
+                                if (now - s.t > kSpotStaleS) continue
+                                var x = spotX(s.call)
+                                if (x < 0) continue
+                                meteors.push(spawnAt(x))
+                                lastSpotLaunch = now
+                                break
+                            }
+                            spotQueue = q
+                        }
+                    } else {
+                        if (!schedInit) { scheduleNext(now); schedInit = true; }
+                        if (now >= nextSpawn && meteors.length < 1) {
+                            meteors.push(spawn());
+                            scheduleNext(now);
+                        }
                     }
                     var alive = [];
                     for (var i = 0; i < meteors.length; i++)

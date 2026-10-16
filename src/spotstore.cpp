@@ -192,6 +192,8 @@ void SpotStore::addSpot(const QString &call, const QString &mode, qint64 freqHz,
             flashTimer_->start();
     }
     emit changed();
+    if (isNew)
+        emit spotArrived(sp.call);
 }
 
 void SpotStore::deleteSpot(const QString &call) {
