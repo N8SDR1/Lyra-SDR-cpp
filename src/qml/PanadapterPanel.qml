@@ -497,7 +497,8 @@ Item {
                 // A comet aimed at a spot: enters from above, off to one side,
                 // and dives onto the spot's frequency, ending at the bottom of
                 // the spectrum where the waterfall begins.
-                function spawnAt(x) {
+                function spawnAt(hz) {
+                    var x = bandPlan.xOf(hz)
                     var w = width, h = height
                     var side = Math.random() < 0.5 ? -1 : 1
                     var sx = Math.max(-10, Math.min(w + 10, x + side * rnd(0.06 * w, 0.16 * w)))
@@ -509,17 +510,17 @@ Item {
                     var vy = (ty - sy - 0.5 * g * dur * dur) / dur
                     var gold = Math.random() < (Prefs.meteorGold / 100.0)
                     return { t0: nowS(), sx: sx, sy: sy, vx: vx, vy: vy, ay: g,
-                             dur: dur, gold: gold }
+                             dur: dur, gold: gold, hz: hz }
                 }
 
-                // x of <call>'s marker if it is drawn now (in span and passing
+                // Frequency of <call>'s marker if it is drawn now (in span and passing
                 // the display filters), else -1.
-                function spotX(call) {
+                function spotHz(call) {
                     var list = bandPlan.spotsList
                     for (var i = 0; i < list.length; i++)
                         if (list[i].call === call) {
                             var x = bandPlan.xOf(list[i].freqHz)
-                            return (x >= 0 && x <= width) ? x : -1
+                            return (x >= 0 && x <= width) ? list[i].freqHz : -1
                         }
                     return -1
                 }
@@ -551,9 +552,9 @@ Item {
                             while (q.length > 0) {
                                 var s = q.pop()
                                 if (now - s.t > kSpotStaleS) continue
-                                var x = spotX(s.call)
-                                if (x < 0) continue
-                                meteors.push(spawnAt(x))
+                                var hz = spotHz(s.call)
+                                if (hz < 0) continue
+                                meteors.push(spawnAt(hz))
                                 lastSpotLaunch = now
                                 break
                             }
@@ -567,8 +568,11 @@ Item {
                         }
                     }
                     var alive = [];
-                    for (var i = 0; i < meteors.length; i++)
+                    for (var i = 0; i < meteors.length; i++) {
                         if (now - meteors[i].t0 < meteors[i].dur) alive.push(meteors[i]);
+                        else if (meteors[i].hz !== undefined)   // spot comet landed
+                            wfImpact.add(meteors[i].hz, meteors[i].gold);
+                    }
                     var wasActive = meteors.length > 0;
                     meteors = alive;
                     if (meteors.length > 0 || wasActive) requestPaint();
@@ -2295,6 +2299,94 @@ Item {
             palette: Prefs.waterfallPalette
             strengthColor: Prefs.waterfallColor
             speed: Prefs.waterfallSpeed
+
+            // Spot impact: where a spot comet lands, a flash and two ripples
+            // spread along the top edge, then a faint column runs down the
+            // waterfall at the spot's frequency and fades.  Positions track
+            // the frequency, so the column stays on the signal while panning.
+            // Only paints while an impact is playing.
+            Canvas {
+                id: wfImpact
+                anchors.fill: parent
+                renderStrategy: Canvas.Cooperative
+                property var impacts: []            // [{ hz, t0, gold }]
+                readonly property real lifeS: 4.0   // whole effect
+                readonly property real flashS: 0.35
+                readonly property real rippleS: 1.2
+
+                function nowS() { return Date.now() / 1000.0 }
+                // A new array each time: re-assigning the same array would not
+                // notify, and the timer below would never start.
+                function add(hz, gold) {
+                    impacts = impacts.concat([{ hz: hz, t0: nowS(), gold: gold }])
+                    requestPaint()
+                }
+
+                Timer {
+                    interval: 33; repeat: true
+                    running: wfImpact.impacts.length > 0 && wf.visible
+                    onTriggered: {
+                        var now = wfImpact.nowS(), live = []
+                        for (var i = 0; i < wfImpact.impacts.length; i++)
+                            if (now - wfImpact.impacts[i].t0 < wfImpact.lifeS)
+                                live.push(wfImpact.impacts[i])
+                        wfImpact.impacts = live
+                        wfImpact.requestPaint()
+                    }
+                }
+
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.clearRect(0, 0, width, height)
+                    var now = nowS()
+                    ctx.globalCompositeOperation = "lighter"
+                    for (var i = 0; i < impacts.length; i++) {
+                        var m = impacts[i]
+                        var age = now - m.t0
+                        if (age >= lifeS) continue
+                        var x = bandPlan.xOf(m.hz)
+                        if (x < -40 || x > width + 40) continue
+                        var rgb = m.gold ? "255,215,130" : "180,235,255"
+                        // Column: a soft vertical band down the waterfall.
+                        var colA = 0.30 * Math.pow(1 - age / lifeS, 1.5)
+                        // Three nested strips, each fading toward the bottom,
+                        // give a bright core with a soft halo.
+                        var strips = [[1.5, 1.0], [5, 0.45], [11, 0.2]]
+                        for (var k = 0; k < strips.length; k++) {
+                            var half = strips[k][0], a = colA * strips[k][1]
+                            var vg = ctx.createLinearGradient(0, 0, 0, height)
+                            vg.addColorStop(0, "rgba(" + rgb + "," + a.toFixed(3) + ")")
+                            vg.addColorStop(1, "rgba(" + rgb + ",0)")
+                            ctx.fillStyle = vg
+                            ctx.fillRect(x - half, 0, half * 2, height)
+                        }
+                        // Flash at the landing point.
+                        if (age < flashS) {
+                            var fp = age / flashS
+                            var fr = 8 + 40 * fp
+                            var fg = ctx.createRadialGradient(x, 0, 0, x, 0, fr)
+                            fg.addColorStop(0, "rgba(255,255,255," + (0.9 * (1 - fp)).toFixed(3) + ")")
+                            fg.addColorStop(0.35, "rgba(" + rgb + "," + (0.7 * (1 - fp)).toFixed(3) + ")")
+                            fg.addColorStop(1, "rgba(" + rgb + ",0)")
+                            ctx.fillStyle = fg
+                            ctx.beginPath(); ctx.arc(x, 0, fr, 0, 2 * Math.PI); ctx.fill()
+                        }
+                        // Two ripples spreading along the top edge.
+                        for (var r = 0; r < 2; r++) {
+                            var ra = age - r * 0.25
+                            if (ra < 0 || ra > rippleS) continue
+                            var rp = ra / rippleS
+                            var rw = 10 + 140 * rp, rh = 3 + 26 * rp
+                            ctx.strokeStyle = "rgba(" + rgb + "," + (0.75 * (1 - rp)).toFixed(3) + ")"
+                            ctx.lineWidth = 2 - rp
+                            ctx.beginPath()
+                            ctx.ellipse(x - rw, -rh, rw * 2, rh * 2)
+                            ctx.stroke()
+                        }
+                    }
+                    ctx.globalCompositeOperation = "source-over"
+                }
+            }
 
             // Click-to-tune in the waterfall.  It shares the spectrum's exact
             // frequency extent and width, so reuse the spectrum mouse's
