@@ -2778,9 +2778,11 @@ QWidget *SettingsDialog::buildRemoteTab() {
         tr("Password required to listen"), pw);
     listen->setChecked(prefs_->remoteListenRequiresPassword());
     listen->setToolTip(
-        tr("Off: spectrum and audio stay open on your network. "
-           "On: spectrum and audio wait for the same password. "
-           "Programs on this computer are always let through."));
+        tr("Not enforced yet: this choice is saved, but spectrum and "
+           "audio stay open to any address the Accept / Refuse lists "
+           "let in, whether it is on or off. Use those lists to limit "
+           "who can connect. Programs on this computer are always let "
+           "through."));
     connect(listen, &QCheckBox::toggled, prefs_,
             &Prefs::setRemoteListenRequiresPassword);
     connect(prefs_, &Prefs::remoteListenRequiresPasswordChanged, listen,
