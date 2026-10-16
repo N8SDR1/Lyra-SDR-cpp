@@ -116,7 +116,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 ## Not yet — see the Roadmap 🗺️
 
 - 🚧 **ANAN-G2 / G2-1K** — Saturn BPF; TX still dummy-load arm until on-air validated. **ANAN-10…200D** already use Brick2 / Brick3 TX (see above).
-- 🚧 **ANAN-7000DLE / 8000DLE / Anvelina-Pro3** — Orion MkII BPF being tested (Anvelina PROIII: filters follow the band). TX dummy-load arm + drive ceiling until RF is confirmed. Pick the marketed model in Settings → Hardware.
+- 🚧 **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** — **in tester hands** (not locked). RX/BPF being proven on the bench (Anvelina PROIII: filters follow the band). TX dummy-load arm + drive ceiling until RF is confirmed. Pick the marketed model in Settings → Hardware.
 - 🗺️ **Linux, then macOS** — **hold** (radios first; no Mac bench)
 
 ---

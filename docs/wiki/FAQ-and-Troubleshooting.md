@@ -19,8 +19,9 @@ like Brick3SDR (on-air). **G2** still dummy-load arm. Discovery **Hermes**
 defaults to BrickSDR2 — pick the marketed ANAN model in Settings → Hardware.
 A Brick or classic ANAN still on **Protocol 1** is **refused on Open**.
 Flash **Protocol 2**; Brick FPGA help: **Anton (linoobs)** on Discord.
-**7000DLE / 8000 / Anvelina-Pro3** are **being tested** (Orion MkII BPF;
-TX dummy-load + drive ceiling). See **[Supported Radios](Supported-Radios)**.
+**7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** are **in tester hands**
+(not locked; RX/BPF on the bench; TX dummy-load + drive ceiling). See
+**[Supported Radios](Supported-Radios)**.
 
 **Does Lyra support MIDI controllers?**
 Not inside the radio. A USB knob that Windows treats as a **mouse wheel**

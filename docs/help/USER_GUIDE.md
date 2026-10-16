@@ -140,9 +140,9 @@ arm). Still **beta testing**: first RF into a dummy load.
 Hardware. **ANAN-10 / 10E** follow BrickSDR2 TX. **ANAN-100 / 100B /
 100D / 200D** follow Brick3SDR TX (on-air, independent **Enable PA**).
 **G2 / G2-1K** still use the dummy-load arm. **7000DLE / 8000DLE /
-Anvelina-Pro3** (Orion MkII) are **being tested** — BPF follow on Anvelina
-PROIII; TX dummy-load + drive ceiling until RF is confirmed. Pick the
-marketed model in Settings → Hardware.
+Orion MkII / Anvelina-Pro3** are **in tester hands** (not locked) — RX and
+BPF follow on Anvelina PROIII; TX dummy-load + drive ceiling until RF is
+confirmed. Pick the marketed model in Settings → Hardware.
 
 **PureSignal dock** — ON, 2-tone, **Voice** (male-voice shaped noise +
 level), ATT, FB, Reset. Engine chips (st / cal / D0 / D1) live on
@@ -563,7 +563,7 @@ to BrickSDR2). Leftover P1 rows stay refused.
 | **ANAN-100 / 100B** | Like **Brick3SDR** TX (on-air, independent Enable PA). One ADC + classic Alex — SUB overlay, not a second pane. |
 | **ANAN-100D / 200D** | Like **Brick3SDR** TX **and** two converters: **SUB** opens a second panadapter. **Diversity** is the same path as Brick3. **RX2 jack isolate on TX** default on. |
 | **ANAN-G2 / G2-1K** | Dummy-load **Arm P2 TX** until a tester validates RF. Two ADC. |
-| **7000DLE / 8000DLE / Anvelina-Pro3** | **Being tested** (Orion MkII BPF). Pick the marketed model. Anvelina PROIII: filters follow the band. TX dummy-load arm + drive ceiling — dummy load on first TX. |
+| **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** | **In tester hands** (not locked). Pick the marketed model. Anvelina PROIII: filters follow the band. TX dummy-load arm + drive ceiling — dummy load on first TX. |
 
 ---
 
@@ -2648,9 +2648,9 @@ plot (live `GetPSDisp` curve).
 7. Next keyup should land **near** the previous FB, not a full hunt.
 8. Kill-test once, then antenna when you are ready.
 
-> **ANAN-7000 / 8000 / Anvelina-Pro3** TX is not on-air validated (dummy-load
-> arm + drive ceiling). Do not expect PureSignal there yet.
-> Classic ANAN P2 TX is dummy-load / not on-air validated.
+> **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** are in tester
+> hands. TX is not on-air validated (dummy-load arm + drive ceiling). Do
+> not expect PureSignal there yet.
 
 ---
 

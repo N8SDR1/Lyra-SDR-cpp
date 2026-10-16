@@ -8,8 +8,9 @@ page.
 P1, BrickSDR2 / Brick3SDR P2, SUB + SPLIT, PureSignal, TX rack. Brick3 /
 ANAN-100D get a second SUB panadapter. **Diversity** (two ADCs, same
 frequency) is in and confirmed on Brick3SDR.
-**Next:** confirm Orion MkII testers (Anvelina / 7000 / 8000), G2 on-air
-validation, then Linux. **macOS stays a separate branch** (`macos-port`);
+**Next:** graduate Orion MkII testers (ANAN-7000DLE / 8000DLE / Orion MkII /
+Anvelina-Pro3) off dummy-load TX, G2 on-air validation, then Linux.
+**macOS stays a separate branch** (`macos-port`);
 it is not merged into the Windows tree. Brent tracks trunk into that
 branch. P2 on Mac is untested.
 
@@ -57,7 +58,7 @@ keyup. Attestation in **Settings → TX** (default off). **2-tone** on the
 TX panel is the usual tune-up carrier.
 Operator detail: **[User Guide → PureSignal](User-Guide#puresignal)**.
 
-### ✅ Protocol 2 on BrickSDR2 / Brick3SDR · 🚧 Classic ANAN P2 on-air (G2 dummy-load · Orion MkII being tested)
+### ✅ Protocol 2 on BrickSDR2 / Brick3SDR · 🚧 Classic ANAN P2 on-air (G2 dummy-load · Orion MkII in tester hands)
 
 HPSDR **Protocol 2** is live on **BrickSDR2** and **Brick3SDR** (RX + TX,
 including radio mic → modulator, analog drive, watts-cap, ATT-on-TX).
@@ -66,10 +67,10 @@ arm); first RF dummy load. **SUB** opens a second panadapter. A Brick that
 still answers **Protocol 1** is **discovered but not opened** — P1 TX in
 Lyra is HL2-only. Flash **P2** (Anton / linoobs for Brick images).
 **ANAN-10 / 10E** = BrickSDR2 TX; **ANAN-100 / 100B / 100D / 200D** =
-Brick3SDR TX. **G2 / G2-1K** still dummy-load arm. **7000DLE / 8000DLE /
-Anvelina-Pro3** (Orion MkII) are **in tester hands** — BPF follow reported
-on Anvelina PROIII; TX stays dummy-load + drive ceiling until RF is
-confirmed. Boxes that shipped as Protocol 1 should run the **P2 FPGA**
+Brick3SDR TX. **G2 / G2-1K** still dummy-load arm. **7000DLE / 8000DLE / Orion MkII /
+Anvelina-Pro3** are **in tester hands** (not locked) — RX and BPF follow
+reported on Anvelina PROIII; TX stays dummy-load + drive ceiling until RF
+is confirmed. Boxes that shipped as Protocol 1 should run the **P2 FPGA**
 when they can.
 
 ## Platforms

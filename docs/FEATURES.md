@@ -67,7 +67,7 @@ Status legend used below:
 | Hermes Lite 2 Plus (HL2+) | HPSDR Protocol 1 | 🟢 PORT — operator's daily-driver |
 | Apache Labs ANAN-G2 / G2-1K | HPSDR Protocol 2 | 🟡 P2 profile live; TX dummy-load arm (not on-air validated) |
 | Apache Labs ANAN-10 / 10E / 100 / 100B / 100D / 200D | HPSDR Protocol 2 | 🟡 Classic Alex HPF (deskHPSDR edges); TX dummy-load arm; pick marketed model in Settings |
-| Apache Labs ANAN-7000DLE / 8000 / Anvelina-Pro3 | HPSDR Protocol 2 | 🟡 IN TEST — Orion MkII BPF (Anvelina PROIII BPF follow); TX dummy-load + drive ceiling |
+| Apache Labs ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 | HPSDR Protocol 2 | 🟡 IN TESTER HANDS — RX/BPF on the bench (Anvelina PROIII BPF follow); TX dummy-load + drive ceiling until RF is confirmed |
 | Apache Labs ANAN still on Protocol 1 FPGA | HPSDR Protocol 1 | 🟡 LOCKED — refuse HL2 TX path; use P2 firmware if the box can (most capable 10/100/200-class units already have) |
 | **Brick SDR** | HPSDR Protocol 2 (ANAN-class, pending Timmy confirm) | 🟡 LOCKED |
 
