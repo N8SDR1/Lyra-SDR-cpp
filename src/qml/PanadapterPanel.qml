@@ -436,7 +436,7 @@ Item {
 
             // ---- Meteor streaks ----
             // With DX spots shown, each newly arrived spot that is on screen
-            // gets one comet aimed at its marker (rate-limited: one in flight,
+            // gets one comet aimed down at its frequency (rate-limited: one in flight,
             // kSpotGapS apart, newest kSpotQueueMax kept).  With spots hidden,
             // rare random ambient shooting stars as before.
             Canvas {
@@ -494,14 +494,15 @@ Item {
                              dur: dur, gold: gold };
                 }
 
-                // A comet aimed at a spot marker: enters from above, off to one
-                // side, and arrives on the marker line as it fades out.
+                // A comet aimed at a spot: enters from above, off to one side,
+                // and dives onto the spot's frequency, ending at the bottom of
+                // the spectrum where the waterfall begins.
                 function spawnAt(x) {
-                    var w = width
+                    var w = width, h = height
                     var side = Math.random() < 0.5 ? -1 : 1
-                    var sx = Math.max(-10, Math.min(w + 10, x + side * rnd(0.12 * w, 0.30 * w)))
+                    var sx = Math.max(-10, Math.min(w + 10, x + side * rnd(0.06 * w, 0.16 * w)))
                     var sy = -10
-                    var tx = x, ty = 52              // middle of the marker line
+                    var tx = x, ty = h + 10          // into the waterfall edge
                     var dur = rnd(durMin, durMax)
                     var g = gravity * 0.25
                     var vx = (tx - sx) / dur
