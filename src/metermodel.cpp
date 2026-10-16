@@ -47,7 +47,7 @@ constexpr double kSmooth        = 0.55;
 constexpr int    kHistory       = 90;     // ~4.5 s trail
 
 int clampMeterStyle(int s) {
-    return std::clamp(s, 0, 3);
+    return std::clamp(s, 0, 4);
 }
 
 constexpr auto kKeyStyle    = "meter/style";
@@ -364,11 +364,11 @@ int MeterModel::activeStyle() const {
 
 bool MeterModel::clusterLive() const {
     const int a = activeStyle();
-    return a == 2 || a == 3;
+    return a == 2 || a == 3 || a == 4;
 }
 
 void MeterModel::setStyle(int s) {
-    // 0=HorizonArc, 1=PlasmaBar, 2=VerticalLadder, 3=Lyra Radar.
+    // 0=HorizonArc, 1=PlasmaBar, 2=VerticalLadder, 3=Lyra Radar, 4=Helios.
     // This is the RX / default style.
     s = clampMeterStyle(s);
     if (s == style_) return;
@@ -1045,13 +1045,20 @@ void MeterModel::buildLadderRows() {
     // stays RX on the wire) — follow the same keyed-state OR the single
     // meter uses, so the Ladder flips to the TX rows when sending CW.
     const bool tx = stream_->moxActive() || stream_->cwKeyingActive();
-    const bool radar = activeStyle() == 3;
+    const int style = activeStyle();
+    const bool radar = style == 3;
+    const bool helios = style == 4;
     QList<int> srcs;
     QStringList labels;
     if (tx) {
-        // Radar keeps a short satellite set (SWR/MIC/ALC) under a PWR
-        // blob; Ladder keeps the full telemetry stack.
-        if (radar) {
+        // Radar: short SWR/MIC/ALC cards under a PWR blob.
+        // Helios: title+value only (MIC/ALC/GAIN) — no bars, no SWR.
+        // Ladder: full telemetry stack.
+        if (helios) {
+            srcs   = {MIC, ALC_PK, ALC_G};
+            labels = {QStringLiteral("MIC"), QStringLiteral("ALC"),
+                      QStringLiteral("GAIN")};
+        } else if (radar) {
             srcs   = {PWR, SWR, MIC, ALC_PK};
             labels = {QStringLiteral("PWR"), QStringLiteral("SWR"),
                       QStringLiteral("MIC"), QStringLiteral("ALC")};
@@ -1154,7 +1161,7 @@ void MeterModel::tick() {
     // Radar's hero is always S on RX / PWR on TX.  Click-cycle on Arc
     // can leave source_ on PWR/SWR, which skipped computeSMeter() and
     // froze NF/SNR (those only update in the S-meter tick).
-    if (activeStyle() == 3) {
+    if (activeStyle() == 3 || activeStyle() == 4) {
         const bool keyed = stream_ &&
             (stream_->moxActive() || stream_->cwKeyingActive());
         if (keyed) computePwr();

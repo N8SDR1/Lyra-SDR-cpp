@@ -1,7 +1,7 @@
 // Lyra — Meter dock panel (RX/TX meter).
 //
-// Hosts four GPU-flavoured renderers — Horizon Arc (default),
-// Plasma Bar, Vertical Ladder, or Lyra Radar — all fed by the C++
+// Hosts five GPU-flavoured renderers — Horizon Arc (default),
+// Plasma Bar, Vertical Ladder, Lyra Radar, or Helios — all fed by the C++
 // `Meter` context property (MeterModel).  A tiny style toggle
 // in the corner flips the style live; the choice persists.
 //
@@ -46,10 +46,11 @@ Rectangle {
                 { t: "Arc",    s: 0 },
                 { t: "Bar",    s: 1 },
                 { t: "Ladder", s: 2 },
-                { t: "Radar",  s: 3 }
+                { t: "Radar",  s: 3 },
+                { t: "Sol",    s: 4 }
             ]
             delegate: Rectangle {
-                width: 42; height: 18
+                width: 36; height: 18
                 readonly property bool sel: Meter.activeStyle === modelData.s
                 color: sel ? "#15435a" : "#0c1218"
                 border.color: sel ? "#00e5ff" : "#2a4a5a"
@@ -82,6 +83,7 @@ Rectangle {
             case 1:  return barFace
             case 2:  return ladderFace
             case 3:  return lyraFace
+            case 4:  return heliosFace
             default: return arcFace
             }
         }
@@ -91,6 +93,7 @@ Rectangle {
     Component { id: barFace;    PlasmaBar {} }
     Component { id: ladderFace; VerticalLadder {} }
     Component { id: lyraFace;   LyraMeter {} }
+    Component { id: heliosFace; LyraHelios {} }
 
     // ── Click-to-cycle source picker (task #35 / FEATURES.md §6) ──
     // Click on the meter face cycles the source through the wired
@@ -112,7 +115,7 @@ Rectangle {
         // Disabled on the Ladder style — Multi shows all sources at
         // once, so there's no primary to cycle.  Operator picks per-
         // state preference from Settings → Meter as usual.
-        enabled: Meter.activeStyle !== 2 && Meter.activeStyle !== 3
+        enabled: Meter.activeStyle !== 2 && Meter.activeStyle !== 3 && Meter.activeStyle !== 4
         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
         acceptedButtons: Qt.LeftButton
         property var sourceCycle: [0, 1, 2]  // RX_SMETER, PWR, SWR

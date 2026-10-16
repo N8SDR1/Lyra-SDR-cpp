@@ -2244,6 +2244,12 @@ A GPU-drawn **RX / TX meter** with four looks — pick with the small
 - **Lyra Radar** — PPI blob (radius = the same 0…1 as Arc). Giant S / watts
   digits in the well; fat **NF·SNR** or **SWR·MIC·ALC** cards underneath.
   Same calibration as Arc.
+- **Helios** — sun plus a planet row on the **same 0…1** as Arc. On RX,
+  Earth holds S5–S7, Jupiter is S9+, Saturn +15, Uranus +30, Pluto a
+  tickle at +45, wormhole at +50. On TX the planets follow the watts
+  scale (rated max in Settings → Meter); a small **MIC · ALC · GAIN**
+  line (cyan / green / red, no bars) sits under the poster. The big
+  S / watts number stays.
 
 Both styles also carry an optional **max-peak marker** — a second, **red**
 "high-water mark" that latches the highest level reached and falls back

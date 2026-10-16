@@ -559,6 +559,7 @@ qt_add_qml_module(lyra
         src/qml/PlasmaBar.qml
         src/qml/VerticalLadder.qml
         src/qml/LyraMeter.qml
+        src/qml/LyraHelios.qml
     RESOURCES
         src/assets/watermarks/lyra-watermark.jpg
         src/assets/logo/lyra-icon-128.png

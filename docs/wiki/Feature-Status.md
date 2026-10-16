@@ -77,7 +77,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 
 ### Metering &amp; TX safety
 
-- ✅ Multimeter — **PO / SWR / MIC / COMP / ALC / PA current**. The **PWR** needle keeps the loudest coupler sample between ticks so voice peaks land on the scale (factory peak-hold 700 ms if you have not saved your own). Optional **Lyra Radar** look: PPI blob + giant digits + NF/SNR or SWR/MIC/ALC cards (same cal as Arc).
+- ✅ Multimeter — **PO / SWR / MIC / COMP / ALC / PA current**. The **PWR** needle keeps the loudest coupler sample between ticks so voice peaks land on the scale (factory peak-hold 700 ms if you have not saved your own). Optional **Lyra Radar** (PPI) and **Helios** (sun + planets; S9 = Jupiter, TX watts + MIC/ALC/GAIN text) looks — same cal as Arc.
 - ✅ **ATT-on-TX** RX-front-end protection · **RX2 jack isolate on TX** (two-converter radios, default on) · **TR-sequencing** for amp hot-switch safety
 - ✅ **SWR protection** (auto-cut above threshold) · **max power / drive cap** for low-drive amps
 - ✅ **TX time-out** · hard **External TX Inhibit**

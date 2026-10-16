@@ -167,7 +167,8 @@ private:
     Q_PROPERTY(double liveSwr READ liveSwr NOTIFY updated)
     // Operator-selectable visual style: 0 = Horizon Arc (default),
     // 1 = Plasma Bar, 2 = Vertical Ladder, 3 = Lyra Radar (PPI blob +
-    // satellite cards).  `style` is the RX (default) style; `txStyle`
+    // satellite cards), 4 = Helios (sun + planet row).  `style` is the
+    // RX (default) style; `txStyle`
     // is used on TX when `separateStyle` is on.  The renderer + header
     // toggle read `activeStyle`, which swaps on the MOX edge.
     Q_PROPERTY(int style READ style WRITE setStyle NOTIFY styleChanged)
@@ -334,7 +335,7 @@ public:
     // The style the renderer + header toggle actually use: txStyle on TX
     // (when separateStyle is on), else style.  Swaps on the MOX edge.
     int  activeStyle() const;
-    // Header Arc/Bar/Ladder/Radar buttons: set the style of whatever state is
+    // Header Arc/Bar/Ladder/Radar/Sol buttons: set the style of whatever state is
     // showing NOW (TX style if separate+keyed, else the RX/default style).
     Q_INVOKABLE void setActiveStyle(int s);
     double calDb() const { return calDb_; }

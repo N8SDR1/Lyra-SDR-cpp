@@ -5404,6 +5404,7 @@ QWidget *SettingsDialog::buildMeterTab() {
             cb->addItem(tr("Plasma Bar"),      1);
             cb->addItem(tr("Vertical Ladder"), 2);
             cb->addItem(tr("Lyra Radar"),      3);
+            cb->addItem(tr("Helios"),          4);
             const int ix = cb->findData(cur);
             cb->setCurrentIndex(ix < 0 ? 0 : ix);
             return cb;
