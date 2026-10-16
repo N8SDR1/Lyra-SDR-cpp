@@ -29,7 +29,7 @@ namespace lyra::profile {
 
 struct Profile {
     QString name;
-    int     schemaVersion = 6;   // v2 (#160): ALC max gain + Leveler trio
+    int     schemaVersion = 7;   // v7: txFilterLow is its own edge
                                  // v3 (#49):  + native rack blobs (eq/speech/
                                  //            combinator/plate)
                                  // v4 (#107/#109/#93): + PHROT, FM deviation,
@@ -48,7 +48,8 @@ struct Profile {
     int     rxBandwidth = 0;   // Hz
     int     txBandwidth = 0;   // Hz
     bool    bwLocked    = false;
-    int     filterLow   = 0;   // Hz (shared low edge)
+    int     filterLow   = 0;   // Hz, RX low edge
+    int     txFilterLow = 0;   // Hz, TX low edge (schema < 7 copies filterLow)
 
     // --- mic / source / drive ---
     QString micSource = QStringLiteral("mic1");  // mic1 / tci / micpc / micpc2

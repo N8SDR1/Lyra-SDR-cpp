@@ -75,7 +75,9 @@
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QHostAddress>
+#include <QNetworkInterface>
 #include <QColor>
 #include <QFont>
 #include <QBrush>
@@ -395,6 +397,9 @@ SettingsDialog::SettingsDialog(Prefs *prefs, lyra::ipc::HL2Stream *stream,
     if (tci_) {
         tabs_->addTab(wrapScroll(buildNetworkTab()), tr("Network"));
     }
+    if (prefs_) {
+        tabs_->addTab(wrapScroll(buildRemoteTab()), tr("Remote"));
+    }
     if (serialPtt_) {
         tabs_->addTab(wrapScroll(buildCatSerialTab()), tr("CAT / Serial"));
     }
@@ -451,43 +456,44 @@ QWidget *SettingsDialog::buildAudioTab() {
     note->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
     form->addRow(note);
 
-    // ── Task #53 — Shared RX+TX Filter Low edge ─────────────────
-    // Single global filter-low setting applied to BOTH the WDSP RX
-    // bandpass (replaces the previously-hardcoded 0 Hz low cut for
-    // SSB/DIG modes) AND the HL2Stream TX bandpass (replaces the
-    // previously-hardcoded 200 Hz low cut).  Interim until the TX
-    // Profile Manager (Task #49) ships per-profile (lo, hi) pairs
-    // that override this default on profile load.  Tooltip carries
-    // the 50/60 Hz mains-coupling warning.
+    // ── RX and TX filter low edges ──────────────────────────────
+    // Two cutoffs, 0..500 Hz.  With the RX/TX lock on they track.
+    // SSB and digital use them.  CW is pitch-centred; AM / DSB / FM
+    // are symmetric around the carrier and ignore the low edge.
     {
-        auto *flSpin = new QSpinBox(page);
-        flSpin->setRange(0, 500);
-        flSpin->setSingleStep(10);
-        flSpin->setSuffix(tr(" Hz"));
-        flSpin->setValue(prefs_->filterLow());
-        flSpin->setToolTip(
-            tr("Low cutoff frequency for the RX and TX audio bandpass "
-               "(shared).  Higher values (100-200 Hz) suppress 50 / 60 Hz "
-               "mains coupling on the microphone path and reduce low-end "
-               "rumble on receive.  Lower values (50-70 Hz) preserve "
-               "chest-resonance / low-end body for ESSB-style wide "
-               "audio — verify your station isn't picking up mains hum "
-               "at very low cuts.\n\n"
-               "Applies to SSB / DIG modes only (asymmetric passband, "
-               "low edge offset from carrier).  CW is pitch-centred and "
-               "AM / DSB / FM are symmetric around DC — those modes "
-               "ignore this setting.\n\n"
-               "Interim setting: when the TX Profile Manager ships, "
-               "each named profile will carry its own RX + TX (low, "
-               "high) pair that overrides this default on load."));
-        connect(flSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+        auto *rxLo = new QSpinBox(page);
+        rxLo->setRange(0, 500);
+        rxLo->setSingleStep(10);
+        rxLo->setSuffix(tr(" Hz"));
+        rxLo->setValue(prefs_->filterLow());
+        rxLo->setToolTip(
+            tr("Receive low cutoff, 0–500 Hz.  Higher values "
+               "(100–200 Hz) cut rumble.  Lower values (50–70 Hz) "
+               "keep low-end body.  SSB and digital only."));
+        connect(rxLo, qOverload<int>(&QSpinBox::valueChanged), this,
                 [this](int v) { prefs_->setFilterLow(v); });
-        connect(prefs_, &Prefs::filterLowChanged, flSpin, [this, flSpin]() {
-            if (flSpin->value() != prefs_->filterLow()) {
-                flSpin->setValue(prefs_->filterLow());
-            }
+        connect(prefs_, &Prefs::filterLowChanged, rxLo, [this, rxLo]() {
+            if (rxLo->value() != prefs_->filterLow())
+                rxLo->setValue(prefs_->filterLow());
         });
-        form->addRow(tr("Filter Low edge (RX + TX):"), flSpin);
+        form->addRow(tr("RX filter low:"), rxLo);
+
+        auto *txLo = new QSpinBox(page);
+        txLo->setRange(0, 500);
+        txLo->setSingleStep(10);
+        txLo->setSuffix(tr(" Hz"));
+        txLo->setValue(prefs_->txFilterLow());
+        txLo->setToolTip(
+            tr("Transmit low cutoff, 0–500 Hz.  With the lock on, "
+               "this follows the receive low.  Unlock it to keep a "
+               "deeper transmit cut than you listen to, or the reverse."));
+        connect(txLo, qOverload<int>(&QSpinBox::valueChanged), this,
+                [this](int v) { prefs_->setTxFilterLow(v); });
+        connect(prefs_, &Prefs::txFilterLowChanged, txLo, [this, txLo]() {
+            if (txLo->value() != prefs_->txFilterLow())
+                txLo->setValue(prefs_->txFilterLow());
+        });
+        form->addRow(tr("TX filter low:"), txLo);
     }
 
     // ── #158 — Virtual Audio Cable (VAC1) ───────────────────────────
@@ -2488,6 +2494,319 @@ static QString detectSdrLoggerPlusExe() {
     }
 #endif
     return QString();
+}
+
+QWidget *SettingsDialog::buildRemoteTab() {
+    auto *page = new QWidget(this);
+    auto *v = new QVBoxLayout(page);
+    v->setSpacing(12);
+
+    auto *intro = new QLabel(
+        tr("The remote link runs only between this Lyra host and the remote. "
+           "It stays on your own network. No outside server carries it, and "
+           "no outside account or other service is required.\n\n"
+           "These settings cover the local remote and the later full IP remote. "
+           "The listen address and port stay on the Network tab."),
+        page);
+    intro->setWordWrap(true);
+    intro->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    v->addWidget(intro);
+
+    const int tciPort = QSettings().value(QStringLiteral("tci/port"), 40001).toInt();
+    QStringList lanAddrs;
+    for (const QHostAddress &addr : QNetworkInterface::allAddresses()) {
+        if (addr.protocol() != QAbstractSocket::IPv4Protocol) continue;
+        if (addr.isLoopback() || addr.isLinkLocal()) continue;
+        lanAddrs.append(addr.toString());
+    }
+    QString lanBox;
+    if (lanAddrs.isEmpty()) {
+        lanBox = tr("ws://&lt;this computer's house-network address&gt;:%1").arg(tciPort);
+    } else {
+        QStringList boxes;
+        for (const QString &ip : lanAddrs)
+            boxes.append(QStringLiteral("ws://%1:%2").arg(ip).arg(tciPort));
+        lanBox = boxes.join(tr(" or "));
+    }
+
+    auto *open = new QGroupBox(tr("Open the page"), page);
+    auto *openLay = new QVBoxLayout(open);
+    openLay->setSpacing(10);
+    auto *how = new QLabel(
+        tr("Lyra does not serve the page. Get Lyra Remote from "
+           "<a href=\"https://github.com/N8SDR1/Lyra-Remote\">github.com/N8SDR1/Lyra-Remote</a>. "
+           "Unzip it on the computer you are sitting at and double-click "
+           "<b>Open Lyra Remote.cmd</b>. That opens "
+           "<b>http://127.0.0.1:4173/</b> in the browser on that computer. "
+           "Leave the small server window running. Opening the page file itself does not connect."),
+        open);
+    how->setWordWrap(true);
+    how->setTextFormat(Qt::RichText);
+    how->setOpenExternalLinks(true);
+    how->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    how->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    openLay->addWidget(how);
+    auto *where = new QLabel(
+        tr("On this same computer, leave the box at the top of the page on "
+           "<b>ws://127.0.0.1:%1</b>. On the Network tab, turn the TCI server on "
+           "and leave the bind address at 127.0.0.1.<br><br>"
+           "From another computer on this network, run that same package there "
+           "and open <b>http://127.0.0.1:4173/</b> on that computer. You do not "
+           "browse to this radio to get the page. On this radio, set the Network "
+           "bind address to 0.0.0.0. In the page, set the box to "
+           "<b>%2</b>. Allow inbound TCP port %1 through the firewall. "
+           "The port is the TCI port on the Network tab.")
+            .arg(tciPort)
+            .arg(lanBox),
+        open);
+    where->setWordWrap(true);
+    where->setTextFormat(Qt::RichText);
+    where->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    openLay->addWidget(where);
+    v->addWidget(open);
+
+    auto *who = new QGroupBox(tr("Who may connect"), page);
+    auto *whoLay = new QVBoxLayout(who);
+    whoLay->setSpacing(10);
+    auto *whoNote = new QLabel(
+        tr("Other remote TCI programs use this same port. Leave the Network "
+           "bind address at 127.0.0.1 and another computer cannot open it, "
+           "so a remote TCI program there is blocked. A program on this "
+           "computer still connects.\n\n"
+           "Set the bind address to 0.0.0.0 only when another computer on "
+           "this network should reach Lyra. Then put that computer in "
+           "Accept only these. Any entry drops every other address, "
+           "including other remote TCI programs, unless that computer or a "
+           "range that covers it is listed. This computer stays allowed. "
+           "Do not forward the TCI port to the internet. With the bind "
+           "address open and Accept left blank, every TCI client that can "
+           "reach the port may connect."),
+        who);
+    whoNote->setWordWrap(true);
+    whoNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    whoLay->addWidget(whoNote);
+    auto *whoForm = new QFormLayout();
+    whoForm->setVerticalSpacing(10);
+    whoLay->addLayout(whoForm);
+
+    auto *accept = new QPlainTextEdit(prefs_->remoteAcceptIps(), who);
+    accept->setPlaceholderText(
+        tr("Blank accepts every address that can reach this radio.\n"
+           "192.168.1.40\n"
+           "192.168.1.0/24"));
+    accept->setFixedHeight(88);
+    accept->setToolTip(
+        tr("One address or a range per line, or separated by commas. "
+           "With any entry, every other address is dropped, including "
+           "other remote TCI programs. This computer is always allowed. "
+           "Leave this blank and leave the Network bind address at "
+           "127.0.0.1 to keep other computers off the port."));
+    auto *acceptErr = new QLabel(who);
+    acceptErr->setWordWrap(true);
+    acceptErr->setStyleSheet(QStringLiteral("color:#e0736b;"));
+    whoForm->addRow(tr("Accept only these:"), accept);
+    whoForm->addRow(QString(), acceptErr);
+
+    auto *refuse = new QPlainTextEdit(prefs_->remoteRefuseIps(), who);
+    refuse->setPlaceholderText(
+        tr("Blank refuses nobody.\n"
+           "192.168.1.40\n"
+           "192.168.1.0/24"));
+    refuse->setFixedHeight(88);
+    refuse->setToolTip(
+        tr("An address here is dropped even when it is also on the accept "
+           "list. This computer cannot be refused."));
+    auto *refuseErr = new QLabel(who);
+    refuseErr->setWordWrap(true);
+    refuseErr->setStyleSheet(QStringLiteral("color:#e0736b;"));
+    whoForm->addRow(tr("Refuse these:"), refuse);
+    whoForm->addRow(QString(), refuseErr);
+
+    auto *listNote = new QLabel(
+        tr("One full address is one computer. A range uses a prefix, such as "
+           "192.168.1.0/24 for 192.168.1.0 through 192.168.1.255. A short "
+           "piece or a star is not accepted. Both boxes use the same forms. "
+           "A blank accept list and a blank refuse list let every reachable "
+           "address connect, and listening stays open. The lists apply as "
+           "soon as you leave a valid entry. A refused or unlisted address "
+           "is dropped at the door and never counts as a password try. "
+           "Changing the radio and transmitting use the password below; "
+           "the remote asks for that proof when those controls are on."),
+        who);
+    listNote->setWordWrap(true);
+    listNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    whoForm->addRow(listNote);
+    v->addWidget(who);
+
+    connect(accept, &QPlainTextEdit::textChanged, this,
+            [this, accept, acceptErr]() {
+                const QString text = accept->toPlainText();
+                const QString problem = Prefs::remoteIpListProblem(text);
+                acceptErr->setText(problem);
+                if (!problem.isEmpty()) return;
+                prefs_->setRemoteAcceptIps(text);
+            });
+    connect(refuse, &QPlainTextEdit::textChanged, this,
+            [this, refuse, refuseErr]() {
+                const QString text = refuse->toPlainText();
+                const QString problem = Prefs::remoteIpListProblem(text);
+                refuseErr->setText(problem);
+                if (!problem.isEmpty()) return;
+                prefs_->setRemoteRefuseIps(text);
+            });
+
+    auto *pw = new QGroupBox(tr("Password"), page);
+    auto *pwForm = new QFormLayout(pw);
+    pwForm->setVerticalSpacing(10);
+
+    auto *phrase = new QLineEdit(pw);
+    phrase->setEchoMode(QLineEdit::Password);
+    phrase->setPlaceholderText(
+        prefs_->remotePasswordSet()
+            ? tr("Saved — type a new phrase to replace it")
+            : tr("At least 12 characters, spaces allowed"));
+    auto *again = new QLineEdit(pw);
+    again->setEchoMode(QLineEdit::Password);
+    again->setPlaceholderText(tr("Type the same phrase again"));
+    pwForm->addRow(tr("Password:"), phrase);
+    pwForm->addRow(tr("Confirm:"), again);
+
+    auto *pwStatus = new QLabel(pw);
+    pwStatus->setWordWrap(true);
+    auto refreshPw = [this, pwStatus, phrase]() {
+        if (prefs_->remotePasswordSet()) {
+            pwStatus->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+            pwStatus->setText(
+                tr("A password is saved on this computer only. The phrase "
+                   "itself is not kept. A remote session must prove it "
+                   "before it may change the radio or transmit. Five wrong "
+                   "proofs from one address lock that address for 15 minutes, "
+                   "with waits of 1, 2, 4, 8, and 16 seconds. A correct proof "
+                   "clears the count. A session token then lives only in "
+                   "memory for that connection and is dropped when the link "
+                   "closes. The next connection proves the password again."));
+            phrase->setPlaceholderText(
+                tr("Saved — type a new phrase to replace it"));
+        } else {
+            pwStatus->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+            pwStatus->setText(
+                tr("No password is saved, so remote transmit stays off. "
+                   "Use 12 to 128 characters. Spaces are allowed, so a short "
+                   "phrase works. The callsign alone, and words such as "
+                   "password or lyra, are refused."));
+            phrase->setPlaceholderText(
+                tr("At least 12 characters, spaces allowed"));
+        }
+    };
+    refreshPw();
+    pwForm->addRow(pwStatus);
+
+    auto *lockNotice = new QLabel(tr("No address is locked."), pw);
+    lockNotice->setWordWrap(true);
+    lockNotice->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    pwForm->addRow(lockNotice);
+    if (tci_) {
+        connect(tci_, &TciServer::remoteLockChanged, lockNotice,
+                [lockNotice, this](const QString &text) {
+                    if (text.isEmpty()) {
+                        lockNotice->setStyleSheet(
+                            QStringLiteral("color:#8fa6ba;"));
+                        lockNotice->setText(tr("No address is locked."));
+                    } else {
+                        lockNotice->setStyleSheet(
+                            QStringLiteral("color:#e0736b;"));
+                        lockNotice->setText(text);
+                    }
+                });
+    }
+
+    auto *pwErr = new QLabel(pw);
+    pwErr->setWordWrap(true);
+    pwErr->setStyleSheet(QStringLiteral("color:#e0736b;"));
+    pwForm->addRow(pwErr);
+
+    auto *pwButtons = new QWidget(pw);
+    auto *pwRow = new QHBoxLayout(pwButtons);
+    pwRow->setContentsMargins(0, 0, 0, 0);
+    auto *setPw = new QPushButton(tr("Save password"), pwButtons);
+    auto *clearPw = new QPushButton(tr("Clear password"), pwButtons);
+    clearPw->setEnabled(prefs_->remotePasswordSet());
+    pwRow->addWidget(setPw);
+    pwRow->addWidget(clearPw);
+    pwRow->addStretch(1);
+    pwForm->addRow(QString(), pwButtons);
+
+    connect(setPw, &QPushButton::clicked, this,
+            [this, phrase, again, pwErr, clearPw, refreshPw]() {
+                if (phrase->text() != again->text()) {
+                    pwErr->setText(tr("The two phrases do not match."));
+                    return;
+                }
+                QApplication::setOverrideCursor(Qt::WaitCursor);
+                const QString problem = prefs_->setRemotePassword(phrase->text());
+                QApplication::restoreOverrideCursor();
+                if (!problem.isEmpty()) {
+                    pwErr->setText(problem);
+                    return;
+                }
+                phrase->clear();
+                again->clear();
+                pwErr->clear();
+                clearPw->setEnabled(true);
+                refreshPw();
+            });
+    connect(clearPw, &QPushButton::clicked, this,
+            [this, phrase, again, pwErr, clearPw, refreshPw]() {
+                const auto answer = QMessageBox::question(
+                    this, tr("Clear remote password"),
+                    tr("Clear the saved password? Remote transmit stays off "
+                       "until a new one is saved."));
+                if (answer != QMessageBox::Yes) return;
+                prefs_->clearRemotePassword();
+                phrase->clear();
+                again->clear();
+                pwErr->clear();
+                clearPw->setEnabled(false);
+                refreshPw();
+            });
+    connect(prefs_, &Prefs::remotePasswordChanged, clearPw,
+            [this, clearPw]() {
+                clearPw->setEnabled(prefs_->remotePasswordSet());
+            });
+
+    auto *listen = new QCheckBox(
+        tr("Password required to listen"), pw);
+    listen->setChecked(prefs_->remoteListenRequiresPassword());
+    listen->setToolTip(
+        tr("Off: spectrum and audio stay open on your network. "
+           "On: spectrum and audio wait for the same password. "
+           "Programs on this computer are always let through."));
+    connect(listen, &QCheckBox::toggled, prefs_,
+            &Prefs::setRemoteListenRequiresPassword);
+    connect(prefs_, &Prefs::remoteListenRequiresPasswordChanged, listen,
+            [this, listen]() {
+                const bool on = prefs_->remoteListenRequiresPassword();
+                if (listen->isChecked() != on) {
+                    QSignalBlocker block(listen);
+                    listen->setChecked(on);
+                }
+            });
+    pwForm->addRow(QString(), listen);
+
+    auto *listenNote = new QLabel(
+        tr("One password covers listening (when the box is ticked), "
+           "changing the radio, and transmit. A listen-only connection "
+           "does not receive a transmit token. Programs on this computer "
+           "keep working without the password, so a digital program here "
+           "is not asked for it."),
+        pw);
+    listenNote->setWordWrap(true);
+    listenNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    pwForm->addRow(listenNote);
+    v->addWidget(pw);
+
+    v->addStretch(1);
+    return page;
 }
 
 QWidget *SettingsDialog::buildHardwareTab() {
@@ -8517,6 +8836,7 @@ bool SettingsDialog::selectTopic(const QString &topic) {
         {QStringLiteral("band"),       QStringLiteral("Bands")},
         {QStringLiteral("memory"),     QStringLiteral("Bands")},
         {QStringLiteral("bands"),      QStringLiteral("Bands")},
+        {QStringLiteral("remote"),     QStringLiteral("Remote")},
     };
     const QString want = kTabFor.value(topic);
     if (want.isEmpty()) return false;
@@ -10805,9 +11125,8 @@ QWidget *SettingsDialog::buildProfilesTab() {
     auto *loSpin = new QSpinBox(editGrp);
     loSpin->setRange(0, 5000); loSpin->setSingleStep(10);
     loSpin->setSuffix(tr(" Hz"));
-    // TX filter low mirrors the SAME shared low edge (Profile.filterLow —
-    // RX+TX share one low edge today, Task #53).  Shown for RX/TX symmetry;
-    // editing either box moves both.
+    // TX filter low is its own edge.  While "Lock TX/RX BW" is checked
+    // in this editor, the two lows stay equal.
     auto *txLoSpin = new QSpinBox(editGrp);
     txLoSpin->setRange(0, 5000); txLoSpin->setSingleStep(10);
     txLoSpin->setSuffix(tr(" Hz"));
@@ -10897,7 +11216,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
     // record.  Shows the amber notice + enables Apply/Revert only when there's
     // something to save.  syncEdit() re-baselines (clean); the widget-change
     // connects below re-evaluate live.
-    auto editDirty = [this, selectedName, rxBwSpin, txBwSpin, loSpin, lockChk,
+    auto editDirty = [this, selectedName, rxBwSpin, txBwSpin, loSpin, txLoSpin, lockChk,
                       micCombo, micGainSpin, micBoostChk, agcCombo, levelerChk,
                       phrotChk, autoMuteChk]() -> bool {
         const QString name = selectedName();
@@ -10907,6 +11226,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
         return rxBwSpin->value()   != p.rxBandwidth
             || txBwSpin->value()   != p.txBandwidth
             || loSpin->value()     != p.filterLow
+            || txLoSpin->value()   != p.txFilterLow
             || lockChk->isChecked() != p.bwLocked
             || micCombo->currentData().toString() != p.micSource
             || qAbs(micGainSpin->value() - p.micGainDb) > 0.05
@@ -10923,12 +11243,21 @@ QWidget *SettingsDialog::buildProfilesTab() {
         applyEditBtn->setEnabled(d);
         revertEditBtn->setEnabled(d);
     };
-    // RX/TX filter-low mirror the single shared low edge — editing either
-    // moves both so they always match (guarded so it can't loop).
+    // While the profile's lock is on, the two lows stay equal.
     connect(loSpin, QOverload<int>::of(&QSpinBox::valueChanged), editGrp,
-            [txLoSpin](int v) { if (txLoSpin->value() != v) txLoSpin->setValue(v); });
+            [txLoSpin, lockChk](int v) {
+                if (lockChk->isChecked() && txLoSpin->value() != v)
+                    txLoSpin->setValue(v);
+            });
     connect(txLoSpin, QOverload<int>::of(&QSpinBox::valueChanged), editGrp,
-            [loSpin](int v) { if (loSpin->value() != v) loSpin->setValue(v); });
+            [loSpin, lockChk](int v) {
+                if (lockChk->isChecked() && loSpin->value() != v)
+                    loSpin->setValue(v);
+            });
+    connect(lockChk, &QCheckBox::toggled, editGrp, [loSpin, txLoSpin](bool on) {
+        if (on && txLoSpin->value() != loSpin->value())
+            txLoSpin->setValue(loSpin->value());
+    });
     // Re-evaluate dirty on any edit.
     for (QSpinBox *s : {rxBwSpin, txBwSpin, loSpin, txLoSpin})
         connect(s, QOverload<int>::of(&QSpinBox::valueChanged), editGrp,
@@ -11103,7 +11432,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
         rxBwSpin->setValue(p.rxBandwidth);
         txBwSpin->setValue(p.txBandwidth);
         loSpin->setValue(p.filterLow);
-        txLoSpin->setValue(p.filterLow);   // shared low edge — mirror
+        txLoSpin->setValue(p.txFilterLow);
         lockChk->setChecked(p.bwLocked);
         { int i = micCombo->findData(p.micSource);
           micCombo->setCurrentIndex(i < 0 ? 0 : i); }
@@ -11120,7 +11449,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
     // Write the quick-edit widgets back into the selected profile's stored
     // record (never touches live state).  updateStoredProfile re-evaluates
     // the "● modified" flag when the active profile's baseline moves.
-    auto applyEdit = [this, selectedName, rxBwSpin, txBwSpin, loSpin, lockChk,
+    auto applyEdit = [this, selectedName, rxBwSpin, txBwSpin, loSpin, txLoSpin, lockChk,
                       micCombo, micGainSpin, micBoostChk, agcCombo, levelerChk,
                       phrotChk, autoMuteChk, updateEditDirty]() {
         const QString name = selectedName();
@@ -11130,6 +11459,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
         p.rxBandwidth  = rxBwSpin->value();
         p.txBandwidth  = txBwSpin->value();
         p.filterLow    = loSpin->value();
+        p.txFilterLow  = txLoSpin->value();
         p.bwLocked     = lockChk->isChecked();
         p.micSource    = micCombo->currentData().toString();
         p.micGainDb    = micGainSpin->value();

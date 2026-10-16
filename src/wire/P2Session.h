@@ -163,7 +163,7 @@ public:
     // DDC frequency (Hz) — DDC 0..9 on Saturn.  Applied on the next
     // 100 ms HP tick (control cadence, not a hot path).
     void setDdcFrequencyHz(int ddc, quint32 hz);
-    void setDucFrequencyHz(quint32 hz) { ducFreqHz_ = hz; }
+    void setDucFrequencyHz(quint32 hz);
 
     // Phase C — enable a DDC's IQ stream.  rateKhz must be one of the
     // Protocol 2 legal rates (48/96/192/384/768/1536; p2app validates
@@ -173,10 +173,16 @@ public:
     void enableDdc(int ddc, quint16 rateKhz);
     void disableDdc(int ddc);
     // Two-ADC profiles (angeliaRxDdcSlots): RX1 is DDC2 / UDP 1037 on
-    // ADC 0, RX2 is DDC3 / UDP 1038 on ADC 1. One-ADC profiles stay on
-    // DDC0 / DDC1 (UDP 1035 / 1036). Firewall punches are outbound
-    // writes, never dest-port listeners.
+    // ADC 0, RX2 is DDC3 / UDP 1038 on ADC 1, until diversity is armed.
+    // Armed diversity (RX, not transmitting, PureSignal not live) moves
+    // the live pair to DDC0+DDC1 interleaved on UDP 1035. One-ADC
+    // profiles stay on DDC0 / DDC1 (UDP 1035 / 1036) and ignore the
+    // flag. Firewall punches are outbound writes, never dest-port
+    // listeners.
     bool angeliaRxSlots() const;
+    void setDiversityArmed(bool on);
+    bool diversityArmed() const { return diversityArmed_; }
+    bool diversityOverlayLive() const;
     int rx1DdcIndex() const;
     int rx2DdcIndex() const;
     void enablePrimaryRx(quint16 rateKhz);
@@ -243,6 +249,11 @@ public:
     // effective-drive evaluation.
     void setTxDriveCeiling(int ceilingByte);
     void setTransmitIntent(bool on, bool paRequested, int drive);
+    // PA-enable bit stays set while the operator's PA checkbox is on,
+    // including in receive. The radio latches that bit on a rising MOX
+    // edge; sending it in the same burst as the first MOX leaves the
+    // first key (and the first key after a band change) with no RF.
+    void setPaHold(bool on);
     // Live analog-drive byte for HP [345].  Read at packet-build so a
     // watts-cap servo can update the wire without queuing a new intent.
     // Empty provider keeps the safety-gate drive (tests / fail-closed).
@@ -449,6 +460,9 @@ private:
     bool         psArmed_{false};
     // SUB audio from DDC1 — independent of enableDdc(1) for PS replica.
     bool         subRx2Wanted_{false};
+    // Host diversity. Default off: the packet and the RX1 port stay
+    // today's map. Not a UI control.
+    bool         diversityArmed_{false};
     std::vector<double> psccRx_;
     std::vector<double> psccTx_;
     quint32      ddcSpecificSeq_ = 0;             // DDC-specific (receive_specific)
@@ -458,6 +472,7 @@ private:
     // P2TxSafetyGate. Session open/reset leaves them fail-closed.
     P2TxIntent       txIntent_;
     P2TxSafetyInputs txSafety_;
+    bool             paHold_ = false;
     std::function<int()> wireDriveProvider_;
     P2DucConfig      ducConfig_;
     QString          txStateDetail_;

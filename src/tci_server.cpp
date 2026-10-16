@@ -15,9 +15,11 @@
 // is dropped; R-H2 mic-source force/restore returns with the rebuild.
 #include "tci/TciTxBridge.h"   // TCI TX-audio re-home sink (TX_ARCH §4.6/§10.3)
 #include "wdsp_engine.h"
+#include "wire/CMaster.h"
 
 #include <QDateTime>
 #include <QHostAddress>
+#include <QRandomGenerator>
 #include <QSettings>
 #include <QTimer>
 #include <QWebSocket>
@@ -382,6 +384,9 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
             txGainLinear_ =
                 std::pow(10.0, prefs_->tciTxGainDb() / 20.0);
         });
+        connect(prefs_, &Prefs::micSourceChanged, this, [this]() {
+            if (voiceLive_) applyVoiceLive();
+        });
     }
     if (engine_) {
         connect(engine_, &lyra::dsp::WdspEngine::volumeChanged,
@@ -396,6 +401,17 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                 this, &TciServer::onPassbandChanged);
         connect(engine_, &lyra::dsp::WdspEngine::passbandRx2Changed,
                 this, &TciServer::onPassbandRx2Changed);
+        // Connected after the desk mode handler, so a voice session
+        // re-asserts its rack bypass on the same turn.
+        connect(engine_, &lyra::dsp::WdspEngine::modeChanged,
+                this, [this]() {
+            if (!voiceSessionWs_) return;
+            if (voiceModeBlocksSession()) {
+                if (voiceLive_) restoreVoiceLive();
+                return;
+            }
+            applyVoiceLive();
+        });
         // Binary streams arrive from the DSP worker thread — queued onto
         // ours so the QWebSocket sends happen on the right thread.
         connect(engine_, &lyra::dsp::WdspEngine::tciAudioBlock,
@@ -575,6 +591,10 @@ void TciServer::stop() {
     // teardown.)
     chronoTimer_->stop();
     chronoOutstanding_ = 0;
+    if (voiceLive_ || voiceSessionWs_) {
+        voiceSessionWs_ = nullptr;
+        restoreVoiceLive();
+    }
     if (txAudioOwner_) {
         txAudioOwner_ = nullptr;
         if (stream_) stream_->requestMoxFromTci(false);
@@ -600,6 +620,17 @@ void TciServer::onNewConnection() {
     pruneDeadClients();   // clear any ghost before counting the new one
     while (server_ && server_->hasPendingConnections()) {
         QWebSocket *ws = server_->nextPendingConnection();
+        // Address lists from Setup → Remote. Blank lists accept every
+        // reachable peer. This computer is always accepted. A refused
+        // peer never joins the client list and never sees radio state.
+        if (prefs_ && !prefs_->remotePeerAllowed(ws->peerAddress())) {
+            qInfo("[remote] refused %s",
+                  qPrintable(ws->peerAddress().toString()));
+            ws->close(QWebSocketProtocol::CloseCodePolicyViolated,
+                      QStringLiteral("address refused"));
+            ws->deleteLater();
+            continue;
+        }
         connect(ws, &QWebSocket::textMessageReceived,
                 this, &TciServer::onTextMessage);
         // Task #33: TCI v2 binary frames (TX_AUDIO_STREAM in, RX/IQ
@@ -618,6 +649,11 @@ void TciServer::onNewConnection() {
 void TciServer::onClientDisconnected() {
     auto *ws = qobject_cast<QWebSocket *>(sender());
     if (!ws) return;
+    dropVoiceHold(ws);
+    // The session pointer can already be clear while the browser mic
+    // path is still armed. Put the desk path back once nobody owns it.
+    if (voiceLive_ && !voiceSessionWs_)
+        restoreVoiceLive();
     // Task #33 — release TX-audio ownership cleanly if the dropping
     // client was the owner.  Drops in-flight TX_AUDIO_STREAM frames
     // (binary handler gates on owner identity), stops the CHRONO
@@ -652,6 +688,9 @@ void TciServer::pruneDeadClients() {
     for (int i = clients_.size() - 1; i >= 0; --i) {
         QWebSocket *ws = clients_[i];
         if (!ws || ws->state() != QAbstractSocket::ConnectedState) {
+            dropVoiceHold(ws);
+            if (voiceLive_ && !voiceSessionWs_)
+                restoreVoiceLive();
             clients_.removeAt(i);
             streams_.remove(ws);
             if (ws) ws->deleteLater();
@@ -1439,7 +1478,13 @@ void TciServer::onTextMessage(const QString &raw) {
     // always-on cost is negligible and the diagnostic value is high.
     // Once the first-light bench is closed and the audio path is
     // working, this can move under the verbose gate.
-    qInfo("[tci-rx-text] %s", qPrintable(msg));
+    // A voice proof and a session token stay out of this dump. The
+    // command name is enough to see that a client asked.
+    const QString head = msg.left(msg.indexOf(QLatin1Char(':'))).trimmed().toUpper();
+    const bool redact = head == QLatin1String("LYRA_VOICE_PROOF")
+                     || head == QLatin1String("LYRA_VOICE_TOKEN");
+    qInfo("[tci-rx-text] %s",
+          qPrintable(redact ? head : msg));
     QString cmd;
     QStringList args;
     const int colon = msg.indexOf(QLatin1Char(':'));
@@ -1451,6 +1496,341 @@ void TciServer::onTextMessage(const QString &raw) {
         cmd = msg.toUpper();
     }
     dispatch(ws, cmd, args);
+}
+
+namespace {
+
+constexpr int kVoiceBackoffSec[] = {1, 2, 4, 8, 16};
+
+QByteArray voiceRandom(int n) {
+    QByteArray out(n, '\0');
+    auto *dst = reinterpret_cast<uchar *>(out.data());
+    for (int i = 0; i < n; ) {
+        const quint32 word = QRandomGenerator::system()->generate();
+        const int take = std::min(4, n - i);
+        std::memcpy(dst + i, &word, size_t(take));
+        i += take;
+    }
+    return out;
+}
+
+bool voiceHex32(const QString &s, QByteArray *out) {
+    if (s.size() != 64) return false;
+    for (const QChar c : s) {
+        const ushort u = c.unicode();
+        const bool hex = (u >= '0' && u <= '9')
+                      || (u >= 'a' && u <= 'f')
+                      || (u >= 'A' && u <= 'F');
+        if (!hex) return false;
+    }
+    const QByteArray raw = QByteArray::fromHex(s.toLatin1());
+    if (raw.size() != 32) return false;
+    if (out) *out = raw;
+    return true;
+}
+
+bool voiceBytesEqual(const QByteArray &a, const QByteArray &b) {
+    const int n = a.size();
+    unsigned diff = unsigned(n ^ b.size());
+    for (int i = 0; i < n; ++i) {
+        const quint8 got = (i < b.size()) ? quint8(b.at(i)) : 0;
+        diff |= unsigned(quint8(a.at(i)) ^ got);
+    }
+    return diff == 0;
+}
+
+}  // namespace
+
+QHostAddress TciServer::voicePeer(const QWebSocket *ws) const {
+    if (!ws) return {};
+    const QHostAddress addr = ws->peerAddress();
+    if (addr.protocol() == QAbstractSocket::IPv6Protocol) {
+        bool ok = false;
+        const quint32 v4 = addr.toIPv4Address(&ok);
+        if (ok) return QHostAddress(v4);
+    }
+    return addr;
+}
+
+QString TciServer::voicePeerKey(const QWebSocket *ws) const {
+    return voicePeer(ws).toString();
+}
+
+bool TciServer::voicePeerLocal(const QWebSocket *ws) const {
+    return voicePeer(ws).isLoopback();
+}
+
+bool TciServer::voiceModeBlocksSession() const {
+    if (!engine_) return false;
+    const QString m = engine_->mode().toUpper();
+    return m == QLatin1String("DIGU")
+        || m == QLatin1String("DIGL")
+        || m == QLatin1String("DRM");
+}
+
+void TciServer::applyVoiceLive() {
+    lyra::wire::SetTXTCIAudio(0, 1);
+    lyra::wire::SetTXVacAudio(0, 0);
+    lyra::wire::SetTxRackBypass(1);
+    if (stream_ && stream_->levelerOn()) {
+        voiceLevelerParked_ = true;
+        stream_->pushLevelerRun(false);
+    }
+    voiceLive_ = true;
+}
+
+void TciServer::restoreVoiceLive() {
+    // Clear first. A mic-source signal during the desk write must not
+    // call applyVoiceLive() and leave the browser path armed.
+    voiceLive_ = false;
+    if (prefs_ && engine_) {
+        const QString src = prefs_->micSource();
+        const bool tci = src == QLatin1String("tci");
+        const bool vac = engine_->applyMicSourceToVacTx(src);
+        lyra::wire::SetTXTCIAudio(0, tci ? 1 : 0);
+        lyra::wire::SetTXVacAudio(0, vac ? 1 : 0);
+        if (!tci) lyra::tci::TciTxBridge::instance().clear();
+    }
+    if (engine_) {
+        const QString m = engine_->mode().toUpper();
+        const bool bypass = m == QLatin1String("DIGU")
+            || m == QLatin1String("DIGL")
+            || m == QLatin1String("DRM")
+            || m == QLatin1String("FM");
+        lyra::wire::SetTxRackBypass(bypass ? 1 : 0);
+    }
+    if (voiceLevelerParked_ && stream_)
+        stream_->pushLevelerRun(stream_->levelerOn());
+    voiceLevelerParked_ = false;
+}
+
+void TciServer::beginVoiceSession(QWebSocket *ws) {
+    if (!ws) return;
+    if (voiceSessionWs_ && voiceSessionWs_ != ws) return;
+    voiceSessionWs_ = ws;
+    if (voiceModeBlocksSession()) {
+        if (voiceLive_) restoreVoiceLive();
+        return;
+    }
+    applyVoiceLive();
+}
+
+void TciServer::dropVoiceHold(QWebSocket *ws) {
+    if (ws && voiceSessionWs_ == ws) {
+        // Drop the pointer before the desk write. A mode change on this
+        // turn re-asserts the browser path while the pointer is still
+        // set, and that write was landing after the restore.
+        voiceSessionWs_ = nullptr;
+        restoreVoiceLive();
+        if (txAudioOwner_ == ws) {
+            txAudioOwner_ = nullptr;
+            chronoOutstanding_ = 0;
+            if (chronoTimer_) chronoTimer_->stop();
+            if (stream_) stream_->requestMoxFromTci(false);
+        }
+    }
+    if (ws) voiceHold_.remove(ws);
+}
+
+int TciServer::voiceSecondsLeft(qint64 untilMs) const {
+    const qint64 left = untilMs - rateClock_.elapsed();
+    if (left <= 0) return 0;
+    return int((left + 999) / 1000);
+}
+
+QString TciServer::remoteLockText() const {
+    const qint64 now = rateClock_.elapsed();
+    struct Row { QString addr; int min; };
+    QList<Row> rows;
+    for (auto it = voiceGate_.cbegin(); it != voiceGate_.cend(); ++it) {
+        if (it->lockedUntilMs <= now) continue;
+        const int sec = int((it->lockedUntilMs - now + 999) / 1000);
+        rows.append({it.key(), std::max(1, (sec + 59) / 60)});
+    }
+    if (rows.isEmpty()) return {};
+    std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
+        return a.addr < b.addr;
+    });
+    if (rows.size() == 1) {
+        return QStringLiteral("Remote %1 is locked (%2 min left).")
+            .arg(rows.at(0).addr)
+            .arg(rows.at(0).min);
+    }
+    QStringList names;
+    for (const Row &row : rows)
+        names << QStringLiteral("%1 (%2 min left)").arg(row.addr).arg(row.min);
+    return QStringLiteral("Remote addresses locked: %1.")
+        .arg(names.join(QStringLiteral(", ")));
+}
+
+void TciServer::publishVoiceLocks() {
+    const qint64 now = rateClock_.elapsed();
+    for (auto it = voiceGate_.begin(); it != voiceGate_.end(); ) {
+        const bool idle = it->fails == 0 && it->waitUntilMs <= now
+                       && it->lockedUntilMs <= now;
+        const bool expired = it->lockedUntilMs > 0 && it->lockedUntilMs <= now
+                          && it->waitUntilMs <= now;
+        if (idle || expired) it = voiceGate_.erase(it);
+        else ++it;
+    }
+    const QString text = remoteLockText();
+    if (text == lastLockNotice_) return;
+    lastLockNotice_ = text;
+    emit remoteLockChanged(text);
+}
+
+void TciServer::noteVoiceFailure(const QString &peerKey) {
+    VoiceGate gate = voiceGate_.value(peerKey);
+    gate.fails += 1;
+    const qint64 now = rateClock_.elapsed();
+    qInfo("[remote] voice proof failed from %s (%d)",
+          qPrintable(peerKey), gate.fails);
+    if (gate.fails >= Prefs::kRemoteMaxAttempts) {
+        gate.lockedUntilMs = now + qint64(Prefs::kRemoteLockoutSec) * 1000;
+        gate.waitUntilMs = gate.lockedUntilMs;
+        voiceGate_.insert(peerKey, gate);
+        qInfo("[remote] locked %s for 15 min", qPrintable(peerKey));
+        publishVoiceLocks();
+        const int left = voiceSecondsLeft(gate.lockedUntilMs);
+        QTimer::singleShot(std::max(1, left) * 1000, this, [this]() {
+            publishVoiceLocks();
+        });
+        return;
+    }
+    const int idx = std::clamp(gate.fails - 1, 0, 4);
+    gate.waitUntilMs = now + qint64(kVoiceBackoffSec[idx]) * 1000;
+    voiceGate_.insert(peerKey, gate);
+}
+
+void TciServer::handleLyraVoice(QWebSocket *ws, const QString &cmd,
+                                const QStringList &args) {
+    if (!ws) return;
+    const QString peerKey = voicePeerKey(ws);
+    const bool local = voicePeerLocal(ws);
+
+    if (cmd == QLatin1String("LYRA_VOICE_RELEASE")) {
+        dropVoiceHold(ws);
+        sendTo(ws, QStringLiteral("lyra_voice:released"));
+        return;
+    }
+
+    if (cmd == QLatin1String("LYRA_VOICE_TOKEN")) {
+        QByteArray presented;
+        const VoiceHold hold = voiceHold_.value(ws);
+        const bool held = !hold.token.isEmpty()
+                       && voiceHex32(args.value(0), &presented)
+                       && voiceBytesEqual(hold.token, presented);
+        sendTo(ws, held ? QStringLiteral("lyra_voice:held")
+                        : QStringLiteral("lyra_voice:denied"));
+        return;
+    }
+
+    auto sendGranted = [this, ws](const QByteArray &token) {
+        sendTo(ws, QStringLiteral("lyra_voice:granted,%1")
+                       .arg(QString::fromLatin1(token.toHex())));
+    };
+
+    if (cmd == QLatin1String("LYRA_VOICE")) {
+        VoiceHold hold = voiceHold_.value(ws);
+        if (!hold.token.isEmpty()) {
+            sendGranted(hold.token);
+            beginVoiceSession(ws);
+            return;
+        }
+        if (local) {
+            hold.nonce.clear();
+            hold.token = voiceRandom(32);
+            voiceHold_.insert(ws, hold);
+            sendGranted(hold.token);
+            beginVoiceSession(ws);
+            return;
+        }
+        if (!prefs_ || !prefs_->remotePasswordSet()) {
+            sendTo(ws, QStringLiteral("lyra_voice:denied,no_password"));
+            return;
+        }
+        const qint64 now = rateClock_.elapsed();
+        VoiceGate gate = voiceGate_.value(peerKey);
+        if (gate.lockedUntilMs > 0 && now >= gate.lockedUntilMs) {
+            voiceGate_.remove(peerKey);
+            gate = VoiceGate{};
+            publishVoiceLocks();
+        }
+        if (gate.lockedUntilMs > now) {
+            sendTo(ws, QStringLiteral("lyra_voice:locked,%1")
+                           .arg(voiceSecondsLeft(gate.lockedUntilMs)));
+            return;
+        }
+        if (gate.waitUntilMs > now) {
+            sendTo(ws, QStringLiteral("lyra_voice:wait,%1")
+                           .arg(voiceSecondsLeft(gate.waitUntilMs)));
+            return;
+        }
+        if (!hold.nonce.isEmpty()) {
+            QByteArray salt;
+            int iters = 0;
+            prefs_->remotePasswordChallenge(&salt, &iters);
+            sendTo(ws, QStringLiteral("lyra_voice:challenge,%1,%2,%3")
+                           .arg(QString::fromLatin1(hold.nonce.toHex()),
+                                QString::fromLatin1(salt.toBase64()),
+                                QString::number(iters)));
+            return;
+        }
+        hold.nonce = voiceRandom(32);
+        voiceHold_.insert(ws, hold);
+        QByteArray salt;
+        int iters = 0;
+        prefs_->remotePasswordChallenge(&salt, &iters);
+        sendTo(ws, QStringLiteral("lyra_voice:challenge,%1,%2,%3")
+                       .arg(QString::fromLatin1(hold.nonce.toHex()),
+                            QString::fromLatin1(salt.toBase64()),
+                            QString::number(iters)));
+        return;
+    }
+
+    // LYRA_VOICE_PROOF. A missing challenge, a lock, or a wait does
+    // not count as another try and does not key the radio.
+    if (cmd != QLatin1String("LYRA_VOICE_PROOF")) return;
+    if (local) {
+        sendTo(ws, QStringLiteral("lyra_voice:denied"));
+        return;
+    }
+    const qint64 now = rateClock_.elapsed();
+    const VoiceGate gate = voiceGate_.value(peerKey);
+    if (gate.lockedUntilMs > now) {
+        sendTo(ws, QStringLiteral("lyra_voice:locked,%1")
+                       .arg(voiceSecondsLeft(gate.lockedUntilMs)));
+        return;
+    }
+    VoiceHold hold = voiceHold_.value(ws);
+    if (hold.nonce.isEmpty()) {
+        sendTo(ws, QStringLiteral("lyra_voice:denied"));
+        return;
+    }
+    QByteArray mac;
+    const bool wellFormed = voiceHex32(args.value(0), &mac);
+    const bool match = wellFormed && prefs_
+                    && prefs_->remoteVoiceProofMatches(hold.nonce, mac);
+    hold.nonce.clear();
+    if (!match) {
+        voiceHold_.insert(ws, hold);
+        noteVoiceFailure(peerKey);
+        const VoiceGate after = voiceGate_.value(peerKey);
+        if (after.lockedUntilMs > rateClock_.elapsed()) {
+            sendTo(ws, QStringLiteral("lyra_voice:locked,%1")
+                           .arg(voiceSecondsLeft(after.lockedUntilMs)));
+        } else {
+            sendTo(ws, QStringLiteral("lyra_voice:wait,%1")
+                           .arg(voiceSecondsLeft(after.waitUntilMs)));
+        }
+        return;
+    }
+    voiceGate_.remove(peerKey);
+    publishVoiceLocks();
+    hold.token = voiceRandom(32);
+    voiceHold_.insert(ws, hold);
+    sendGranted(hold.token);
+    beginVoiceSession(ws);
 }
 
 void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
@@ -1469,6 +1849,16 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         return;
     }
     if (cmd == QStringLiteral("SET_IN_FOCUS")) return;   // no-op
+
+    // Voice-session proof. Returns without touching TRX, the mic
+    // source, or any receiver command.
+    if (cmd == QLatin1String("LYRA_VOICE")
+        || cmd == QLatin1String("LYRA_VOICE_PROOF")
+        || cmd == QLatin1String("LYRA_VOICE_RELEASE")
+        || cmd == QLatin1String("LYRA_VOICE_TOKEN")) {
+        handleLyraVoice(ws, cmd, args);
+        return;
+    }
 
     // ── Lyra ↔ SDRLogger+ Combo link ─────────────────────────────
     // Inbound from a linked SDRLogger+: the callbook name-back (and, later,
@@ -2013,7 +2403,10 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                 || (prefs_ && prefs_->micSource()
                                   == QStringLiteral("tci"));
             if (wantTciAudio) {
-                if (txAudioOwner_ != nullptr && txAudioOwner_ != ws) {
+                const bool sessionElsewhere =
+                    voiceSessionWs_ && voiceSessionWs_ != ws;
+                if (sessionElsewhere
+                    || (txAudioOwner_ != nullptr && txAudioOwner_ != ws)) {
                     emit statusMessage(QStringLiteral(
                         "TCI: TX-audio acquire denied — another client "
                         "owns TX audio"));
@@ -2026,13 +2419,17 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                     emit statusMessage(QStringLiteral(
                         "TCI: TX-audio ownership ACQUIRED"));
                 }
-                // Auto-flip the operator picker ONLY on the explicit
-                // ",tci" token — bare trx:0,true with operator-set
-                // Mic source=tci already matches, and we don't want
-                // to flip the picker on a generic TCI-client keying
-                // request that didn't specifically ask for TCI audio.
-                if (useTciAudio && prefs_)
+                // A voice session already moved the live microphone.
+                // Do not write "tci" into Settings for that span.
+                if (useTciAudio && prefs_ && !voiceSessionWs_)
                     prefs_->setMicSource(QStringLiteral("tci"));
+            }
+            if (voiceSessionWs_ == ws && txAudioOwner_ == nullptr) {
+                txAudioOwner_ = ws;
+                chronoOutstanding_ = 0;
+                chronoLastInboundMs_ =
+                    QDateTime::currentMSecsSinceEpoch();
+                chronoTimer_->start();
             }
             // R-H2 — diagnostic snapshot + token-agnostic source force.
             //
@@ -2528,12 +2925,23 @@ void TciServer::onSmeterTick() {
         swr = (1.0 + rho) / (1.0 - rho);
         if (swr > 99.0) swr = 99.0;
     }
+    // Fifth field is ALC headroom, the same number the front-panel ALC
+    // meter shows: max(0, TXA_ALC_GAIN + the operator ALC ceiling). It is
+    // only meaningful while keyed. −200 while receiving, so a client that
+    // reads the first four numbers is unchanged.
+    double alc = -200.0;
+    if (engine_ && (stream_->moxActive() || stream_->tuneEnabled())) {
+        const double raw = engine_->txMeterRaw(14);   // TXA_ALC_GAIN
+        if (std::isfinite(raw))
+            alc = std::max(0.0, raw + stream_->alcMaxGainLinear());
+    }
     broadcast(QStringLiteral("tx_sensors"),
-              QStringLiteral("tx_sensors:0,%1,%2,%3,%4")
+              QStringLiteral("tx_sensors:0,%1,%2,%3,%4,%5")
                   .arg(QString::number(mic, 'f', 1))
                   .arg(QString::number(rms, 'f', 1))
                   .arg(QString::number(peak, 'f', 1))
-                  .arg(QString::number(swr, 'f', 1)));
+                  .arg(QString::number(swr, 'f', 1))
+                  .arg(QString::number(alc, 'f', 1)));
 }
 
 } // namespace lyra::ui

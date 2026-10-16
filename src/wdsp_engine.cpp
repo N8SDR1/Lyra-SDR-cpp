@@ -5543,4 +5543,77 @@ void WdspEngine::feedIq(const double *iq, int nframes)
     }
 }
 
+DivExt::~DivExt() {
+    if (!open_ || !wdsp_ || !wdsp_->isLoaded())
+        return;
+    const WdspApi &api = wdsp_->api();
+    if (running_ && api.SetEXTDIVRun)
+        api.SetEXTDIVRun(0, 0);
+    if (api.destroy_divEXT)
+        api.destroy_divEXT(0);
+    open_ = false;
+    running_ = false;
+}
+
+bool DivExt::ensure(WdspNative *wdsp) {
+    if (open_)
+        return true;
+    if (!wdsp || !wdsp->isLoaded())
+        return false;
+    const WdspApi &api = wdsp->api();
+    if (!api.create_divEXT || !api.xdivEXT || !api.SetEXTDIVOutput ||
+        !api.SetEXTDIVRotate || !api.SetEXTDIVRun)
+        return false;
+    api.create_divEXT(0, 0, 2, 128);
+    wdsp_ = wdsp;
+    open_ = true;
+    running_ = false;
+    api.SetEXTDIVOutput(0, 2);
+    applyRotate();
+    return true;
+}
+
+void DivExt::setMix(double gainDb, double phaseDeg) {
+    if (gainDb == gainDb_ && phaseDeg == phaseDeg_)
+        return;
+    gainDb_ = gainDb;
+    phaseDeg_ = phaseDeg;
+    applyRotate();
+}
+
+void DivExt::applyRotate() {
+    const double amp = std::pow(10.0, gainDb_ / 20.0);
+    const double th = phaseDeg_ * 0.017453292519943295;
+    irot_[0] = 1.0;
+    qrot_[0] = 0.0;
+    irot_[1] = amp * std::cos(th);
+    qrot_[1] = amp * std::sin(th);
+    if (open_ && wdsp_ && wdsp_->isLoaded() && wdsp_->api().SetEXTDIVRotate)
+        wdsp_->api().SetEXTDIVRotate(0, 2, irot_, qrot_);
+}
+
+void DivExt::setRunning(bool on) {
+    if (!open_ || !wdsp_ || !wdsp_->isLoaded())
+        return;
+    if (on == running_)
+        return;
+    const WdspApi &api = wdsp_->api();
+    if (on) {
+        api.SetEXTDIVOutput(0, 2);
+        api.SetEXTDIVRotate(0, 2, irot_, qrot_);
+        api.SetEXTDIVRun(0, 1);
+    } else {
+        api.SetEXTDIVRun(0, 0);
+    }
+    running_ = on;
+}
+
+bool DivExt::process(int n, double *s0, double *s1, double *out) {
+    if (!running_ || !wdsp_ || !s0 || !s1 || !out || n <= 0)
+        return false;
+    double *in[2] = {s0, s1};
+    wdsp_->api().xdivEXT(0, n, in, out);
+    return true;
+}
+
 } // namespace lyra::dsp

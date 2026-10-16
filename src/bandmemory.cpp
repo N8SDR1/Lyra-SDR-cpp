@@ -137,21 +137,10 @@ void BandMemory::onFreqChanged() {
         currentBand_ = name;
         if (!name.isEmpty()) applyBand(name);   // restore mode/dB ranges
     }
-    // Remember this band's last frequency so the Band buttons can return
-    // to where you were (see freqFor()).
+    // Remember this band's current stack slot so the Band buttons can
+    // return to where you were (see freqFor() / recallFreq()).
     if (!name.isEmpty())
-        QSettings().setValue(bandMemPfx() + name +
-                             QStringLiteral("/freq"), hz);
-}
-
-int BandMemory::freqFor(const QString &band) const {
-    return QSettings().value(bandMemPfx() + band +
-                             QStringLiteral("/freq"), 0).toInt();
-}
-
-int BandMemory::freqForRx2(const QString &band) const {
-    return QSettings().value(bandMemPfx() + band +
-                             QStringLiteral("/freqRx2"), 0).toInt();
+        writeSlot(name, false, stackIndex(name, false), hz);
 }
 
 void BandMemory::onRx2FreqChanged() {
@@ -164,8 +153,96 @@ void BandMemory::onRx2FreqChanged() {
             applyRx2Scale(name);
     }
     if (!name.isEmpty())
-        QSettings().setValue(bandMemPfx() + name +
-                             QStringLiteral("/freqRx2"), hz);
+        writeSlot(name, true, stackIndex(name, true), hz);
+}
+
+int BandMemory::stackIndex(const QString &band, bool rx2) const {
+    const QString key = rx2 ? QStringLiteral("/stackRx2")
+                            : QStringLiteral("/stack");
+    int i = QSettings().value(bandMemPfx() + band + key, 0).toInt();
+    if (i < 0 || i >= kStackSlots)
+        i = 0;
+    return i;
+}
+
+int BandMemory::slotFreq(const QString &band, bool rx2, int index) const {
+    if (index < 0 || index >= kStackSlots)
+        index = 0;
+    QSettings s;
+    const QString p = bandMemPfx() + band + QLatin1Char('/');
+    const QString key = (rx2 ? QStringLiteral("s%1Rx2") : QStringLiteral("s%1"))
+                            .arg(index);
+    if (s.contains(p + key))
+        return s.value(p + key).toInt();
+    // One stored frequency from before the stack: it is slot 1.
+    if (index == 0) {
+        const QString legacy = rx2 ? QStringLiteral("freqRx2")
+                                   : QStringLiteral("freq");
+        return s.value(p + legacy, 0).toInt();
+    }
+    return 0;
+}
+
+void BandMemory::writeSlot(const QString &band, bool rx2, int index, int hz) {
+    if (band.isEmpty() || hz <= 0)
+        return;
+    if (index < 0 || index >= kStackSlots)
+        index = 0;
+    QSettings s;
+    const QString p = bandMemPfx() + band + QLatin1Char('/');
+    const QString key = (rx2 ? QStringLiteral("s%1Rx2") : QStringLiteral("s%1"))
+                            .arg(index);
+    s.setValue(p + key, hz);
+    // Keep the legacy single-frequency key equal to the current slot so
+    // anything that still reads /freq lands on the same place.
+    if (index == stackIndex(band, rx2)) {
+        s.setValue(p + (rx2 ? QStringLiteral("freqRx2")
+                            : QStringLiteral("freq")), hz);
+    }
+}
+
+int BandMemory::freqFor(const QString &band) const {
+    if (band.isEmpty())
+        return 0;
+    return slotFreq(band, false, stackIndex(band, false));
+}
+
+int BandMemory::freqForRx2(const QString &band) const {
+    if (band.isEmpty())
+        return 0;
+    return slotFreq(band, true, stackIndex(band, true));
+}
+
+int BandMemory::stackSlot(const QString &band) const {
+    return stackIndex(band, false) + 1;
+}
+
+int BandMemory::stackSlotRx2(const QString &band) const {
+    return stackIndex(band, true) + 1;
+}
+
+int BandMemory::recallFreq(const QString &band, int currentHz,
+                           int defaultHz, bool rx2) {
+    if (band.isEmpty())
+        return defaultHz > 0 ? defaultHz : 0;
+    int idx = stackIndex(band, rx2);
+    if (bandNameFor(currentHz) == band) {
+        idx = (idx + 1) % kStackSlots;
+        QSettings().setValue(bandMemPfx() + band +
+                                 (rx2 ? QStringLiteral("/stackRx2")
+                                      : QStringLiteral("/stack")),
+                             idx);
+        ++stackGeneration_;
+        emit stackChanged();
+    }
+    int hz = slotFreq(band, rx2, idx);
+    if (hz <= 0) {
+        const int prev = slotFreq(band, rx2, (idx + kStackSlots - 1) % kStackSlots);
+        hz = prev > 0 ? prev : defaultHz;
+    }
+    if (hz > 0)
+        writeSlot(band, rx2, idx, hz);
+    return hz;
 }
 
 void BandMemory::saveRx2Mode() {

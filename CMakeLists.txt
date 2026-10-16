@@ -18,7 +18,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.25.19
+    VERSION 0.25.21
     DESCRIPTION "Lyra Sheliak — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
@@ -595,6 +595,7 @@ qt_add_qml_module(lyra
         src/qml/TxPanel.qml
         src/qml/PsPanel.qml
         src/qml/AmpViewPanel.qml
+        src/qml/DiversityPanel.qml
         src/qml/EqPanel.qml
         src/qml/RxEqPanel.qml
         src/qml/SpeechPanel.qml
@@ -1079,6 +1080,29 @@ if(MSVC)
     target_compile_options(test_p2_tx_packets PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
+# Diversity D2+D3: packet overlay only. No WDSP, no UI, no socket.
+add_executable(test_div_overlay EXCLUDE_FROM_ALL
+    scratch/test_div_overlay.cpp
+    src/wire/P2Session.h
+    src/wire/P2Session.cpp
+    src/wire/P2TxSafety.h
+    src/wire/P2TxSafety.cpp
+    src/wire/P2TxPackets.h
+    src/wire/P2TxPackets.cpp
+    src/wire/P2TxFifo.h
+    src/wire/P2TxFifo.cpp
+    src/wire/P2TxPump.h
+    src/wire/P2TxPump.cpp
+    src/wire/P2TxWriter.h
+    src/wire/P2TxWriter.cpp
+    scratch/p2_tx_cmaster_test_stubs.cpp
+)
+target_include_directories(test_div_overlay PRIVATE src)
+target_link_libraries(test_div_overlay PRIVATE Qt6::Core Qt6::Network)
+if(MSVC)
+    target_compile_options(test_div_overlay PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
 # #199 OC Control Stage 1 — pure compute() + change-gate unit test.
 # EXCLUDE_FROM_ALL; `cmake --build build --target test_oc_control`.  Links
 # OcControl (Q_OBJECT, AUTOMOC) + bands.cpp (amateurBands() band count) +
@@ -1238,6 +1262,16 @@ add_executable(test_portaudio EXCLUDE_FROM_ALL scratch/test_portaudio.cpp)
 target_link_libraries(test_portaudio PRIVATE portaudio)
 if(MSVC)
     target_compile_options(test_portaudio PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# Diversity D1 — divEXT rotate math against the bundled wdsp.dll.
+# EXCLUDE_FROM_ALL; `cmake --build build --target test_divext`.
+# Loads the DLL itself (no WdspNative, no radio, no wire).
+add_executable(test_divext EXCLUDE_FROM_ALL scratch/test_divext.cpp)
+target_link_libraries(test_divext PRIVATE Qt6::Core)
+set_target_properties(test_divext PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+if(MSVC)
+    target_compile_options(test_divext PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # #50 / #59 — native parametric EQ engine unit test (Lyra-native RBJ

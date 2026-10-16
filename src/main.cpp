@@ -33,6 +33,7 @@
 #include "WaterfallIdController.h"  // #175 waterfall-ID arm/cadence orchestrator
 #include "wire/cmsetup.h"   // P0.d direct port — reference cmsetup.h verbatim
 #include "wire/wdspcalls.h" // P0.a — WDSP call-table resolver (the one approved linkage seam)
+#include "wire/P2TxCmaster.h"
 
 // P0.d — consumer-side declarations for the PORT-exported
 // ChannelMaster functions main.cpp calls.  The reference exports
@@ -1236,6 +1237,7 @@ int main(int argc, char *argv[])
         p.txBandwidth     = prefs->txBandwidth();
         p.bwLocked        = prefs->bwLocked();
         p.filterLow       = prefs->filterLow();
+        p.txFilterLow     = prefs->txFilterLow();
         p.micSource       = prefs->micSource();
         p.micGainDb       = stream->micGainDb();
         p.micBoost        = stream->micBoost();
@@ -1294,6 +1296,8 @@ int main(int argc, char *argv[])
         prefs->setTxBandwidth(p.txBandwidth);
         prefs->setBwLocked(p.bwLocked);
         prefs->setFilterLow(p.filterLow);
+        if (!p.bwLocked)
+            prefs->setTxFilterLow(p.txFilterLow);
         // VAC (#158 / #103) — apply VAC1+VAC2 config BEFORE micSource so
         // the matching engine is live (callback registered) when setMicSource
         // arms use_vac_audio; else a micpc / micpc2 profile would arm the
@@ -1373,6 +1377,7 @@ int main(int argc, char *argv[])
                      &lyra::ui::Prefs::txBandwidthChanged,
                      &lyra::ui::Prefs::bwLockedChanged,
                      &lyra::ui::Prefs::filterLowChanged,
+                     &lyra::ui::Prefs::txFilterLowChanged,
                      &lyra::ui::Prefs::micSourceChanged,
                      &lyra::ui::Prefs::tuneDriveModeChanged,
                      &lyra::ui::Prefs::fixedTuneDrivePctChanged,
@@ -1925,9 +1930,17 @@ int main(int argc, char *argv[])
 
                 stream->registerTxControl(lyra::ipc::HL2Stream::TxControl{
                     .start = [txch]() {
+                        // P2 already keeps this channel running so the DUC
+                        // stream stays primed. A second start on the first
+                        // key is a no-op, and the matching key-up stop
+                        // starves that stream and latches a fault.
+                        if (lyra::wire::p2TxCmasterProducerActive())
+                            return;
                         lyra::wire::SetChannelState(txch, 1, 0);   // arm — non-blocking cos² up-ramp
                     },
                     .stop = [txch]() {
+                        if (lyra::wire::p2TxCmasterProducerActive())
+                            return;
                         lyra::wire::SetChannelState(txch, 0, 1);   // stop — BLOCKING down-ramp flush
                     },
                     .setInjectTxIq = [](bool) {
@@ -2262,10 +2275,8 @@ int main(int argc, char *argv[])
                     pushCtuneFilters();
                 }
 
-                // TX-1 component 8c + Task #53 — operator TX bandpass.
-                // The TX BW combo (high edge = Prefs.txBandwidth) + the
-                // shared low edge (Prefs.filterLow) drive the WDSP TXA
-                // bandpass via setTxBandpass -> TxControl.setBandpass.
+                // TX bandpass.  High edge = Prefs.txBandwidth, low edge =
+                // Prefs.txFilterLow.  setTxBandpass feeds TxControl.
                 // Without this the TX filter is stuck at the channel's
                 // create-time default (~200..3100 Hz ≈ "3K") no matter
                 // what the operator picks — wire BOTH edges live AND push
@@ -2273,12 +2284,12 @@ int main(int argc, char *argv[])
                 // operator's high edge wins over the 3100 default the
                 // mode push re-signed).
                 auto pushTxBandpass = [stream, prefs]() {
-                    stream->setTxBandpass(prefs->filterLow(),
+                    stream->setTxBandpass(prefs->txFilterLow(),
                                           prefs->txBandwidth());
                 };
                 QObject::connect(prefs, &lyra::ui::Prefs::txBandwidthChanged,
                                  stream, pushTxBandpass);
-                QObject::connect(prefs, &lyra::ui::Prefs::filterLowChanged,
+                QObject::connect(prefs, &lyra::ui::Prefs::txFilterLowChanged,
                                  stream, pushTxBandpass);
                 pushTxBandpass();
             }

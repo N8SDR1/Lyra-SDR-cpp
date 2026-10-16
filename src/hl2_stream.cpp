@@ -276,6 +276,10 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     autoLnaTimer_.setInterval(kAutoLnaPeriodMs);
     connect(&autoLnaTimer_, &QTimer::timeout,
             this, &HL2Stream::onAutoLnaTick);
+    ioboardSettleTimer_.setSingleShot(true);
+    ioboardSettleTimer_.setInterval(50);
+    connect(&ioboardSettleTimer_, &QTimer::timeout,
+            this, &HL2Stream::onIoboardSettle);
     // Stage 2b2-fix-v2 — HW-PTT-in poll timer (Qt main thread).
     // 50 ms cadence (20 Hz) — fast enough that foot-switch
     // press-to-key feels instantaneous, slow enough that the
@@ -335,6 +339,50 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     subEnabled_.store(
         QSettings().value(QStringLiteral("rx/subEnabled"), false).toBool(),
         std::memory_order_relaxed);
+    diversityArmed_.store(
+        QSettings().value(QStringLiteral("diversity/enabled"), false).toBool(),
+        std::memory_order_relaxed);
+    diversityGainDb_ = std::clamp(
+        QSettings().value(QStringLiteral("diversity/gain_db"), 0.0).toDouble(),
+        -27.0, 27.0);
+    diversityPhaseDeg_ = std::clamp(
+        QSettings().value(QStringLiteral("diversity/phase_deg"), 0.0).toDouble(),
+        -180.0, 180.0);
+    // One pair per band.  The single pair saved before this existed
+    // belongs to whatever band RX1 is on at this launch.  Later bands
+    // with no saved pair come up at 0 dB / 0°.
+    diversityBand_ = diversityBandName();
+    {
+        QSettings s;
+        const QString gk = diversityBandGainKey(diversityBand_);
+        const QString pk = diversityBandPhaseKey(diversityBand_);
+        const bool perBand = s.value(
+            QStringLiteral("diversity/perBand"), false).toBool();
+        if (s.contains(gk) || s.contains(pk)) {
+            diversityGainDb_ = std::clamp(s.value(gk, 0.0).toDouble(),
+                                          -27.0, 27.0);
+            diversityPhaseDeg_ = std::clamp(s.value(pk, 0.0).toDouble(),
+                                            -180.0, 180.0);
+            s.setValue(QStringLiteral("diversity/perBand"), true);
+        } else if (!perBand) {
+            s.setValue(gk, diversityGainDb_);
+            s.setValue(pk, diversityPhaseDeg_);
+            s.setValue(QStringLiteral("diversity/perBand"), true);
+        } else {
+            diversityGainDb_ = 0.0;
+            diversityPhaseDeg_ = 0.0;
+            s.setValue(QStringLiteral("diversity/gain_db"), 0.0);
+            s.setValue(QStringLiteral("diversity/phase_deg"), 0.0);
+        }
+    }
+    // One mix or two receivers.  A saved pair that has both on keeps
+    // diversity and drops SUB.  Do not turn SUB back on when diversity
+    // is later switched off.
+    if (diversityArmed_.load(std::memory_order_relaxed)
+        && subEnabled_.load(std::memory_order_relaxed)) {
+        subEnabled_.store(false, std::memory_order_relaxed);
+        QSettings().setValue(QStringLiteral("rx/subEnabled"), false);
+    }
     rx2FreqHz_.store(
         QSettings().value(QStringLiteral("rx/rx2FreqHz"), persistedRxHz).toUInt(),
         std::memory_order_relaxed);
@@ -1412,8 +1460,6 @@ void HL2Stream::open(const QString &ip) {
             txFreqHz_.load(std::memory_order_relaxed));
         lyra::wire::set_tx_freq(            // TX NCO + DDC2/3 mirror (case 1/5/6)
             ddsHzForRf(static_cast<quint32>(txRfTune < 0 ? 0 : txRfTune)));
-        lastIoboardTxHz_.store(~quint64{0}, std::memory_order_relaxed);
-        lastIoboardBand_.store(-1, std::memory_order_relaxed);
         pushIoboardTxFreq(true);
         lyra::wire::set_rx_step_attn_db(    // LNA gain (case 11 !XmitBit)
             std::clamp(lnaGainDb_.load(std::memory_order_relaxed),
@@ -1736,6 +1782,8 @@ void HL2Stream::close() {
     }
 
     statsTimer_.stop();
+    ioboardSettleTimer_.stop();
+    ++ioboardEpoch_;
     autoLnaTimer_.stop();
     hwPttTimer_.stop();   // Stage 2b2-fix-v2 — HW-PTT poll
     if (adcOverloadTier_) { adcOverloadTier_ = 0; emit adcOverloadChanged(); }
@@ -2031,7 +2079,13 @@ void HL2Stream::setRx1FreqHz(quint32 hz) {
         emit rx1FreqChanged();
         emit logLine(QStringLiteral("RX1 -> %1 Hz (%2 MHz)")
                      .arg(hz).arg(hz / 1.0e6, 0, 'f', 6));
+        syncDiversityToRxBand();
         updateOcPattern();
+    } else if (!splitEnabled_.load(std::memory_order_relaxed)) {
+        // Same dial Hz (band chip re-selected, stack slot unchanged).
+        // Still write analog: a missed latch otherwise stays on the
+        // previous band's voltage until some other frequency is chosen.
+        pushIoboardTxFreq();
     }
 }
 
@@ -2366,6 +2420,8 @@ void HL2Stream::stopTxForBlockedJump() {
 }
 
 void HL2Stream::setSubEnabled(bool on) {
+    if (on && diversityArmed_.load(std::memory_order_relaxed))
+        setDiversityArmed(false);
     const bool prev = subEnabled_.exchange(on, std::memory_order_relaxed);
     if (prev == on)
         return;
@@ -2389,6 +2445,95 @@ void HL2Stream::setSubEnabled(bool on) {
     emit logLine(QStringLiteral("SUB %1")
                      .arg(on ? QStringLiteral("on") : QStringLiteral("off")));
     pushEffectiveRxFreq();
+}
+
+void HL2Stream::setDiversityCapable(bool on) {
+    const bool prev = diversityCapable_.exchange(on, std::memory_order_relaxed);
+    if (prev == on)
+        return;
+    emit diversityCapableChanged();
+}
+
+void HL2Stream::setDiversityArmed(bool on) {
+    if (on && !diversityCapable_.load(std::memory_order_relaxed))
+        return;
+    const bool prev = diversityArmed_.load(std::memory_order_relaxed);
+    if (prev == on)
+        return;
+    if (on && subEnabled_.load(std::memory_order_relaxed)) {
+        subEnabled_.store(false, std::memory_order_relaxed);
+        QSettings().setValue(QStringLiteral("rx/subEnabled"), false);
+        emit subEnabledChanged();
+        emit logLine(QStringLiteral("SUB off — diversity is on"));
+    }
+    diversityArmed_.store(on, std::memory_order_relaxed);
+    QSettings().setValue(QStringLiteral("diversity/enabled"), on);
+    emit diversityArmedChanged(on);
+    emit logLine(on ? QStringLiteral("Diversity on")
+                    : QStringLiteral("Diversity off"));
+}
+
+void HL2Stream::setDiversityGainDb(double db) {
+    db = std::clamp(db, -27.0, 27.0);
+    // Finer than the 0.05 dB step. A deadband of 0.05 would swallow
+    // that step when the subtraction lands just under the threshold.
+    if (std::abs(diversityGainDb_ - db) < 1e-4)
+        return;
+    diversityGainDb_ = db;
+    persistLiveDiversity();
+    emit diversityGainDbChanged();
+}
+
+void HL2Stream::setDiversityPhaseDeg(double deg) {
+    deg = std::clamp(deg, -180.0, 180.0);
+    if (std::abs(diversityPhaseDeg_ - deg) < 1e-4)
+        return;
+    diversityPhaseDeg_ = deg;
+    persistLiveDiversity();
+    emit diversityPhaseDegChanged();
+}
+
+QString HL2Stream::diversityBandName() const {
+    const QString name = lyra::ui::BandMemory::bandNameFor(
+        static_cast<int>(rx1FreqHz_.load(std::memory_order_relaxed)));
+    return name.isEmpty() ? QStringLiteral("other") : name;
+}
+
+QString HL2Stream::diversityBandGainKey(const QString &band) {
+    return QStringLiteral("diversity/band/%1/gain_db").arg(band);
+}
+
+QString HL2Stream::diversityBandPhaseKey(const QString &band) {
+    return QStringLiteral("diversity/band/%1/phase_deg").arg(band);
+}
+
+void HL2Stream::persistLiveDiversity() {
+    QSettings s;
+    s.setValue(QStringLiteral("diversity/gain_db"), diversityGainDb_);
+    s.setValue(QStringLiteral("diversity/phase_deg"), diversityPhaseDeg_);
+    if (diversityBand_.isEmpty())
+        return;
+    s.setValue(diversityBandGainKey(diversityBand_), diversityGainDb_);
+    s.setValue(diversityBandPhaseKey(diversityBand_), diversityPhaseDeg_);
+}
+
+void HL2Stream::syncDiversityToRxBand() {
+    const QString band = diversityBandName();
+    if (band == diversityBand_)
+        return;
+    persistLiveDiversity();
+    diversityBand_ = band;
+    QSettings s;
+    const QString gk = diversityBandGainKey(band);
+    const QString pk = diversityBandPhaseKey(band);
+    const double gain = (s.contains(gk) || s.contains(pk))
+        ? std::clamp(s.value(gk, 0.0).toDouble(), -27.0, 27.0)
+        : 0.0;
+    const double phase = (s.contains(gk) || s.contains(pk))
+        ? std::clamp(s.value(pk, 0.0).toDouble(), -180.0, 180.0)
+        : 0.0;
+    setDiversityGainDb(gain);
+    setDiversityPhaseDeg(phase);
 }
 
 void HL2Stream::setDualAdc(bool on) {
@@ -2803,11 +2948,8 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
 void HL2Stream::setP2DrivePath(bool on) {
     const bool was = p2DrivePath_.exchange(on, std::memory_order_relaxed);
     applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
-    if (was && !on) {
-        lastIoboardTxHz_.store(~quint64{0}, std::memory_order_relaxed);
-        lastIoboardBand_.store(-1, std::memory_order_relaxed);
+    if (was && !on)
         pushIoboardTxFreq(true);
-    }
 }
 
 QString HL2Stream::txCalKey_(const QString &logical) const {
@@ -2888,41 +3030,39 @@ void HL2Stream::loadTxPowerCal_() {
 }
 
 void HL2Stream::pushIoboardTxFreq(bool force) {
-    // Protocol 1 only.  Analog is independent of the N2ADR OC checkbox:
-    // I2C2 slave 0x1D (five TX-Hz bytes) whether filters are on.
+    // Protocol 1 only.  Analog is I2C2 slave 0x1D, five TX-Hz bytes,
+    // whether or not the OC filter checkbox is on.
+    (void)force;
+    if (p2DrivePath_.load(std::memory_order_relaxed))
+        return;
+    // Restart the settle window.  The bytes go out from onIoboardSettle,
+    // after this call and the rest of the band-change (mode, OC) have
+    // returned — not while that setup is still running.
+    ++ioboardEpoch_;
+    ioboardSettleTimer_.start();
+}
+
+void HL2Stream::onIoboardSettle() {
     if (p2DrivePath_.load(std::memory_order_relaxed))
         return;
     const quint64 hz = txFreqHz_.load(std::memory_order_relaxed);
-    // Always latch the wanted Hz first.  The EP2 writer retries the
-    // five-byte 0x1D burst until BYTE0 is on the wire.  Marking the
-    // burst "done" at enqueue left pin 8 on the previous band (80 m
-    // stuck through a 20 m click) when the Pico had not yet latched.
+    const int epoch = ioboardEpoch_;
     lyra::wire::request_hl2_ioboard_tx_freq(hz);
-    const quint64 onWire = lyra::wire::hl2_ioboard_tx_freq_on_wire();
-    const quint64 last = lastIoboardTxHz_.load(std::memory_order_relaxed);
-    const int band = lyra::paPowerBandIndexForFreq(
-        static_cast<int>(qMin(hz, quint64(std::numeric_limits<int>::max()))));
-    const int lastBand = lastIoboardBand_.load(std::memory_order_relaxed);
-    const qint64 now = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::steady_clock::now().time_since_epoch())
-                           .count();
-    const bool bandChanged = (onWire == ~quint64{0}) || band != lastBand;
-    const bool latched = (onWire == hz);
-    const bool due =
-        (now - lastIoboardTxMs_.load(std::memory_order_relaxed)) >= 500;
-    // Analog is band-shaped.  Same-band VFO ticks coalesce to 0.5 s so
-    // the I2C steal cannot starve C&C.  Cross-band always tries now.
-    // Coalesce on BYTE0-on-wire, not enqueue-success (#17 / 0.25.18:
-    // last=hz at enqueue hid a failed Pico latch — stuck on 20 m).
-    if (!force && latched && !bandChanged && !due)
-        return;
-    if (!force && !latched && hz == last && !bandChanged && !due)
-        return;
-    if (!lyra::wire::enqueue_hl2_ioboard_tx_freq(hz))
-        return;
-    lastIoboardTxHz_.store(hz, std::memory_order_relaxed);
-    lastIoboardBand_.store(band, std::memory_order_relaxed);
-    lastIoboardTxMs_.store(now, std::memory_order_relaxed);
+    lyra::wire::enqueue_hl2_ioboard_tx_freq(hz);
+    // Second copy.  BYTE0 on the wire is not a Pico latch.  One missed
+    // burst used to stick the previous band until a different frequency
+    // was written.  A newer band click bumps ioboardEpoch_ and this
+    // copy is dropped.
+    QTimer::singleShot(80, this, [this, hz, epoch]() {
+        if (ioboardEpoch_ != epoch)
+            return;
+        if (p2DrivePath_.load(std::memory_order_relaxed))
+            return;
+        if (txFreqHz_.load(std::memory_order_relaxed) != hz)
+            return;
+        lyra::wire::request_hl2_ioboard_tx_freq(hz);
+        lyra::wire::enqueue_hl2_ioboard_tx_freq(hz);
+    });
 }
 
 double HL2Stream::paGainForBand(int idx) const {
@@ -4537,6 +4677,17 @@ void HL2Stream::setLevelerOn(bool on) {
     if (fwd) fwd(on, topLinear);
 }
 
+void HL2Stream::pushLevelerRun(bool on) {
+    std::function<void(bool,double)> fwd;
+    double topLinear;
+    {
+        std::lock_guard<std::mutex> lk(txControlMtx_);
+        fwd = txControl_.setLevelerOn;
+        topLinear = levelerMaxGainLinear_;
+    }
+    if (fwd) fwd(on, topLinear);
+}
+
 // #109 — compute the EFFECTIVE PHROT run state and push it to the WDSP
 // TX channel.  Phase rotation is a voice-only trick — it distorts digital
 // waveforms (FT8/FT4/RTTY/etc.) — so the WDSP run state is the operator's
@@ -5309,7 +5460,7 @@ void HL2Stream::setTxMode(int wdspMode) {
 // TxChannel internally sign-codes per the current WDSP mode (USB
 // pass-through, LSB negate-and-swap), so we always pass positive
 // edges.  Both edges are pulled from Prefs at the call site:
-//   low  = Prefs.filterLow   (shared with the RX bandpass; Task #53)
+//   low  = Prefs.txFilterLow
 //   high = Prefs.txBandwidth (per-mode TX BW combo; component 8c)
 // No-op if high<=0 or low<0 or low>=high (defence — Prefs clamps
 // both sides into sane ranges but the safety check is cheap).

@@ -147,6 +147,13 @@ class HL2Stream : public QObject {
     // True when the selected radio (or the live connection) has two
     // converters. The second spectrum follows this and subEnabled.
     Q_PROPERTY(bool    dualAdc READ dualAdc NOTIFY dualAdcChanged)
+    // Diversity: two converters, one carrier, mixed into RX1.  The chip
+    // is absent unless capable.  Armed is the operator preference; the
+    // wire overlay drops itself while transmitting or PureSignal is live.
+    Q_PROPERTY(bool   diversityCapable READ diversityCapable NOTIFY diversityCapableChanged)
+    Q_PROPERTY(bool   diversityArmed READ diversityArmed WRITE setDiversityArmed NOTIFY diversityArmedChanged)
+    Q_PROPERTY(double diversityGainDb READ diversityGainDb WRITE setDiversityGainDb NOTIFY diversityGainDbChanged)
+    Q_PROPERTY(double diversityPhaseDeg READ diversityPhaseDeg WRITE setDiversityPhaseDeg NOTIFY diversityPhaseDegChanged)
     Q_PROPERTY(quint32 rx2FreqHz  READ rx2FreqHz  WRITE setRx2FreqHz  NOTIFY rx2FreqChanged)
     Q_PROPERTY(int     focusedRx  READ focusedRx  WRITE setFocusedRx  NOTIFY focusedRxChanged)
     // RIT (RX incremental tuning) + XIT (TX incremental tuning) — signed
@@ -796,6 +803,10 @@ public:
     quint32 vfoBHz()            const { return vfoBHz_.load(std::memory_order_relaxed); }
     bool    subEnabled()        const { return subEnabled_.load(std::memory_order_relaxed); }
     bool    dualAdc()           const { return dualAdc_.load(std::memory_order_relaxed); }
+    bool    diversityCapable()  const { return diversityCapable_.load(std::memory_order_relaxed); }
+    bool    diversityArmed()    const { return diversityArmed_.load(std::memory_order_relaxed); }
+    double  diversityGainDb()   const { return diversityGainDb_; }
+    double  diversityPhaseDeg() const { return diversityPhaseDeg_; }
     quint32 rx2FreqHz()         const { return rx2FreqHz_.load(std::memory_order_relaxed); }
     int     focusedRx()         const { return focusedRx_.load(std::memory_order_relaxed); }
     // Effective TX carrier the wire NCO is set to (0x02/0x08/0x0a).  Tracks
@@ -1289,6 +1300,10 @@ public slots:
     void setVfoBHz(quint32 hz);
     void setSubEnabled(bool on);
     void setDualAdc(bool on);
+    void setDiversityCapable(bool on);
+    void setDiversityArmed(bool on);
+    void setDiversityGainDb(double db);
+    void setDiversityPhaseDeg(double deg);
     void refreshDualAdcFromSettings();
     void setRx2FreqHz(quint32 hz);
     void setFocusedRx(int rx);
@@ -1518,6 +1533,9 @@ public slots:
     // and forwards to the registered TxControl callback.
     void setAlcDecayMs(int decay_ms);
     void setLevelerOn(bool on);
+    // Live run flag only. The desk checkbox and tx/levelerOn stay put,
+    // so a crash still comes up on the saved profile.
+    void pushLevelerRun(bool on);
     void setLevelerMaxGainLinear(double linear);
     void setLevelerDecayMs(int decay_ms);
     void setPhrotEnabled(bool on);   // #109 phase rotator on/off
@@ -1645,13 +1663,11 @@ public slots:
     // txAnalyzerOffsetChanged → WdspEngine::setTxAnalyzerOffsetHz.
     int txAnalyzerOffsetHz() const;
 
-    // TX-1 component 8c / Task #53 — operator TX bandpass.  Forwards
-    // (low, high) Hz straight to TxControl.setBandpass.  Pulled
-    // through from Prefs.filterLow (shared with the RX bandpass) +
-    // Prefs.txBandwidth — see the QObject::connect block in
-    // main.cpp.  TxChannel internally sign-codes per WDSP mode
-    // (USB pass-through, LSB negate-and-swap), so we always pass
-    // positive edges.  No-op if hz<=0 or no TxControl registered.
+    // Operator TX bandpass.  Forwards (low, high) Hz straight to
+    // TxControl.setBandpass.  Low comes from Prefs.txFilterLow, high
+    // from Prefs.txBandwidth — see the connect block in main.cpp.
+    // The channel sign-codes the edges (USB pass-through, LSB
+    // negate-and-swap), so we always pass positive edges.
     void setTxBandpass(int lowHz, int highHz);
     void setTxStopDelayMs(int ms);
 
@@ -1686,6 +1702,10 @@ signals:
     void vfoBHzChanged();
     void subEnabledChanged();
     void dualAdcChanged();
+    void diversityCapableChanged();
+    void diversityArmedChanged(bool on);
+    void diversityGainDbChanged();
+    void diversityPhaseDegChanged();
     void rx2FreqChanged();
     void focusedRxChanged();
     void ritChanged();   // RIT enable and/or offset
@@ -1852,6 +1872,8 @@ signals:
 private slots:
     void onStatsTick();
     void onAutoLnaTick();
+    // P1 analog TX-Hz burst, after the band-change call has returned.
+    void onIoboardSettle();
     // Stage 2b2-fix-v2 — HW-PTT-in poll slot (Qt main thread,
     // ~20 Hz).  Reads `lyra::wire::prn->ptt_in` level, edge-
     // detects, fires requestMoxFromHwPtt() on transitions.
@@ -1967,9 +1989,10 @@ private:
     // on, else VFO A (rx1).  The SINGLE TX-freq writer for split paths so
     // PureSignal's feedback DDCs (which read tx[0].frequency) follow it.
     void pushEffectiveTxFreq();
-    // HL2 / HL2+ P1 only: enqueue five I2C writes to Pico 0x1D (TX RF Hz,
-    // BYTE0 last) when the N2ADR/IO-board checkbox is on.  Skipped on
-    // Protocol 2 (Brick / ANAN).  force=true resends after enable / P1 return.
+    // HL2 / HL2+ P1 only: schedule the five I2C2 0x1D TX-Hz bytes.
+    // The burst waits until this call returns (mode, OC, filter setup),
+    // then is written twice.  Skipped on Protocol 2.  force is accepted
+    // so startup / P1-return call sites stay source-compatible.
     void pushIoboardTxFreq(bool force = false);
     // Writes the RX DDC NCOs from rx1FreqHz_ + (ritEnabled ? ritOffsetHz : 0)
     // — the single RX-NCO writer, mirror of pushEffectiveTxFreq.  Called by
@@ -2213,6 +2236,14 @@ private:
     std::atomic<quint32> vfoBHz_{7074000};
     std::atomic<bool>    subEnabled_{false};
     std::atomic<bool>    dualAdc_{false};
+    std::atomic<bool>    diversityCapable_{false};
+    std::atomic<bool>    diversityArmed_{false};
+    double               diversityGainDb_{0.0};
+    double               diversityPhaseDeg_{0.0};
+    // Band the live pair belongs to.  A null on one band is the wrong
+    // phase on the next (spacing versus wavelength), so each band keeps
+    // its own pair.  Empty until the ctor names the restored RX1 band.
+    QString              diversityBand_;
     std::atomic<quint32> rx2FreqHz_{7074000};
     int lastSubWarnBandA_{-1};
     int lastSubWarnBandB_{-1};
@@ -2290,10 +2321,12 @@ private:
     // Last TX band applyTxPower_ ran for — so a freq dial tick only
     // re-applies the power when the band (gbb) actually changed.
     std::atomic<int>     lastTxBand_{-2};
-    // Last IO-board 0x1D TX-Hz enqueue (RF, not DDS).  ~0 = never sent / force.
-    std::atomic<quint64> lastIoboardTxHz_{~quint64{0}};
-    std::atomic<int>     lastIoboardBand_{-1};
-    std::atomic<qint64>  lastIoboardTxMs_{0};
+    // Analog TX-Hz debounce.  A band click used to enqueue 0x1D while
+    // OC / mode setup was still running, then treat BYTE0-on-the-wire
+    // as latched.  A missed Pico latch stuck the previous band's voltage
+    // until some other frequency was written (#17).
+    QTimer               ioboardSettleTimer_;
+    int                  ioboardEpoch_ = 0;
     std::atomic<int>     txStepAttnDb_{0};      // 0..31 dB; 0x1C C3 (31-db)
     std::atomic<int>     txMode_{1};            // 0=LSB 1=USB; mirror of the WDSP TXA mode, for the TUN DDS-offset sign (txDdsHzForTune)
     std::atomic<bool>    psUiDigital_{false};   // focused RX DIG/DRM/CW/FM lock-out
@@ -2323,6 +2356,14 @@ private:
     QString psTxAttBandKey() const;
     QString psTxAttSettingsKey(const QString &band) const;
     void persistPsTxAtt(int db);
+
+    // Diversity pair follows the RX1 band.  A band with no saved pair
+    // is 0 dB / 0°.  The on/off switch stays one radio-wide setting.
+    QString diversityBandName() const;
+    static QString diversityBandGainKey(const QString &band);
+    static QString diversityBandPhaseKey(const QString &band);
+    void persistLiveDiversity();
+    void syncDiversityToRxBand();
 
     // Task #36 — Hardware PTT input forwarder.
     //

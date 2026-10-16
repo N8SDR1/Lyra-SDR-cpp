@@ -22,11 +22,14 @@
 
 #pragma once
 
+#include <QByteArray>
 #include <QElapsedTimer>
 #include <QHash>
+#include <QHostAddress>
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <QStringList>
 
 #include <cstdint>
 #include <vector>
@@ -99,6 +102,9 @@ public:
     void setCwMacros(CwMacroModel *m);
     bool comboEnabled() const { return comboEnabled_; }
     void setComboEnabled(bool on);   // persist + announce lyra_combo:on/off
+    // Names any address currently locked out of a voice-session proof.
+    // Empty when none are locked.
+    QString remoteLockText() const;
 
     // TX-rip Phase 1 (Q2): setTciMicSource / setTxDspWorker removed
     // here and at main.cpp.  Inbound TCI TX_AUDIO_STREAM frames are
@@ -109,6 +115,9 @@ signals:
     void runningChanged();
     void clientCountChanged(int n);
     void statusMessage(const QString &msg);
+    // Empty when no address is locked. Otherwise names the locked
+    // address. Does not carry a password, a proof, or a token.
+    void remoteLockChanged(const QString &text);
     // Lyra is RX-only and the TCI server can't reach the connect flow
     // directly; MainWindow wires these to its Start/Stop handler.
     void startRequested();
@@ -399,6 +408,41 @@ private:
     QTimer                *rlFlushTimer_ = nullptr;
     QHash<QString, QString> soft_;
     QElapsedTimer          rateClock_;
+
+    // Voice-session proof. Memory only. A token is bound to one socket.
+    // An address lock survives that socket closing. Receiver commands
+    // and localhost keying do not pass through this state.
+    struct VoiceHold {
+        QByteArray nonce;
+        QByteArray token;
+    };
+    struct VoiceGate {
+        int    fails = 0;
+        qint64 waitUntilMs = 0;
+        qint64 lockedUntilMs = 0;
+    };
+    QHash<QWebSocket *, VoiceHold> voiceHold_;
+    QHash<QString, VoiceGate>      voiceGate_;
+    // One voice owner. Live mic / rack / leveler for that socket only.
+    // Key and unkey do not clear it. Settings are not rewritten.
+    QPointer<QWebSocket>           voiceSessionWs_;
+    bool                           voiceLive_ = false;
+    bool                           voiceLevelerParked_ = false;
+    QString                        lastLockNotice_;
+
+    void handleLyraVoice(QWebSocket *ws, const QString &cmd,
+                         const QStringList &args);
+    QHostAddress voicePeer(const QWebSocket *ws) const;
+    QString voicePeerKey(const QWebSocket *ws) const;
+    bool voicePeerLocal(const QWebSocket *ws) const;
+    void dropVoiceHold(QWebSocket *ws);
+    void beginVoiceSession(QWebSocket *ws);
+    void applyVoiceLive();
+    void restoreVoiceLive();
+    bool voiceModeBlocksSession() const;
+    void noteVoiceFailure(const QString &peerKey);
+    void publishVoiceLocks();
+    int voiceSecondsLeft(qint64 untilMs) const;
 };
 
 } // namespace lyra::ui

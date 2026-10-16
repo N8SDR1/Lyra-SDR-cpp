@@ -50,17 +50,17 @@ Rectangle {
     // Shift+click or right-click = SUB (turns SUB on, keeps A focus).
     function tuneRx1(key, defaultHz) {
         Gen.deactivate()
-        var f = BandMemory.freqFor(key)
+        var f = BandMemory.recallFreq(key, Stream.rx1FreqHz, defaultHz, false)
         Stream.setRx1FreqHz(f > 0 ? f : defaultHz)
     }
     function tuneSub(key, defaultHz) {
-        var f = BandMemory.freqForRx2(key)
+        var f = BandMemory.recallFreq(key, Stream.rx2FreqHz, defaultHz, true)
         Stream.setRx2FreqHz(f > 0 ? f : defaultHz)
         Stream.setSubEnabled(true)
         BandMemory.applyRx2Band(key)
     }
     function tuneVfoB(key, defaultHz) {
-        var f = BandMemory.freqFor(key)
+        var f = BandMemory.recallFreq(key, Stream.vfoBHz, defaultHz, false)
         Stream.setVfoBHz(f > 0 ? f : defaultHz)
     }
     function goBand(key, defaultHz, forceSub) {
@@ -102,10 +102,28 @@ Rectangle {
 
     // Shared flat-chip button (same look across all three rows).  Active
     // colours default to the amateur red-glow; GEN overrides them to cyan.
+    readonly property string bandTip:
+        qsTr("Click: VFO A (or SUB if TUNE B)\n"
+           + "Click again on this band: next stored frequency (1 / 2 / 3)\n"
+           + "Shift+click / right-click: SUB")
+
     component ChipButton : Button {
         id: cb
         property bool chipActive: false
         property bool chipSub: false     // SUB parked on this band (green)
+        property string bandKey: ""
+        // 1..3 on the chip that owns a stack.  Reading stackGeneration makes
+        // the mark refresh when a second click advances the slot.
+        readonly property int stackMark: {
+            var g = BandMemory.stackGeneration
+            if (!bandKey || g < 0)
+                return 0
+            if (chipActive)
+                return BandMemory.stackSlot(bandKey)
+            if (chipSub)
+                return BandMemory.stackSlotRx2(bandKey)
+            return 0
+        }
         property color activeFill:   "#260808"
         property color activeBorder: "#ff3344"
         property color activeText:   "#ffcc88"
@@ -123,6 +141,17 @@ Rectangle {
                           ? (cb.chipSub ? "#34c759" : cb.activeBorder)
                           : (cb.chipSub ? "#34c759"
                              : (cb.hovered ? "#8fdcff" : "#5ec8ff"))
+            Text {
+                visible: cb.stackMark > 0
+                text: cb.stackMark
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.rightMargin: 2
+                anchors.bottomMargin: 0
+                font.pixelSize: 8
+                font.bold: true
+                color: cb.chipActive ? "#ffcc88" : "#88ffcc"
+            }
         }
         contentItem: Text {
             text: cb.text
@@ -162,11 +191,11 @@ Rectangle {
                     required property var modelData
                     required property int index
                     text: modelData.name
+                    bandKey: modelData.name
                     chipActive: index === root.activeBand
                     chipSub: Stream.subEnabled && index === root.activeBandRx2
                     ToolTip.visible: hovered && Prefs.tooltipsEnabled
-                    ToolTip.text: qsTr("Click: VFO A (or SUB if TUNE B)\n"
-                                     + "Shift+click / right-click: SUB")
+                    ToolTip.text: root.bandTip
                     onClicked: root.goBand(modelData.name, modelData.hz, false)
                     MouseArea {
                         anchors.fill: parent
@@ -212,11 +241,11 @@ Rectangle {
                     required property int index
                     visible: Prefs.cbBandEnabled
                     text: modelData.name
+                    bandKey: "cb_" + modelData.name
                     chipActive: index === root.activeCb
                     chipSub: Stream.subEnabled && index === root.activeCbRx2
                     ToolTip.visible: hovered && Prefs.tooltipsEnabled
-                    ToolTip.text: qsTr("Click: VFO A (or SUB if TUNE B)\n"
-                                     + "Shift+click / right-click: SUB")
+                    ToolTip.text: root.bandTip
                     onClicked: root.goBand("cb_" + modelData.name,
                                            modelData.hz, false)
                     MouseArea {
@@ -257,11 +286,11 @@ Rectangle {
                     required property var modelData
                     required property int index
                     text: modelData.name
+                    bandKey: "bc_" + modelData.name
                     chipActive: index === root.activeBc
                     chipSub: Stream.subEnabled && index === root.activeBcRx2
                     ToolTip.visible: hovered && Prefs.tooltipsEnabled
-                    ToolTip.text: qsTr("Click: VFO A (or SUB if TUNE B)\n"
-                                     + "Shift+click / right-click: SUB")
+                    ToolTip.text: root.bandTip
                     onClicked: root.goBand("bc_" + modelData.name,
                                            modelData.hz, false)
                     MouseArea {

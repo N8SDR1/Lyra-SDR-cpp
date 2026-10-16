@@ -184,16 +184,11 @@ actually jumpered to the **fan header**. 0 V on J3 with that box off is
 expected when J3 is GND. Protocol 2 Brick/ANAN do not use the Pico 0x1D
 path.
 
-**Analog stuck on 20 m / no voltage change after 0.25.18.**
-v0.25.18 collapsed the I2C gap on analog BYTE4..BYTE1 (`delay=0`).
-Two 0x1D writes then rode one UDP datagram; Pico `n2adr_basic`
-missed the BYTE0 latch, so J4 stayed on leftover PWM (often 20 m)
-with **no** change on band clicks. **v0.25.19** restores the
-Thetis/Quisk **delay=5** between every analog byte, still drops a
-leftover 0x1D burst before a new Hz, and only coalesces when BYTE0
-is actually on the wire. Install 0.25.19 and recheck **J4 pin 8**
-on 160 → 80 → 20 → 15. Leave **HL2 Band Volts on J3** off unless
-the amp is on the fan header.
+**Filter board stuck on the previous band.**
+Install **v0.25.20**. The voltage is written after the band change
+finishes, and a return to a band already showing on the dial is written
+again. Stock PWM is **J4 pin 8**. Leave **Band Volts on J3** off unless
+the amp is on the fan header. Protocol 2 Brick/ANAN do not use this path.
 
 **I'm running an amplifier — anything to set first?**
 Yes — configure **TR‑sequencing** and the **RF‑delay / ATT‑on‑TX**
@@ -258,8 +253,9 @@ install 0.25.17 or later, set the mixer once, then Stop / Start again.
 **What is Auto Step / MAP (Protocol 2)?**
 **Step** on DSP+Audio walks the ADC pad **0–31** (clip +3 / unwind −1),
 frozen while keyed. Default **off**. **MAP** (Brick3 / 100-series) is
-per-band **ANT** and **RX jack** chips — RX2 is Ext1, not ANT2. Diversity
-is not this cut.
+per-band **ANT** and **RX jack** chips — RX2 is Ext1, not ANT2. That
+jack is also the second input for **Diversity** (below). MAP itself
+does not arm the mix.
 
 ---
 
@@ -311,8 +307,27 @@ on the main pane.
 **Does TX protect the RX2 jack?**
 On two-converter radios, **RX2 jack isolate on TX** (default **on**)
 grounds/disconnects that jack for the whole key-down. ATT-on-TX still pads
-both ADCs; it does not open the analog RX2 path. Diversity is not in this
-cut.
+both ADCs; it does not open the analog RX2 path. Diversity uses that
+jack in receive and drops the mix for the whole key, so the isolate
+and the pause agree.
+
+**What is Diversity, and how is it different from SUB?**
+**SUB** is a second receiver on its own frequency. **Diversity** mixes
+the two converters on the **same** frequency (gain and phase) so a
+fading signal can be filled in from the **RX2 jack**. They are
+exclusive: turning Diversity **ON** turns **SUB** off. HL2 and
+BrickSDR2 have one converter and do not show the **DIV** chip.
+Brick3SDR is confirmed; ANAN-100D / 200D use the same path.
+
+**How do I turn Diversity on?**
+Press the **DIV** chip (with PureSignal and Amp View). That only
+opens the dock — size and place are remembered. Press **ON** in the
+dock to arm the mix. Put the second antenna on the **RX2 jack**
+(Ext1 on the MAP chips), not ANT2. Drag the polar dot, or step gain
+(**−27…+27 dB**) and phase (**−180…+180°**). Each band keeps the last
+pair you used; a band you have never set starts at **0 dB / 0°**.
+The on/off switch is global, not per band. While you transmit, or
+while PureSignal is live, the mix drops and comes back when you unkey.
 
 **How do I turn on the second receiver?**
 Press **SUB** on the Tuning panel (it lights **green**). There is **no**
@@ -341,6 +356,18 @@ SUB is weaker). On two-ADC radios the **SUB pane** shows RX2’s own IQ.
 **How do I hop SUB to another band without moving VFO A?**
 **Shift+click** or **right-click** a Ham / BC / 11m chip. Plain **click**
 stays the focused VFO (usually A). GEN / TIME / Mem stay RX1-only.
+
+**Why does a band chip show 1, 2, or 3?**
+Each Ham / BC / 11m chip stores three frequencies. Click the band you
+are already on to step to the next. A click from another band returns
+the slot you last left, without skipping. Shift+click and right-click
+still hop SUB and do not step that stack. SUB keeps its own three.
+
+**Can RX and TX use different low cutoffs?**
+Yes, on the current build. Filters dock: **RX lo** under **RX BW**,
+**TX lo** under **TX BW** (0–500 Hz, SSB and digital). The lock ties
+them. Unlock and they stay apart. An older profile loads the old
+shared low on both sides until you change one.
 
 **Can TCI / SDRLogger+ drive RX2?**
 Yes. `vfo:1,0` / `dds:1` = SUB frequency; `vfo:0,1` = SPLIT VFO B (does

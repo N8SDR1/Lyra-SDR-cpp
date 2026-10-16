@@ -20,6 +20,49 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+## Current build
+
+**v0.25.21 Sheliak.** See [What's new in 0.25.21](#whats-new-in-02521).
+
+## What's new in 0.25.21
+
+- **Lyra Remote.** A separate browser desk. Download it from
+  [Lyra Remote releases](https://github.com/N8SDR1/Lyra-Remote/releases).
+  How the page works is in the
+  [Lyra Remote wiki](https://github.com/N8SDR1/Lyra-Remote/wiki).
+  Lyra does not host the page. **Settings → Remote** is the password,
+  the address lists, and the voice session. See
+  [Settings → Remote](#settings--remote).
+- **Voice session.** **Start voice** on the page proves the password
+  once. Then **MOX** uses that browser's microphone and **Tune** sends
+  a carrier from Lyra. The desk microphone, rack, and leveler come back
+  when the session ends. A digital program on the radio computer is not
+  asked for the password. End the voice session before that program
+  transmits.
+- **Brick3 first key.** The first key after Lyra starts waits until PA
+  enable is already in receive, so RF is there without a stop and start.
+- **ALC on the TCI meter line.** A fifth number, ALC headroom in dB,
+  rides with the TX sensors. It is −200 while receiving.
+
+## What's new in 0.25.20
+
+- **Diversity** mixes the two converters on one frequency. Confirmed on
+  **Brick3SDR**; the same path is **ANAN-100D / 200D**. The **DIV** chip
+  opens the dock; **ON** arms the mix. Second RF is the **RX2 jack**
+  (Ext1), not ANT2. Each band keeps its own gain and phase. The mix
+  drops while you transmit or while PureSignal is live. Not a second
+  VFO — that is **SUB**. See [Diversity](#diversity).
+- **Band stack.** Each band chip stores three frequencies (corner digit
+  **1 / 2 / 3**). A click from another band returns the slot you last
+  used. A second click on the band you are already on steps to the next.
+  SUB has its own three. Solar chips tune VFO A and do not step the stack.
+- **Separate RX and TX filter lows.** On the Filters dock, under the
+  bandwidths (**RX lo** / **TX lo**, 0–500 Hz). The lock keeps them
+  together; unlock and they stay apart. Older profiles copy the old
+  shared low onto both sides.
+- **Issue #17.** Filter-board voltage follows the band you selected,
+  including a return to a band already showing on the dial.
+
 ## What's new in 0.25.19
 
 - **HL2 analog J4 follows band hops again (Issue #17).** v0.25.18
@@ -307,6 +350,8 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.21](#whats-new-in-02521)
+- [What's new in 0.25.20](#whats-new-in-02520)
 - [What's new in 0.25.19](#whats-new-in-02519)
 - [What's new in 0.25.18](#whats-new-in-02518)
 - [What's new in 0.25.17](#whats-new-in-02517)
@@ -341,6 +386,7 @@ Dummy load first.
   - [SUB — second receiver](#sub--second-receiver)
   - [SPLIT — receive A, transmit B](#split--receive-a-transmit-b)
 - [Second receiver (SUB / RX2) — how it works](#second-receiver-sub--rx2--how-it-works)
+- [Diversity](#diversity)
 - [Filters panel](#filters-panel)
 - [Band panel](#band-panel)
   - [Xvtr (transverters)](#xvtr-transverters)
@@ -396,6 +442,11 @@ Dummy load first.
 - [Settings → Network (TCI)](#settings--network-tci)
   - [SDRLogger+ Combo link](#sdrlogger-combo-link)
   - [CW keying over TCI](#cw-keying-over-tci)
+- [Settings → Remote](#settings--remote)
+  - [A direct connection](#a-direct-connection)
+  - [Who may connect](#who-may-connect)
+  - [Password and the voice session](#password-and-the-voice-session)
+  - [What Lyra applies today](#what-lyra-applies-today)
 - [Settings → CAT / Serial (rig control over COM / TCP)](#settings--cat--serial-rig-control-over-com--tcp)
   - [Digital modes over TCI](#digital-modes-over-tci-ft8--ft4--msk144--q65--etc)
   - [Digital modes over VAC](#digital-modes-over-vac-virtual-audio-cable)
@@ -471,7 +522,7 @@ Lyra **opens** these today:
 |---|---|---|
 | **Hermes Lite 2 / 2+** | Protocol 1 | Full RX + TX. HL2+ adds the on-board mic / headphone jacks. |
 | **BrickSDR2** | **Protocol 2 only** | Full RX + TX, SUB / SPLIT, PureSignal. |
-| **Brick3SDR** | **Protocol 2 only** | **Brick3 Beta Testing.** Angelia-class (2 ADC, Alex, 2 ANT, RX2 jack). Pick **Brick3SDR** in **Settings → Hardware**. TX keys like BrickSDR2 (Enable PA + MOX + Drive — no dummy-load arm). First RF into a dummy load. With **SUB** on, a **second panadapter** opens. **RX2 jack isolate on TX** default on. |
+| **Brick3SDR** | **Protocol 2 only** | **Brick3 Beta Testing.** Angelia-class (2 ADC, Alex, 2 ANT, RX2 jack). Pick **Brick3SDR** in **Settings → Hardware**. TX keys like BrickSDR2 (Enable PA + MOX + Drive — no dummy-load arm). First RF into a dummy load. With **SUB** on, a **second panadapter** opens. **RX2 jack isolate on TX** default on. **Diversity** mixes both converters on one frequency (RX2 jack, not ANT2) and turns SUB off. |
 
 A Brick (or classic ANAN) that still answers **Protocol 1** can show in
 **Discover**. Lyra **will not Open** that row. Protocol 1 TX in Lyra is the
@@ -492,7 +543,7 @@ to BrickSDR2). Leftover P1 rows stay refused.
 |---|---|
 | **ANAN-10 / 10E** (and **HERMES**) | Like **BrickSDR2**: on-air, Enable PA + MOX + Drive, no dummy-load arm. Classic Alex. One ADC — SUB is overlay, not a second pane. |
 | **ANAN-100 / 100B** | Like **Brick3SDR** TX (on-air, independent Enable PA). One ADC + classic Alex — SUB overlay, not a second pane. |
-| **ANAN-100D / 200D** | Like **Brick3SDR** TX **and** two converters: **SUB** opens a second panadapter. **RX2 jack isolate on TX** default on. |
+| **ANAN-100D / 200D** | Like **Brick3SDR** TX **and** two converters: **SUB** opens a second panadapter. **Diversity** is the same path as Brick3. **RX2 jack isolate on TX** default on. |
 | **ANAN-G2 / G2-1K** | Dummy-load **Arm P2 TX** until a tester validates RF. Two ADC. |
 | **7000DLE / 8000** | Stay locked. |
 
@@ -675,7 +726,8 @@ a CPU change.)
   **VFO style**), and pick the **mode** (USB/LSB/CW/…) and **step** right
   under the VFO; see
   [Tuning panel](#tuning-panel).
-- **Filters panel** — set the **RX/TX filter bandwidth** and sample rate;
+- **Filters panel** — sample rate, **RX/TX bandwidth** on the top line,
+  and **RX lo / TX lo** directly under them;
   see [Filters panel](#filters-panel).
 - **Band panel** — jump between bands.
 - **Audio panel** — the **DSP + AUDIO** strip: **Vol / MUTE**, the **AGC**
@@ -1244,8 +1296,9 @@ differ. RX2 is the **green overlay** on the main panadapter.
 **Two converters** (Brick3SDR, ANAN-100D / 200D, G2): RX1 and RX2 sit
 on **separate ADCs**. **SUB** opens a **second panadapter** (own
 waterfall, band-plan, click-tune). MAP **RX2** is that converter's
-antenna jack, **not** the PureSignal coupler. **Diversity** (same
-frequency on both ADCs) is not in this release.
+antenna jack, **not** the PureSignal coupler. **Diversity** is a
+different mode: both converters on the **same** frequency. Turning it
+on turns SUB off. See [Diversity](#diversity).
 
 RX2 has its own frequency, mode, last-band memory, passband, and audio
 ear. Click-tune on the SUB pane: **SUB** → RX2; **SUB + SPLIT** →
@@ -1316,10 +1369,63 @@ DSP+Audio **NR / AGC / notches** follow the **focused** RX (the one
 
 ---
 
+## Diversity
+
+**Diversity** mixes the two converters on **one** frequency so a
+fading signal can be filled in from a second antenna. It is not a
+second VFO. **SUB** is the second VFO. They do not run together:
+pressing **ON** turns **SUB** off.
+
+HL2 and BrickSDR2 have one converter. The **DIV** chip stays hidden
+on those radios. It shows on **Brick3SDR** and on **ANAN-100D /
+200D**. Confirmed on Brick3SDR.
+
+### Where it is
+
+The **DIV** chip sits with **PureSignal** and **Amp View** on the
+Options row. It only opens and closes the dock. The dock remembers
+its size and place the next time you open it.
+
+**ON** inside the dock arms the mix. Opening the dock does not.
+While the mix is armed the button reads **ON** and lights green.
+
+### The second antenna
+
+Put the second antenna on the **RX2 jack**. On the MAP chips that
+jack is **Ext1**, not ANT2, and not the PureSignal coupler. RX1
+stays on the ANT jack you already selected.
+
+### Gain and phase
+
+The polar dot and the **Gain** / **Phase** steppers are the same two
+numbers.
+
+- **Gain** is **−27 to +27 dB** (0.05 dB steps). Distance from the
+  centre of the disc.
+- **Phase** is **−180 to +180 degrees** (0.1° steps). The angle of
+  the dot.
+
+Each **band** keeps the last pair you used. Change bands and the
+dot moves back to that band's pair. A band you have never set starts
+at **0 dB / 0°**. The **ON / OFF** switch is global — it does not
+change when you change bands.
+
+### While you transmit
+
+The mix drops for the whole key, including Tune, MOX, footswitch,
+two-tone, and while PureSignal is live. The steppers grey out. It
+comes back when you unkey. **RX2 jack isolate on TX** (default on)
+still grounds that jack for the key, which is what you want: the
+second antenna is not left connected while RF is up.
+
+---
+
 ## Filters panel
 
-Sets the sample rate and how wide the RX/TX filters are. (The **mode**
-picker moved to the Tuning panel, under the VFO.)
+Sets the sample rate, how wide the RX/TX filters are, and where each
+sideband opens at the low end. Bandwidths are the **top** line. The
+low-edge spins sit in the **same columns underneath**, so the dock stays
+short. (The **mode** picker moved to the Tuning panel, under the VFO.)
 
 - **Rate** — the IQ sample rate / panadapter span: **96 k / 192 k /
   384 k**. Higher shows more spectrum at once (wider waterfall) for a bit
@@ -1333,32 +1439,40 @@ picker moved to the Tuning panel, under the VFO.)
   always matches what you're actually hearing; pick a preset to snap back.
   With **SUB** focused (**TUNE B**), this control reads **RX2 BW** and
   drives the **green** passband; RX1's width stays on the cyan box.
-- **🔗 (Lock)** — links RX and TX bandwidths so changes to either side
-  mirror the other for the current mode. Click to toggle. Toggling it
-  ON pulls the RX bandwidth into TX. With the lock OFF, RX and TX BW
-  are independent per-mode. (Disabled in **FM** — there's no separate
-  TX width to lock to; see TX BW below.)
+- **🔗 (Lock)** — links RX and TX **bandwidths and low edges** so a
+  change on either side mirrors the other for the current mode. Click
+  to toggle. Toggling it ON pulls the RX bandwidth **and** the RX low
+  into TX. With the lock OFF, RX and TX widths and lows are
+  independent. (Disabled in **FM** — there's no separate TX width or
+  low to lock to; see TX BW below.)
 - **TX BW** — the transmit filter bandwidth. Per-mode just like RX BW.
   For **SSB / digital** it's the high edge: the TX passband runs from
-  the **Filter Low edge** (Settings → Audio, shared with RX) up to this
-  high edge — e.g. Filter Low = 70 Hz and TX BW = 4 kHz gives a
-  70-4000 Hz single sideband. For the **double-sideband modes (AM,
-  DSB, SAM)** the value is the **total occupied width**: the TX
-  filter is symmetric around the carrier at **±(TX BW / 2)**, so AM at
-  TX BW = 6 kHz transmits ±3 kHz = 6 kHz total and lands exactly inside
-  the on-screen filter markers (matching RX). Sign-codes correctly per
-  mode (USB positive, LSB negative-and-swapped, double-sideband
-  symmetric) inside the WDSP TXA chain. In **FM** the TX BW is **not
-  editable** — it shows the auto-derived occupied width
-  `2 × (deviation + 3 kHz)` (e.g. **"16 k (auto)"** at ±5 kHz), which
-  updates live as you change the FM Deviation. The RX BW presets in FM
-  are FM channel widths (8 / 10 / 12 / 16 kHz) and follow the deviation
-  too (see the FM section).
+  **TX lo** up to this high edge — e.g. TX lo = 50 Hz and TX BW = 4 kHz
+  gives a 50–4000 Hz single sideband, even if RX lo stays at 150 Hz.
+  For the **double-sideband modes (AM, DSB, SAM)** the value is the
+  **total occupied width**: the TX filter is symmetric around the
+  carrier at **±(TX BW / 2)**, so AM at TX BW = 6 kHz transmits ±3 kHz
+  = 6 kHz total and lands exactly inside the on-screen filter markers
+  (matching RX). Sign-codes correctly per mode (USB positive, LSB
+  negative-and-swapped, double-sideband symmetric) inside the WDSP TXA
+  chain. In **FM** the TX BW is **not editable** — it shows the
+  auto-derived occupied width `2 × (deviation + 3 kHz)` (e.g. **"16 k
+  (auto)"** at ±5 kHz), which updates live as you change the FM
+  Deviation. The RX BW presets in FM are FM channel widths (8 / 10 /
+  12 / 16 kHz) and follow the deviation too (see the FM section).
+- **RX lo** — under **RX BW**. Receive low cutoff, **0–500 Hz**, step
+  10 Hz, default **100 Hz**. SSB and digital only. Dragging the RX
+  passband's low edge on the panadapter writes this same value.
+- **TX lo** — under **TX BW**. Transmit low cutoff, same range. Greyed
+  out in **FM**. With the lock on it follows RX lo. With the lock off
+  it stays where you set it. The same two spins live on
+  **Settings → Audio**.
 
-SSB and digital filters open at the **Filter Low edge** (Settings → Audio
-→ Filter Low edge, shared RX+TX, default 100 Hz); CW filters are
-centered on your **CW Pitch**; AM/DSB/FM are symmetric around the
-carrier (the Filter Low edge doesn't apply to those modes).
+SSB and digital filters open at those lows. CW filters are centered on
+your **CW Pitch**. AM/DSB/FM are symmetric around the carrier (the low
+spins don't apply to those modes). An older profile that stored one
+shared low loads that number on **both** sides until you pull them
+apart.
 
 ---
 
@@ -1367,10 +1481,21 @@ carrier (the Filter Low edge doesn't apply to those modes).
 Quick band switching, in four rows:
 
 - **Ham** — the HF/6m amateur bands (**160m … 6m**). Click one and Lyra
-  returns the **focused** receiver to **the last frequency you were on in
-  that band** (the band's default the first time). That is **VFO A /
+  returns the **focused** receiver to a stored frequency on that band
+  (the band's default the first time). Each chip keeps **three**
+  frequencies. A small **1**, **2**, or **3** in the corner is the slot
+  you are on. The first click, arriving from another band, lands on the
+  slot you last used and does **not** skip ahead. Click that **same**
+  chip again and it steps to the next slot. An empty slot starts as a
+  copy of the frequency you just left, so the first extra click changes
+  the digit without jumping the dial; tune from there and that slot
+  keeps what you set. The digit and the three frequencies survive a
+  restart. **Shift+click** and **right-click** still open SUB and do
+  not use this cycle. The Solar heat-map chips tune **VFO A** to the
+  current slot and do not cycle it either. The click tunes **VFO A /
   RX1** unless the panadapter already shows **TUNE B** (SPLIT VFO B, or
-  SUB focused). **Colour:** RX1's band chip has a **red** glow; SUB's
+  SUB focused). VFO B shares RX1's three slots for that band.
+  **Colour:** RX1's band chip has a **red** glow; SUB's
   band (when SUB is on) has a **green** glow. Same band on both VFOs →
   one chip can carry both stories (red + green treatment). Full map:
   [Second receiver](#second-receiver-sub--rx2--how-it-works).
@@ -1405,15 +1530,17 @@ Quick band switching, in four rows:
   when the radio has no antenna ladder. Not on the TX dock — that strip
   is already full.
 
-  **Diversity** (Thetis / DeskHPSDR: two ADCs, same frequency, phase/gain
-  combine) is **not in Lyra**. SUB, MAP, and the Settings ADC combo are
-  not that. Parked as a future feature on dual-ADC radios (Brick3 /
-  ANAN-100D class). Brick2 and HL2 have one ADC and cannot.
+  **Diversity** is the phase/gain mix of both converters on one
+  frequency. It is not SUB, not MAP, and not the Settings ADC combo.
+  The second antenna is the **RX2** chip (Ext1). See
+  [Diversity](#diversity). Brick2 and HL2 have one ADC and do not
+  show the DIV chip.
 
 **SUB hops (HL2 / BrickSDR2).** **Shift+click** or **right-click** a Ham / BC /
 11m chip to park **SUB** on that band (turns SUB on if it was off, keeps
-VFO A focused). SUB remembers **its own last frequency and mode** per
-band — independent of RX1. A SUB hop does **not** apply RX1's band
+VFO A focused). SUB remembers **its own three frequencies and mode** per
+band — independent of RX1. A second Shift+click or right-click on the
+band SUB is already on steps SUB's next slot. A SUB hop does **not** apply RX1's band
 memory (LNA, TX drive, panadapter range). **GEN / TIME / Mem** stay
 RX1-only (not SUB hops). **Xvtr** Shift+click is a SUB hop; right-click
 opens the slot editor.
@@ -1510,8 +1637,9 @@ Pick the **mode** under the VFO (Tuning panel) and the **filter width**
 in the **Filters** panel.
 
 **Per-band memory.** Lyra remembers each band's settings independently and
-restores them when you move to that band: the **last frequency** (recalled
-by the band buttons), the **demod mode**, the **panadapter dB min/max**
+restores them when you move to that band: the **three stored
+frequencies** (the band-chip stack; the current slot is the one a click
+from another band recalls), the **demod mode**, the **panadapter dB min/max**
 (reference-level range), and the **waterfall dB min/max**. Set 40m to LSB with a tight waterfall range and 20m to a wider
 one, and each comes back the way you left it as you hop between them — no
 need to re-adjust every time. (Auto-scale on/off is global; RX filter
@@ -1904,6 +2032,9 @@ Mic source**:
 - **PC Soundcard (VAC2)** — the second cable (RX2 audio; enable **SUB**).
 - **TCI (digital modes)** — audio streamed from a digital-mode program
   (MSHV, JTDX, WSJT-X, FLDigi…) over Lyra's TCI link; the mic is bypassed.
+  A browser voice session is separate. It does not use this picker, and
+  it does not leave the desk microphone on TCI. See
+  [Settings → Remote](#settings--remote).
 
 Only one source is live at a time — whatever's selected goes on the air.
 
@@ -2440,6 +2571,8 @@ still uses the mic rack, but PureSignal stays off.
   window** so DDC0/DDC1 can carry TX + feedback. Your saved SUB
   preference is **not** flipped off in Settings; SUB comes back when
   you unkey / disarm.
+- **Diversity** — the mix drops for the same keyed window and comes
+  back when you unkey. The ON switch stays where you left it.
 - **FB** chip — glance **feedback level** (0–255-class count). Colour
   while armed **and** keyed:
   - **Teal** — too low (below 129): raise drive / coupler coupling, or
@@ -3161,7 +3294,8 @@ setup and an FT8/digital setup without re-touching a dozen controls. This
 is the openHPSDR "TX profile" idea, done Lyra-native.
 
 **What a profile stores:** RX bandwidth, TX bandwidth + the BW-lock,
-filter low edge; mic source, mic gain, 20 dB mic boost; the Tune-drive
+**RX filter low** and **TX filter low** (separate; the lock keeps them
+equal while it is on); mic source, mic gain, 20 dB mic boost; the Tune-drive
 toggle + tune-drive %, and the TX drive level (your power knob); the TCI
 RX and TX gains; the **VAC source** (VAC1 enable, auto-enable-for-digital,
 and the VAC RX/TX gains); AGC mode; auto-mute-on-TX; and the TX
@@ -3219,14 +3353,17 @@ The complete manager lives in **Settings → Profiles**:
   last fallback — see [What happens at startup](#what-happens-at-startup).
 - A status line showing the active profile and a `● modified` flag.
 - **View & quick edit** — under the list, a panel shows the selected
-  profile's core chain (**RX/TX bandwidth**, filter low, **Lock TX/RX BW**,
+  profile's core chain (**RX/TX bandwidth**, **RX low**, **TX low**, **Lock TX/RX BW**,
   **mic source / gain / boost**, **AGC**, **Leveler**, **PHROT**,
   **auto-mute on TX**). Change any of them and click **Apply changes** to
   save them back into that profile; **Revert** discards your edits. A
   `● You have unsaved changes` notice appears while edits are pending. This
   edits the **saved** profile only — it does **not** change what's on the
-  air; click **Load** to apply it live. (The RX and TX *filter low* boxes
-  currently share one value, so editing either moves both.)
+  air; click **Load** to apply it live. **RX low** and **TX low** are
+  stored separately. With the lock checked they stay equal, and turning
+  the lock on copies the RX low into the TX low. With the lock off a
+  profile can hold different lows (TX at 50 Hz, RX at 150 Hz). An older
+  profile that only stored one low loads that value on both sides.
 - **Auto-recall by mode family** — one dropdown per family:
   **CW, SSB, Digital, AM, SAM, DSB, FM**. Bind a profile to a family and
   it's recalled automatically whenever you switch into a mode in that
@@ -3358,8 +3495,9 @@ A compact strip showing current **HF propagation** conditions from
 - **Click a band to tune it.** A left click goes where a Band-panel chip
   would: the main receiver (VFO A), or the SUB receiver / VFO B when that is
   the focused one. **Right-click** or **Shift+click** parks the SUB receiver
-  on that band instead. Band memory is honoured, so you land on the
-  frequency you last used there.
+  on that band instead. You land on that band's current stored frequency
+  (the slot the Band panel would use); a heat-map click does not step the
+  1 / 2 / 3 stack.
 - **Band changes are blocked while transmitting, and transmit stops.** Switching
   bands re-selects filters and PA/relay outputs, so during transmit (including
   CW keying) a click on the heat-map or on any Band-panel band chip does not
@@ -4115,9 +4253,12 @@ Pick your output device here; everyday **Mute** and **Vol** stay on the
 remembers its own output path and device across rig switches (see
 [Multiple radios & switching rigs](#multiple-radios--switching-rigs)).
 
-**Filter Low edge (RX + TX)** — single shared low cutoff for the
-SSB / DIG audio bandpass on both receive and transmit. Range
-**0–500 Hz**, default **100 Hz**.
+**RX filter low** and **TX filter low** — the low cutoff for the
+SSB / DIG audio bandpass, one spin each. Range **0–500 Hz**, default
+**100 Hz**. The same controls sit on the
+[Filters panel](#filters-panel), under the bandwidth combos. With
+**Lock TX/RX BW** on, the two lows track and turning the lock on
+copies the RX low into the TX low. With the lock off they stay apart.
 
 - **100–200 Hz** suppresses 50/60 Hz mains coupling on the mic path
   and reduces low-end rumble on receive — safe choice for narrow
@@ -4133,9 +4274,10 @@ Applies to **SSB and DIG modes only** (USB / LSB / DIGU / DIGL —
 the asymmetric passband case). CW is pitch-centred and AM / DSB /
 FM are symmetric around DC; those modes ignore this setting.
 
-You can also **drag the low edge of the passband rectangle** on the
-panadapter (left edge on USB / right edge on LSB) to set this value
-in real time. Dragging below 0 just pins at 0.
+You can also **drag the low edge of the RX passband** on the
+panadapter (left edge on USB / right edge on LSB) to set **RX filter
+low** in real time. Dragging below 0 just pins at 0. **TX filter low**
+is the spin, not that drag.
 
 > **Profiles carry their own bandwidth.** A saved
 > [profile](#profiles-txrx-chain-presets) stores its own RX + TX
@@ -4515,8 +4657,8 @@ jack.
 **Settings → TX → RX2 jack isolate on TX** (default ON, hidden on
 one-converter radios) grounds/disconnects the RX2 jack for the
 duration of every transmission, then restores it on key-up. Leave it
-on unless you have a specific reason to keep RX2 open while keyed
-(for example a future diversity experiment). SUB itself does not
+on. Diversity uses that jack in receive and drops the mix for the
+key, so isolate and the pause agree. SUB itself does not
 change this — isolate still applies whenever you transmit, SUB or
 not.
 
@@ -4850,6 +4992,8 @@ Lyra runs a TCI **server**; the other program connects to it as a client.
 - **Bind address** — which network interface to listen on. Leave blank /
   `0.0.0.0` to accept connections from any interface (e.g. another PC on
   your LAN); use `127.0.0.1` to allow only programs on this same PC.
+  Who may connect, and the password for a remote voice session, live on
+  [Settings → Remote](#settings--remote).
 - **Port** — the TCI listening port (Lyra default **40001**, same as
   ExpertSDR3). Older Expert gear and some logger templates still use
   **50001** — match whatever is in this box, not a guess.
@@ -4982,7 +5126,9 @@ through. SDRLogger+, N1MM and similar work this way.
 
 **TX sensors** (mic dBm, RMS watts, peak watts, SWR) keep streaming
 while you are receiving, so a client's transmit meters do not go blank
-between overs.
+between overs. A fifth number, ALC headroom in dB, rides on the same
+line. It is −200 while receiving, and a client that reads the first
+four numbers is unchanged.
 
 ### Digital modes over TCI (FT8 / FT4 / MSK144 / Q65 / etc.)
 
@@ -5250,6 +5396,89 @@ of whichever colour mode you choose.
 - **Spot lifetime** — how long (in **minutes**) a spot stays before it
   ages out.
 - **Clear spots now** — wipe the current spot list.
+
+---
+
+## Settings → Remote
+
+The browser desk is a separate package, [Lyra Remote](https://github.com/N8SDR1/Lyra-Remote). Download it from [Lyra Remote releases](https://github.com/N8SDR1/Lyra-Remote/releases). How the page works is in the [Lyra Remote wiki](https://github.com/N8SDR1/Lyra-Remote/wiki). Lyra does not host the page. On the computer you are sitting at, double-click **Open Lyra Remote.cmd**. The browser opens `http://127.0.0.1:4173/`. That address is the page. The box at the top of the page is Lyra, `ws://` plus the radio computer and the TCI port from **Settings → Network** (default `40001`).
+
+Same computer: leave the box at `ws://127.0.0.1:40001` and leave **Bind address** at `127.0.0.1`.
+
+Another computer on the house network: copy the package there and open the page on that computer. Do not browse to the radio computer to get the page. On the Lyra computer set **Bind address** to `0.0.0.0`, allow inbound TCP on the TCI port for private networks, and fill the page box with `ws://` plus this computer's house-network address and that port.
+
+Keep the port on the house network. Do not forward it to the internet.
+
+The same **Settings → Remote** choices cover this page and the later full IP remote. The listen address and port stay on **Settings → Network**.
+
+### A direct connection
+
+The browser opens a link straight to the Lyra that is already running. Audio, the spectrum, and tuning commands travel between those two programs on your own network.
+
+No outside server carries the link. No account is created anywhere else. No authentication service is contacted, and nothing is sent away to be checked. Lyra decides, on the computer where Lyra is running, which addresses may connect and how the password is kept.
+
+### Who may connect
+
+**Accept only these** and **Refuse these** take one full address, or a range written as a prefix.
+
+- `192.168.1.40` is one computer.
+- `192.168.1.0/24` is `192.168.1.0` through `192.168.1.255`.
+- `192.168.0.0/16` and `10.0.0.0/8` are wider ranges.
+
+A short piece, a star, or a dash range is refused. Separate entries with a new line, a comma, or a space.
+
+Leave the Network bind address at `127.0.0.1` and another computer cannot open the port. A remote TCI program there is blocked. A program on this computer still connects. Set the bind address to `0.0.0.0` only when another computer on this network should reach Lyra, and do not forward the TCI port to the internet.
+
+Both boxes blank: every address that can reach the port may connect. With the bind address open and Accept left blank, that includes every other remote TCI program that can reach the port.
+
+Any entry in Accept: every other address is dropped before it can hear the radio. That is how you block other remote TCI programs. A remote TCI program on another computer connects only when that computer's address, or a range that covers it, is in Accept.
+
+An address on Refuse is dropped even when it is also on Accept.
+
+The computer running Lyra is always allowed, including when the page on that computer uses the house-network address. That computer cannot be refused, so a digital program on the radio computer keeps its connection.
+
+A valid entry is applied as soon as you leave the box. A refused or unlisted address is dropped at the door and never counts as a password try.
+
+### Password and the voice session
+
+The password is one phrase you set on the Lyra computer.
+
+- 12 to 128 characters. Spaces are allowed, so a short phrase works.
+- Include a word. A string of only numbers is refused, and so is one character repeated.
+- The callsign alone is refused, and so are `password`, `lyra`, `letmein`, `qwerty`, and `changeme`.
+- Type it twice. The two lines have to match.
+- Lyra stores a one-way hash on that computer. The phrase itself is not kept. Reopen the tab and the box is empty; type a new phrase only when you want to replace the saved one.
+- Clear password removes the hash. With no password saved, remote transmit stays off.
+
+A remote proves that phrase once, when it starts a voice session. The phrase stays off the wire. A correct proof receives a session token: a long random value held only in memory, and only for that connection. Closing the page or dropping the link drops the token. The next connection proves the password again. The password is not sent again for each transmission, and it is not put in the address or stored in the browser.
+
+Five wrong proofs from one address lock that address for 15 minutes. The waits between tries are 1, 2, 4, 8, and 16 seconds. A correct proof clears the count. While an address is locked, Lyra offers it no new proof. Listening for everyone else stays up. Programs on the radio computer are not asked, so WSJT-X and MSHV there keep keying.
+
+Taking the token is what moves the microphone. A TCI connection by itself leaves the desk microphone, the rack, and the leveler where they were. While the voice session is held:
+
+- Transmit audio comes from that browser.
+- On USB, LSB, and AM the host EQ, speech, combinator, and tube plating step aside for the session. The mode stays what it was. FM already runs with that rack aside.
+- The host leveler is parked for the same span. ALC stays on.
+
+Unkey only stops the transmit audio. The remote profile stays until the session ends or the link drops, and then the previous microphone, rack, and leveler come back. Lyra does not write those changes into Settings, so a crash comes back on the desk profile.
+
+One password covers three things: listening, when you tick the box below; changing the radio; and transmit. A listen-only connection does not receive a transmit token.
+
+**Password required to listen** is off unless you tick it. The box is saved. Spectrum and receiver audio stay open. The later hold, where spectrum and audio wait for the same proof, is not applied yet. Programs on the computer running Lyra are not asked.
+
+The browser chooses its own microphone and applies its own EQ before the samples are sent. Lyra never sees the device name.
+
+### What Lyra applies today
+
+The address lists are already applied. Lyra drops a refused or unlisted address when it tries to connect.
+
+A remote program that asks to start a voice session receives one challenge. The password stays off the wire. A correct proof receives a session token held only in memory for that connection. Five wrong proofs lock that address for 15 minutes, and Lyra names the locked address. Listening stays up. A program on this computer is not asked, so it keeps keying.
+
+When a token is granted, Lyra moves transmit audio to that connection, steps the speech rack aside, and parks the leveler. Those three stay live only. Settings keep the desk microphone. Unkey leaves the session up. Releasing the token, or dropping the link, puts the desk microphone, rack, and leveler back.
+
+The page asks for the password only after **Start voice**. A normal connection leaves the desk profile alone. After the session is on, **MOX** sends that computer's microphone and **Tune** sends a carrier from Lyra. Open the page with **Open Lyra Remote**. A file opened by double-click can still listen, and it cannot prove the password or open a microphone. **Password required to listen** is saved. It does not hold the spectrum, and it does not drop a connection. The address lists and an unforwarded port keep other computers out.
+
+Save the password before you allow a remote to transmit. The proof is checked by Lyra, on the Lyra computer, for that connection alone.
 
 ---
 

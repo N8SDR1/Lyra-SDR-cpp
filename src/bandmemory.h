@@ -26,6 +26,7 @@ class Prefs;
 
 class BandMemory : public QObject {
     Q_OBJECT
+    Q_PROPERTY(int stackGeneration READ stackGeneration NOTIFY stackChanged)
 public:
     BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                QObject *parent = nullptr);
@@ -38,6 +39,18 @@ public:
     // Independent of RX1 memory so dual-watch can keep two last-freqs.
     Q_INVOKABLE int freqForRx2(const QString &band) const;
 
+    // Three stored frequencies per band.  A click that arrives from another
+    // band returns the current slot and does not advance.  A click while
+    // currentHz is already on this band advances to the next slot.  An empty
+    // slot copies the frequency being left, so the first extra click changes
+    // the slot number without jumping the dial.  rx2 selects the SUB stack.
+    Q_INVOKABLE int recallFreq(const QString &band, int currentHz,
+                               int defaultHz, bool rx2);
+    // 1-based slot for the chip mark (1..3).
+    Q_INVOKABLE int stackSlot(const QString &band) const;
+    Q_INVOKABLE int stackSlotRx2(const QString &band) const;
+    int stackGeneration() const { return stackGeneration_; }
+
     // Restore SUB demod + SUB pan/waterfall dB for <band>.
     // Does NOT touch RX1 mode, LNA, TX drive, or Main panadapter ranges.
     Q_INVOKABLE void applyRx2Band(const QString &band);
@@ -45,6 +58,9 @@ public:
     // Band string for a frequency (Hz): "" / "40m" / "bc_49m" / "cb_11m".
     // Pure static helper — shared (e.g. SpotHole band-param derivation).
     static QString bandNameFor(int hz);
+
+signals:
+    void stackChanged();
 
 private:
     void onFreqChanged();          // band-edge crossing → restore new band
@@ -55,11 +71,17 @@ private:
     void applyBand(const QString &band);
     void applyRx2Scale(const QString &band);
     static QString defaultModeFor(const QString &band);   // band-table default mode
+    int  stackIndex(const QString &band, bool rx2) const;
+    int  slotFreq(const QString &band, bool rx2, int index) const;
+    void writeSlot(const QString &band, bool rx2, int index, int hz);
+
+    static constexpr int kStackSlots = 3;
 
     Prefs                *prefs_  = nullptr;
     lyra::ipc::HL2Stream *stream_ = nullptr;
     QString               currentBand_;     // "" = none/out-of-band
     QString               currentBandRx2_;  // SUB's band; independent of RX1
+    int                   stackGeneration_ = 0;
     bool                  applying_ = false; // guard: don't re-save during restore
     bool                  applyingRx2_ = false;
 };

@@ -19,6 +19,7 @@
 - 🗺️ [Roadmap](Roadmap)
 - 📖 [User Guide](User-Guide)
 - 🔗 [SDRLogger+ Combo](SDRLogger-Plus-Combo)
+- 🌐 [Lyra Remote](Lyra-Remote)
 - ❓ [FAQ &amp; Troubleshooting](FAQ-and-Troubleshooting)
 
 ---

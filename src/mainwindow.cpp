@@ -249,7 +249,7 @@ inline const QCursor &moveCursor() {
 }
 
 // Panels summoned by the header chip-strip (TX/RX DSP, CW console / decoder,
-// Voice Keyer, Tuner, Freq Cal, Recorder, PureSignal, Amp View) — hidden by
+// Voice Keyer, Tuner, Freq Cal, Recorder, PureSignal, Amp View, Diversity) — hidden by
 // default and NOT part of the always-visible main layout.  A layout recall /
 // reset must NOT force these visible; their saved (usually hidden) state from
 // restoreState() governs, so the operator's closed panels stay closed.  They
@@ -258,7 +258,7 @@ inline const QCursor &moveCursor() {
 constexpr const char *kChipSummonedPanels[] = {
     "txspeech", "txeq", "txcombinator", "txplate", "rxeq",
     "cwconsole", "cwdecoder", "voicekeyer", "tuner", "freqcal",
-    "recorder", "ps", "ampview",
+    "recorder", "ps", "ampview", "diversity",
 };
 
 inline bool isChipSummonedPanel(const QString &objectName) {
@@ -308,6 +308,131 @@ inline QSize testWindowSize() {
 inline bool safeBootLayout() {
     return qEnvironmentVariableIsSet("LYRA_SAFE");
 }
+
+// A floating chip dock loses its frame the moment it is hidden: the next
+// show comes back at the size hint, wherever Qt drops it. Remember the last
+// on-screen position and size while the window is still floating, and put
+// that frame back on the next show. Reads happen on Move/Resize/Hide, before
+// Qt folds the float back into the dock area.  A panel the operator docked
+// into the main window is left docked: the frame is only put back when the
+// panel was floating as it was hidden (or is floating now, e.g. at start-up).
+class FloatingDockMemory : public QObject {
+public:
+    FloatingDockMemory(QDockWidget *dock, const QString &settingsKey,
+                       const bool *layoutRestoring, QObject *parent)
+        : QObject(parent), dock_(dock), key_(settingsKey),
+          layoutRestoring_(layoutRestoring), debounce_(this) {
+        QSettings s;
+        pos_ = s.value(key_ + QStringLiteral("/pos")).toPoint();
+        size_ = s.value(key_ + QStringLiteral("/size")).toSize();
+        have_ = size_.width() >= 160 && size_.height() >= 160;
+        dock_->installEventFilter(this);
+        debounce_.setSingleShot(true);
+        debounce_.setInterval(150);
+        connect(&debounce_, &QTimer::timeout, this, [this]() { persist(); });
+        connect(dock_, &QDockWidget::visibilityChanged, this, [this](bool vis) {
+            if (!vis)
+                return;
+            // Qt resizes a float back to its size hint before this signal.
+            // tracking_ stays false across that, so the hint cannot replace
+            // the frame we stored on the way down.
+            if (!layoutBusy() && have_ && (wasFloating_ || dock_->isFloating()))
+                armRecall();
+            else
+                QTimer::singleShot(80, this, [this]() {
+                    tracking_ = dock_->isVisible();
+                });
+        });
+    }
+
+protected:
+    bool eventFilter(QObject *o, QEvent *e) override {
+        if (o == dock_ && e->type() == QEvent::Hide && !recalling_)
+            wasFloating_ = dock_->isFloating();
+        if (o != dock_ || recalling_ || !tracking_)
+            return QObject::eventFilter(o, e);
+        const bool live = dock_->isFloating()
+                          && (dock_->isVisible() || e->type() == QEvent::Hide);
+        if (live && (e->type() == QEvent::Move || e->type() == QEvent::Resize
+                     || e->type() == QEvent::Hide)) {
+            const QSize sz = dock_->size();
+            if (sz.width() >= 160 && sz.height() >= 160) {
+                pos_ = dock_->pos();
+                size_ = sz;
+                have_ = true;
+                if (e->type() == QEvent::Hide) {
+                    tracking_ = false;
+                    persist();
+                } else if (!layoutBusy()) {
+                    debounce_.start();
+                }
+            } else if (e->type() == QEvent::Hide) {
+                tracking_ = false;
+            }
+        }
+        return QObject::eventFilter(o, e);
+    }
+
+private:
+    bool layoutBusy() const {
+        return (layoutRestoring_ && *layoutRestoring_)
+               || safeBootLayout()
+               || testWindowSize().isValid();
+    }
+
+    void persist() {
+        if (!have_ || layoutBusy())
+            return;
+        QSettings s;
+        s.setValue(key_ + QStringLiteral("/pos"), pos_);
+        s.setValue(key_ + QStringLiteral("/size"), size_);
+    }
+
+    void armRecall() {
+        if (!have_ || layoutBusy())
+            return;
+        recalling_ = true;
+        QTimer::singleShot(0, this, [this]() { apply(); });
+        QTimer::singleShot(60, this, [this]() {
+            apply();
+            recalling_ = false;
+            tracking_ = dock_->isVisible();
+        });
+    }
+
+    void apply() {
+        if (!have_ || !dock_->isVisible())
+            return;
+        if (!dock_->isFloating())
+            dock_->setFloating(true);
+        dock_->resize(size_);
+        dock_->move(clampPos(pos_, size_));
+    }
+
+    static QPoint clampPos(QPoint p, const QSize &sz) {
+        QScreen *scr = QGuiApplication::screenAt(p + QPoint(sz.width() / 2, 24));
+        if (!scr)
+            scr = QGuiApplication::primaryScreen();
+        if (!scr)
+            return p;
+        const QRect a = scr->availableGeometry();
+        const QRect frame(p, sz);
+        if (a.intersects(frame.adjusted(0, 0, -sz.width() + 80, -sz.height() + 48)))
+            return p;
+        return a.topLeft() + QPoint(48, 48);
+    }
+
+    QDockWidget *dock_ = nullptr;
+    QString key_;
+    const bool *layoutRestoring_ = nullptr;
+    QTimer debounce_;
+    QPoint pos_;
+    QSize size_;
+    bool have_ = false;
+    bool recalling_ = false;
+    bool tracking_ = false;
+    bool wasFloating_ = false;   // floating when last hidden
+};
 
 // The session layout is stored per DISPLAY SETUP, not in one global slot.
 //
@@ -919,6 +1044,13 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     // contact row (CwMacros, created above) with a linked logger.  Same
     // lifetime story — both parented to this window.
     tci_->setCwMacros(cwMacros_);
+    connect(tci_, &TciServer::remoteLockChanged, this,
+            [this](const QString &text) {
+                if (!text.isEmpty())
+                    statusBar()->showMessage(
+                        text, Prefs::kRemoteLockoutSec * 1000);
+                updateTciStatus();
+            });
     // Serial PTT input — a digital app (WSJT-X / VarAC / fldigi) asserts
     // RTS/DTR on a (virtual) COM port → crosses to our CTS/DSR → keys Lyra
     // (which keys the rig downstream).  Default-OFF; configured in
@@ -1793,6 +1925,10 @@ void MainWindow::buildDocks() {
                  QStringLiteral("AmpViewPanel.qml"),
                  QStringLiteral("ampview"), Qt::BottomDockWidgetArea,
                  /*resizable=*/true);
+    addQuickDock(QStringLiteral("diversity"), tr("Diversity"),
+                 QStringLiteral("DiversityPanel.qml"),
+                 QStringLiteral("diversity"), Qt::BottomDockWidgetArea,
+                 /*resizable=*/true);
     // TX Speech (#88) — Noise Gate + Auto-AGC + De-esser, the pre-EQ mic
     // rack stage.  Its OWN dock so it moves / resizes / floats / collapses
     // like every Lyra panel; drag it onto the TX EQ dock to tab the two into
@@ -1838,6 +1974,8 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("cwconsole"))) {
         d->setFloating(true);
         d->hide();
+        new FloatingDockMemory(d, QStringLiteral("ui/cwConsoleDock"),
+                               &layoutRestoring_, d);
     }
     // CW Decoder (#173 CW-5b) — separate from the CW console so a user can run
     // the decoder alone, the keyer alone, or both.  Own floating dock + "CW
@@ -1850,6 +1988,8 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("cwdecoder"))) {
         d->setFloating(true);
         d->hide();
+        new FloatingDockMemory(d, QStringLiteral("ui/cwDecoderDock"),
+                               &layoutRestoring_, d);
     }
     // Voice Keyer (#89 Build 1) — floating clip-message panel (labelled clips,
     // ▶ OTA / ▶ Review / F-keys), chip-summoned like the CW console.  Own dock;
@@ -1861,6 +2001,8 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("voicekeyer"))) {
         d->setFloating(true);
         d->hide();
+        new FloatingDockMemory(d, QStringLiteral("ui/voiceKeyerDock"),
+                               &layoutRestoring_, d);
     }
     // Tuner — native manual-ATU memory (the "Tuner Reminder" idea built in):
     // tracks the dial vs the active antenna's stored Input/Output/Inductor
@@ -1873,6 +2015,9 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("tuner"))) {
         d->setFloating(true);
         d->hide();
+        // Same as Diversity: hide/show drops the float, so remember the frame.
+        new FloatingDockMemory(d, QStringLiteral("ui/tunerDock"),
+                               &layoutRestoring_, d);
     }
     // Frequency Calibration — chip-launched floating instrument: tap a time
     // station, it auto-tunes USB + measures the carrier offset and suggests a
@@ -1906,7 +2051,7 @@ void MainWindow::buildDocks() {
     // remembers what's open + where.  restoreLayout() below overrides this
     // with the operator's saved arrangement when one exists.
     for (const char *nm : {"txspeech", "txeq", "txcombinator", "txplate",
-                           "rxeq", "ps", "ampview"}) {
+                           "rxeq", "ps", "ampview", "diversity"}) {
         if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
             d->setFloating(true);
             d->hide();
@@ -1946,6 +2091,13 @@ void MainWindow::buildDocks() {
                         d->raise();                   // front tab if tabbed
                     });
         }
+    }
+    // Diversity opens floating like the other chip panels. Hide/show drops
+    // the frame Qt was using, so the next open would ignore where the
+    // operator left it.
+    if (QDockWidget *div = docks_.value(QStringLiteral("diversity"))) {
+        new FloatingDockMemory(div, QStringLiteral("ui/diversityDock"),
+                               &layoutRestoring_, div);
     }
     // Profiles — front-facing quick recall of a saved TX/RX profile
     // (dropdown + Save + ● modified).  Full editor (create / rename /
@@ -2149,7 +2301,8 @@ void MainWindow::buildMenus() {
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
     for (auto it = docks_.cbegin(); it != docks_.cend(); ++it) {
         // Amp View is a header chip only — not a View-menu item.
-        if (it.key() == QLatin1String("ampview"))
+        if (it.key() == QLatin1String("ampview")
+            || it.key() == QLatin1String("diversity"))
             continue;
         viewMenu->addAction(it.value()->toggleViewAction());
     }
@@ -2322,7 +2475,25 @@ void MainWindow::rebuildRigMenu() {
         QAction *none = rigMenu_->addAction(tr("(no rigs yet)"));
         none->setEnabled(false);
     }
-    for (const auto &r : rigs) {
+    for (auto r : rigs) {
+        // A P2 rig can still be stored under the coarse family name
+        // after the operator picked a model.  Use that rig's own model
+        // key, or the active rig's saved model, then persist the
+        // marketed name (Brick3SDR, ANAN-100D, …).  A custom rename
+        // is left alone.
+        if (r.hardwareModelKey.isEmpty() && r.rigId == active
+            && (r.family == lyra::rig::RadioFamily::AnanP2
+                || r.family == lyra::rig::RadioFamily::AnanP1)) {
+            QSettings s;
+            if (s.contains(QStringLiteral("radio/hardwareModel"))) {
+                const QString key =
+                    s.value(QStringLiteral("radio/hardwareModel")).toString();
+                if (!key.isEmpty())
+                    r.hardwareModelKey = key;
+            }
+        }
+        if (lyra::rig::registry::adoptHardwareLabel(r))
+            lyra::rig::registry::upsertRig(r);
         const QString label = r.label.isEmpty() ? r.rigId : r.label;
         QAction *a = rigMenu_->addAction(label);
         a->setCheckable(true);
@@ -2971,6 +3142,31 @@ void MainWindow::buildToolbar() {
         };
         addOptDockChip("ps", tr("PureSignal"));
         addOptDockChip("ampview", tr("Amp View"));
+        addOptDockChip("diversity", tr("DIV"));
+        if (QDockWidget *divDock = docks_.value(QStringLiteral("diversity"))) {
+            if (QAction *act = divDock->toggleViewAction()) {
+                if (auto *btn = qobject_cast<QToolButton *>(
+                        tb->widgetForAction(act))) {
+                    auto *divSt = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+                    btn->setToolTip(tr(
+                        "Two converters, same frequency. Second RF is the "
+                        "RX2 jack (Ext1), not ANT2. Off while transmitting "
+                        "or PureSignal is live."));
+                    auto syncDivChip = [btn, divDock, divSt]() {
+                        const bool show = divSt && divSt->diversityCapable();
+                        btn->setVisible(show);
+                        if (!show)
+                            divDock->hide();
+                    };
+                    if (divSt) {
+                        connect(divSt,
+                                &lyra::ipc::HL2Stream::diversityCapableChanged,
+                                btn, syncDivChip);
+                    }
+                    syncDivChip();
+                }
+            }
+        }
 
         auto *appsBtn = new QToolButton(tb);
         appsBtn->setObjectName(QStringLiteral("txDspChip"));
@@ -3553,6 +3749,7 @@ void MainWindow::updateTciStatus() {
     }
     const int n = tci_->clientCount();
     tciStatus_->setVisible(true);
+    const QString lock = tci_->remoteLockText();
     if (n > 0) {
         tciStatus_->setText(tr("● TCI: %1").arg(n));
         tciStatus_->setStyleSheet(QStringLiteral("color:#4caf50;font-weight:bold;"));
@@ -3562,6 +3759,8 @@ void MainWindow::updateTciStatus() {
         tciStatus_->setStyleSheet(QStringLiteral("color:#f0c040;"));
         tciStatus_->setToolTip(tr("TCI server listening — no clients connected"));
     }
+    if (!lock.isEmpty())
+        tciStatus_->setToolTip(tciStatus_->toolTip() + QLatin1Char('\n') + lock);
 }
 
 bool MainWindow::event(QEvent *e) {

@@ -92,11 +92,13 @@ gear — all native, all in front of the WDSP transmitter:
 
 ## Shipped highlights
 
-✅ **v0.25.19 Sheliak** · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
+✅ **v0.25.21 Sheliak** · ✅ **Lyra Remote** (separate browser desk) · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
 Brick3 PS jack) · ✅ **VAC2** · ✅ **SUB / SPLIT** (second pan on Brick3 /
-100D; RX2 jack isolate on TX) · 🗺️ **Diversity** (next — RX2 jack / Ext1,
-not ANT2) · 🚧 **ANAN-10…200D** P2 (10/10E = Brick2 TX; 100-series =
-Brick3 TX; G2 dummy-load) · 🗺️ **7000DLE / 8000** · 🗺️ **Linux, then macOS**.
+100D; RX2 jack isolate on TX) · ✅ **Diversity** (Brick3 / 100D / 200D —
+RX2 jack / Ext1, not ANT2; not a second VFO) · ✅ **Band stack** (three
+frequencies per chip) · ✅ **Separate RX / TX filter lows** · 🚧 **ANAN-10…200D** P2
+(10/10E = Brick2 TX; 100-series = Brick3 TX; G2 dummy-load) ·
+🗺️ **7000DLE / 8000** · 🗺️ **Linux, then macOS**.
 
 Details, ordering, and status on the **[Roadmap](Roadmap)**.
 
@@ -110,6 +112,7 @@ Details, ordering, and status on the **[Roadmap](Roadmap)**.
 - 📖 **[User Guide](User-Guide)** — the full operator's manual (also built into the app: **Help → User Guide**), including **[second receiver / SUB](User-Guide#second-receiver-sub--rx2--how-it-works)** on HL2, BrickSDR2, and Brick3SDR.
 - 🙏 **[Credits](Credits)** — DeskHPSDR, Heiko, Anton, testers, upstream.
 - 🔗 **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** — the two-way link with the companion logger (RST from RX1).
+- 🌐 **[Lyra Remote](Lyra-Remote)** — the browser desk (separate download).
 - ❓ **[FAQ &amp; Troubleshooting](FAQ-and-Troubleshooting)**
 
 ## Companion app — SDRLogger+
@@ -123,6 +126,19 @@ auto-fills from Lyra's **RX1** calibrated S-meter (SUB RST is not Combo yet), an
 send 73. HL2, BrickSDR2, and Brick3SDR **SUB / RX2** and **SPLIT** are on the same TCI socket —
 see **[Combo](SDRLogger-Plus-Combo)** and **[User Guide → Second receiver](User-Guide#second-receiver-sub--rx2--how-it-works)**.
 → **[Get SDRLogger+](https://n8sdr1.github.io/SDRLoggerPlus/)**
+
+## Companion page — Lyra Remote
+
+**[Lyra Remote](Lyra-Remote)** is a browser desk for the Lyra that is already
+running. It is a separate package. Lyra does not host the page, and the
+installer does not contain it.
+
+Download the page from
+**[Lyra Remote releases](https://github.com/N8SDR1/Lyra-Remote/releases)**.
+How it works is in the
+**[Lyra Remote wiki](https://github.com/N8SDR1/Lyra-Remote/wiki)**.
+On the radio computer, **Settings → Remote** is the password and the voice
+session.
 
 ## Contributors
 

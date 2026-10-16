@@ -62,12 +62,14 @@ SolarPanel::SolarPanel(SolarService *svc, NcdxfFollow *follow,
     row->addWidget(makeValueBox(tr("K"), &kVal_));
     row->addWidget(vdivider(this));
 
-    // 10-band heat-map.
+    // 10-band heat-map. Each chip tunes VFO A to that band.
     for (const QString &b : SolarService::bands()) {
-        auto *cell = new QLabel(b, this);
-        cell->setAlignment(Qt::AlignCenter);
+        auto *cell = new QToolButton(this);
+        cell->setText(b);
         cell->setFixedSize(44, 22);   // identical chip size to the Band panel
         cell->setCursor(Qt::PointingHandCursor);
+        cell->setFocusPolicy(Qt::NoFocus);
+        cell->setAutoRaise(true);
         cell->setProperty("bandKey", b + QLatin1Char('m'));
         cell->installEventFilter(this);
         bandCells_.insert(b, cell);
@@ -211,16 +213,17 @@ void SolarPanel::refresh() {
     // Band heat-map.
     for (auto it = bandCells_.cbegin(); it != bandCells_.cend(); ++it) {
         const QString &band = it.key();
-        QLabel *cell = it.value();
+        QToolButton *cell = it.value();
         const Rating r = svc_->ratingForBand(band);
         const QString col = SolarService::ratingColor(r);
         // Shared "chip" geometry with the Band panel buttons (50/50
         // design blend): radius/fill/padding/text matched; the border +
         // text colour stay condition-driven.
         cell->setStyleSheet(QStringLiteral(
-            "QLabel{background:rgba(22,32,42,180);color:%1;"
+            "QToolButton{background:rgba(22,32,42,180);color:%1;"
             "border:1px solid %1;border-radius:4px;"
-            "font-size:13px;font-weight:700;}").arg(col));
+            "font-size:13px;font-weight:700;padding:0;}"
+            "QToolButton:hover{background:rgba(40,60,80,220);}").arg(col));
         QString rtxt;
         switch (r) {
         case Rating::Good: rtxt = tr("Good"); break;
@@ -239,19 +242,20 @@ void SolarPanel::refresh() {
 bool SolarPanel::eventFilter(QObject *watched, QEvent *event) {
     if (event->type() != QEvent::MouseButtonRelease)
         return QWidget::eventFilter(watched, event);
-    auto *cell = qobject_cast<QLabel *>(watched);
+    auto *cell = qobject_cast<QToolButton *>(watched);
     if (!cell || !bandCells_.values().contains(cell))
         return QWidget::eventFilter(watched, event);
     const auto *me = static_cast<QMouseEvent *>(event);
     if (!cell->rect().contains(me->position().toPoint()))
-        return true;
+        return QWidget::eventFilter(watched, event);
     const bool sub = me->button() == Qt::RightButton
                   || (me->button() == Qt::LeftButton
                       && (me->modifiers() & Qt::ShiftModifier));
     if (me->button() != Qt::LeftButton && me->button() != Qt::RightButton)
         return QWidget::eventFilter(watched, event);
     tuneBand(cell->property("bandKey").toString(), sub);
-    return true;
+    // Let the button see its release too, so it does not stay drawn pressed.
+    return QWidget::eventFilter(watched, event);
 }
 
 void SolarPanel::tuneBand(const QString &bandKey, bool forceSub) {
@@ -278,6 +282,10 @@ void SolarPanel::tuneBand(const QString &bandKey, bool forceSub) {
         if (bandMemory_) bandMemory_->applyRx2Band(bandKey);
         return;
     }
+    // A beacon follow would retune VFO A on the next slot. Drop it so
+    // the chip sticks.
+    if (follow_ && !follow_->station().isEmpty())
+        follow_->setStation(QString());
     if (gen_) gen_->deactivate();
     const int remembered = bandMemory_ ? bandMemory_->freqFor(bandKey) : 0;
     const quint32 hz = quint32(remembered > 0 ? remembered : defaultHz);

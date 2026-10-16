@@ -11,6 +11,7 @@ QJsonObject Profile::toJson() const {
     o["txBandwidth"]   = txBandwidth;
     o["bwLocked"]      = bwLocked;
     o["filterLow"]     = filterLow;
+    o["txFilterLow"]   = txFilterLow;
     o["micSource"]     = micSource;
     o["micGainDb"]     = micGainDb;
     o["micBoost"]      = micBoost;
@@ -64,6 +65,10 @@ Profile Profile::fromJson(const QString &name, const QJsonObject &o) {
     if (o.contains("txBandwidth"))   p.txBandwidth   = o["txBandwidth"].toInt(p.txBandwidth);
     if (o.contains("bwLocked"))      p.bwLocked      = o["bwLocked"].toBool(p.bwLocked);
     if (o.contains("filterLow"))     p.filterLow     = o["filterLow"].toInt(p.filterLow);
+    if (o.contains("txFilterLow"))
+        p.txFilterLow = o["txFilterLow"].toInt(p.txFilterLow);
+    else if (o.contains("filterLow"))
+        p.txFilterLow = p.filterLow;
     if (o.contains("micSource"))     p.micSource     = o["micSource"].toString(p.micSource);
     if (o.contains("micGainDb"))     p.micGainDb     = o["micGainDb"].toDouble(p.micGainDb);
     if (o.contains("micBoost"))      p.micBoost      = o["micBoost"].toBool(p.micBoost);
@@ -116,6 +121,7 @@ bool Profile::sameValues(const Profile &b) const {
         && txBandwidth == b.txBandwidth
         && bwLocked == b.bwLocked
         && filterLow == b.filterLow
+        && txFilterLow == b.txFilterLow
         && micSource == b.micSource
         && dEq(micGainDb, b.micGainDb)
         && micBoost == b.micBoost

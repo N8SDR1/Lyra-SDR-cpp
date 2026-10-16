@@ -1,5 +1,18 @@
-// Link stubs for golden P2 packet tests. Production Lyra uses P2TxCmaster.cpp.
+// Link stubs for golden P2 packet tests. Production Lyra uses P2TxCmaster.cpp
+// and the real PureSignal feed thread.
+#include "ps/PsCalcThread.h"
 #include "wire/P2TxCmaster.h"
+
+namespace lyra::ps {
+
+PsCalcThread &PsCalcThread::instance() {
+    static PsCalcThread g;
+    return g;
+}
+
+void PsCalcThread::feed(int, const double *, const double *) {}
+
+} // namespace lyra::ps
 
 namespace lyra::wire {
 

@@ -203,6 +203,26 @@ using fn_destroy_nobEXT_t     = void (*)(int id);
 using fn_xnobEXT_t            = void (*)(int id, double *in, double *out);
 using fn_SetEXTNOBRun_t       = void (*)(int id, int run);
 using fn_SetEXTNOBThreshold_t = void (*)(int id, double thresh);
+// Diversity combiner (div.c external API).  Host-side mix of two
+// converters.  DivExt calls these only while the DDC0 overlay is live.
+//
+// create_div leaves Irotate/Qrotate at zero and output at 0.
+// Before SetEXTDIVRun(1) with a mix: SetEXTDIVOutput(id, nr)
+// (nr=2 → output 2 means "sum") AND SetEXTDIVRotate.  Rotate is
+// linear, not dB: path 0 is 1+j0; path 1 is amp·e^{jθ} with
+// amp = 10^(gain_dB/20).  Output==nr mixes; output 0 or 1 copies
+// that receiver.  run==0 copies stream 0.  Do not bind xdivEXTF.
+using fn_create_divEXT_t      = void (*)(int id, int run, int nr, int size);
+using fn_destroy_divEXT_t     = void (*)(int id);
+using fn_flush_divEXT_t       = void (*)(int id);
+using fn_xdivEXT_t            = void (*)(int id, int nsamples,
+                                        double **in, double *out);
+using fn_SetEXTDIVRun_t       = void (*)(int id, int run);
+using fn_SetEXTDIVBuffsize_t  = void (*)(int id, int size);
+using fn_SetEXTDIVNr_t        = void (*)(int id, int nr);
+using fn_SetEXTDIVOutput_t    = void (*)(int id, int output);
+using fn_SetEXTDIVRotate_t    = void (*)(int id, int nr,
+                                        double *Irotate, double *Qrotate);
 // APF — CW audio peaking filter (a single in-chain biquad).  Centre on
 // the CW pitch, narrow bandwidth, peak gain (dB→linear at the call site).
 // Mode-gated to CWU/CWL by the engine.
@@ -467,6 +487,18 @@ struct WdspApi {
     fn_xnobEXT_t             xnobEXT             = nullptr;
     fn_SetEXTNOBRun_t        SetEXTNOBRun        = nullptr;
     fn_SetEXTNOBThreshold_t  SetEXTNOBThreshold  = nullptr;
+    // Diversity (div.c).  Bound at load; no radio consumer until the
+    // overlay + ingest land together.  See the typedef comment for
+    // the zero-rotate init order.
+    fn_create_divEXT_t       create_divEXT       = nullptr;
+    fn_destroy_divEXT_t      destroy_divEXT      = nullptr;
+    fn_flush_divEXT_t        flush_divEXT        = nullptr;
+    fn_xdivEXT_t             xdivEXT             = nullptr;
+    fn_SetEXTDIVRun_t        SetEXTDIVRun        = nullptr;
+    fn_SetEXTDIVBuffsize_t   SetEXTDIVBuffsize   = nullptr;
+    fn_SetEXTDIVNr_t         SetEXTDIVNr         = nullptr;
+    fn_SetEXTDIVOutput_t     SetEXTDIVOutput     = nullptr;
+    fn_SetEXTDIVRotate_t     SetEXTDIVRotate     = nullptr;
     fn_SetRXABiQuadRun_t       SetRXABiQuadRun       = nullptr;
     fn_SetRXABiQuadFreq_t      SetRXABiQuadFreq      = nullptr;
     fn_SetRXABiQuadBandwidth_t SetRXABiQuadBandwidth = nullptr;

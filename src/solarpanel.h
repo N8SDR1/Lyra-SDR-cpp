@@ -52,7 +52,7 @@ private:
     QLabel  *aVal_   = nullptr;
     QLabel  *kVal_   = nullptr;
     QWidget *sfiBox_ = nullptr;            // tooltip carrier for extras
-    QHash<QString, QLabel *> bandCells_;   // band → coloured cell
+    QHash<QString, QToolButton *> bandCells_;   // band → coloured chip
 };
 
 } // namespace lyra::ui
