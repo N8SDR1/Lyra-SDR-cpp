@@ -1078,6 +1078,15 @@ Item {
                 // is rounded straight back by snapCarrier (+1/+10 Hz never
                 // leave the grid line; -50 Hz rounds back up), so the wheel
                 // did nothing.  Step at least one grid line in that mode.
+                // Wheel direction for tuning: vertical scroll, or a sideways
+                // scroll / tilt when there is no vertical part.  Right (and
+                // up) tunes up; a zero-movement event gives 0 and is ignored.
+                function wheelDir(wheel) {
+                    var y = wheel.angleDelta.y, x = wheel.angleDelta.x
+                    if (y !== 0) return y > 0 ? 1 : -1
+                    if (x !== 0) return x < 0 ? 1 : -1
+                    return 0
+                }
                 function wheelStepHz() {
                     return Prefs.panRound100
                         ? Math.max(100, Prefs.panScrollStepHz)
@@ -1292,10 +1301,11 @@ Item {
                         WdspEngine.setZoom(WdspEngine.zoom
                             * (wheel.angleDelta.y > 0 ? 1.25 : 0.8))
                     } else {
-                        var dir = wheel.angleDelta.y > 0 ? 1 : -1
+                        var dir = wheelDir(wheel)
                         var rx = root.panTuneRx
-                        tuneCarrier(currentCarrierHz(rx)
-                                    + dir * wheelStepHz(), rx)
+                        if (dir !== 0)
+                            tuneCarrier(currentCarrierHz(rx)
+                                        + dir * wheelStepHz(), rx)
                     }
                     wheel.accepted = true
                 }
@@ -2430,11 +2440,12 @@ Item {
                         WdspEngine.setZoom(WdspEngine.zoom
                             * (wheel.angleDelta.y > 0 ? 1.25 : 0.8))
                     } else {
-                        var dir = wheel.angleDelta.y > 0 ? 1 : -1
+                        var dir = specMouse.wheelDir(wheel)
                         var rx = root.panTuneRx
-                        specMouse.tuneCarrier(
-                            specMouse.currentCarrierHz(rx)
-                            + dir * specMouse.wheelStepHz(), rx)
+                        if (dir !== 0)
+                            specMouse.tuneCarrier(
+                                specMouse.currentCarrierHz(rx)
+                                + dir * specMouse.wheelStepHz(), rx)
                     }
                     wheel.accepted = true
                 }
