@@ -93,21 +93,48 @@ PanelRack::PanelRack(const QString &objName, const QString &title,
                                        false).toBool();
 }
 
+void PanelRack::setAllowTearOut(bool allow) {
+    allowTearOut_ = allow;
+    if (drag_) drag_->setNoTearOut(!allow);
+}
+
+void PanelRack::setTearOutHandler(
+    std::function<void(QDockWidget *, const QPoint &, const QPoint &)> fn) {
+    if (drag_) drag_->setTearOutHandler(std::move(fn));
+}
+
+bool PanelRack::hasMember(const QDockWidget *dock) const {
+    return dock && members_.contains(dock->objectName());
+}
+
+void PanelRack::detachMember(QDockWidget *dock) {
+    if (!dock) return;
+    members_.remove(dock->objectName());
+    if (lastMember_ == dock) lastMember_ = nullptr;
+    if (QWidget *tb = dock->titleBarWidget())
+        tb->removeEventFilter(drag_);
+    disconnect(dock, &QDockWidget::topLevelChanged, this, nullptr);
+    // The strip toggles this rack's members only.  The action itself is the
+    // dock's toggleViewAction, so the View menu keeps tracking the panel.
+    if (QAction *a = toggles_.take(dock->objectName()))
+        toggleBar_->removeAction(a);
+    removeDockWidget(dock);
+}
+
+void PanelRack::setLocked(bool locked) {
+    locked_ = locked;
+    reassertMemberFeatures();
+}
+
 void PanelRack::addMember(QDockWidget *dock, QAction *toggleAction) {
     if (!dock) return;
     members_.insert(dock->objectName(), dock);
-    // A rack member can be dragged to re-tile / tab INSIDE the rack (Movable)
-    // and closed via its title-bar X (Closable, just hides it — reflected on
-    // the toggle), but is NOT floatable — it can never tear out to a separate
-    // window and spill onto the screen.  The rack's own no-tear-out drag
-    // controller drives the in-rack rearrange.
-    dock->setFeatures(QDockWidget::DockWidgetMovable
-                      | QDockWidget::DockWidgetClosable);
-    if (QWidget *tb = dock->titleBarWidget()) {
-        if (auto *fb = tb->findChild<QToolButton *>(QStringLiteral("dockFloat")))
-            fb->setVisible(false);   // no float-out from a rack
+    // Movable + Closable always.  Tear-out racks (the DSP set) are also
+    // Floatable while unlocked: ⧉, a title-bar double-click, or a drag off
+    // the rack pops the panel out.  The host adopts it so it can dock into
+    // the main window.  (Features + float button: reassertMemberFeatures.)
+    if (QWidget *tb = dock->titleBarWidget())
         tb->installEventFilter(drag_);   // dragging re-tiles / tabs inside the rack
-    }
     if (!lastMember_)
         addDockWidget(Qt::TopDockWidgetArea, dock);
     else
@@ -115,7 +142,19 @@ void PanelRack::addMember(QDockWidget *dock, QAction *toggleAction) {
     lastMember_ = dock;
     dock->setFloating(false);
     dock->show();                     // shown by default; restore() hides the off ones
-    if (toggleAction) toggleBar_->addAction(toggleAction);
+    reassertMemberFeatures();
+    if (allowTearOut_) {
+        connect(dock, &QDockWidget::topLevelChanged, this,
+                [this, dock](bool floating) {
+                    if (floating && canTearOut() && !restoring_
+                        && members_.contains(dock->objectName()))
+                        emit memberFloated(dock);
+                });
+    }
+    if (toggleAction) {
+        toggleBar_->addAction(toggleAction);
+        toggles_.insert(dock->objectName(), toggleAction);
+    }
 }
 
 void PanelRack::store() const {
@@ -137,10 +176,12 @@ void PanelRack::restore() {
     const QByteArray g = s.value(b + QStringLiteral("geometry")).toByteArray();
     if (!g.isEmpty()) restoreGeometry(g);
     const QByteArray st = s.value(b + QStringLiteral("state")).toByteArray();
+    restoring_ = true;
     if (!st.isEmpty()) {
         restoreState(st);              // members + toolbar already added
         reassertMemberFeatures();      // restoreState resets dock features
     }
+    restoring_ = false;
     openByDefault_ = s.value(b + QStringLiteral("open"), false).toBool();
 
     // Undo history from this rack's previous sessions (survives restart).
@@ -155,8 +196,15 @@ void PanelRack::restore() {
 }
 
 void PanelRack::closeEvent(QCloseEvent *event) {
-    // Close = hide the whole rack (members go with it — nothing spills onto the
-    // screen).  Persist first, then tell the host to un-light its chip.
+    // The operator's X hides the rack and remembers it closed.  Quitting Lyra
+    // (or closing the main window) also delivers a close here: the host has
+    // already stored the rack while it was on screen, so accept without
+    // storing (a store now would record it shut).  Ignoring that close would
+    // cancel the quit outright when Qt happens to close this window first.
+    if (quitting_) {
+        event->accept();
+        return;
+    }
     event->ignore();
     hide();
     store();
@@ -262,14 +310,17 @@ void PanelRack::persistUndoStack() {
 }
 
 void PanelRack::reassertMemberFeatures() {
-    // restoreState() resets each dock's features + can re-show the (hidden)
-    // float button, so re-apply the rack's no-float-out contract afterwards.
+    // restoreState() resets each dock's features.  A fixed rack, or a locked
+    // tear-out rack, hides the float button; an unlocked tear-out rack (DSP)
+    // keeps it.
+    QDockWidget::DockWidgetFeatures feats =
+        QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable;
+    if (canTearOut()) feats |= QDockWidget::DockWidgetFloatable;
     for (QDockWidget *d : std::as_const(members_)) {
-        d->setFeatures(QDockWidget::DockWidgetMovable
-                       | QDockWidget::DockWidgetClosable);
+        d->setFeatures(feats);
         if (QWidget *tb = d->titleBarWidget())
             if (auto *fb = tb->findChild<QToolButton *>(QStringLiteral("dockFloat")))
-                fb->setVisible(false);
+                fb->setVisible(canTearOut());
     }
 }
 

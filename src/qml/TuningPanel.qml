@@ -1,8 +1,8 @@
 // Lyra — Tuning dock panel (RX1 / DDC0), VFO-cluster layout.
 //
 // Operator-curated layout (2026-06-20): each VFO is a self-contained
-// CLUSTER — a big LED-style readout (FreqDisplay) you tune by clicking a
-// digit + wheeling, with its Step + Mode combos directly UNDERNEATH it,
+// CLUSTER — a big readout (VfoBox.qml, drawn by the operator-selected VFO
+// style from VfoStyles.js) you tune by clicking a digit + wheeling, with its Step + Mode combos directly UNDERNEATH it,
 // and the Lyra logo centred between VFO A and the reserved VFO-B slot.
 // Mode moved here from the (now "Filters") dock; the Prefs.mode →
 // WdspEngine.mode binding came with it.  A controls row under the VFOs
@@ -11,9 +11,9 @@
 // feature lands (SPLIT, RIT/XIT, repeaters), never as a dead widget.
 //
 // VFO indication model:
-//   • amber RX/TX text tag, upper-left of the digits = ROLE (which VFO
-//     listens, which transmits) — amber lives ONLY in the tag, never
-//     blended into the border (an amber→red border blend read pinkish).
+//   • RX/TX text tag = ROLE (which VFO listens, which transmits); its
+//     colour and position belong to the selected style.  The tag colour
+//     is never blended into the border (an amber→red blend read pinkish).
 //   • border = LIVE state: green = receiving, red = transmitting now
 //     (Stream.moxActive, the wire-MOX truth), neutral gray = an armed-
 //     but-not-keyed TX VFO (only meaningful once SPLIT lands).
@@ -138,13 +138,33 @@ Rectangle {
         return (hz > 0 ? "+" : "") + hz + " Hz"
     }
 
+    // VFO B's live frequency: VFO B in SPLIT (or with no SUB), else RX2.
+    function bFromHz() {
+        return (Stream.splitEnabled || !Stream.subEnabled) ? Stream.vfoBHz
+                                                           : Stream.rx2FreqHz
+    }
+    // While transmitting, a VFO move that would leave its amateur band is
+    // ignored (filters / OC outputs / PA band must not switch under power).
+    // VFO A always counts; B only when it is live (SPLIT TX or SUB RX).
+    // Pass undefined for a side that doesn't move.
+    function abBlocked(newA, newB) {
+        if (newA !== undefined && Stream.txBlocksJumpFrom(Stream.rx1FreqHz, newA))
+            return true
+        return newB !== undefined && (Stream.splitEnabled || Stream.subEnabled)
+            && Stream.txBlocksJumpFrom(bFromHz(), newB)
+    }
     function commitBCarrier(hz) {
-        if (Stream.splitEnabled || !Stream.subEnabled)
+        if (Stream.splitEnabled || !Stream.subEnabled) {
+            if (abBlocked(undefined, hz)) return
             Stream.setVfoBHz(hz)
-        else
-            Stream.setRx2FreqHz(hz - WdspEngine.markerOffsetHzRx2)
+        } else {
+            var rx2Hz = hz - WdspEngine.markerOffsetHzRx2
+            if (abBlocked(undefined, rx2Hz)) return
+            Stream.setRx2FreqHz(rx2Hz)
+        }
     }
     function copyAtoB() {
+        if (abBlocked(undefined, Stream.rx1FreqHz)) return
         if (Stream.splitEnabled)
             Stream.setVfoBHz(Stream.rx1FreqHz)
         else if (Stream.subEnabled)
@@ -157,6 +177,7 @@ Rectangle {
         }
     }
     function copyBtoA() {
+        if (abBlocked(bFromHz(), undefined)) return
         if (Stream.splitEnabled)
             Stream.setRx1FreqHz(Stream.vfoBHz)
         else if (Stream.subEnabled)
@@ -169,6 +190,7 @@ Rectangle {
         }
     }
     function swapAB() {
+        if (abBlocked(bFromHz(), Stream.rx1FreqHz)) return
         var a = Stream.rx1FreqHz
         if (Stream.splitEnabled) {
             var b = Stream.vfoBHz
@@ -192,12 +214,6 @@ Rectangle {
             Prefs.rx2Bandwidth = bw
         }
     }
-
-    // Indication palette (matches the locked VFO indication model).
-    readonly property color cRx:   "#34c759"   // receiving (green border)
-    readonly property color cTx:   "#ff4136"   // transmitting now (red border)
-    readonly property color cArm:  "#3a4250"   // armed TX, not keyed (gray)
-    readonly property color cRole: "#efb340"   // amber RX/TX role tag
 
     readonly property var modeList: ["LSB", "USB", "CWL", "CWU",
                                      "DSB", "AM", "SAM", "FM", "DIGU", "DIGL"]
@@ -336,173 +352,22 @@ Rectangle {
             // Step+Mode (mockup/old-Lyra idiom).  Fixed snug width so the
             // border outlines the cluster, not a giant block.
             ColumnLayout {
-                Layout.preferredWidth: 360
-                Layout.maximumWidth: 360
+                Layout.preferredWidth: vfoBoxA.naturalWidth
+                Layout.maximumWidth: vfoBoxA.naturalWidth
                 // A real floor, so the readout can't be crushed to nothing when
-                // the row is squeezed — 300px still seats the LED digits and the
-                // Step/Mode combos beneath them.
-                Layout.minimumWidth: 300
+                // the row is squeezed — 5/6 of the style's width (300 px for the
+                // 360 px Amber box); below its natural width the style scales.
+                Layout.minimumWidth: Math.round(vfoBoxA.naturalWidth * 5 / 6)
                 Layout.alignment: Qt.AlignVCenter
                 spacing: 4
 
-              Rectangle {
-                id: vfoA
+              VfoBox {
+                id: vfoBoxA
+                panel: root
+                isB: false
                 Layout.fillWidth: true
-                Layout.preferredHeight: 108
-                color: "#0a0e12"
-                radius: 6
-                border.width: 2
-                // VFO A is the RX.  Red only when transmitting on A —
-                // i.e. keyed AND not split (in SPLIT, A stays the receiver
-                // and VFO B carries the red TX border).
-                border.color: (Stream.txDisplayActive && !Stream.splitEnabled)
-                              ? root.cTx
-                              : (Stream.subEnabled && Stream.focusedRx !== 1)
-                                ? root.cArm : root.cRx
-
-                // Always-on TX assignment pip (locked pile-up model): red =
-                // will TX here, gray = click to assign TX to this VFO.
-                Rectangle {
-                    id: txPipA
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: 5
-                    width: 28; height: 15; radius: 3
-                    z: 6
-                    color: !Stream.splitEnabled
-                           ? (Stream.txDisplayActive ? root.cTx : "#8a1f1a")
-                           : "#2a323c"
-                    border.width: 1
-                    border.color: !Stream.splitEnabled ? "#ff6b63" : "#5a6570"
-                    Label {
-                        anchors.centerIn: parent
-                        text: qsTr("TX")
-                        color: !Stream.splitEnabled ? "#ffffff" : "#7a8490"
-                        font.pixelSize: 9
-                        font.bold: true
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        onClicked: root.assignTx(false)
-                        ToolTip.visible: containsMouse && Prefs.tooltipsEnabled
-                        ToolTip.delay: 400
-                        ToolTip.text: !Stream.splitEnabled
-                            ? qsTr("Transmit on VFO A")
-                            : qsTr("Click to transmit on VFO A (leave SPLIT)")
-                    }
-                }
-
-                // Amber role tag, upper-left — flips RX→TX on key (simplex).
-                Label {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.leftMargin: 8
-                    anchors.topMargin: 4
-                    text: (Stream.txDisplayActive && !Stream.splitEnabled)
-                          ? qsTr("TX") : qsTr("RX")
-                    color: root.cRole
-                    font.bold: true
-                    font.pixelSize: 12
-                    z: 2
-                }
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
-                    anchors.topMargin: 4
-                    anchors.bottomMargin: 6
-                    spacing: 10
-
-                    // LED VFO readout (carrier) + typed-entry overlay.
-                    Item {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.preferredHeight: 58
-
-                        FreqDisplay {
-                            id: led
-                            anchors.fill: parent
-                            // VFO (carrier) = DDS + CW marker offset.
-                            freqHz: root.centerHz + WdspEngine.markerOffsetHz
-                            externalStepHz: stepCombo.stepVals[stepCombo.currentIndex]
-                            // Tune: convert carrier back to the DDS wire freq.
-                            onFreqEdited: (hz) =>
-                                Stream.setRx1FreqHz(hz - WdspEngine.markerOffsetHz)
-                            onEditRequested: {
-                                editField.text = (led.freqHz / 1.0e6).toFixed(6)
-                                editField.visible = true
-                                editField.selectAll()
-                                editField.forceActiveFocus()
-                            }
-                        }
-                        TextField {
-                            id: editField
-                            anchors.fill: parent
-                            visible: false
-                            horizontalAlignment: TextInput.AlignHCenter
-                            verticalAlignment: TextInput.AlignVCenter
-                            font.family: "Consolas"
-                            font.pixelSize: 22
-                            font.bold: true
-                            color: "#ffb000"
-                            background: Rectangle {
-                                color: "#000000"
-                                border.color: "#00d8ff"
-                                border.width: 2
-                                radius: 3
-                            }
-                            function commit() {
-                                if (!visible) return
-                                var hz = led.parseFreqInput(text)   // entered carrier
-                                visible = false
-                                if (hz >= 0)
-                                    Stream.setRx1FreqHz(hz - WdspEngine.markerOffsetHz)
-                            }
-                            onAccepted: commit()
-                            onActiveFocusChanged: if (!activeFocus) commit()
-                            Keys.onEscapePressed: visible = false
-                        }
-                    }
-
-                    // Step + Mode — VFO A's per-VFO controls, INSIDE the box,
-                    // centred (balanced spacers each side).
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 6
-
-                        Item { Layout.fillWidth: true }
-                        Label { text: qsTr("Step"); color: "#cccccc"; font.bold: true }
-                        LyraComboBox {
-                            id: stepCombo
-                            Layout.preferredWidth: 92
-                            property var stepVals: root.vfoStepHzList
-                            model: root.vfoStepLabels
-                            currentIndex: root.vfoStepIndex(Prefs.vfoStepHz(Prefs.mode))
-                            onActivated: Prefs.setVfoStepHz(Prefs.mode, stepVals[currentIndex])
-                        }
-                        Label { text: qsTr("Mode"); color: "#cccccc"; font.bold: true }
-                        LyraComboBox {
-                            id: modeCombo
-                            Layout.preferredWidth: 78
-                            model: root.modeList
-                            currentIndex: Math.max(0, root.modeList.indexOf(Prefs.mode))
-                            onActivated: Prefs.mode = root.modeList[currentIndex]
-                        }
-                        Item { Layout.fillWidth: true }
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    z: 3
-                    acceptedButtons: Qt.LeftButton
-                    onPressed: (mouse) => {
-                        Stream.setFocusedRx(1)
-                        mouse.accepted = false
-                    }
-                }
+                Layout.preferredHeight: naturalHeight
+                Layout.maximumHeight: naturalHeight
               }
 
               // Zero-beat needle strip — a Layout FLOW child of the VFO-A
@@ -649,7 +514,7 @@ Rectangle {
             // SPLIT fills it with the TX VFO cluster (no relayout).
             //
             // The reservation is deliberate: it keeps the logo centred and stops
-            // the row re-laying out when SPLIT toggles.  But it is 360px, and
+            // the row re-laying out when SPLIT toggles.  But it is a whole VFO wide, and
             // when the panel is too narrow to afford it the reservation is what
             // squeezes VFO-A's readout — paying a third of the row for an empty
             // hole is not a trade worth making on a small screen.  So hold the
@@ -659,170 +524,24 @@ Rectangle {
                 id: vfoBSlot
                 readonly property bool reserve:
                     Stream.splitEnabled || Stream.subEnabled || root.width >= 900
-                Layout.preferredWidth: reserve ? 360 : 0
-                Layout.maximumWidth: reserve ? 360 : 0
-                Layout.minimumWidth: (Stream.splitEnabled || Stream.subEnabled) ? 300 : 0
+                Layout.preferredWidth: reserve ? vfoBoxB.naturalWidth : 0
+                Layout.maximumWidth: reserve ? vfoBoxB.naturalWidth : 0
+                Layout.minimumWidth: reserve
+                                     ? Math.round(vfoBoxB.naturalWidth * 5 / 6) : 0
                 Layout.fillHeight: true
                 Layout.alignment: Qt.AlignVCenter
 
                 // VFO-B cluster — the split TX VFO.  Shares VFO A's mode
                 // (option a): TX uses Prefs.mode, so B shows freq + Step
                 // only.  Border = armed-gray → red on key; amber TX tag.
-                Rectangle {
-                    id: vfoB
+                VfoBox {
+                    id: vfoBoxB
+                    panel: root
+                    isB: true
                     visible: vfoBSlot.reserve
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width
-                    height: 108
-                    color: "#0a0e12"
-                    radius: 6
-                    border.width: 2
-                    // SPLIT TX red on key wins over SUB focus green.
-                    border.color: (Stream.splitEnabled && Stream.txDisplayActive)
-                                  ? root.cTx
-                                  : (Stream.subEnabled && Stream.focusedRx === 2)
-                                    ? root.cRx : root.cArm
-
-                    Label {
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.leftMargin: 8
-                        anchors.topMargin: 4
-                        text: Stream.splitEnabled ? qsTr("TX") : qsTr("RX")
-                        color: root.cRole
-                        font.bold: true
-                        font.pixelSize: 12
-                        z: 2
-                    }
-
-                    Rectangle {
-                        id: txPipB
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: 5
-                        width: 28; height: 15; radius: 3
-                        z: 6
-                        color: Stream.splitEnabled
-                               ? (Stream.txDisplayActive ? root.cTx : "#8a1f1a")
-                               : "#2a323c"
-                        border.width: 1
-                        border.color: Stream.splitEnabled ? "#ff6b63" : "#5a6570"
-                        Label {
-                            anchors.centerIn: parent
-                            text: qsTr("TX")
-                            color: Stream.splitEnabled ? "#ffffff" : "#7a8490"
-                            font.pixelSize: 9
-                            font.bold: true
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: root.assignTx(true)
-                            ToolTip.visible: containsMouse && Prefs.tooltipsEnabled
-                            ToolTip.delay: 400
-                            ToolTip.text: Stream.splitEnabled
-                                ? qsTr("Transmit on VFO B")
-                                : qsTr("Click to transmit on VFO B (enter SPLIT)")
-                        }
-                    }
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 8
-                        anchors.rightMargin: 8
-                        anchors.topMargin: 4
-                        anchors.bottomMargin: 6
-                        spacing: 10
-
-                        Item {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            Layout.preferredHeight: 58
-
-                            FreqDisplay {
-                                id: ledB
-                                anchors.fill: parent
-                                // vfoBHz IS the carrier (TX-NCO offset
-                                // applied at push), so show/tune it directly.
-                                freqHz: root.displayBHz
-                                externalStepHz: stepComboB.stepVals[stepComboB.currentIndex]
-                                onFreqEdited: (hz) => root.commitBCarrier(hz)
-                                onEditRequested: {
-                                    editFieldB.text = (ledB.freqHz / 1.0e6).toFixed(6)
-                                    editFieldB.visible = true
-                                    editFieldB.selectAll()
-                                    editFieldB.forceActiveFocus()
-                                }
-                            }
-                            TextField {
-                                id: editFieldB
-                                anchors.fill: parent
-                                visible: false
-                                horizontalAlignment: TextInput.AlignHCenter
-                                verticalAlignment: TextInput.AlignVCenter
-                                font.family: "Consolas"
-                                font.pixelSize: 22
-                                font.bold: true
-                                color: "#ffb000"
-                                background: Rectangle {
-                                    color: "#000000"
-                                    border.color: "#00d8ff"
-                                    border.width: 2
-                                    radius: 3
-                                }
-                                function commit() {
-                                    if (!visible) return
-                                    var hz = ledB.parseFreqInput(text)
-                                    visible = false
-                                    if (hz >= 0) root.commitBCarrier(hz)
-                                }
-                                onAccepted: commit()
-                                onActiveFocusChanged: if (!activeFocus) commit()
-                                Keys.onEscapePressed: visible = false
-                            }
-                        }
-
-                        // VFO B's Step (mode is shared with VFO A).
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Item { Layout.fillWidth: true }
-                            Label { text: qsTr("Step"); color: "#cccccc"; font.bold: true }
-                            LyraComboBox {
-                                id: stepComboB
-                                Layout.preferredWidth: 92
-                                property var stepVals: root.vfoStepHzList
-                                model: root.vfoStepLabels
-                                currentIndex: root.vfoStepIndex(
-                                    Prefs.vfoStepHzRx2(Prefs.modeRx2))
-                                onActivated: Prefs.setVfoStepHzRx2(
-                                    Prefs.modeRx2, stepVals[currentIndex])
-                            }
-                            Label {
-                                visible: Stream.subEnabled
-                                text: qsTr("Mode"); color: "#cccccc"; font.bold: true
-                            }
-                            LyraComboBox {
-                                id: modeComboB
-                                visible: Stream.subEnabled
-                                Layout.preferredWidth: 78
-                                model: root.modeList
-                                currentIndex: Math.max(0, root.modeList.indexOf(Prefs.modeRx2))
-                                onActivated: Prefs.modeRx2 = root.modeList[currentIndex]
-                            }
-                            Item { Layout.fillWidth: true }
-                        }
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        z: 3
-                        acceptedButtons: Qt.LeftButton
-                        onPressed: (mouse) => {
-                            Stream.setFocusedRx(2)
-                            mouse.accepted = false
-                        }
-                    }
+                    height: Math.min(naturalHeight, parent.height)
                 }
             }
         }
@@ -978,7 +697,7 @@ Rectangle {
                 MemoryRecallPopup {
                     id: memRecallPopup
                     memories: root.memList
-                    onRecalled: function(index) { Gen.deactivate(); Memory.recall(index) }
+                    onRecalled: function(index) { Memory.recall(index) }
                 }
                 TapHandler {
                     acceptedButtons: Qt.RightButton
@@ -1029,19 +748,19 @@ Rectangle {
             }
 
             // VFO copy / swap.  1→2 = A→B, 2→1 = B→A, ⇄ = swap.
-            Button {
+            LyraButton {
                 implicitHeight: 26; implicitWidth: 40; font.pixelSize: 12
                 text: qsTr("1→2")
                 onClicked: root.copyAtoB()
                 ToolTip.text: qsTr("Copy VFO A → VFO B"); ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
-            Button {
+            LyraButton {
                 implicitHeight: 26; implicitWidth: 40; font.pixelSize: 12
                 text: qsTr("2→1")
                 onClicked: root.copyBtoA()
                 ToolTip.text: qsTr("Copy VFO B → VFO A"); ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
-            Button {
+            LyraButton {
                 implicitHeight: 26; implicitWidth: 36; font.pixelSize: 14
                 text: qsTr("⇄")
                 onClicked: root.swapAB()
@@ -1116,7 +835,7 @@ Rectangle {
             }
             // Quick-zero — a reliable button (double-click on the spin fought
             // the SpinBox's own input handling and killed the arrows).
-            Button {
+            LyraButton {
                 visible: ritBtn.checked
                 implicitHeight: 26; implicitWidth: 26
                 text: qsTr("0"); font.pixelSize: 12
@@ -1182,7 +901,7 @@ Rectangle {
                     + "wheel = 10 Hz (Shift = 100 Hz).  '0' clears it.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 800
             }
-            Button {
+            LyraButton {
                 visible: xitBtn.checked
                 implicitHeight: 26; implicitWidth: 26
                 text: qsTr("0"); font.pixelSize: 12
@@ -1292,7 +1011,7 @@ Rectangle {
                 text: qsTr("Offset"); color: "#cccccc"; font.bold: true
                 visible: root.fmMode && Stream.splitEnabled
             }
-            Button {
+            LyraButton {
                 visible: root.fmMode && Stream.splitEnabled
                 implicitHeight: 26; implicitWidth: 30; font.pixelSize: 15
                 text: root.rptDirSign < 0 ? "−" : "+"

@@ -237,6 +237,8 @@ void fillCalVoice(int nsamples, double* buff, int rate) {
 #include <QGuiApplication>
 #include <QApplication>
 #include <QColor>
+#include <QFont>
+#include <QFontDatabase>
 #include <QIcon>
 #include <QPalette>
 #include <QSettings>
@@ -617,6 +619,32 @@ int main(int argc, char *argv[])
 
     QApplication app(argc, argv);
 
+    // VFO-style fonts (src/assets/fonts, all SIL OFL — licences alongside).
+    // Bundled so a style looks the same on every machine; registered before
+    // any QML loads.
+    for (const char *f : {"ShareTechMono-Regular.ttf", "NixieOne-Regular.ttf",
+                          "Inter-Variable.ttf", "DSEG7Classic-Bold.ttf"}) {
+        const QString path = QStringLiteral(":/qt/qml/Lyra/src/assets/fonts/")
+                             + QLatin1String(f);
+        if (QFontDatabase::addApplicationFont(path) < 0)
+            qWarning("[fonts] failed to load %s", f);
+    }
+
+#ifdef Q_OS_MACOS
+    // Consolas is a Windows font and does not exist on macOS.  The UI asks for
+    // it by name in ~25 places (stylesheets, QFont, QML), so rather than edit
+    // every call site, register a substitution once: Qt then resolves every
+    // "Consolas" request to a real monospace face.  Menlo ships with every
+    // macOS and matches Consolas' metrics closely; Monaco and Courier New are
+    // backstops.  Note SF Mono is deliberately absent — it is not matchable by
+    // family name from a normal app bundle and silently falls through to a
+    // proportional face.
+    QFont::insertSubstitutions(QStringLiteral("Consolas"),
+                               {QStringLiteral("Menlo"),
+                                QStringLiteral("Monaco"),
+                                QStringLiteral("Courier New")});
+#endif
+
     // NOTE: do NOT force the "Basic" Qt Quick Controls style here.  It
     // silences the "does not support customization" warning flood, but the
     // panels are laid out against the native-Windows style's control metrics
@@ -632,6 +660,9 @@ int main(int argc, char *argv[])
     // Apply old-Lyra's dark cool-CRT theme to the whole QtWidgets shell
     // (menu bar, dock title bars, Settings dialog, tabs, controls).
     app.setStyleSheet(lyra::ui::lyraStyleSheet());
+    // ...and the stylesheet's app-wide companions (macOS combo popups sized
+    // to fit their items — see theme.h).
+    lyra::ui::installStyleFixes(&app);
     // Hyperlink colours: Qt's default Link role is a dark blue that is
     // unreadable on Lyra's near-black surfaces.  Set the cyan accent
     // app-wide so EVERY rich-text widget (the Help guide today, anything
@@ -845,14 +876,14 @@ int main(int argc, char *argv[])
     //      can be inside the lambda once close() returns).
     lyra::dsp::Hl2Ep6MicSource *micSource = nullptr;
     // P0.d (2026-06-12) — create_xmtr()/destroy_xmtr() gate flag at
-    // outer scope for the aboutToQuit handler-1.5.  The reference
+    // outer scope for the aboutToQuit handler-4.  The reference
     // calls create_xmtr() inside create_cmaster (cmaster.c:288);
     // Lyra-cpp's DEFERRED-CALLSITE accommodation (documented in
     // wire/CMaster.cpp's preamble) invokes it from the QTimer block
     // below AFTER wdsp->load() + resolve_wdsp_calls() succeed — the
     // verbatim body's OpenChannel/XCreateAnalyzer calls resolve
     // through the wire/wdspcalls.h seam and need the loaded DLL.
-    // The flag gates the matching destroy_xmtr() (handler-1.5) so a
+    // The flag gates the matching destroy_xmtr() (handler-4) so a
     // failed/never-run create never tears down through unresolved
     // seam pointers.
     //
@@ -941,43 +972,12 @@ int main(int argc, char *argv[])
         qWarning("[shutdown] handler-1 EXIT");
     });
 
-    // P0.d (2026-06-12) — handler-1.5: destroy_xmtr().
-    //
-    // Reference cmaster.c:255-271 `destroy_xmtr` — destroys the ILV
-    // (destroy_ilv), the TX analyzer (DestroyAnalyzer), closes the
-    // WDSP TXA channel (CloseChannel at cmaster.c:265, NO preceding
-    // SetChannelState dmode=1 per the reference design; the blocking-
-    // flush stop belongs at keyup not at destroy-time) and frees the
-    // xmtr[i].out[0..2] buffers — the verbatim P0.d port in
-    // wire/CMaster.cpp does all four (the dexp/eer/txgain/sidetone
-    // lines stay DEFERRED with their subsystems).
-    //
-    // Lyra ordering: between handler-1 (clears stream->registerTx{
-    // IqSource,Control}({}) -- no more callbacks fire after this point)
-    // and handler-2 (stream->close -- joins EP6 thread).  This window
-    // is when the xmtr is safe to tear down: no producer can fire
-    // SendpOutboundTx (handler-1 cleared), no consumer can pull
-    // TxIqSource (handler-1 cleared).  Running BEFORE handler-4's
-    // destroy_cmaster() preserves the reference's relative teardown
-    // order (destroy_xmtr before the per-stream cmbuffs teardown,
-    // cmaster.c:322-337) — see the DEFERRED-CALLSITE note in
-    // wire/CMaster.cpp.
-    //
-    // Gated on xmtrCreated: if wdsp->load() failed or the operator
-    // closed before the QTimer fired, create_xmtr() never ran and
-    // the verbatim teardown (no null guards, reference posture) must
-    // not run against unresolved seam pointers / a never-opened
-    // channel.
-    QObject::connect(&app, &QCoreApplication::aboutToQuit,
-                     [&xmtrCreated, wdspEngine]() {
-        qWarning("[shutdown] handler-1.5 ENTRY (destroy_xmtr)");
-        if (xmtrCreated) {
-            wdspEngine->setTxaChannelOpen(false);   // #159 — txa[1] gone
-            lyra::wire::destroy_xmtr();
-            xmtrCreated = false;
-        }
-        qWarning("[shutdown] handler-1.5 EXIT");
-    });
+    // P0.d — destroy_xmtr() runs in handler-4 below, after
+    // destroy_cmaster() has stopped the cm pump threads.  It used to run
+    // here (between handler-1 and handler-2), but the stream-1 cm thread
+    // keeps running xcmaster -> xeer/xtxgain/xilv on pcm->xmtr[0] for as
+    // long as the EP6 / P2 mic producer feeds Inbound(1,...), so freeing
+    // the xmtr here crashed on quit (SIGSEGV in xeer on the cm thread).
 
     // Task #26 — auto-mute RX1 audio while the wire MOX bit is live so
     // the operator doesn't self-deafen off their own TX coupling.
@@ -1101,9 +1101,34 @@ int main(int argc, char *argv[])
     // order and fires aboutToQuit handlers in that same order, so this
     // lambda runs after handler-2 and the Stage-2b2c micSource-delete
     // handler-3.
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, []() {
+    //
+    // Then, in this order:
+    //   - destroy_xmtr() (reference cmaster.c:255-271).  Only now is no
+    //     xcmaster() in flight: destroy_cmbuffs() has trapped every cm
+    //     thread.  The reference calls it inside destroy_cmaster before
+    //     the cmbuffs loop, which relies on the radio already being
+    //     stopped AND the cm queue drained; here a queued mic buffer can
+    //     still wake the stream-1 thread after handler-2, so it waits for
+    //     the threads to die.  Gated on xmtrCreated: if wdsp->load()
+    //     failed or the operator quit before the init QTimer fired,
+    //     create_xmtr() never ran and the verbatim teardown (no null
+    //     guards) must not run against unresolved seam pointers.
+    //   - wdspEngine->shutdown() — closes RX1/RX2/VAC and destroys the
+    //     id-0 audio mixer.  Must follow destroy_xmtr's cm-thread stop
+    //     (xcmaster mixes TX monitor audio into that mixer via xMixAudio),
+    //     must precede handler-PA (VAC teardown uses PortAudio), and must
+    //     run here rather than from ~WdspEngine: WdspNative is an earlier
+    //     child of the app, so it unloads libwdsp before ~WdspEngine runs.
+    QObject::connect(&app, &QCoreApplication::aboutToQuit,
+                     [&xmtrCreated, wdspEngine]() {
         qWarning("[shutdown] handler-4 ENTRY (destroy_cmaster)");
         lyra::wire::destroy_cmaster();
+        if (xmtrCreated) {
+            wdspEngine->setTxaChannelOpen(false);   // #159 — txa[1] gone
+            lyra::wire::destroy_xmtr();
+            xmtrCreated = false;
+        }
+        wdspEngine->shutdown();
         qWarning("[shutdown] handler-4 EXIT");
     });
 

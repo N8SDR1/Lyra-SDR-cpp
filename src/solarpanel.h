@@ -26,20 +26,26 @@ class SolarPanel : public QWidget {
     Q_OBJECT
 public:
     SolarPanel(lyra::solar::SolarService *svc, NcdxfFollow *follow,
-               lyra::ipc::HL2Stream *stream, BandMemory *bandMem,
+               lyra::ipc::HL2Stream *stream, BandMemory *bandMemory,
                GenSlots *gen, QWidget *parent = nullptr);
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     QWidget *makeValueBox(const QString &key, QLabel **valueOut);
     void buildFollowButton();
     void refreshFollowLabel();
     void refresh();
-    void tuneVfoA(const QString &meters);
+    // Same destination as a Band-panel chip: left click follows the
+    // focused receiver; Shift+click and right-click park SUB there.
+    // Ignored while transmitting (a band change retunes filters / PA).
+    void tuneBand(const QString &bandKey, bool forceSub);
 
     lyra::solar::SolarService *svc_ = nullptr;
     NcdxfFollow               *follow_ = nullptr;
     lyra::ipc::HL2Stream      *stream_ = nullptr;
-    BandMemory                *bandMem_ = nullptr;
+    BandMemory                *bandMemory_ = nullptr;
     GenSlots                  *gen_ = nullptr;
     QToolButton               *followBtn_ = nullptr;
     QLabel  *sfiVal_ = nullptr;

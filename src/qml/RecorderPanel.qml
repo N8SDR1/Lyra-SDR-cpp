@@ -19,7 +19,7 @@ Rectangle {
     id: root
     implicitWidth: 300
     implicitHeight: 138
-    color: "#0d141b"
+    color: "#101820"
     border.color: "#2a4a5a"
 
     readonly property color cAccent: "#00e5ff"
@@ -59,7 +59,7 @@ Rectangle {
                     NumberAnimation { from: 0.25; to: 1.0; duration: 700 }
                 }
             }
-            ToolButton {
+            LyraButton {
                 text: "⚙"
                 font.pixelSize: 15
                 implicitWidth: 26; implicitHeight: 26

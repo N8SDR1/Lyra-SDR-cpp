@@ -163,8 +163,9 @@ private:
     // Stream.fwdPowerW/revPowerW directly, which are HL2-only and read zero
     // on a P2 rig.  Refreshes on the meter tick (NOTIFY updated).
     Q_PROPERTY(double liveSwr READ liveSwr NOTIFY updated)
-    // Operator-selectable visual style: 0 = Horizon Arc (default),
-    // 1 = Plasma Bar, 2 = Vertical Ladder.  `style` is the RX (default)
+    // Operator-selectable visual style: a meterstyle::Style index
+    // (meter_styles.h — 0 = Horizon Arc default, append-only, retired
+    // faces remap to the nearest kept one).  `style` is the RX (default)
     // style; `txStyle` is used on TX when `separateStyle` is on.  The
     // renderer + header toggle read `activeStyle`, which swaps on the MOX
     // edge (mirrors the panadapter dB-range swap).
@@ -240,9 +241,10 @@ private:
     //   level    : 0..1 normalized fill (palette gradient keyed off
     //              this source's own danger point)
     //   danger   : 0..1 position of the red-zone threshold for this row
+    //   source   : the row's Source (omitted on the RX NF / SNR rows)
     // Computed in MOX-aware fashion: TX = primary TX sources stacked;
     // RX = degraded 3-row view (S-meter / noise floor / SNR).  Only
-    // populated when the active style is Ladder — saves work otherwise.
+    // populated for Ladder and Cluster — saves work otherwise.
     Q_PROPERTY(QVariantList ladderRows READ ladderRows NOTIFY updated)
     // Active source — what the renderer is showing RIGHT NOW.  Derived
     // from the operator's RX/TX preferences and the live wire MOX bit:
@@ -331,7 +333,7 @@ public:
     // The style the renderer + header toggle actually use: txStyle on TX
     // (when separateStyle is on), else style.  Swaps on the MOX edge.
     int  activeStyle() const;
-    // Header Arc/Bar/Ladder buttons: set the style of whatever state is
+    // Panel style chip / right-click list: set the style of whatever state is
     // showing NOW (TX style if separate+keyed, else the RX/default style).
     Q_INVOKABLE void setActiveStyle(int s);
     double calDb() const { return calDb_; }
@@ -359,6 +361,9 @@ public:
 
     // Tick marks for the scale: list of { pos: 0..1, label: "9"/"+20", major: bool }.
     Q_INVOKABLE QVariantList tickMarks() const;
+    // The same for any Source, not just the live one — a ladder row's
+    // scale (Cluster draws the first row's arc with that row's ticks).
+    Q_INVOKABLE QVariantList tickMarksFor(int source) const;
 
     // The rolling-minimum RX noise floor converted from calibrated dBm back
     // into the WDSP-dBFS *raw* domain (the exact inverse of
@@ -589,7 +594,7 @@ private:
     bool    maxPeakEnabled_ = true; // show the max-hold high-water marker
     int     maxHoldMs_      = 3000; // max-hold dwell (operator-tunable)
     int     maxHoldTicks_   = 60;   // = maxHoldMs_ / tick interval
-    int     style_ = 0;              // RX / default visual style (Arc/Bar/Ladder)
+    int     style_ = 0;              // RX / default visual style (meterstyle::Style)
     int     txStyle_ = 0;            // TX visual style (used when separateStyle_)
     bool    separateStyle_ = false;  // swap style on the MOX edge?
     Source  source_ = RX_SMETER;     // currently-displayed source (derived)

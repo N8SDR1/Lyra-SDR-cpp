@@ -1,37 +1,45 @@
-// Lyra — LED-style frequency display (RX1 VFO readout + tuner).
+// Lyra — VFO tuning core (RX1 / VFO B readout input).
 //
-// A faithful C++/Qt-Quick port of old Lyra's led_freq.py: large amber
-// digits on black in MMMM.kkk.hhh format (10 digits — HF through 23 cm
-// transverter RF; signed-int ceiling ~2.147 GHz), with a ghost "8"
-// behind each digit (unlit-segment look) and MHz/kHz/Hz group labels.
-// Click a digit to select its place (cyan underline); mouse-wheel over
-// a digit tunes THAT place (10^place), or — away from a digit — by the
-// Step combo's value (externalStepHz); arrow keys nudge the selected
-// place / move the selection.  Double-click requests direct typed entry
-// (the host QML pops a field and calls setFreqHz with the parsed value).
+// Started as a C++ port of old Lyra's led_freq.py and used to paint the
+// amber readout itself.  Painting now belongs to the selectable VFO styles
+// (src/qml/VfoStyle*.qml); this item is laid transparently over the style's
+// tune area by VfoBox.qml and keeps ALL the tuning behaviour so every style
+// tunes identically: click a digit to select its place, wheel over a digit
+// tunes THAT place (10^place), wheel elsewhere in the area tunes by the Step
+// combo's value (externalStepHz), ←/→ move the selection, ↑/↓ nudge it, and
+// double-click requests typed entry (the host pops a field and calls
+// setFreqHz with parseFreqInput's result).
 //
-// freqHz mirrors the operator's tuned frequency (set externally from
-// Stream.rx1FreqHz); user tuning emits freqEdited(hz) which the host
-// wires to Stream.setRx1FreqHz.  setFreqHz() does NOT emit freqEdited,
-// so there's no set→edit→set feedback loop.
+// The style reports where its digits are (digitRects, index = place); the
+// style draws the selection from selectedDigit.  freqHz mirrors the
+// operator's tuned frequency; user tuning emits freqEdited(hz), which the
+// host wires to Stream.  setFreqHz() does NOT emit freqEdited, so there's no
+// set→edit→set feedback loop.
 
 #pragma once
 
-#include <QQuickPaintedItem>
+#include <QQuickItem>
 #include <QRectF>
+#include <QVariantList>
 
-#include <utility>
 #include <vector>
 
 namespace lyra::ui {
 
-class FreqDisplay : public QQuickPaintedItem {
+class FreqDisplay : public QQuickItem {
     Q_OBJECT
     Q_PROPERTY(int freqHz READ freqHz WRITE setFreqHz NOTIFY freqHzChanged)
     // Mouse-wheel step (Hz) used when the cursor isn't over a specific
     // digit — driven by the panel's Step combo.  0 = per-digit only.
     Q_PROPERTY(int externalStepHz READ externalStepHz WRITE setExternalStepHz
                NOTIFY externalStepHzChanged)
+    // Per-digit hit rects from the active VFO style, index = place
+    // (0 = Hz units … 9 = 1 GHz), in this item's coordinates.  An empty or
+    // missing rect = that digit isn't shown and can't be clicked.
+    Q_PROPERTY(QVariantList digitRects READ digitRects WRITE setDigitRects
+               NOTIFY digitRectsChanged)
+    // Selected place, drawn by the style; click / wheel / ←→ change it.
+    Q_PROPERTY(int selectedDigit READ selectedDigit NOTIFY selectedDigitChanged)
 
 public:
     explicit FreqDisplay(QQuickItem *parent = nullptr);
@@ -40,17 +48,20 @@ public:
     void setFreqHz(int hz);              // external set (no freqEdited)
     int  externalStepHz() const { return externalStepHz_; }
     void setExternalStepHz(int hz);
+    QVariantList digitRects() const { return digitRectsVar_; }
+    void setDigitRects(const QVariantList &rects);
+    int  selectedDigit() const { return selected_; }
 
     // Parse a free-form frequency entry (MHz decimal / Hz with
     // separators / bare) into Hz, or -1 if invalid.  Mirrors old Lyra's
     // parse_freq_input.  Q_INVOKABLE so the QML typed-entry field uses it.
     Q_INVOKABLE int parseFreqInput(const QString &text) const;
 
-    void paint(QPainter *p) override;
-
 signals:
     void freqHzChanged();
     void externalStepHzChanged();
+    void digitRectsChanged();
+    void selectedDigitChanged();
     void freqEdited(int hz);     // user tuned (wheel / keys) — wire to Stream
     void editRequested();        // double-click — host shows a typed-entry field
 
@@ -62,6 +73,7 @@ protected:
 
 private:
     void changeFreq(int deltaHz);        // tune + emit freqEdited
+    void setSelected(int place);
 
     static constexpr int kNDigits = 10;
     // Display/RF ceiling (VFO LED + wheel).  HF native is ~55 MHz; Xvtr
@@ -72,8 +84,9 @@ private:
     int  freqHz_         = 7'074'000;
     int  selected_       = 3;            // default = 1 kHz place
     int  externalStepHz_ = 0;
-    // (placeValue, on-screen rect) per painted digit, for hit-testing.
-    std::vector<std::pair<int, QRectF>> digitRects_;
+    int  wheelAccum_     = 0;            // partial wheel delta (wheel_steps.h)
+    QVariantList        digitRectsVar_;  // as set from QML (change detection)
+    std::vector<QRectF> rects_;          // parsed, index = place (vfo_digit_hit.h)
 };
 
 } // namespace lyra::ui

@@ -246,6 +246,12 @@ private:
     void saveLayout();                 // session auto-save (on close)
     void restoreLayout();              // session auto-restore (on launch)
     void fitWindowToScreen();          // clamp a restored window onto its screen
+    void storeSessionForExit();        // layout + racks, once, before windows close
+    // Chip docks (TX/RX EQ, Speech, Combinator, Plating) can restore as
+    // "visible" — the View check stays on — while macOS has the window
+    // ordered out.  Force the native window on screen at a usable size.
+    void presentChipDock(QDockWidget *dock, int slot);
+    void resurrectOpenChipDocks();
     void dumpDockMinimums();           // LYRA_DUMP_MINS=1 → lyra_min_sizes.txt
     void flushLayoutToSettings();      // persist live geometry+dock state now
                                        // (so export/snapshot reflect the screen)
@@ -315,6 +321,7 @@ private:
     // implicitHeight, so the dock size has to be driven from C++.
 private slots:
     void syncCollapsibleDock();
+    void syncTuningDockHeight();
 private:
     // TX-0c-pa-debug — refresh the HL2 telemetry strip on the right
     // side of the status bar (T / V / PA current).  Driven by
@@ -353,6 +360,10 @@ private:
 
     QHash<QString, QDockWidget *> docks_;
     QAction                    *lockAction_ = nullptr;
+    // Set when the VFO style changes; the next Tuning lyraMinHeight change
+    // resizes the dock to the new style (grow OR shrink).  Cleared after use
+    // or after 1 s, so start-up and other content changes never resize it.
+    bool tuningResizePending_ = false;
     bool                        panelsLocked_ = false;   // gates event() separator block
     bool                        spaceConsumedPress_ = false; // space-PTT: swallow paired release/repeats
     QAction                    *layoutRecallActs_[4]{};   // named-layout recall slots
@@ -395,6 +406,9 @@ private:
     // Closing a rack HIDES it (its members go with it — nothing spills onto the
     // screen); the rack chip re-summons it.  Individual mode is byte-identical
     // to the classic chip-per-panel behaviour.
+    bool         chipDockPresenting_ = false;
+    bool         adoptingRackDock_   = false;
+    bool         exitStored_         = false;   // storeSessionForExit() ran
     PanelRack   *dspRack_          = nullptr;
     PanelRack   *optionsRack_      = nullptr;
     QToolButton *dspRackChip_      = nullptr;   // header chip toggling the DSP rack
@@ -404,6 +418,13 @@ private:
     // wire its close→hide + a header chip.  Returns the rack (owned by `this`).
     PanelRack *buildRack(const QString &objName, const QString &title,
                          const QStringList &members);
+    // A DSP-rack member popped out.  Move it onto this window, floating at
+    // `target` (global; invalid = where it is now), so it can dock into the
+    // main layout or stay floating.
+    void adoptFloatedRackMember(QDockWidget *dock, const QRect &target = QRect());
+    // ⧉ on a floating chip panel: dock it beside the panel at `globalPos`,
+    // or onto the nearest edge when no panel is there.
+    void dockChipPanelIntoMain(QDockWidget *dock, const QPoint &globalPos);
 
     SettingsDialog             *settingsDlg_ = nullptr;
     Help                       *help_    = nullptr;   // QML→C++ help bridge

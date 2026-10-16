@@ -6,7 +6,9 @@
 // full FFT frame has accumulated it windows + transforms both and publishes
 // dBFS magnitude bins for the GUI to draw.  Mic audio only flows while
 // transmitting, so the analyzer animates on TX and freezes on RX (correct
-// for shaping transmit audio).
+// for shaping transmit audio).  The RX EQ (#59) reuses it on the post-RXA
+// receive audio, which flows continuously — that instance turns on
+// setAveraging() so the display settles instead of flickering per frame.
 //
 // Qt-free + dependency-free so it unit-tests standalone; power-of-two FFT
 // size only (default 1024 → 46.9 Hz bins at 48 kHz).  feed() runs on the TX
@@ -15,6 +17,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <vector>
 
@@ -25,6 +28,14 @@ public:
     explicit EqAnalyzer(int fftSize = 1024, double sampleRate = 48000.0);
 
     void   setSampleRate(double fs) { fs_ = fs; }
+
+    // Temporal smoothing (#59 RX EQ).  tauSec > 0 enables an exponential
+    // average of each bin's POWER across FFT frames with that time constant
+    // (the per-frame coefficient is derived from the frame period n/fs);
+    // 0 = off, the default — every frame is published raw (TX behaviour).
+    // Safe to call from the GUI thread while feed() runs.
+    void   setAveraging(double tauSec) { tau_.store(tauSec > 0.0 ? tauSec : 0.0); }
+    double averaging() const { return tau_.load(); }
     int    fftSize() const { return n_; }
     int    bins()    const { return n_ / 2 + 1; }   // DC … Nyquist inclusive
     double nyquist() const { return fs_ * 0.5; }
@@ -52,6 +63,10 @@ private:
     double winNorm_ = 1.0;           // amplitude-correct normaliser
     std::vector<double> preAcc_, postAcc_;
     int    fill_ = 0;
+
+    std::atomic<double> tau_{0.0};           // averaging time constant (s), 0 = off
+    std::vector<double> preAvg_, postAvg_;   // averaged power per bin (audio thread)
+    bool   avgSeeded_ = false;               // false → next averaged frame seeds
 
     std::mutex mtx_;
     std::vector<float> prePub_, postPub_;   // dBFS bins (length bins())

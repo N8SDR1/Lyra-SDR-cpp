@@ -74,6 +74,7 @@ void NcdxfFollow::setStation(const QString &call) {
 
 void NcdxfFollow::pump() {
     if (station_.isEmpty() || !stream_) return;
+    if (stream_->txDisplayActive()) return;   // no retune under power; resumes next tick
     const int target = indexOf(station_);
     if (target < 0) return;
     const QTime t = QDateTime::currentDateTimeUtc().time();

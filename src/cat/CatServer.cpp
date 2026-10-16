@@ -387,7 +387,11 @@ QByteArray CatServer::dispatch(const QByteArray &c) {
         const qint64 hz = arg.toLongLong(&ok);
         if (ok && stream_) {
             const qint64 off = engine_ ? engine_->markerOffsetHz() : 0;
-            stream_->setRx1FreqHz(quint32(std::max<qint64>(0, hz - off)));
+            const quint32 target = quint32(std::max<qint64>(0, hz - off));
+            // Cross-band while transmitting: ignored; the client's next FA
+            // poll reads the unchanged frequency back.
+            if (!stream_->txBlocksBandJump(target))
+                stream_->setRx1FreqHz(target);
         }
         return {};   // set: no reply
     }
@@ -402,7 +406,9 @@ QByteArray CatServer::dispatch(const QByteArray &c) {
         const qint64 hz = arg.toLongLong(&ok);
         if (ok && stream_) {
             const qint64 off = engine_ ? engine_->markerOffsetHz() : 0;
-            stream_->setVfoBHz(quint32(std::max<qint64>(0, hz - off)));
+            const quint32 target = quint32(std::max<qint64>(0, hz - off));
+            if (!stream_->txBlocksVfoBJump(target))
+                stream_->setVfoBHz(target);
         }
         return {};
     }

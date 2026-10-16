@@ -83,12 +83,31 @@ int send_packet(int sock,
         dest.sin_family      = AF_INET;
         dest.sin_port        = htons(static_cast<std::uint16_t>(port));
         dest.sin_addr.s_addr = g_metis_addr_be;
+#if defined(_WIN32)
         ret = ::sendto(sock,
                        reinterpret_cast<const char*>(data),
                        static_cast<socket_send_size_t>(length),
                        0,
                        reinterpret_cast<const sockaddr*>(&dest),
                        static_cast<int>(sizeof(dest)));
+#else
+        // macOS/BSD reject sendto() with an explicit destination on a
+        // CONNECTED UDP socket with EISCONN (errno 56); Winsock permits it,
+        // which is why the reference spells it this way.  HL2Stream::open()
+        // connects this socket to the radio before metis_wire_bind() hands
+        // the fd over, and `dest` above is that same peer every time:
+        // metis_write_frame() is send_packet()'s only caller and always
+        // passes prn->base_outbound_port, set once to kRadioPort (1024),
+        // with g_metis_addr_be the connected address.  send() is therefore
+        // the identical datagram, minus the redundant destination.
+        // `dest` is still built above so the reference structure and the
+        // sndpkt critical section stay line-for-line comparable.
+        (void) dest;
+        ret = ::send(sock,
+                     reinterpret_cast<const char*>(data),
+                     static_cast<socket_send_size_t>(length),
+                     0);
+#endif
     }
     // FIXME (Task #114): `bandwidth_monitor_out(ret)` per
     // `network.c:1394` — Lyra has no bandwidth-meter subsystem

@@ -112,6 +112,10 @@ void TimeStations::saveIdx(int idx) const {
 }
 
 QString TimeStations::tune(const Station &s, int freqKhz) {
+    // Blocked while transmitting across bands: empty message, no retune.
+    if (stream_ && stream_->txBlocksBandJump(quint32(qint64(freqKhz) * 1000)))
+        return QString();
+    emit aboutToTune();
     // Freq FIRST, then mode: moving off the old band before the mode
     // changes stops per-band memory from saving this station's mode (e.g.
     // AM) against the band we just left, and lets our mode win over any
@@ -129,10 +133,14 @@ QString TimeStations::cycleNext() {
     const int total = cycleLength(v);
     if (total == 0) return QString();
     int n = ((loadIdx() % total) + total) % total;   // safe modulo
-    saveIdx((n + 1) % total);                          // advance + persist
+    const int next = (n + 1) % total;
     for (const Station &s : v) {
         const int L = s.freqsKhz.size();
-        if (n < L) return tune(s, s.freqsKhz[n]);
+        if (n < L) {
+            const QString msg = tune(s, s.freqsKhz[n]);
+            if (!msg.isEmpty()) saveIdx(next);   // advance + persist (not if blocked)
+            return msg;
+        }
         n -= L;
     }
     return tune(v.front(), v.front().freqsKhz.front());   // unreachable
@@ -148,8 +156,9 @@ QString TimeStations::tuneEntry(int stationIndex, int freqIndex) {
     for (int i = 0; i < stationIndex; ++i) flat += v[i].freqsKhz.size();
     flat += freqIndex;
     const int total = cycleLength(v);
-    if (total > 0) saveIdx((flat + 1) % total);
-    return tune(s, s.freqsKhz[freqIndex]);
+    const QString msg = tune(s, s.freqsKhz[freqIndex]);
+    if (total > 0 && !msg.isEmpty()) saveIdx((flat + 1) % total);
+    return msg;
 }
 
 void TimeStations::resetCycle() { saveIdx(0); }

@@ -193,7 +193,7 @@ Rectangle {
         // mirrors to the other (handled in Prefs::setRxBandwidth /
         // setTxBandwidth), and the low edges track the same way.
         // Toggling ON pulls RX into TX.
-        Button {
+        LyraButton {
             id: bwLockBtn
             Layout.row: 0; Layout.column: 5; Layout.rowSpan: 2
             Layout.preferredWidth: 32

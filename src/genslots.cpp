@@ -41,6 +41,7 @@ QString GenSlots::slotLabel(int n) const{ return valid(n) ? slots_[n].label : QS
 
 void GenSlots::recall(int n) {
     if (!valid(n)) return;
+    if (stream_ && stream_->txBlocksBandJump(quint32(slots_[n].freq))) return;
     active_ = n;
     // Freq first, then mode (see TimeStations::tune) — so leaving the
     // current band doesn't clobber its saved mode with this slot's mode.

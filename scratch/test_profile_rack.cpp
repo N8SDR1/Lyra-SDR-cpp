@@ -35,12 +35,12 @@ int main(int argc, char **argv) {
 
     // ── EqModel ─────────────────────────────────────────────────────────
     {
-        EqModel a;
+        EqModel a(EqModel::Side::Tx);
         a.setBypass(true); a.setMakeupDb(3.0);
         a.setBandFreq(0, 80.0); a.setBandGain(2, -5.0);
         a.setBandQ(2, 2.5); a.setBandEnabled(5, false);
         const QJsonObject o = a.saveState();
-        EqModel b;
+        EqModel b(EqModel::Side::Tx);
         b.loadState(o);
         CHECK(b.bypass() == true);
         CHECK(dEq(b.makeupDb(), 3.0));
@@ -49,7 +49,7 @@ int main(int argc, char **argv) {
         CHECK(dEq(b.bandQ(2), 2.5));
         CHECK(b.bandEnabled(5) == false);
         // tolerant no-op
-        EqModel c; const double mk = c.makeupDb();
+        EqModel c(EqModel::Side::Tx); const double mk = c.makeupDb();
         c.loadState(QJsonObject{});
         CHECK(dEq(c.makeupDb(), mk));
         std::printf("EqModel round-trip ok\n");

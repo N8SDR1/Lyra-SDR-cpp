@@ -11,17 +11,17 @@
 // cost grows with area would starve the panadapter).
 
 import QtQuick
+import "MeterInk.js" as MeterInk
 
 Item {
     id: bar
     anchors.fill: parent
 
+    // Cyan / green / amber / red by MeterInk.zone() — the thresholds are
+    // shared with every face; this palette is the original faces' own.
+    readonly property var zonePalette: ["#36d6ff", "#5dff9a", "#ff9a3c", "#ff4d4d"]
     function zoneColor(v) {
-        var s9 = Meter.normAtS9
-        if (v >= s9 + 0.16) return "#ff4d4d"
-        if (v >= s9)        return "#ff9a3c"
-        if (v >= s9 * 0.55) return "#5dff9a"
-        return "#36d6ff"
+        return zonePalette[MeterInk.zone(v, Meter.normAtS9)]
     }
 
     Canvas {
@@ -168,7 +168,9 @@ Item {
 
             // ── Tick marks + labels (below the reflection) ──
             var tickTop = refY + refH + 2
-            ctx.font = Math.round(barH * 0.42) + "px Consolas"
+            // Canvas font strings bypass QFont::insertSubstitutions — spell out
+            // the fallback list or macOS logs an invalid-family warning per repaint.
+            ctx.font = Math.round(barH * 0.42) + "px Consolas, Menlo, monospace"
             ctx.textAlign = "center"
             ctx.textBaseline = "top"
             var ticks = Meter.tickMarks()

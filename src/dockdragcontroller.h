@@ -19,7 +19,7 @@
 //
 // Threading: GUI thread only (event filter on widgets).  Lock-aware: a dock
 // whose DockWidgetMovable feature is cleared (MainWindow::applyPanelLock) is
-// never draggable.
+// never draggable, and one without DockWidgetFloatable never tears out.
 #pragma once
 
 #include <QHash>
@@ -48,10 +48,9 @@ public:
                        QObject *parent = nullptr);
     ~DockDragController() override;
 
-    // Float-only panels (the header-chip-summoned TX/RX DSP + CW tool windows)
-    // must NEVER dock: dragging them is a pure free-move with no drop zones and
-    // no commit-to-dock on release.  MainWindow sets this to its
-    // isChipSummonedPanel() test so the two stay in lockstep.
+    // Float-only panels must NEVER dock: dragging them is a pure free-move with
+    // no drop zones and no commit-to-dock on release.  MainWindow uses it for
+    // a floating chip-summoned panel while panels are locked.
     void setFloatOnlyPredicate(std::function<bool(const QString &)> pred) {
         floatOnly_ = std::move(pred);
     }
@@ -61,6 +60,20 @@ public:
     // member out — so a fixed-membership rack can't spill panels onto the
     // screen.  Set true on a PanelRack's own controller.
     void setNoTearOut(bool v) { noTearOut_ = v; }
+
+    // Fired when a dock is released outside this host (a tear-out rack), with
+    // the release point and the cursor's offset within the dock at the press.
+    // The host adopts the dock and may dock it into the main window.
+    using TearOutHandler =
+        std::function<void(QDockWidget *, const QPoint &globalPos,
+                           const QPoint &grabOffset)>;
+    void setTearOutHandler(TearOutHandler fn) { tearOut_ = std::move(fn); }
+
+    // Place `d` as if it had been dragged here and released at `globalPos`:
+    // dock it on an edge band / beside / tabbed with the panel there and
+    // return true, or return false and leave it where it is.  For a panel
+    // dragged out of another host (a rack).
+    bool dropAt(QDockWidget *d, const QPoint &globalPos);
 
 signals:
     // A drag committed a new dock placement (or float) — persist the layout.
@@ -82,7 +95,8 @@ private:
     };
 
     QDockWidget *dockOf(QWidget *w) const;
-    bool         isFloatOnly(QDockWidget *d) const;   // chip-summoned tool window?
+    bool         isFloatOnly(QDockWidget *d) const;   // free-move only, never docks?
+    bool         canTearOut(QDockWidget *d) const;    // host allows it + floatable
     QRect        dockRegionLocal() const;     // win_-local content rect
     Zone         hitTest(const QPoint &globalPos) const;
     void         commit(const Zone &z);
@@ -91,13 +105,14 @@ private:
     QMainWindow                         *win_     = nullptr;
     const QHash<QString, QDockWidget *> *docks_   = nullptr;
     DropOverlay                         *overlay_ = nullptr;
-    std::function<bool(const QString &)> floatOnly_;   // chip-summoned → float-only
+    std::function<bool(const QString &)> floatOnly_;   // name → float-only
+    TearOutHandler                       tearOut_;
     bool                                 noTearOut_ = false;   // rack: None = no-op
 
     State        state_           = State::Idle;
     QDockWidget *dragDock_        = nullptr;
     QPoint       pressGlobal_;
-    QPoint       floatGrabOffset_;          // free-move of an already-floating dock
+    QPoint       floatGrabOffset_;          // cursor offset within the dock at press
     bool         dragWasFloating_ = false;
 };
 

@@ -61,6 +61,12 @@
     #define NOMINMAX
   #endif
   #include <winsock2.h>
+#else
+  // HANDLE / DWORD / LARGE_INTEGER for the reference-parity fields
+  // below, plus SOCKET for the wire path.  The WSAEVENT members stay
+  // Win32-only (they are guarded individually further down).
+  #include "platform/socket_compat.h"
+  #include "platform/win32_compat.h"
 #endif
 
 namespace lyra::wire {
@@ -633,6 +639,13 @@ public:
     HANDLE hsendIQSem{nullptr};
     HANDLE hsendEventHandles[2]{nullptr, nullptr};
     HANDLE hobbuffsRun[2]{nullptr, nullptr};
+    // Lyra-native (not in the reference): set by HL2Stream::close()
+    // once the EP2 writer is joined, so sendOutbound() stops waiting on
+    // hobbuffsRun[] — nothing will release them again, and a pump left
+    // blocked there can neither be stopped by destroy_obbuffs() nor
+    // survive CloseHandle() on macOS (libdispatch traps on disposing a
+    // semaphore that has a waiter).  Cleared by open().
+    volatile long obStopWait{0};
 
 #if defined(_WIN32)
     // --- Win32 waitable timer (network.h:97-98) ---

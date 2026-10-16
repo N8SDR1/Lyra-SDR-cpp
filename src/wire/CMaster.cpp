@@ -367,10 +367,10 @@ void destroy_cmaster()
 	// WdspEngine::closeRx1:
 	//   destroy_aamix  (0, 0);
 	// DEFERRED-CALLSITE [runtime-loaded wdsp.dll — see file
-	// preamble]: main.cpp's aboutToQuit handler-1.5 invokes
-	// destroy_xmtr() (gated on create_xmtr() having run) BEFORE
-	// this function fires in handler-4 — the reference's relative
-	// order (destroy_xmtr before the per-stream teardown) holds:
+	// preamble]: main.cpp's aboutToQuit handler-4 invokes
+	// destroy_xmtr() (gated on create_xmtr() having run) right AFTER
+	// this function — once destroy_cmbuffs() has stopped the cm
+	// threads, so no xcmaster() can still be using pcm->xmtr[]:
 	//   destroy_xmtr();
 	destroy_rcvr();
 	for (i = 0; i < pcm->cmSTREAM; i++)
@@ -449,6 +449,16 @@ void xcmaster (int stream)
 			else
 				memset (pcm->in[stream], 0, pcm->xcm_insize[stream] * sizeof (complex));
 		}
+		// #89 voice keyer (Lyra-native) — here, after the mic-source override
+		// above, pcm->in holds whichever source is live (codec / VAC / TCI), so
+		// the keyer records that source and a playing clip replaces it.  The
+		// injector returns 2 when the clip asked to skip the native rack.
+		int clipInjected;
+		clipInjected = 0;
+		if (pcm->TxMicRecordTap)
+			(*pcm->TxMicRecordTap)(pcm->xcm_insize[stream], pcm->in[stream]);
+		if (pcm->TxClipInject)
+			clipInjected = (*pcm->TxClipInject)(pcm->xcm_insize[stream], pcm->in[stream]);
 		// DEFERRED [pipe unported — diagnostic tap]:
 		//   xpipe (stream, 0, pcm->in);
 		// DEFERRED [dexp/VOX v0.2.3]:
@@ -459,7 +469,7 @@ void xcmaster (int stream)
 		// skipped when tx_rack_bypass is set (digital modes DIGU/DIGL) so the
 		// mic DSP never touches digital audio; each hook is also a no-op when
 		// its stage is unset / bypassed (the registered cb checks).
-		if (!_InterlockedAnd (&pcm->tx_rack_bypass, 1)) {
+		if (!_InterlockedAnd (&pcm->tx_rack_bypass, 1) && clipInjected != 2) {
 			if (pcm->TxSpeechProcess)
 				(*pcm->TxSpeechProcess)(pcm->xcm_insize[stream], pcm->in[stream]);
 			if (pcm->TxEqProcess)
@@ -579,6 +589,16 @@ void SendpTxEqProcessor (void (*Process)(int nsamples, double* buff))
 void SendpTxMonitorTap (void (*Tap)(int nsamples, double* buff))			// #90
 {
 	pcm->TxMonitorTap = Tap;
+}
+
+void SendpTxMicRecordTap (void (*Tap)(int nsamples, double* buff))			// #89
+{
+	pcm->TxMicRecordTap = Tap;
+}
+
+void SendpTxClipInject (int (*Inject)(int nsamples, double* buff))			// #89
+{
+	pcm->TxClipInject = Inject;
 }
 
 PORT

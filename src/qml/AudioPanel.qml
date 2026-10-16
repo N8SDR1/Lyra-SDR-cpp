@@ -174,6 +174,10 @@ Rectangle {
                 id: adcCombo
                 visible: FrontEnd.p2Active
                 Layout.preferredWidth: 58
+                // Compact pads: the roomy 8/20 default leaves 30 px, too
+                // narrow for "ADC1" at 13 px (it elided to "AD…").
+                textLeftPad: 4
+                textRightPad: 14
                 model: [qsTr("ADC1"), qsTr("ADC2")]
                 currentIndex: FrontEnd.adcIndex
                 onActivated: FrontEnd.setAdcIndex(currentIndex)
@@ -282,7 +286,7 @@ Rectangle {
                 color: root.cText; font.family: "Consolas"
                 Layout.preferredWidth: 44
             }
-            Button {
+            LyraButton {
                 text: WdspEngine.muted ? qsTr("MUTED") : qsTr("MUTE")
                 checkable: true
                 checked: WdspEngine.muted
@@ -315,7 +319,7 @@ Rectangle {
                 color: root.cText; font.family: "Consolas"
                 Layout.preferredWidth: 44
             }
-            Button {
+            LyraButton {
                 text: WdspEngine.mutedRx2 ? qsTr("MUTED") : qsTr("MUTE2")
                 checkable: true
                 checked: WdspEngine.mutedRx2
@@ -795,8 +799,9 @@ Rectangle {
                     text: WdspEngine.nrMode; color: "#50d0ff"
                     font.family: "Consolas"; font.bold: true
                     Layout.preferredWidth: 16
+                    HoverHandler { id: nrModeValHov }
                     ToolTip.text: qsTr("EMNR Mode %1").arg(WdspEngine.nrMode)
-                    ToolTip.visible: (hovered) && Prefs.tooltipsEnabled }
+                    ToolTip.visible: nrModeValHov.hovered && Prefs.tooltipsEnabled }
 
             Label { text: qsTr("NNR Model:"); color: root.cText; font.pixelSize: 11
                     visible: WdspEngine.nnrEnabled }
@@ -835,7 +840,8 @@ Rectangle {
                     Layout.preferredWidth: 32
                     ToolTip.text: qsTr("NNR mask floor %1 dB")
                                   .arg(Math.round(WdspEngine.nnrMaskFloorDb))
-                    ToolTip.visible: (hovered) && Prefs.tooltipsEnabled }
+                    HoverHandler { id: nnrMaskValHov }
+                    ToolTip.visible: nnrMaskValHov.hovered && Prefs.tooltipsEnabled }
 
             Item { width: 8; visible: !WdspEngine.nnrEnabled }
             CheckBox {
@@ -1176,7 +1182,7 @@ Rectangle {
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 400
             }
 
-            Button {
+            LyraButton {
                 text: qsTr("Save"); implicitHeight: 24; implicitWidth: 50
                 font.pixelSize: 11
                 enabled: WdspEngine.noiseProfileValid
@@ -1185,7 +1191,7 @@ Rectangle {
                 ToolTip.text: qsTr("Save the just-captured profile under a name.")
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 400
             }
-            Button {
+            LyraButton {
                 text: qsTr("Del"); implicitHeight: 24; implicitWidth: 44
                 font.pixelSize: 11
                 enabled: WdspEngine.noiseActiveProfile.length > 0

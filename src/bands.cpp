@@ -37,6 +37,25 @@ int bandIndexForFreq(int hz) {
     return -1;
 }
 
+namespace {
+// Region of the dial: 2k+1 inside amateur band k, 2k for the gap just
+// below band k, 2N above the last band.  Each gap between bands is its
+// own region, so a jump from one out-of-band stretch to another still
+// counts as a band change.
+int bandRegionForFreq(int hz) {
+    const auto &b = amateurBands();
+    for (size_t i = 0; i < b.size(); ++i) {
+        if (hz < b[i].low) return int(2 * i);
+        if (hz <= b[i].high) return int(2 * i + 1);
+    }
+    return int(2 * b.size());
+}
+}  // namespace
+
+bool bandJumpCrosses(int fromHz, int toHz) {
+    return bandRegionForFreq(fromHz) != bandRegionForFreq(toHz);
+}
+
 const std::vector<Band> &broadcastBands() {
     // Shortwave broadcast meter bands, matching old Lyra BROADCAST_BANDS.
     static const std::vector<Band> kBc = {

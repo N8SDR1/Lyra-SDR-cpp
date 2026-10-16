@@ -142,6 +142,51 @@ int main(int argc, char **argv) {
     // best-effort cleanup of the test clips dir
     { ClipBank bank; QDir(bank.clipsDir()).removeRecursively(); }
 
+#if !defined(Q_OS_WIN)
+    // ── a clips folder saved on another OS falls back to the default ──
+    // (settings carried over from Windows: "C:/..." is not a path here, and
+    // recordings were silently discarded).
+    {
+        const QString foreign = QStringLiteral("C:/Users/N8SDR/AppData/Roaming/N8SDR/Lyra-cpp/clips");
+        { QSettings s; s.setValue(QStringLiteral("clips/dir"), foreign); }
+        ClipBank bank;
+        CHECK(bank.clipsDir() != foreign, "foreign clips dir replaced on load");
+        CHECK(QDir::isAbsolutePath(bank.clipsDir()), "fallback clips dir is absolute");
+        CHECK(QSettings().value(QStringLiteral("clips/dir")).toString() == bank.clipsDir(),
+              "fallback clips dir persisted");
+        const QString id = bank.addFromSamples(QStringLiteral("after fallback"), ClipBank::Voice, ramp(480));
+        CHECK(!id.isEmpty(), "recording saves after fallback");
+        QDir(bank.clipsDir()).removeRecursively();
+    }
+#endif
+
+    // ── an absolute folder that can't be written is kept, and a failed save
+    //    is reported instead of silently dropped ──
+    {
+        const QString roParent = QDir(QStandardPaths::writableLocation(
+            QStandardPaths::TempLocation)).filePath(QStringLiteral("lyra-clipbank-ro"));
+        QDir(roParent).removeRecursively();
+        QDir().mkpath(roParent);
+        QFile::setPermissions(roParent, QFileDevice::ReadOwner | QFileDevice::ExeOwner);
+        const QString unwritable = QDir(roParent).filePath(QStringLiteral("clips"));
+        { QSettings s; s.setValue(QStringLiteral("clips/dir"), unwritable); }
+
+        ClipBank bank;
+        CHECK(bank.clipsDir() == unwritable, "absolute clips dir kept on load");
+        QString err;
+        QObject::connect(&bank, &ClipBank::clipError, [&err](const QString &m) { err = m; });
+        const int rowsBefore = bank.clips().size();
+        const QString id = bank.addFromSamples(QStringLiteral("nowhere"), ClipBank::Voice, ramp(480));
+        CHECK(id.isEmpty(), "save into unwritable dir fails");
+        CHECK(!err.isEmpty(), "failed save emits clipError");
+        CHECK(bank.clips().size() == rowsBefore, "failed save adds no row");
+
+        QFile::setPermissions(roParent, QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                                            | QFileDevice::ExeOwner);
+        QDir(roParent).removeRecursively();
+    }
+    { QSettings s; s.beginGroup(QStringLiteral("clips")); s.remove(QString()); }
+
     std::printf(g_fail ? "\nRESULT: %d CHECK(S) FAILED\n" : "\nRESULT: ALL CHECKS PASSED\n", g_fail);
     return g_fail ? 1 : 0;
 }

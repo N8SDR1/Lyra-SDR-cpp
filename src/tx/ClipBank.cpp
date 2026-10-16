@@ -105,8 +105,20 @@ QString ClipBank::addEntry(Entry e) {
 
 QString ClipBank::addFromSamples(const QString &label, int kind,
                                  const std::vector<float> &mono, int sampleRate) {
-    QDir().mkpath(dir_);
-    if (!freeSpaceOk(dir_)) return {};
+    if (!QDir().mkpath(dir_)) {
+        const QString msg = tr("Can't save the clip: the clips folder %1 can't be "
+                               "created. Pick another folder (Change…).").arg(dir_);
+        qWarning("[clips] %s", qPrintable(msg));
+        emit clipError(msg);
+        return {};
+    }
+    if (!freeSpaceOk(dir_)) {
+        const QString msg = tr("Can't save the clip: the disk holding %1 is nearly "
+                               "full.").arg(dir_);
+        qWarning("[clips] %s", qPrintable(msg));
+        emit clipError(msg);
+        return {};
+    }
 
     std::vector<float> samples =
         (sampleRate != 48000) ? resampleLinear(mono, sampleRate, 48000) : mono;
@@ -119,8 +131,13 @@ QString ClipBank::addFromSamples(const QString &label, int kind,
     e.durationMs   = static_cast<int>(samples.size() * 1000ll / 48000);
     e.createdEpoch = 0;   // stamped by caller if wanted; not load-bearing
 
-    if (!writeWavMonoFloat(absPath(e.file).toStdString(), samples, 48000))
+    if (!writeWavMonoFloat(absPath(e.file).toStdString(), samples, 48000)) {
+        const QString msg = tr("Can't save the clip: writing %1 failed (is the "
+                               "folder writable?).").arg(absPath(e.file));
+        qWarning("[clips] %s", qPrintable(msg));
+        emit clipError(msg);
         return {};
+    }
     return addEntry(std::move(e));
 }
 
@@ -221,6 +238,18 @@ void ClipBank::load() {
     QSettings s;
     s.beginGroup(QStringLiteral("clips"));
     dir_     = s.value(QStringLiteral("dir"), defaultDir()).toString();
+    // A folder saved on another OS (settings carried over from Windows:
+    // "C:/Users/.../clips" is a RELATIVE path on macOS/Linux) can never be
+    // used here — saving into it silently discarded every recording.  Reset
+    // it to this platform's default and persist that.  An absolute folder is
+    // kept even if it's unavailable right now (an unplugged drive): moving it
+    // would hide the clips stored there; a failed save reports clipError.
+    const bool foreignDir = !QDir::isAbsolutePath(dir_);
+    if (foreignDir) {
+        qWarning("[clips] clips folder \"%s\" is not a valid path on this "
+                 "system — using %s", qPrintable(dir_), qPrintable(defaultDir()));
+        dir_ = defaultDir();
+    }
     nextSeq_ = std::max(1, s.value(QStringLiteral("nextSeq"), 1).toInt());
     clips_.clear();
     const auto doc = QJsonDocument::fromJson(
@@ -241,6 +270,8 @@ void ClipBank::load() {
             clips_.append(e);
     }
     s.endGroup();
+    if (foreignDir)
+        save();
 }
 
 } // namespace lyra::tx

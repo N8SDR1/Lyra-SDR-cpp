@@ -3,6 +3,9 @@
 
 #include "wdsp_native.h"
 
+#include "platform/dynamic_library.h"
+
+#if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -10,6 +13,14 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#endif
+
+#if !defined(_WIN32)
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 #include <atomic>
 #include <cstdio>
@@ -48,6 +59,7 @@ namespace lyra::dsp {
 
 namespace {
 
+#if defined(_WIN32)
 // Format a Windows error code into a human-readable message via
 // FormatMessageW — mirrors the helper in hl2_stream.cpp.
 QString winError(DWORD code) {
@@ -68,6 +80,7 @@ QString winError(DWORD code) {
         ? QStringLiteral("Win32 error %1").arg(code)
         : QStringLiteral("Win32 error %1: %2").arg(code).arg(descr);
 }
+#endif  // _WIN32
 
 // Atomically publish `tmpPath` over `finalPath` on the same volume.
 // MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH) is atomic on NTFS: a reader
@@ -78,8 +91,16 @@ QString winError(DWORD code) {
 // in one step or left untouched.  Returns false (and fills `err`) when the OS
 // blocks the rename; the caller then keeps the previous file and rebuilds on
 // the next launch — no torn file is ever left where WDSP will read it.
+// POSIX rename(2) is the direct equivalent: atomic within a filesystem, and
+// it replaces an existing destination rather than failing.  MOVEFILE_WRITE_
+// THROUGH's durability half has no rename flag here — it is fsync on the
+// destination DIRECTORY, which is what actually commits the new directory
+// entry.  Without it the rename can still be lost in a power-loss window even
+// though it was never torn, so do it and treat a failure as non-fatal (the
+// file is in place; only the durability guarantee is weaker).
 bool atomicReplaceFile(const QString &tmpPath, const QString &finalPath,
                        QString *err = nullptr) {
+#if defined(_WIN32)
     const std::wstring tmpW = QDir::toNativeSeparators(tmpPath).toStdWString();
     const std::wstring finW = QDir::toNativeSeparators(finalPath).toStdWString();
     if (::MoveFileExW(tmpW.c_str(), finW.c_str(),
@@ -88,6 +109,26 @@ bool atomicReplaceFile(const QString &tmpPath, const QString &finalPath,
     }
     if (err) *err = winError(::GetLastError());
     return false;
+#else
+    const QByteArray tmpN = QFile::encodeName(tmpPath);
+    const QByteArray finN = QFile::encodeName(finalPath);
+    if (::rename(tmpN.constData(), finN.constData()) != 0) {
+        if (err) {
+            *err = QStringLiteral("rename failed (errno %1: %2)")
+                       .arg(errno)
+                       .arg(QString::fromLocal8Bit(std::strerror(errno)));
+        }
+        return false;
+    }
+    const QByteArray dirN =
+        QFile::encodeName(QFileInfo(finalPath).absolutePath());
+    const int dirFd = ::open(dirN.constData(), O_RDONLY | O_DIRECTORY);
+    if (dirFd >= 0) {
+        ::fsync(dirFd);
+        ::close(dirFd);
+    }
+    return true;
+#endif
 }
 
 // Branded art for the one-time-setup splash: the real Lyra logo (the
@@ -161,65 +202,70 @@ bool WdspNative::load() {
     }
 
     // Resolve `<exe-dir>/_native/`.  applicationDirPath() returns
-    // the canonical native path on Windows so this is safe with
-    // spaces / non-ASCII operator usernames.
-    const QString exeDir   = QCoreApplication::applicationDirPath();
+    // the canonical native path so this is safe with spaces /
+    // non-ASCII operator usernames.  The engine filename is
+    // per-platform (wdsp.dll / libwdsp.dylib / libwdsp.so).
+    const QString exeDir    = QCoreApplication::applicationDirPath();
     const QString nativeDir = QDir::cleanPath(exeDir +
                               QStringLiteral("/_native"));
+    const QString engineName = lyra::platform::wdspLibraryFileName();
     const QString dllPath   = QDir::cleanPath(nativeDir +
-                              QStringLiteral("/wdsp.dll"));
+                              QStringLiteral("/") + engineName);
 
     if (!QFileInfo::exists(dllPath)) {
-        loadError_ = QStringLiteral("wdsp.dll not found at %1")
-                     .arg(dllPath);
+        loadError_ = QStringLiteral("%1 not found at %2")
+                     .arg(engineName, dllPath);
+#if defined(__APPLE__)
+        loadError_ += QStringLiteral(
+            " — build it with tools/build_wdsp_macos.sh");
+#endif
         emitLog(QStringLiteral("[wdsp] LOAD FAILED: %1")
                 .arg(loadError_));
         emit loadedChanged();
         return false;
     }
 
+#if defined(_WIN32)
     // Add _native/ to the dynamic-link search path so wdsp.dll's
     // dependent DLLs (libfftw3-3.dll etc.) resolve from the same
     // directory.  The Python tree uses `os.add_dll_directory`;
     // C++ equivalent is `AddDllDirectory` (Win10+/Win8+) — it
     // APPENDS to the search path rather than replacing it (vs the
     // older `SetDllDirectory` which clobbers + has subtle side
-    // effects).  Need LOAD_LIBRARY_SEARCH_USER_DIRS in the
-    // LoadLibraryExW call for AddDllDirectory's entries to take
-    // effect.  Operator is on Windows 11 so this path is supported.
+    // effects).
+    //
+    // macOS needs no equivalent: libwdsp.dylib records absolute
+    // install paths for its FFTW dependencies at link time.
     const std::wstring nativeDirW = nativeDir.toStdWString();
     DLL_DIRECTORY_COOKIE cookie =
         ::AddDllDirectory(nativeDirW.c_str());
     if (!cookie) {
-        // Non-fatal — LoadLibraryExW may still find it via the
-        // default search.  Log the issue and continue.
+        // Non-fatal — the loader may still find it via the default
+        // search.  Log the issue and continue.
         const DWORD err = ::GetLastError();
         emit logLine(QStringLiteral(
             "[wdsp] AddDllDirectory failed (continuing): %1")
             .arg(winError(err)));
     }
+#endif
 
-    const std::wstring dllPathW = dllPath.toStdWString();
-    HMODULE h = ::LoadLibraryExW(
-        dllPathW.c_str(),
-        nullptr,
-        LOAD_LIBRARY_SEARCH_DEFAULT_DIRS |
-        LOAD_LIBRARY_SEARCH_USER_DIRS    |
-        LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
+    QString loadFailure;
+    lyra::platform::ModuleHandle h =
+        lyra::platform::loadLibrary(dllPath, &loadFailure);
 
+#if defined(_WIN32)
     if (cookie) {
-        // We don't need the cookie to persist past LoadLibraryExW
-        // — wdsp.dll's deps are resolved at this point.  Remove
-        // to keep the search-path list clean.
+        // We don't need the cookie to persist past the load — the
+        // engine's deps are resolved at this point.  Remove to keep
+        // the search-path list clean.
         ::RemoveDllDirectory(cookie);
     }
+#endif
 
     if (!h) {
-        const DWORD err = ::GetLastError();
-        loadError_ = winError(err);
-        emitLog(QStringLiteral(
-            "[wdsp] LOAD FAILED: LoadLibraryExW(%1): %2")
-            .arg(dllPath, loadError_));
+        loadError_ = loadFailure;
+        emitLog(QStringLiteral("[wdsp] LOAD FAILED: %1: %2")
+                .arg(dllPath, loadError_));
         emit loadedChanged();
         return false;
     }
@@ -227,14 +273,18 @@ bool WdspNative::load() {
     handle_     = static_cast<void*>(h);
     loadedFrom_ = dllPath;
     loadError_.clear();
+    // Publish the handle for resolve_wdsp_calls() (src/wire/wdspcalls.cpp),
+    // which resolves the ported ChannelMaster table from this same image.
+    lyra::platform::setWdspModule(h);
     emitLog(QStringLiteral("[wdsp] LOADED: %1").arg(dllPath));
 
-    // Step 3b: resolve the minimum WDSP entry points via
-    // GetProcAddress.  On any miss we unload + return false so the
-    // operator sees an explicit symbol-resolution failure rather
-    // than a deferred crash at first use in Step 3c.
+    // Step 3b: resolve the minimum WDSP entry points.  On any miss
+    // we unload + return false so the operator sees an explicit
+    // symbol-resolution failure rather than a deferred crash at
+    // first use in Step 3c.
     if (!resolveSymbols()) {
-        ::FreeLibrary(h);
+        lyra::platform::setWdspModule(nullptr);
+        lyra::platform::unloadLibrary(h);
         handle_ = nullptr;
         loadedFrom_.clear();
         emit loadedChanged();
@@ -284,7 +334,7 @@ void WdspNative::logWisdom(const QString &line) {
 }
 
 bool WdspNative::resolveSymbols() {
-    HMODULE mod = static_cast<HMODULE>(handle_);
+    lyra::platform::ModuleHandle mod = handle_;
     if (!mod) return false;
 
     QStringList missing;
@@ -293,13 +343,13 @@ bool WdspNative::resolveSymbols() {
 
     // Wrapper resolves one symbol into the strongly-typed function
     // pointer, increments the running tallies, and records the
-    // name on miss.  reinterpret_cast through FARPROC is the
-    // standard Win32 idiom (the MS docs explicitly bless this for
-    // GetProcAddress assignment to function-pointer types).
+    // name on miss.  Casting a void* symbol address to a function
+    // pointer is the documented idiom on both platforms (GetProcAddress
+    // returns FARPROC, dlsym returns void*).
     auto resolve = [&](auto &fnPtr, const char *name) {
         ++total;
         using FnT = std::remove_reference_t<decltype(fnPtr)>;
-        FARPROC p = ::GetProcAddress(mod, name);
+        void *p = lyra::platform::resolveSymbol(mod, name);
         if (p) {
             fnPtr = reinterpret_cast<FnT>(p);
             ++found;
@@ -327,26 +377,26 @@ bool WdspNative::resolveSymbols() {
     // size N" progress on the first-run splash.  Soft-resolve it directly so
     // a WDSP build that lacks it (older/other) still loads normally; it is
     // NOT counted against the required-symbol tally.
-    if (FARPROC pWs = ::GetProcAddress(mod, "wisdom_get_status"))
+    if (void *pWs = lyra::platform::resolveSymbol(mod, "wisdom_get_status"))
         api_.wisdom_get_status =
             reinterpret_cast<fn_wisdom_get_status_t>(pWs);
     // WDSP impulse cache exports -- OPTIONAL (a wdsp.dll predating the
     // impulse cache still loads + runs; the feature just stays off).
     // Soft-resolve like wisdom_get_status, NOT the hard resolve() (which
     // counts toward the required-symbol tally).
-    if (FARPROC p = ::GetProcAddress(mod, "init_impulse_cache"))
+    if (void *p = lyra::platform::resolveSymbol(mod, "init_impulse_cache"))
         api_.init_impulse_cache =
             reinterpret_cast<fn_init_impulse_cache_t>(p);
-    if (FARPROC p = ::GetProcAddress(mod, "read_impulse_cache"))
+    if (void *p = lyra::platform::resolveSymbol(mod, "read_impulse_cache"))
         api_.read_impulse_cache =
             reinterpret_cast<fn_read_impulse_cache_t>(p);
-    if (FARPROC p = ::GetProcAddress(mod, "save_impulse_cache"))
+    if (void *p = lyra::platform::resolveSymbol(mod, "save_impulse_cache"))
         api_.save_impulse_cache =
             reinterpret_cast<fn_save_impulse_cache_t>(p);
-    if (FARPROC p = ::GetProcAddress(mod, "use_impulse_cache"))
+    if (void *p = lyra::platform::resolveSymbol(mod, "use_impulse_cache"))
         api_.use_impulse_cache =
             reinterpret_cast<fn_use_impulse_cache_t>(p);
-    if (FARPROC p = ::GetProcAddress(mod, "destroy_impulse_cache"))
+    if (void *p = lyra::platform::resolveSymbol(mod, "destroy_impulse_cache"))
         api_.destroy_impulse_cache =
             reinterpret_cast<fn_destroy_impulse_cache_t>(p);
     resolve(api_.SetRXAAGCThresh,     "SetRXAAGCThresh");
@@ -363,12 +413,12 @@ bool WdspNative::resolveSymbols() {
     resolve(api_.SetRXAEMNRpost2Run,   "SetRXAEMNRpost2Run");
     // NNR is 2.10+ only.  Soft-resolve so a 1.29 wayback DLL still loads;
     // the operator toggle no-ops when these stay nullptr.
-    if (FARPROC pNnr = ::GetProcAddress(mod, "SetRXANNRRun"))
+    if (void *pNnr = lyra::platform::resolveSymbol(mod, "SetRXANNRRun"))
         api_.SetRXANNRRun = reinterpret_cast<fn_SetRXANNRRun_t>(pNnr);
-    if (FARPROC pNnr = ::GetProcAddress(mod, "SetRXANNRMaskFloor"))
+    if (void *pNnr = lyra::platform::resolveSymbol(mod, "SetRXANNRMaskFloor"))
         api_.SetRXANNRMaskFloor =
             reinterpret_cast<fn_SetRXANNRMaskFloor_t>(pNnr);
-    if (FARPROC pNnr = ::GetProcAddress(mod, "SetRXANNRModel"))
+    if (void *pNnr = lyra::platform::resolveSymbol(mod, "SetRXANNRModel"))
         api_.SetRXANNRModel = reinterpret_cast<fn_SetRXANNRModel_t>(pNnr);
     resolve(api_.SetRXAAGCDecay,         "SetRXAAGCDecay");
     resolve(api_.SetRXAAGCHang,          "SetRXAAGCHang");
@@ -522,7 +572,8 @@ void WdspNative::unload() {
         api_.destroy_impulse_cache();
     impulseCacheInited_ = false;
 
-    ::FreeLibrary(static_cast<HMODULE>(handle_));
+    lyra::platform::setWdspModule(nullptr);
+    lyra::platform::unloadLibrary(handle_);
     handle_ = nullptr;
     loadedFrom_.clear();
     loadError_.clear();
@@ -550,20 +601,49 @@ QString WdspNative::wisdomDir() {
 
 namespace {
 
-// Hard-coded filename per WDSP source (wisdom.c) — same name
-// every HPSDR app produces; isolation is purely by directory.
-// WDSP 2.00+ writes wdspWisdom01 (wisdom.c).  1.29 used 00.
-constexpr const char *kWisdomFilename = "wdspWisdom01";
+// Filename per WDSP source (wisdom.c) — the same name every HPSDR app
+// produces; isolation is purely by directory.
+//
+// The name is a property of the ENGINE BUILD, not the platform, and it
+// changed across WDSP versions: WDSP 1.x engines (the Windows DLL before
+// v0.25.8) write "wdspWisdom00", while WDSP 2.00+ (wisdom.c:50 — the 2.10
+// DLL Windows now bundles, and what tools/build_wdsp_macos.sh builds)
+// writes "wdspWisdom01".  Getting this wrong is not cosmetic — the
+// post-build existence check fails, wisdom is declared unusable, and EVERY
+// launch repeats the multi-minute FFTW_PATIENT search.
+//
+// So probe the known names, newest first, rather than hardcoding one.
+constexpr const char *kWisdomFilenames[] = {
+    "wdspWisdom01",   // WDSP 2.00 and later
+    "wdspWisdom00",   // older engines, incl. the bundled Windows DLL
+};
+
+// Path of the wisdom file that actually exists in `dir`, or an empty
+// string if none does.
+QString existingWisdomFile(const QString &dir) {
+    for (const char *name : kWisdomFilenames) {
+        const QString candidate =
+            QDir(dir).filePath(QString::fromLatin1(name));
+        if (QFileInfo::exists(candidate))
+            return candidate;
+    }
+    return {};
+}
 
 bool wisdomFileExists(const QString &dir) {
-    return QFileInfo::exists(QDir(dir).filePath(
-        QString::fromLatin1(kWisdomFilename)));
+    return !existingWisdomFile(dir).isEmpty();
 }
 
 }  // namespace
 
 QString WdspNative::wisdomFilePath() {
-    return QDir(wisdomDir()).filePath(QString::fromLatin1(kWisdomFilename));
+    const QString dir = wisdomDir();
+    const QString existing = existingWisdomFile(dir);
+    if (!existing.isEmpty())
+        return existing;
+    // None present yet (first launch): name the one the current engine
+    // is expected to write.
+    return QDir(dir).filePath(QString::fromLatin1(kWisdomFilenames[0]));
 }
 
 bool WdspNative::wisdomExists() {
@@ -571,10 +651,17 @@ bool WdspNative::wisdomExists() {
 }
 
 bool WdspNative::deleteWisdom() {
-    const QString path = wisdomFilePath();
-    if (!QFileInfo::exists(path))
-        return true;                 // already gone — next launch rebuilds
-    return QFile::remove(path);
+    // Remove EVERY known wisdom name, not just the preferred one — a
+    // stale file under the other name would otherwise be picked up by
+    // wisdomFilePath() and defeat "rebuild on next start".
+    const QString dir = wisdomDir();
+    bool ok = true;
+    for (const char *name : kWisdomFilenames) {
+        const QString path = QDir(dir).filePath(QString::fromLatin1(name));
+        if (QFileInfo::exists(path) && !QFile::remove(path))
+            ok = false;
+    }
+    return ok;                       // already gone → true; next launch rebuilds
 }
 
 int WdspNative::runWisdomCall(const QString &callDir,
@@ -607,6 +694,7 @@ int WdspNative::runWisdomCall(const QString &callDir,
     std::atomic<int>  rc{0};
     std::atomic<bool> done{false};
     std::thread worker([this, dirBytes, &rc, &done]() {
+#if defined(_WIN32)
         // Tame WDSP's console ONLY if we don't already own one (a dev
         // console build must keep its own console).  Import-only calls
         // never touch the console, so this whole block is a no-op on the
@@ -629,6 +717,13 @@ int WdspNative::runWisdomCall(const QString &callDir,
             ::freopen_s(&f, "NUL", "w", stdout);
             ::freopen_s(&f, "NUL", "w", stderr);
         }
+#else
+        // POSIX has no console to allocate or hide: the WDSP shim's
+        // AllocConsole/FreeConsole are no-ops and its planning progress
+        // goes to stderr, which Lyra's log already captures.
+        rc.store(api_.WDSPwisdom(
+            const_cast<char *>(dirBytes.constData())));
+#endif
         done.store(true);
     });
 
@@ -956,8 +1051,12 @@ bool WdspNative::ensureWisdom() {
         QDir(dir).filePath(QStringLiteral(".wisdom-build"));
     QDir(workDir).removeRecursively();          // clear any stale/torn temp
     const bool    haveWork = QDir().mkpath(workDir);
+    // Seed/probe under the SAME basename as the live file.  (Upstream names
+    // this from a single kWisdomFilename constant; the port has to probe
+    // instead, because WDSP 2.00+ writes "wdspWisdom01" and WDSP 1.x
+    // engines write "wdspWisdom00" — see kWisdomFilenames.)
     const QString workFile =
-        QDir(workDir).filePath(QString::fromLatin1(kWisdomFilename));
+        QDir(workDir).filePath(QFileInfo(finalFile).fileName());
     // The dir handed to WDSP: the work dir when we could make it, else fall
     // back to building in place (rare; still self-heals via rc==1, just not
     // atomically).
@@ -1001,7 +1100,24 @@ bool WdspNative::ensureWisdom() {
     }
 
     // Verify the planned file exists before publishing.
-    const QString   srcFile = haveWork ? workFile : finalFile;
+    //
+    // WDSPwisdom picks the output NAME itself, and engines disagree on it, so
+    // probe the work dir for whichever known name actually landed instead of
+    // assuming it matches finalFile.  Assuming is wrong on a first-ever launch
+    // against an engine whose name is not kWisdomFilenames[0] (the bundled
+    // Windows DLL): the built file would be missed, reported as "write
+    // blocked", never published, and the multi-minute plan search would repeat
+    // on EVERY launch.  Falls back to workFile so the not-found diagnostic
+    // below still names the path we expected.
+    const QString   builtFile = haveWork ? existingWisdomFile(workDir) : QString();
+    const QString   srcFile   = !haveWork      ? finalFile
+                              : builtFile.isEmpty() ? workFile
+                                                    : builtFile;
+    // Publish under the name the engine actually wrote, so the file we drop
+    // next to it is the one wisdomFilePath() will find next launch.
+    const QString   pubFile   = haveWork
+                              ? QDir(dir).filePath(QFileInfo(srcFile).fileName())
+                              : finalFile;
     const QFileInfo srcInfo(srcFile);
     if (!srcInfo.exists() || srcInfo.size() == 0) {
         logWisdom(QStringLiteral(
@@ -1022,10 +1138,10 @@ bool WdspNative::ensureWisdom() {
     // byte-identical, so there is nothing to publish.
     if (haveWork && (rebuilt || !haveExisting)) {
         QString err;
-        if (atomicReplaceFile(workFile, finalFile, &err)) {
+        if (atomicReplaceFile(srcFile, pubFile, &err)) {
             logWisdom(QStringLiteral(
                 "[wdsp] wisdom: published %1 bytes atomically to %2")
-                .arg(QFileInfo(finalFile).size()).arg(finalFile));
+                .arg(QFileInfo(pubFile).size()).arg(pubFile));
         } else {
             logWisdom(QStringLiteral(
                 "[wdsp] wisdom: atomic publish blocked (%1).  Plans are live "

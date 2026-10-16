@@ -936,6 +936,23 @@ public:
     // truth: red-on-air + panadapter TX rescale follow this so they flip for
     // QSK CW; the wire MOX bit (moxActive) is unchanged.
     bool    txDisplayActive() const { return txDisplayActive_; }
+    // One-click jumps (GEN/TIME/Mem/XVTR, band-plan markers) call this with
+    // the target frequency.  True = ignore the jump: we are transmitting and
+    // it would leave the current amateur band (a band change re-selects
+    // filters / OC outputs / PA band under power).  Same-band jumps pass.
+    // A blocked jump also stops the transmission (stopTxForBlockedJump).
+    // Compares against RX1, or RX2 when `sub`.  Emits txBandChangeBlocked().
+    Q_INVOKABLE bool txBlocksBandJump(quint32 targetHz, bool sub = false);
+    // Same rule for a VFO move that has its own "from" (VFO A/B copy/swap,
+    // typed entry on VFO B): compares fromHz with targetHz.
+    Q_INVOKABLE bool txBlocksJumpFrom(quint32 fromHz, quint32 targetHz);
+    // VFO B moves (CAT FB, TCI vfo:0,1): VFO B only matters while SPLIT makes
+    // it the TX frequency; otherwise it is an idle register and always passes.
+    bool txBlocksVfoBJump(quint32 targetHz);
+    // A band jump was refused while transmitting: un-key (MOX off through the
+    // normal TR sequence, which also clears TUN), abort any CW being sent,
+    // and emit txBandChangeBlocked() for the status-bar cue.
+    Q_INVOKABLE void stopTxForBlockedJump();
     // TX-0c-pa-debug — operator-tunable safety timeout (seconds) +
     // bypass.  Setters clamp + persist + emit changes; the FSM-side
     // keydown/keyup hooks arm/cancel the QTimer.
@@ -1725,6 +1742,8 @@ signals:
     void cwTerminalHoldDropped();
     // #105 — display TX-state (moxActive || cwKeyingActive) changed.
     void txDisplayActiveChanged(bool on);
+    // A band jump was refused and TX stopped (status-bar cue).
+    void txBandChangeBlocked();
     // Fires ONCE per requestMox(true) call (MOX button click, TUN arm,
     // space-bar press — any path that signals operator intent to key).
     // Lets the TX panel paint a short "press-intent" indicator (orange

@@ -11,6 +11,7 @@
 #include <QFont>
 #include <QPainter>
 #include <QStatusBar>
+#include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
 #include <QWidget>
@@ -102,6 +103,19 @@ bool DockDragController::isFloatOnly(QDockWidget *d) const {
     return d && floatOnly_ && floatOnly_(d->objectName());
 }
 
+bool DockDragController::canTearOut(QDockWidget *d) const {
+    return d && !noTearOut_ && (d->features() & QDockWidget::DockWidgetFloatable);
+}
+
+bool DockDragController::dropAt(QDockWidget *d, const QPoint &globalPos) {
+    if (!d || state_ != State::Idle) return false;
+    dragDock_ = d;                       // hitTest skips the dock being placed
+    const Zone z = hitTest(globalPos);
+    if (z.type != ZoneType::None) commit(z);
+    dragDock_ = nullptr;
+    return z.type != ZoneType::None;
+}
+
 QRect DockDragController::dockRegionLocal() const {
     QRect r = win_->rect();   // client area, win_-local
     int top = 0, bottom = 0;
@@ -161,6 +175,7 @@ DockDragController::hitTest(const QPoint &globalPos) const {
     for (QDockWidget *t : *docks_) {
         if (!t || t == dragDock_) continue;
         if (!t->isVisible() || t->isFloating()) continue;
+        if (t->window() != win_) continue;   // housed in a rack window
         const QRect tr(t->mapTo(win_, QPoint(0, 0)), t->size());
         if (!tr.contains(p)) continue;
         const int lx = p.x() - tr.left();
@@ -195,7 +210,7 @@ void DockDragController::commit(const Zone &z) {
     if (!d) return;
     switch (z.type) {
     case ZoneType::Edge:
-        win_->addDockWidget(z.edge, d);   // re-docks (un-floats) automatically
+        win_->addDockWidget(z.edge, d);
         break;
     case ZoneType::Tabify:
         if (z.neighbor) win_->tabifyDockWidget(z.neighbor, d);
@@ -211,17 +226,23 @@ void DockDragController::commit(const Zone &z) {
         }
         break;
     case ZoneType::None:
-        // Dropped off the dock region → leave floating.  A dock that was
-        // already floating followed the cursor during the drag; a docked one
-        // tears out here, under the cursor — UNLESS this is a no-tear-out host
-        // (a rack window), where a drop in empty space just stays put.
-        if (!noTearOut_ && !dragWasFloating_) {
+        // Dropped off the dock region (or in a gap between panels).  A docked
+        // panel tears out under the cursor unless this host forbids tear-out
+        // or the panel is not floatable (a locked rack member); an already-
+        // floating one stays where it was released.  Only the edge bands and
+        // the panels themselves (hitTest) dock — a floating panel moved across
+        // the window must not be pulled in.
+        if (canTearOut(d) && !dragWasFloating_) {
             d->setFloating(true);
             d->move(QCursor::pos() - QPoint(40, 10));
             d->activateWindow();
         }
         break;
     }
+    // addDockWidget / splitDockWidget / tabifyDockWidget only set the slot; a
+    // floating dock that already belongs to this window stays a floating
+    // window until it is explicitly un-floated into that slot.
+    if (z.type != ZoneType::None) d->setFloating(false);
     d->show();
     d->raise();
     emit layoutChanged();
@@ -266,7 +287,11 @@ bool DockDragController::eventFilter(QObject *obj, QEvent *event) {
         dragDock_        = d;
         pressGlobal_     = me->globalPosition().toPoint();
         dragWasFloating_ = d->isFloating();
-        floatGrabOffset_ = pressGlobal_ - d->frameGeometry().topLeft();
+        // Cursor offset within the dock.  A docked dock's frameGeometry() is
+        // parent-relative, so measure it in global coordinates instead.
+        floatGrabOffset_ = pressGlobal_
+                           - (dragWasFloating_ ? d->frameGeometry().topLeft()
+                                               : d->mapToGlobal(QPoint(0, 0)));
         state_           = State::Armed;
         return true;
     }
@@ -281,10 +306,9 @@ bool DockDragController::eventFilter(QObject *obj, QEvent *event) {
                 return true;   // not past threshold yet
             state_ = State::Dragging;
             if (floatOnly) {
-                // Chip-summoned tool window (TX/RX DSP racks, CW console,
-                // CW decoder): a pure free-move that NEVER docks — no drop
-                // overlay, no hit-testing.  Self-heal one a prior build may
-                // have left docked so it can be dragged out again.
+                // Float-only panel (see setFloatOnlyPredicate): a pure
+                // free-move that NEVER docks — no drop overlay, no
+                // hit-testing.  A docked one is popped out so it can move.
                 if (!dragDock_->isFloating()) {
                     dragDock_->setFloating(true);
                     dragWasFloating_ = true;
@@ -345,7 +369,7 @@ bool DockDragController::eventFilter(QObject *obj, QEvent *event) {
         auto *me = static_cast<QMouseEvent *>(event);
         const QPoint gpos = me->globalPosition().toPoint();
         if (isFloatOnly(dragDock_)) {
-            // Float-only tool window: leave it floating where dropped, never
+            // Float-only panel: leave it floating where dropped, never
             // dock.  (endDrag hides the overlay if a previous non-float drag
             // created it.)
             QDockWidget *dropped = dragDock_;
@@ -356,6 +380,21 @@ bool DockDragController::eventFilter(QObject *obj, QEvent *event) {
             return true;
         }
         const Zone z = hitTest(gpos);
+        // Released outside a tear-out rack: hand the dock to the main window
+        // so a drop on Lyra docks it.  Doing that inside this mouse-release
+        // reparents the title bar under the filter, so defer one turn (the
+        // dock is the timer's context, so a deleted dock cancels it).
+        if (z.type == ZoneType::None && tearOut_ && canTearOut(dragDock_)) {
+            QDockWidget *dock = dragDock_;
+            const QPoint g = gpos;
+            const QPoint grab = floatGrabOffset_;
+            const auto handler = tearOut_;
+            endDrag();
+            QTimer::singleShot(0, dock, [handler, dock, g, grab]() {
+                handler(dock, g, grab);
+            });
+            return true;
+        }
         commit(z);
         endDrag();
         return true;

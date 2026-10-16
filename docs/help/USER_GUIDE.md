@@ -722,8 +722,9 @@ a CPU change.)
 
 ### 5. Tune and listen
 
-- **Tuning panel** — set the **RX1** frequency on the LED readout, and pick
-  the **mode** (USB/LSB/CW/…) and **step** right under the VFO; see
+- **Tuning panel** — set the **RX1** frequency on the VFO readout (right-click it to pick a
+  **VFO style**), and pick the **mode** (USB/LSB/CW/…) and **step** right
+  under the VFO; see
   [Tuning panel](#tuning-panel).
 - **Filters panel** — sample rate, **RX/TX bandwidth** on the top line,
   and **RX lo / TX lo** directly under them;
@@ -910,6 +911,22 @@ control panels in a row beneath).
   everything — panels can't be moved, floated, closed, **or resized** —
   so you can't disturb your arrangement by accident during operating.
   The move cursor disappears on locked title bars as a reminder.
+- **Panels you open from the header chips** (TX Speech / EQ / Combinator /
+  Plating, RX EQ, Tuner, CW, CW Dec, Voice Keyer, Recorder, Freq Cal,
+  PureSignal, Amp View) open as floating windows, and dock like any other
+  panel. A floating one only docks where the cyan highlight
+  shows — an edge, or onto another panel; let go anywhere else and it stays
+  a floating window. Its **⧉** button docks it straight into the window.
+  Docked, it locks with the rest of the layout. With panels locked, a
+  floating one can still be moved and closed, but it won't dock or pop out
+  until you unlock.
+- **Grouped DSP Rack** (Settings → Visuals → Panel layout): pull a panel
+  out of the rack with its **⧉** button, a title-bar double-click, or by
+  dragging it off the rack. It appears under your cursor and docks into
+  Lyra if you drop it on a highlighted spot. A popped-out panel is
+  reopened from the **View** menu, and the next time Lyra starts it is
+  back in the DSP Rack — the rack always opens with all its panels in it.
+  Locked panels can't be pulled out of the rack.
 
 **Undo a bad drag.** Dropped a panel somewhere you didn't mean to?
 **View → Layouts → Undo layout change** puts it back where it came from.
@@ -928,7 +945,9 @@ one click:
   like.
 - **Recall a slot** — snaps the window back to that arrangement.
 - **Lyra default** — returns to the built-in factory arrangement. (Use
-  this if a layout ever gets scrambled.)
+  this if a layout ever gets scrambled.) Any header-chip panel you had
+  docked into the main window goes back to a floating window — still open
+  if it was open — so it can't crowd the factory rows.
 
 Recalling a layout restores only your main panels — it won't pop open the
 TX/RX DSP-rack or CW tool windows you reach from the header chips.
@@ -1061,8 +1080,11 @@ node).
 
 ## Tuning panel
 
-Sets the **RX1 receive frequency** on a big amber **LED-style readout**
-(megahertz · kilohertz · hertz), the way old Lyra showed it.
+Sets the **RX1 receive frequency** on a big **readout**
+(megahertz · kilohertz · hertz). Its look is selectable: **right-click either
+VFO → VFO style** and choose **Lyra (Mac)** (default), **Amber LED** (the
+original look), **Classic LCD**, **Nixie**, **VFD**, or **Widget**. The
+choice is shared by VFO A and B and remembered.
 
 - **Click a digit** to select it (a cyan underline marks it), then **roll
   the mouse wheel** over the display to tune that digit's place up/down;
@@ -1074,8 +1096,9 @@ Sets the **RX1 receive frequency** on a big amber **LED-style readout**
   **Step** (see below).
 - **Double-click** the display to type an exact frequency.
 The frequency, **Step**, and **Mode** form one bordered **VFO cluster**.
-The border is **green while receiving** and turns **red on transmit**
-(MOX/TUN); an amber **RX/TX tag** in the top-left corner marks the role
+In every style the border is **green while receiving**, turns **red on
+transmit** (MOX/TUN), and is **grey** when the VFO is armed but not active;
+an **RX/TX tag**, drawn in each style's own colours, marks the role
 (it flips RX→TX on key). The Lyra logo sits centred to its right, with
 **VFO B** to the right of that (it appears when **SPLIT** or **SUB** is
 on). Each VFO has a small **TX pip**: **gray** = this VFO would not
@@ -2243,9 +2266,10 @@ both receive and transmit. Tick **Separate RX / TX meter style** in
 **Settings → Meter** to use a different look on each — for example
 **Horizon Arc** while receiving and **Vertical Ladder** for a clean
 PWR/SWR read on transmit. Just like the source swap below, the style then
-changes automatically the instant you key up and back on unkey. The header
-**Arc | Bar | Ladder** buttons stay a live override for whichever state is
-showing at that moment.
+changes automatically the instant you key up and back on unkey. The style
+chip in the panel's top-right corner (or a right-click on the meter) stays a
+live override for whichever state is showing at that moment, and the
+Settings combos follow it.
 
 What the meter shows:
 
@@ -2699,6 +2723,9 @@ remembered, exactly like the TX DSP panels.
 - **Graph width tracks the RX bandwidth** — the curve spans the receive
   passband actually in use, so the bands sit where the audio is. Change your
   RX filter width and the EQ rescales to match.
+- **Analyzer** — the receive audio never stops, so the RX analyzer is averaged
+  (about a third of a second) to give a steady picture, and its vertical scale
+  follows the signal level so loud peaks never flat-top at the top of the graph.
 - **ON / bypass** — the top-bar **ON** button bypasses the RX EQ in **any**
   mode. It additionally **auto-bypasses in the digital data modes (DIGU /
   DIGL)** so decoders always get flat audio; it stays available in CW and SSB.
@@ -2836,10 +2863,11 @@ slideshow over the audio, handy for sharing a band opening or an unusual
 signal.
 
 **Open it from the `⏺ Recorder` chip in the header**, between the *RX DSP* and
-*Options* groups. Click it to pop out the **Recorder** panel (a floating tool
-window). While a recording is running, that same chip turns into a red
-**`● REC hh:mm:ss`** timer so you always know at a glance that it's rolling —
-click it to reopen the panel, where **Stop** lives.
+*Options* groups. Click it to pop out the **Recorder** panel (it opens
+floating; drop it on a highlighted spot to dock it). While a recording is
+running, that same chip turns into a red **`● REC hh:mm:ss`** timer so you
+always know at a glance that it's rolling — click it to reopen the panel,
+where **Stop** lives.
 
 **The Recorder panel**
 
@@ -2944,7 +2972,8 @@ is best for a straight key or a keyer that times itself.
 
 **2 — Keyboard + macros (the CW console).** Click the **CW** chip on the
 top toolbar to pop open the floating **CW Console** (it floats by default
-and remembers where you put it — only open it when you want it). It works
+and remembers where you put it — drop it on a highlighted spot to dock it,
+and only open it when you want it). It works
 only in CWU/CWL; outside CW the send controls dim, so switch to CW first.
 The **WPM** slider sets the speed; **Esc** or the red **Stop · Esc** button
 aborts whatever is sending. The bottom **type-and-send** line keys a line
@@ -3024,8 +3053,8 @@ used for SSB.
 Lyra has a built-in CW reader — this stays in Lyra (it is **not** an Apps
 companion). Click the **CW Dec** chip on the top toolbar
 to pop open the floating **CW Decoder** (it floats and remembers where you
-put it). It reads **only in CWU/CWL** — outside CW the detector controls
-dim and a "switch to CW to decode" note shows.
+put it, or dock it like any panel). It reads **only in CWU/CWL** — outside
+CW the detector controls dim and a "switch to CW to decode" note shows.
 
 The decoder is a faithful port of **fldigi's** CW receiver (the W1HKJ
 open-source Morse engine), so if you know fldigi's CW behaviour, this is it.
@@ -3136,8 +3165,9 @@ copy well on typical signals; reach for the rest only when copy is rough:
 If you run a **manual antenna tuner** (the kind you set by hand with
 Input / Output / Inductor controls), the **Tuner** panel remembers your
 settings so you can return to a known-good match without starting from
-scratch. Open it from the header — **Options: → Tuner**. It's a floating
-panel; drag it anywhere. (Pure tuning memory — it doesn't drive or read your
+scratch. Open it from the header — **Options: → Tuner**. It opens as a
+floating panel; drag it anywhere, or drop it on a highlighted spot to dock
+it into the main window. (Pure tuning memory — it doesn't drive or read your
 tuner, it just remembers what *you* dialled in.)
 
 **Pick your antenna.** Three antenna slots across the top — **Beam /
@@ -3206,7 +3236,8 @@ you like:
 
 ### The guided panel (Freq Cal chip)
 
-Open **Options: → Freq Cal** in the header. A floating instrument appears:
+Open **Options: → Freq Cal** in the header. A floating instrument appears
+(drop it on a highlighted spot to dock it):
 
 1. **Tap a time station chip** (only the ones your region can actually hear
    are shown — see [Band plan (Region)](#band-plan-region)). Lyra saves your
@@ -3460,9 +3491,33 @@ A compact strip showing current **HF propagation** conditions from
   HamQSL last updated.
 - **A 10-band heat-map** — `160` through `6` m, each tinted **green
   (Good)**, **amber (Fair)**, **red (Poor)**, or **gray (no prediction)**.
-  Hover a band for its rating. **Click a chip** to tune **VFO A** to
-  that band's current stored frequency (the slot the Band panel would
-  land on). It does not step the 1 / 2 / 3 stack.
+  Hover a band for its rating.
+- **Click a band to tune it.** A left click goes where a Band-panel chip
+  would: the main receiver (VFO A), or the SUB receiver / VFO B when that is
+  the focused one. **Right-click** or **Shift+click** parks the SUB receiver
+  on that band instead. You land on that band's current stored frequency
+  (the slot the Band panel would use); a heat-map click does not step the
+  1 / 2 / 3 stack.
+- **Band changes are blocked while transmitting, and transmit stops.** Switching
+  bands re-selects filters and PA/relay outputs, so during transmit (including
+  CW keying) a click on the heat-map or on any Band-panel band chip does not
+  change band. Instead Lyra un-keys (MOX and TUN drop, any CW being sent is
+  aborted) and posts "Band change blocked — transmit stopped" in the status
+  bar. Press PTT again to resume on the same frequency. The other
+  one-click jumps (GEN, TIME, Mem recall, XVTR chips, DX spot labels, and the
+  band-plan, CB and broadcast markers on the panadapter) are blocked the same way only when
+  they would **leave the current amateur band**; a jump within the same band
+  still works. The same rule covers the VFO itself: the **1→2**, **2→1** and
+  **⇄** (copy/swap) buttons and a typed frequency are refused, and transmit
+  stops, if they would move VFO A — or VFO B while it is live (SPLIT or SUB) —
+  out of its band.
+  Frequency changes from a logger or other program over **CAT** or **TCI**
+  follow the same rule (VFO B counts there only in SPLIT, where it is the TX
+  frequency), so a program that jumps band mid-transmission un-keys the
+  radio; a TCI client is sent the unchanged frequency so its display stays in
+  step. The NCDXF **Follow** feature
+  pauses silently while you transmit and resumes on its next tick after you
+  release.
 
 The ratings are shown for **your current day or night** — Lyra works out
 whether it's daylight at your location and picks HamQSL's day or night

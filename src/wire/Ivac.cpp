@@ -257,6 +257,9 @@ static int CallbackIVAC(const void* input,
 		xrmatchIN(a->rmatchIN, in_ptr);
 	}
 
+	// [Lyra-native] transmit-only VAC (output "(none)"): the stream is
+	// input-only and PortAudio passes output == NULL.
+	if (out_ptr == NULL) return 0;
 	xrmatchOUT(a->rmatchOUT, out_ptr);
 	// if (id == 0)  WriteAudio (120.0, 48000, a->vac_size, out_ptr, 3); //
 	if (a->iq_type && a->swapIQout)
@@ -346,9 +349,12 @@ PORT int StartAudioIVAC(int id)
 	}
 	//
 
+	// [Lyra-native] output_dev_index < 0 = transmit-only VAC (output
+	// "(none)"): open the stream input-only.  The reference always opens
+	// full duplex.
 	error = Pa_OpenStream(&a->Stream,
 		&a->inParam,
-		&a->outParam,
+		(a->output_dev_index >= 0) ? &a->outParam : NULL,
 		a->vac_rate,
 		a->vac_size,	//paFramesPerBufferUnspecified,
 		0,

@@ -33,13 +33,24 @@
 #include "wire/CMaster.h"
 #include "wire/wdspcalls.h"
 
-#ifndef WIN32_LEAN_AND_MEAN
-#  define WIN32_LEAN_AND_MEAN
+#if defined(_WIN32)
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
+#else
+#  include "platform/win32_compat.h"
 #endif
-#ifndef NOMINMAX
-#  define NOMINMAX
-#endif
-#include <windows.h>
+
+#include "platform/dynamic_library.h"
+
+#include <QDir>
+#include <QFileInfo>
+#include <QString>
+#include <QStringList>
 
 #include <cstdio>
 #include <cstring>
@@ -75,34 +86,38 @@ void check(bool ok, const char* what) {
     }
 }
 
-// Load wdsp.dll from _native/ (next to the build tree) so
-// resolve_wdsp_calls() can GetModuleHandleW it.  Returns true on
-// success.  Tries a few relative locations the build/run layout
-// uses; the env override LYRA_WDSP_DIR (same name WdspNative honors)
-// is checked first.
+// Load the WDSP engine from _native/ (next to the build tree) and
+// register it so resolve_wdsp_calls() can borrow the handle.  Returns
+// true on success.  Tries the relative locations the build/run layout
+// uses; the env override LYRA_WDSP_DIR (same name WdspNative honors) is
+// checked first.
 bool load_wdsp() {
-    if (GetModuleHandleW(L"wdsp.dll") != nullptr)
+    if (lyra::platform::wdspModule() != nullptr)
         return true;  // already loaded
 
-    const wchar_t* candidates[] = {
-        L"wdsp.dll",
-        L"_native\\wdsp.dll",
-        L"build\\_native\\wdsp.dll",
-        L"..\\_native\\wdsp.dll",
-        L"..\\build\\_native\\wdsp.dll",
-    };
+    const QString engine = lyra::platform::wdspLibraryFileName();
 
-    wchar_t envbuf[1024];
-    DWORD n = GetEnvironmentVariableW(L"LYRA_WDSP_DIR", envbuf, 1024);
-    if (n > 0 && n < 1000) {
-        std::wstring p(envbuf, n);
-        if (!p.empty() && p.back() != L'\\' && p.back() != L'/') p += L'\\';
-        p += L"wdsp.dll";
-        if (LoadLibraryW(p.c_str()) != nullptr) return true;
+    QStringList candidates;
+    if (const QByteArray dir = qgetenv("LYRA_WDSP_DIR"); !dir.isEmpty())
+        candidates << QDir(QString::fromLocal8Bit(dir)).filePath(engine);
+
+    for (const char *prefix : {".", "_native", "build/_native",
+                               "../_native", "../build/_native"}) {
+        candidates << QDir(QString::fromLatin1(prefix)).filePath(engine);
     }
 
-    for (const wchar_t* c : candidates) {
-        if (LoadLibraryW(c) != nullptr) return true;
+    for (const QString &path : candidates) {
+        if (!QFileInfo::exists(path)) continue;
+        QString error;
+        if (auto *module = lyra::platform::loadLibrary(
+                QFileInfo(path).absoluteFilePath(), &error)) {
+            lyra::platform::setWdspModule(module);
+            std::printf("[test] loaded WDSP engine: %s\n",
+                        qUtf8Printable(QFileInfo(path).absoluteFilePath()));
+            return true;
+        }
+        std::printf("[test] load failed for %s: %s\n",
+                    qUtf8Printable(path), qUtf8Printable(error));
     }
     return false;
 }

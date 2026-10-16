@@ -9,6 +9,7 @@
 // -93 dBm above).
 
 #include "metermodel.h"
+#include "meter_styles.h"
 
 #include "hl2_stream.h"
 #include "wire/P2RxBridge.h"
@@ -46,6 +47,10 @@ constexpr double kNoiseLeak     = 0.05;   // floor leaks up ~1 dB/s
 constexpr double kSmooth        = 0.55;
 constexpr int    kHistory       = 90;     // ~4.5 s trail
 
+// Visual style indices, the retired-face remap and which faces read the
+// ladder rows live in meter_styles.h (pure, unit-tested).
+using meterstyle::keptStyle;
+using meterstyle::usesLadderRows;
 constexpr auto kKeyStyle    = "meter/style";
 constexpr auto kKeyTxStyle  = "meter/txStyle";     // TX visual style
 constexpr auto kKeySepStyle = "meter/separateStyle"; // swap style on MOX
@@ -131,10 +136,12 @@ MeterModel::MeterModel(lyra::ipc::HL2Stream *stream,
                        lyra::dsp::WdspEngine *wdsp, QObject *parent)
     : QObject(parent), stream_(stream), wdsp_(wdsp) {
     QSettings s;
-    style_ = std::clamp(s.value(QString::fromLatin1(kKeyStyle), 0).toInt(),
-                        0, 2);
-    txStyle_ = std::clamp(s.value(QString::fromLatin1(kKeyTxStyle), 0).toInt(),
-                          0, 2);
+    style_ = keptStyle(s.value(QString::fromLatin1(kKeyStyle), 0).toInt());
+    txStyle_ = keptStyle(s.value(QString::fromLatin1(kKeyTxStyle), 0).toInt());
+    if (style_ != s.value(QString::fromLatin1(kKeyStyle), 0).toInt())
+        s.setValue(QString::fromLatin1(kKeyStyle), style_);
+    if (txStyle_ != s.value(QString::fromLatin1(kKeyTxStyle), 0).toInt())
+        s.setValue(QString::fromLatin1(kKeyTxStyle), txStyle_);
     separateStyle_ = s.value(QString::fromLatin1(kKeySepStyle), false).toBool();
     // Seeds from the global active-rig scope; setP2Bridge() re-reads through
     // rxCalKey() and reloadRxCal() switches it to the live P2 rig's own scope.
@@ -267,7 +274,7 @@ void MeterModel::applyKeyStateSource() {
     // (independent of whether the source also changed; a mode where RX and
     // TX share a source still wants the style to flip).
     if (separateStyle_ && style_ != txStyle_) {
-        if (activeStyle() == 2) buildLadderRows(); else ladderRows_.clear();
+        if (usesLadderRows(activeStyle())) buildLadderRows(); else ladderRows_.clear();
         emit activeStyleChanged();
     }
     const Source target = keyed ? txSource_ : rxSource_;
@@ -359,27 +366,27 @@ int MeterModel::activeStyle() const {
 }
 
 void MeterModel::setStyle(int s) {
-    // 0=HorizonArc (default), 1=PlasmaBar, 2=VerticalLadder (Multi).
+    // A meterstyle::Style index (meter_styles.h); retired indices remap.
     // This is the RX / default style.
-    s = std::clamp(s, 0, 2);
+    s = keptStyle(s);
     if (s == style_) return;
     const int prevActive = activeStyle();
     style_ = s;
     QSettings().setValue(QString::fromLatin1(kKeyStyle), style_);
     // Populate/clear the Ladder rows for whatever style is showing NOW.
-    if (activeStyle() == 2) buildLadderRows(); else ladderRows_.clear();
+    if (usesLadderRows(activeStyle())) buildLadderRows(); else ladderRows_.clear();
     emit styleChanged();
     if (activeStyle() != prevActive) emit activeStyleChanged();
     emit updated();
 }
 
 void MeterModel::setTxStyle(int s) {
-    s = std::clamp(s, 0, 2);
+    s = keptStyle(s);
     if (s == txStyle_) return;
     const int prevActive = activeStyle();
     txStyle_ = s;
     QSettings().setValue(QString::fromLatin1(kKeyTxStyle), txStyle_);
-    if (activeStyle() == 2) buildLadderRows(); else ladderRows_.clear();
+    if (usesLadderRows(activeStyle())) buildLadderRows(); else ladderRows_.clear();
     emit txStyleChanged();
     if (activeStyle() != prevActive) emit activeStyleChanged();
     emit updated();
@@ -390,14 +397,15 @@ void MeterModel::setSeparateStyle(bool on) {
     const int prevActive = activeStyle();
     separateStyle_ = on;
     QSettings().setValue(QString::fromLatin1(kKeySepStyle), separateStyle_);
-    if (activeStyle() == 2) buildLadderRows(); else ladderRows_.clear();
+    if (usesLadderRows(activeStyle())) buildLadderRows(); else ladderRows_.clear();
     emit separateStyleChanged();
     if (activeStyle() != prevActive) emit activeStyleChanged();
     emit updated();
 }
 
 void MeterModel::setActiveStyle(int s) {
-    // The header Arc/Bar/Ladder buttons: override whatever state is showing.
+    // The panel's style chip / right-click list: override whatever state
+    // is showing.
     const bool keyed = stream_ &&
         (stream_->moxActive() || stream_->cwKeyingActive());
     if (separateStyle_ && keyed) setTxStyle(s);
@@ -779,6 +787,10 @@ QString MeterModel::formatTxAlcGSecondary() const {
 
 
 QVariantList MeterModel::tickMarks() const {
+    return tickMarksFor(source_);
+}
+
+QVariantList MeterModel::tickMarksFor(int source) const {
     QVariantList out;
     auto addAt = [&](double pos, const QString &label, bool major) {
         QVariantMap m;
@@ -788,7 +800,7 @@ QVariantList MeterModel::tickMarks() const {
         out.append(m);
     };
     // S-meter: existing S1/S3/S5/S7/S9/+20/+40/+60 — unchanged.
-    if (source_ == RX_SMETER) {
+    if (source == RX_SMETER) {
         for (int sl = 1; sl <= 9; sl += 2)
             addAt(normForDbm(s9Dbm_ - (9 - sl) * kDbPerS),
                   QString::number(sl), sl == 9);
@@ -797,7 +809,7 @@ QVariantList MeterModel::tickMarks() const {
         addAt(normForDbm(s9Dbm_ + 60.0), QStringLiteral("+60"), false);
         return out;
     }
-    if (source_ == PWR) {
+    if (source == PWR) {
         // Watts scale: 0 .. pwrScaleMaxW_ (= 2 * rated max).  Tick
         // spacing scales with the rated max so the labels stay readable
         // whether the operator is on a 5 W bare HL2+ or a 100 W amp.
@@ -822,7 +834,7 @@ QVariantList MeterModel::tickMarks() const {
         addAt(1.0,           fmt(m),               true);   // scale max
         return out;
     }
-    if (source_ == SWR) {
+    if (source == SWR) {
         // SWR scale: 1.0 (perfect match) on the left, 3.0+ on the right
         // (above 3:1 the meter pegs).  Danger threshold at 2.0 sits at
         // (2-1)/(3-1) = 0.5 on the renderer's 0..1 axis — half-scale,
@@ -841,7 +853,7 @@ QVariantList MeterModel::tickMarks() const {
         addAt(pos(3.0), QStringLiteral("3.0"), true);
         return out;
     }
-    if (source_ == PA_CURRENT) {
+    if (source == PA_CURRENT) {
         // PA bias current scale: 0 .. 3.0 A (matches kPaScaleMaxA in
         // computePaCurrent's anonymous namespace).  Operator-relevant
         // landmarks: 0.2 A idle bias on a typical HL2+, 1.8 A full
@@ -859,7 +871,7 @@ QVariantList MeterModel::tickMarks() const {
         addAt(1.0,        QStringLiteral("3"),    true);
         return out;
     }
-    if (source_ == PA_VOLTS) {
+    if (source == PA_VOLTS) {
         // PA supply / VDD scale: 0 .. 16 V (matches kVScaleMaxV).
         // Operator landmarks: 12 V nominal HL2 supply, 13.8 V typical
         // 13.8 V bench supply, 14 V danger threshold.
@@ -875,7 +887,7 @@ QVariantList MeterModel::tickMarks() const {
         addAt(1.0,        QStringLiteral("16"),   true);
         return out;
     }
-    if (source_ == TEMP) {
+    if (source == TEMP) {
         // HL2 board temperature: 0 .. 80 °C (matches kTempScaleMaxC).
         // Operator landmarks: 25 °C ambient/idle, 30 °C full-tune
         // typical, 60 °C danger threshold.
@@ -1065,6 +1077,7 @@ void MeterModel::buildLadderRows() {
                        : formatSecondaryText(srcs[i]));
         row.insert(QStringLiteral("level"),  level);
         row.insert(QStringLiteral("danger"), danger);
+        row.insert(QStringLiteral("source"), srcs[i]);
         ladderRows_.append(row);
     }
 
@@ -1244,7 +1257,7 @@ void MeterModel::computeSMeter() {
     text_ = sLabel(dispDbm_);
     dbmText_ = QStringLiteral("%1 dBm").arg(dispDbm_, 0, 'f', 0);
 
-    if (activeStyle() == 2) buildLadderRows();
+    if (usesLadderRows(activeStyle())) buildLadderRows();
     emit updated();
 }
 
@@ -1432,7 +1445,7 @@ void MeterModel::computePwr() {
                 : QStringLiteral("%1 W").arg(std::lround(dispW));
     dbmText_.clear();
 
-    if (activeStyle() == 2) buildLadderRows();
+    if (usesLadderRows(activeStyle())) buildLadderRows();
     emit updated();
 }
 
@@ -1544,7 +1557,7 @@ void MeterModel::computeSwr() {
     if (int(hist_.size()) > kHistory) hist_.pop_front();
     for (int i = 0; i < kHistory; ++i) history_[i] = hist_[i];
 
-    if (activeStyle() == 2) buildLadderRows();
+    if (usesLadderRows(activeStyle())) buildLadderRows();
     emit updated();
 }
 
@@ -1623,7 +1636,7 @@ void MeterModel::computePaCurrent() {
     hist_.push_back(n);
     if (int(hist_.size()) > kHistory) hist_.pop_front();
     for (int i = 0; i < kHistory; ++i) history_[i] = hist_[i];
-    if (activeStyle() == 2) buildLadderRows();
+    if (usesLadderRows(activeStyle())) buildLadderRows();
     emit updated();
 }
 
@@ -1669,7 +1682,7 @@ void MeterModel::computePaVolts() {
     hist_.push_back(n);
     if (int(hist_.size()) > kHistory) hist_.pop_front();
     for (int i = 0; i < kHistory; ++i) history_[i] = hist_[i];
-    if (activeStyle() == 2) buildLadderRows();
+    if (usesLadderRows(activeStyle())) buildLadderRows();
     emit updated();
 }
 
@@ -1710,7 +1723,7 @@ void MeterModel::computeTemp() {
     hist_.push_back(n);
     if (int(hist_.size()) > kHistory) hist_.pop_front();
     for (int i = 0; i < kHistory; ++i) history_[i] = hist_[i];
-    if (activeStyle() == 2) buildLadderRows();
+    if (usesLadderRows(activeStyle())) buildLadderRows();
     emit updated();
 }
 
@@ -1806,7 +1819,7 @@ void MeterModel::computeLevelMeterFromDb(double rawDb,
     hist_.push_back(n);
     if (int(hist_.size()) > kHistory) hist_.pop_front();
     for (int i = 0; i < kHistory; ++i) history_[i] = hist_[i];
-    if (activeStyle() == 2) buildLadderRows();
+    if (usesLadderRows(activeStyle())) buildLadderRows();
     emit updated();
 }
 
@@ -1859,7 +1872,7 @@ void MeterModel::computeGainMeterFromDb(double rawDb,
     hist_.push_back(n);
     if (int(hist_.size()) > kHistory) hist_.pop_front();
     for (int i = 0; i < kHistory; ++i) history_[i] = hist_[i];
-    if (activeStyle() == 2) buildLadderRows();
+    if (usesLadderRows(activeStyle())) buildLadderRows();
     emit updated();
 }
 

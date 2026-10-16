@@ -108,6 +108,7 @@
 #include "spothole_feeder.h"
 #include "dxcluster_feeder.h"
 #include "metermodel.h"
+#include "meter_styles.h"
 #include "tunermemory.h"
 #include "tx/VoiceKeyer.h"   // #89 recording options
 #include "recorder/RecorderEngine.h"   // #201 session recorder
@@ -504,6 +505,11 @@ QWidget *SettingsDialog::buildAudioTab() {
     {
         auto *grp = new QGroupBox(tr("Virtual Audio Cable (VAC1)"), page);
         auto *vf  = new QFormLayout(grp);
+        // macOS defaults to FieldsStayAtSizeHint, which leaves the word-
+        // wrapped Monitor label at a width that doesn't match its height
+        // (text clipped top and bottom).  Use the Windows/Fusion policy:
+        // only Expanding fields (the Monitor label) grow.
+        vf->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
 
         auto *vacEnable = new QCheckBox(tr("Enable VAC1 (RX→PC and PC→TX)"), grp);
         vacEnable->setChecked(engine_->vac1Enabled());
@@ -654,6 +660,7 @@ QWidget *SettingsDialog::buildAudioTab() {
         // overflow/underflow counters just start to twitch, then back off.
         auto *vacMon = new QLabel(grp);
         vacMon->setWordWrap(true);
+        vacMon->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         vacMon->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
         vf->addRow(tr("Monitor"), vacMon);
         auto refreshMon = [this, vacMon]() {
@@ -663,11 +670,15 @@ QWidget *SettingsDialog::buildAudioTab() {
                                    "overflow / underflow."));
                 return;
             }
-            vacMon->setText(tr("TO VAC: %1%% full · %2 ovf / %3 unf      "
-                               "FROM VAC: %4%% full · %5 ovf / %6 unf")
-                .arg(d.value(QStringLiteral("outPct")).toInt())
-                .arg(d.value(QStringLiteral("outOver")).toInt())
-                .arg(d.value(QStringLiteral("outUnder")).toInt())
+            // Output "(none)" = transmit-only: there is no RX ring to show.
+            const QString toVac = d.value(QStringLiteral("hasOutput"), true).toBool()
+                ? tr("TO VAC: %1%% full · %2 ovf / %3 unf")
+                      .arg(d.value(QStringLiteral("outPct")).toInt())
+                      .arg(d.value(QStringLiteral("outOver")).toInt())
+                      .arg(d.value(QStringLiteral("outUnder")).toInt())
+                : tr("TO VAC: off (output “(none)” — transmit only)");
+            vacMon->setText(tr("%1      FROM VAC: %2%% full · %3 ovf / %4 unf")
+                .arg(toVac)
                 .arg(d.value(QStringLiteral("inPct")).toInt())
                 .arg(d.value(QStringLiteral("inOver")).toInt())
                 .arg(d.value(QStringLiteral("inUnder")).toInt()));
@@ -838,6 +849,11 @@ QWidget *SettingsDialog::buildAudioTab() {
     {
         auto *grp = new QGroupBox(tr("Virtual Audio Cable (VAC2)"), page);
         auto *vf  = new QFormLayout(grp);
+        // macOS defaults to FieldsStayAtSizeHint, which leaves the word-
+        // wrapped Monitor label at a width that doesn't match its height
+        // (text clipped top and bottom).  Use the Windows/Fusion policy:
+        // only Expanding fields (the Monitor label) grow.
+        vf->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
 
         auto *vacEnable = new QCheckBox(tr("Enable VAC2 (RX2→PC and PC→TX)"), grp);
         vacEnable->setChecked(engine_->vac2Enabled());
@@ -948,6 +964,7 @@ QWidget *SettingsDialog::buildAudioTab() {
 
         auto *vacMon = new QLabel(grp);
         vacMon->setWordWrap(true);
+        vacMon->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         vacMon->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
         vf->addRow(tr("Monitor"), vacMon);
         auto refreshMon2 = [this, vacMon]() {
@@ -958,11 +975,15 @@ QWidget *SettingsDialog::buildAudioTab() {
                                    "underflow."));
                 return;
             }
-            vacMon->setText(tr("TO VAC: %1%% full · %2 ovf / %3 unf      "
-                               "FROM VAC: %4%% full · %5 ovf / %6 unf")
-                .arg(d.value(QStringLiteral("outPct")).toInt())
-                .arg(d.value(QStringLiteral("outOver")).toInt())
-                .arg(d.value(QStringLiteral("outUnder")).toInt())
+            // Output "(none)" = transmit-only: there is no RX ring to show.
+            const QString toVac = d.value(QStringLiteral("hasOutput"), true).toBool()
+                ? tr("TO VAC: %1%% full · %2 ovf / %3 unf")
+                      .arg(d.value(QStringLiteral("outPct")).toInt())
+                      .arg(d.value(QStringLiteral("outOver")).toInt())
+                      .arg(d.value(QStringLiteral("outUnder")).toInt())
+                : tr("TO VAC: off (output “(none)” — transmit only)");
+            vacMon->setText(tr("%1      FROM VAC: %2%% full · %3 ovf / %4 unf")
+                .arg(toVac)
                 .arg(d.value(QStringLiteral("inPct")).toInt())
                 .arg(d.value(QStringLiteral("inOver")).toInt())
                 .arg(d.value(QStringLiteral("inUnder")).toInt()));
@@ -2757,9 +2778,11 @@ QWidget *SettingsDialog::buildRemoteTab() {
         tr("Password required to listen"), pw);
     listen->setChecked(prefs_->remoteListenRequiresPassword());
     listen->setToolTip(
-        tr("Off: spectrum and audio stay open on your network. "
-           "On: spectrum and audio wait for the same password. "
-           "Programs on this computer are always let through."));
+        tr("Not enforced yet: this choice is saved, but spectrum and "
+           "audio stay open to any address the Accept / Refuse lists "
+           "let in, whether it is on or off. Use those lists to limit "
+           "who can connect. Programs on this computer are always let "
+           "through."));
     connect(listen, &QCheckBox::toggled, prefs_,
             &Prefs::setRemoteListenRequiresPassword);
     connect(prefs_, &Prefs::remoteListenRequiresPasswordChanged, listen,
@@ -5386,9 +5409,10 @@ QWidget *SettingsDialog::buildMeterTab() {
             "takes effect on the next ~50 ms tick."));
         form->addRow(tr("TX source (on MOX):"), txCb);
 
-        // Separate RX/TX meter STYLE (Arc/Bar/Ladder per state) — auto-swaps
-        // on the MOX edge, mirroring the panadapter dB-range swap.  The
-        // header Arc|Bar|Ladder buttons stay a live quick override.
+        // Separate RX/TX meter STYLE (any face per state) — auto-swaps on
+        // the MOX edge, mirroring the panadapter dB-range swap.  The Meter
+        // panel's style chip stays a live quick override; the combos below
+        // follow it.
         auto *sepStyle = new QCheckBox(tr("Separate RX / TX meter style"), page);
         sepStyle->setChecked(meter_->separateStyle());
         sepStyle->setToolTip(tr(
@@ -5399,11 +5423,19 @@ QWidget *SettingsDialog::buildMeterTab() {
         form->addRow(sepStyle);
 
         auto buildStyleCombo = [page](int cur) {
+            namespace ms = meterstyle;
             auto *cb = new QComboBox(page);
-            cb->addItem(tr("Horizon Arc"),     0);
-            cb->addItem(tr("Plasma Bar"),      1);
-            cb->addItem(tr("Vertical Ladder"), 2);
-            cb->setCurrentIndex(std::clamp(cur, 0, 2));
+            cb->addItem(tr("Horizon Arc"),     ms::HorizonArc);
+            cb->addItem(tr("Plasma Bar"),      ms::PlasmaBar);
+            cb->addItem(tr("Vertical Ladder"), ms::VerticalLadder);
+            cb->addItem(tr("VFD"),             ms::Vfd);
+            cb->addItem(tr("Drum"),            ms::Drum);
+            cb->addItem(tr("Iris"),            ms::Iris);
+            cb->addItem(tr("Sonar"),           ms::Sonar);
+            cb->addItem(tr("Cluster"),         ms::Cluster);
+            cb->addItem(tr("Phosphor"),        ms::Phosphor);
+            const int idx = cb->findData(cur);
+            cb->setCurrentIndex(idx >= 0 ? idx : 0);
             return cb;
         };
         auto *rxStyleCb = buildStyleCombo(meter_->style());
@@ -5428,6 +5460,29 @@ QWidget *SettingsDialog::buildMeterTab() {
         connect(txStyleCb, &QComboBox::currentIndexChanged, this,
                 [this, txStyleCb](int) {
             if (meter_) meter_->setTxStyle(txStyleCb->currentData().toInt());
+        });
+        // Follow changes made elsewhere (the Meter panel's style chip).
+        // Signals are blocked while syncing so the combo does not write
+        // the same value straight back.
+        auto syncStyleCombo = [](QComboBox *cb, int style) {
+            const int idx = cb->findData(style);
+            if (idx < 0 || idx == cb->currentIndex()) return;
+            const QSignalBlocker block(cb);
+            cb->setCurrentIndex(idx);
+        };
+        connect(meter_, &MeterModel::styleChanged, rxStyleCb,
+                [this, rxStyleCb, syncStyleCombo]() {
+            syncStyleCombo(rxStyleCb, meter_->style());
+        });
+        connect(meter_, &MeterModel::txStyleChanged, txStyleCb,
+                [this, txStyleCb, syncStyleCombo]() {
+            syncStyleCombo(txStyleCb, meter_->txStyle());
+        });
+        connect(meter_, &MeterModel::separateStyleChanged, sepStyle,
+                [this, sepStyle, txStyleCb]() {
+            const QSignalBlocker block(sepStyle);
+            sepStyle->setChecked(meter_->separateStyle());
+            txStyleCb->setEnabled(meter_->separateStyle());
         });
 
         // §15.28 — switch to the second group (Power Calibration).

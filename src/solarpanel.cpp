@@ -2,18 +2,19 @@
 
 #include "solarpanel.h"
 
-#include "bands.h"
 #include "bandmemory.h"
+#include "bands.h"
 #include "genslots.h"
 #include "hl2_stream.h"
-#include "solarservice.h"
 #include "ncdxffollow.h"
+#include "solarservice.h"
 
 #include <QActionGroup>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -39,10 +40,10 @@ QFrame *vdivider(QWidget *parent) {
 } // namespace
 
 SolarPanel::SolarPanel(SolarService *svc, NcdxfFollow *follow,
-                         lyra::ipc::HL2Stream *stream, BandMemory *bandMem,
-                         GenSlots *gen, QWidget *parent)
+                       lyra::ipc::HL2Stream *stream, BandMemory *bandMemory,
+                       GenSlots *gen, QWidget *parent)
     : QWidget(parent), svc_(svc), follow_(follow), stream_(stream),
-      bandMem_(bandMem), gen_(gen) {
+      bandMemory_(bandMemory), gen_(gen) {
     // Match the shared panel theme (the QML panels are #101820 / #2a4a5a).
     // ID-scoped so it styles only this panel's background, not the child
     // value boxes (which keep their own rgba cell backgrounds).
@@ -69,10 +70,8 @@ SolarPanel::SolarPanel(SolarService *svc, NcdxfFollow *follow,
         cell->setCursor(Qt::PointingHandCursor);
         cell->setFocusPolicy(Qt::NoFocus);
         cell->setAutoRaise(true);
-        const QString band = b;
-        connect(cell, &QToolButton::clicked, this, [this, band]() {
-            tuneVfoA(band);
-        });
+        cell->setProperty("bandKey", b + QLatin1Char('m'));
+        cell->installEventFilter(this);
         bandCells_.insert(b, cell);
         row->addWidget(cell);
     }
@@ -232,31 +231,66 @@ void SolarPanel::refresh() {
         case Rating::Poor: rtxt = tr("Poor"); break;
         default:           rtxt = tr("n/a");  break;
         }
-        cell->setToolTip(QStringLiteral("<b>%1m</b> — %2 (%3)<br>"
-                                       "Click to tune VFO A to this band.")
+        cell->setToolTip(QStringLiteral(
+            "<b>%1m</b> — %2 (%3)<br>"
+            "Click: VFO A (or SUB if TUNE B)<br>"
+            "Shift+click / right-click: SUB")
                              .arg(band, rtxt, when));
     }
 }
 
-void SolarPanel::tuneVfoA(const QString &meters) {
+bool SolarPanel::eventFilter(QObject *watched, QEvent *event) {
+    if (event->type() != QEvent::MouseButtonRelease)
+        return QWidget::eventFilter(watched, event);
+    auto *cell = qobject_cast<QToolButton *>(watched);
+    if (!cell || !bandCells_.values().contains(cell))
+        return QWidget::eventFilter(watched, event);
+    const auto *me = static_cast<QMouseEvent *>(event);
+    if (!cell->rect().contains(me->position().toPoint()))
+        return QWidget::eventFilter(watched, event);
+    const bool sub = me->button() == Qt::RightButton
+                  || (me->button() == Qt::LeftButton
+                      && (me->modifiers() & Qt::ShiftModifier));
+    if (me->button() != Qt::LeftButton && me->button() != Qt::RightButton)
+        return QWidget::eventFilter(watched, event);
+    tuneBand(cell->property("bandKey").toString(), sub);
+    // Let the button see its release too, so it does not stay drawn pressed.
+    return QWidget::eventFilter(watched, event);
+}
+
+void SolarPanel::tuneBand(const QString &bandKey, bool forceSub) {
+    if (!stream_ || bandKey.isEmpty()) return;
+    if (stream_->txDisplayActive()) {
+        stream_->stopTxForBlockedJump();   // emits txBandChangeBlocked → status cue
+        return;
+    }
+    int defaultHz = 0;
+    for (const lyra::Band &b : lyra::amateurBands()) {
+        if (bandKey == QLatin1String(b.name)) {
+            defaultHz = b.defaultHz;
+            break;
+        }
+    }
+    const bool sub = forceSub
+        || (stream_->focusedRx() == 2 && stream_->subEnabled());
+    const bool vfoB = !sub && stream_->focusedRx() == 2
+                   && stream_->splitEnabled();
+    if (sub) {
+        const int remembered = bandMemory_ ? bandMemory_->freqForRx2(bandKey) : 0;
+        stream_->setRx2FreqHz(quint32(remembered > 0 ? remembered : defaultHz));
+        stream_->setSubEnabled(true);
+        if (bandMemory_) bandMemory_->applyRx2Band(bandKey);
+        return;
+    }
     // A beacon follow would retune VFO A on the next slot. Drop it so
     // the chip sticks.
     if (follow_ && !follow_->station().isEmpty())
         follow_->setStation(QString());
-    if (gen_)
-        gen_->deactivate();
-    const QString key = meters + QLatin1String("m");
-    int hz = bandMem_ ? bandMem_->freqFor(key) : 0;
-    if (hz <= 0) {
-        for (const lyra::Band &b : lyra::amateurBands()) {
-            if (key == QLatin1String(b.name)) {
-                hz = b.defaultHz;
-                break;
-            }
-        }
-    }
-    if (hz > 0 && stream_)
-        stream_->setRx1FreqHz(static_cast<quint32>(hz));
+    if (gen_) gen_->deactivate();
+    const int remembered = bandMemory_ ? bandMemory_->freqFor(bandKey) : 0;
+    const quint32 hz = quint32(remembered > 0 ? remembered : defaultHz);
+    if (vfoB) stream_->setVfoBHz(hz);
+    else      stream_->setRx1FreqHz(hz);
 }
 
 } // namespace lyra::ui

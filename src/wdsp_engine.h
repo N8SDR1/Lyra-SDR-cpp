@@ -356,6 +356,14 @@ public:
     explicit WdspEngine(WdspNative *wdsp, QObject *parent = nullptr);
     ~WdspEngine() override;
 
+    // Stop the CW decode/harvest workers and close RX1 (and RX2/VAC).
+    // Idempotent.  main.cpp calls it from aboutToQuit while libwdsp is
+    // still loaded: WdspNative is an earlier child of the app, so it is
+    // destroyed (and unloads the library) BEFORE this engine's destructor
+    // runs, and a closeRx1() from the destructor would call into the
+    // unmapped library.  The destructor still calls it as a fallback.
+    void shutdown();
+
     bool isRunning() const { return running_; }
     // TciServer Task #68 needs the WdspApi to call the polyphase
     // float-vector resampler (create_resampleFV / xresampleFV /
@@ -1549,6 +1557,9 @@ private:
         int    vacSize  = 2048;
         int    latencyMs = 120;
         std::atomic<bool> active_{false};
+        // false = transmit-only VAC (Output device "(none)"): the stream is
+        // opened input-only and RX audio is not fed to it.
+        std::atomic<bool> hasOutput_{true};
         std::mutex        mtx_;
         std::atomic<bool> muteWillMuteVac_{true};
         std::vector<double> rxScaled_;

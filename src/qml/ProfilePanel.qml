@@ -91,7 +91,7 @@ Rectangle {
         // a NATIVE dialog (not a QML popup) because a top-level QML popup
         // hosted from this QQuickWidget dock can't receive keyboard focus
         // for the name field (same reason AudioPanel uses native dialogs).
-        Button {
+        LyraButton {
             text: qsTr("Save")
             implicitHeight: 26; implicitWidth: 56
             font.pixelSize: 12

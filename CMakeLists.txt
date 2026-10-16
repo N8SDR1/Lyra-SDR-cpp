@@ -27,6 +27,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 
+# macOS: src/platform/app_activity_mac.mm talks to NSProcessInfo.
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
+
 # Qt 6 — bring in only the modules Step 1 needs.  More land later
 # (Multimedia for audio output, Quick3D for the panadapter, etc.).
 # Widgets + QuickWidgets: the app shell is a QMainWindow + QDockWidget
@@ -71,10 +76,38 @@ add_subdirectory(third_party/portaudio EXCLUDE_FROM_ALL)
 # © Brent Crier — permissive inside Lyra's GPLv3).
 set(ORT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime)
 add_library(onnxruntime SHARED IMPORTED)
-set_target_properties(onnxruntime PROPERTIES
-    IMPORTED_IMPLIB               ${ORT_DIR}/lib/onnxruntime.lib
-    IMPORTED_LOCATION             ${ORT_DIR}/lib/onnxruntime.dll
-    INTERFACE_INCLUDE_DIRECTORIES ${ORT_DIR}/include)
+if(WIN32)
+    set_target_properties(onnxruntime PROPERTIES
+        IMPORTED_IMPLIB               ${ORT_DIR}/lib/onnxruntime.lib
+        IMPORTED_LOCATION             ${ORT_DIR}/lib/onnxruntime.dll
+        INTERFACE_INCLUDE_DIRECTORIES ${ORT_DIR}/include)
+else()
+    # third_party/onnxruntime/lib holds WINDOWS binaries only, so POSIX hosts
+    # use the system runtime (macOS: `brew install onnxruntime`).
+    #
+    # The vendored headers are kept on the include path rather than the
+    # system ones, so every platform compiles src/dsp/deepfist/ against the
+    # same API.  That is safe in this direction and only this direction: the
+    # ORT C API is versioned, a client asks for its own ORT_API_VERSION at
+    # runtime, and a newer runtime still serves an older request.  Headers
+    # NEWER than the runtime would fail at OrtGetApiBase()->GetApi() instead,
+    # which is why this does not simply prefer whatever Homebrew ships.
+    find_library(ORT_LIBRARY
+        NAMES onnxruntime
+        HINTS "$ENV{ONNXRUNTIME_ROOT}/lib" /opt/homebrew/opt/onnxruntime/lib
+              /usr/local/opt/onnxruntime/lib
+        DOC "ONNX Runtime shared library for the DeepFist CW decoder")
+    if(NOT ORT_LIBRARY)
+        message(FATAL_ERROR
+            "ONNX Runtime not found — the DeepFist neural CW decoder needs it.\n"
+            "  macOS: brew install onnxruntime\n"
+            "  or set ONNXRUNTIME_ROOT to a directory containing lib/.")
+    endif()
+    set_target_properties(onnxruntime PROPERTIES
+        IMPORTED_LOCATION             "${ORT_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES ${ORT_DIR}/include)
+    message(STATUS "ONNX Runtime (DeepFist): ${ORT_LIBRARY}")
+endif()
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -92,6 +125,17 @@ qt_add_executable(lyra
     src/mic_source.h
     src/mic_source.cpp
     src/win_perf.cpp
+    # Platform layer — Win32/POSIX seams.  On Windows these delegate to
+    # the same APIs the code used before, so the Windows build is
+    # unchanged; on macOS/Linux they supply the POSIX equivalents.
+    # See src/platform/win32_compat.h for the design rationale.
+    src/platform/win32_compat.h
+    src/platform/socket_compat.h
+    src/platform/dynamic_library.h
+    src/platform/dynamic_library.cpp
+    src/platform/thread_priority.h
+    src/platform/thread_priority.cpp
+    src/platform/app_activity.h
     src/hid_vfo_wheel.cpp
     # Multi-rig Stage 1 — per-family capability descriptor (inert
     # scaffolding; see docs/architecture/multi_rig_design.md).
@@ -426,6 +470,8 @@ qt_add_executable(lyra
     src/waterfall.cpp
     src/freqdisplay.h
     src/freqdisplay.cpp
+    src/wheel_steps.h
+    src/vfo_style_migrate.h
     src/autoscale.h
     src/mainwindow.h
     src/mainwindow.cpp
@@ -478,6 +524,7 @@ qt_add_executable(lyra
     src/dxcc.h
     src/dxcc.cpp
     src/metermodel.h
+    src/meter_styles.h
     src/metermodel.cpp
     # Tuner panel — native manual-ATU tuning memory (Tuner Reminder, built in).
     src/tunermemory.h
@@ -527,6 +574,18 @@ qt_add_qml_module(lyra
     VERSION 1.0
     QML_FILES
         src/qml/LyraSlider.qml
+        src/qml/LyraButton.qml
+        src/qml/VfoBox.qml
+        src/qml/VfoDigitRow.qml
+        src/qml/VfoStepMode.qml
+        src/qml/VfoTxPip.qml
+        src/qml/VfoStyles.js
+        src/qml/VfoStyleAmber.qml
+        src/qml/VfoStyleClassicLcd.qml
+        src/qml/VfoStyleLyraMac.qml
+        src/qml/VfoStyleNixie.qml
+        src/qml/VfoStyleVfd.qml
+        src/qml/VfoStyleWidget.qml
         src/qml/LyraSpinBox.qml
         src/qml/LyraComboBox.qml
         src/qml/PanadapterPanel.qml
@@ -558,10 +617,22 @@ qt_add_qml_module(lyra
         src/qml/HorizonArc.qml
         src/qml/PlasmaBar.qml
         src/qml/VerticalLadder.qml
+        src/qml/MeterInk.js
+        src/qml/MeterTubeRow.qml
+        src/qml/MeterVfd.qml
+        src/qml/MeterDrum.qml
+        src/qml/MeterIris.qml
+        src/qml/MeterSonar.qml
+        src/qml/MeterCluster.qml
+        src/qml/MeterPhosphor.qml
     RESOURCES
         src/assets/watermarks/lyra-watermark.jpg
         src/assets/logo/lyra-icon-128.png
         src/assets/logo/lyra-icon-256.png
+        src/assets/fonts/ShareTechMono-Regular.ttf
+        src/assets/fonts/NixieOne-Regular.ttf
+        src/assets/fonts/Inter-Variable.ttf
+        src/assets/fonts/DSEG7Classic-Bold.ttf
 )
 
 # In-app User Guide: bundle the markdown so the HelpDialog can load it
@@ -655,6 +726,42 @@ if(WIN32)
     target_link_libraries(lyra PRIVATE ws2_32 winmm iphlpapi user32)
 endif()
 
+# macOS counterpart of the Windows wire-path libraries above.
+#   * BSD sockets and dlopen live in libSystem — nothing to link.
+#   * The Win32 synchronisation primitives the ported ChannelMaster code
+#     calls are mapped onto GCD dispatch semaphores (CoreFoundation) by
+#     src/platform/win32_compat.h.
+#   * MMCSS has no equivalent; the win32_compat.h and WDSP-shim stand-ins
+#     raise the calling thread to QOS_CLASS_USER_INTERACTIVE instead
+#     (libSystem — nothing to link).  src/platform/thread_priority.cpp's
+#     Mach time-constraint helper is not wired to any thread yet.
+#   * App Nap / idle sleep are held off while a radio streams by
+#     src/platform/app_activity_mac.mm (NSProcessInfo, Foundation).
+#   * PortAudio's macOS host API is CoreAudio.
+if(APPLE)
+    # The verbatim-ported ChannelMaster sources carry MSVC's
+    # `__declspec(align(16))` on their IVAC/AAMix state (src/wire/Ivac.cpp,
+    # src/wire/AAMix.cpp).  Rewriting those to `alignas` would break the
+    # line-for-line parity with upstream Thetis that the port depends on,
+    # so enable clang's __declspec support instead.
+    target_compile_options(lyra PRIVATE -fdeclspec)
+
+    target_sources(lyra PRIVATE src/platform/app_activity_mac.mm)
+
+    find_library(FOUNDATION_LIBRARY      Foundation     REQUIRED)
+    find_library(CORE_FOUNDATION_LIBRARY CoreFoundation REQUIRED)
+    find_library(CORE_AUDIO_LIBRARY      CoreAudio      REQUIRED)
+    find_library(AUDIO_TOOLBOX_LIBRARY   AudioToolbox   REQUIRED)
+    find_library(AUDIO_UNIT_LIBRARY      AudioUnit      REQUIRED)
+    target_link_libraries(lyra PRIVATE
+        ${FOUNDATION_LIBRARY}
+        ${CORE_FOUNDATION_LIBRARY}
+        ${CORE_AUDIO_LIBRARY}
+        ${AUDIO_TOOLBOX_LIBRARY}
+        ${AUDIO_UNIT_LIBRARY}
+    )
+endif()
+
 # Step 3a: bundle the WDSP DSP engine DLLs (`wdsp.dll` +
 # `libfftw3-3.dll` + `libfftw3f-3.dll` + `rnnoise.dll` +
 # `specbleach.dll`) into a `_native/` subdirectory next to
@@ -671,14 +778,54 @@ endif()
 # all files in one step.  Doing per-file `copy_if_different` calls
 # fails on first build because the `_native/` dest dir doesn't
 # exist yet (CMake's per-file copy doesn't create parent dirs).
-add_custom_command(TARGET lyra POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        "$<TARGET_FILE_DIR:lyra>/_native"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/_native"
-        "$<TARGET_FILE_DIR:lyra>/_native"
-    COMMENT "Bundling WDSP DLLs into _native/"
-    VERBATIM)
+#
+# NOTE: _native/ in the source tree holds WINDOWS binaries only, so this
+# copy is Windows-only.  On macOS the engine is built from upstream WDSP
+# source by tools/build_wdsp_macos.sh into build/_native/libwdsp.dylib —
+# see the APPLE branch below.
+if(WIN32)
+    add_custom_command(TARGET lyra POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:lyra>/_native"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/_native"
+            "$<TARGET_FILE_DIR:lyra>/_native"
+        COMMENT "Bundling WDSP DLLs into _native/"
+        VERBATIM)
+endif()
+
+# macOS: stage libwdsp.dylib next to the executable in the same _native/
+# layout WdspNative::load() expects.  The dylib is produced out-of-band by
+# tools/build_wdsp_macos.sh (it fetches and builds upstream WDSP); this
+# only copies it, and warns rather than failing the build if it is absent
+# so the app still links and can report the problem at runtime.
+if(APPLE)
+    set(LYRA_WDSP_DYLIB "${CMAKE_CURRENT_BINARY_DIR}/_native/libwdsp.dylib")
+    set(LYRA_WDSP_STAMP "${CMAKE_CURRENT_BINARY_DIR}/wdsp_staged.stamp")
+
+    # A POST_BUILD step on `lyra` would only re-run when lyra itself
+    # relinks — so rebuilding ONLY the engine (tools/build_wdsp_macos.sh)
+    # would leave a stale copy inside the bundle, and the app would keep
+    # loading the old DSP.  Depending on the dylib explicitly makes the
+    # staging re-run whenever the engine changes.
+    add_custom_command(
+        OUTPUT "${LYRA_WDSP_STAMP}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:lyra>/_native"
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_DYLIB=${LYRA_WDSP_DYLIB}
+            -DDEST_DIR=$<TARGET_FILE_DIR:lyra>/_native
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageWdspDylib.cmake"
+        COMMAND ${CMAKE_COMMAND} -E touch "${LYRA_WDSP_STAMP}"
+        # DEPENDS on the dylib is what makes this correct.  The file may
+        # not exist yet (engine not built); CMake tolerates a missing
+        # dependency here and StageWdspDylib.cmake warns rather than fails.
+        DEPENDS "${LYRA_WDSP_DYLIB}" lyra
+        COMMENT "Staging libwdsp.dylib into _native/"
+        VERBATIM)
+
+    add_custom_target(lyra_stage_wdsp ALL DEPENDS "${LYRA_WDSP_STAMP}")
+endif()
 
 # DeepFist neural CW decoder — ship onnxruntime.dll next to lyra.exe (a
 # load-time import, so it must sit beside the exe, not in _native/) and copy
@@ -768,6 +915,43 @@ if(MSVC)
     set_target_properties(lyra PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
+# macOS: build a real .app bundle rather than a bare executable.
+#
+# Beyond being the platform convention (Dock icon, Info.plist, Finder
+# double-click, codesigning surface), this is also REQUIRED here: the QML
+# module URI is "Lyra", so qt_add_qml_module creates a `Lyra/` directory
+# in the build tree.  macOS filesystems are case-insensitive by default,
+# so a bare executable named `lyra` collides with that directory and the
+# link fails with "Is a directory".  A bundle puts the binary at
+# lyra.app/Contents/MacOS/lyra, out of the collision.
+if(APPLE)
+    set_target_properties(lyra PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME        "Lyra"
+        MACOSX_BUNDLE_BUNDLE_VERSION     "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_GUI_IDENTIFIER     "com.n8sdr1.lyra"
+        MACOSX_BUNDLE_COPYRIGHT          "GPL v3+"
+        # The HL2 is reached over the LAN; declaring this keeps the
+        # local-network permission prompt attributable to Lyra.
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MacOSXBundleInfo.plist.in"
+
+        # Resolve inside the bundle FIRST.  Without this the only rpath is the
+        # Qt prefix CMake links against (/opt/homebrew/opt/qt/lib), and after
+        # macdeployqt stages Qt into Contents/Frameworks the bundled plugins
+        # and QML modules — which reference Qt as @rpath/QtCore.framework/... —
+        # still resolve to the Homebrew copy.  Qt then loads TWICE, registering
+        # duplicate Objective-C classes ("may cause spurious casting failures
+        # and mysterious crashes"), and the app dies on launch.
+        #
+        # A shipping reference for the target state: deskHPSDR.app carries
+        # exactly one LC_RPATH, @executable_path/../Frameworks/, and zero
+        # absolute Homebrew references.  tools/package_macos.sh asserts both.
+        BUILD_RPATH   "@executable_path/../Frameworks"
+        INSTALL_RPATH "@executable_path/../Frameworks"
+    )
+endif()
+
 # Install / deploy hint (used later by windeployqt to bundle Qt DLLs
 # next to the .exe so the binary runs outside Qt Creator / VS).
 install(TARGETS lyra
@@ -799,14 +983,27 @@ if(MSVC)
     target_compile_options(test_profile PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
-add_executable(test_puresignal_ddc_map EXCLUDE_FROM_ALL
-    scratch/test_puresignal_ddc_map.cpp
-    src/ps/DdcMap.cpp
-)
-target_include_directories(test_puresignal_ddc_map PRIVATE src)
-target_link_libraries(test_puresignal_ddc_map PRIVATE Qt6::Core)
-if(MSVC)
-    target_compile_options(test_puresignal_ddc_map PRIVATE /utf-8 /Zc:preprocessor)
+# UPSTREAM OMISSION (v0.25.0): the target is registered but
+# scratch/test_puresignal_ddc_map.cpp was never committed — it is absent from
+# origin/lyra-p2, origin/main and the v0.25.0 tag while its 28 sibling
+# scratch/ tests are tracked.  add_executable() on a missing source aborts the
+# CMake *generate* step, so this breaks configure on every platform, not just
+# macOS.  The target is EXCLUDE_FROM_ALL and never builds by default, so
+# guarding it costs nothing.  Remove the guard once upstream commits the file.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/scratch/test_puresignal_ddc_map.cpp")
+    add_executable(test_puresignal_ddc_map EXCLUDE_FROM_ALL
+        scratch/test_puresignal_ddc_map.cpp
+        src/ps/DdcMap.cpp
+    )
+    target_include_directories(test_puresignal_ddc_map PRIVATE src)
+    target_link_libraries(test_puresignal_ddc_map PRIVATE Qt6::Core)
+    if(MSVC)
+        target_compile_options(test_puresignal_ddc_map PRIVATE /utf-8 /Zc:preprocessor)
+    endif()
+else()
+    message(STATUS
+        "test_puresignal_ddc_map: skipped — scratch/test_puresignal_ddc_map.cpp "
+        "missing upstream (v0.25.0)")
 endif()
 
 # P2 Phase B — Saturn / ANAN G2 control-plane session bench test.
@@ -953,6 +1150,8 @@ endif()
 # cmsetup + wdspcalls).  Qt Core only — wire/wdspcalls.cpp uses qWarning.
 add_executable(test_ivac EXCLUDE_FROM_ALL
     scratch/test_ivac.cpp
+    src/platform/dynamic_library.h
+    src/platform/dynamic_library.cpp
     src/wire/Ivac.h
     src/wire/Ivac.cpp
     src/wire/AAMix.h
@@ -965,9 +1164,16 @@ add_executable(test_ivac EXCLUDE_FROM_ALL
     src/wire/wdspcalls.cpp
 )
 target_include_directories(test_ivac PRIVATE src)
-target_link_libraries(test_ivac PRIVATE Qt6::Core)
+# portaudio carries portaudio.h as a PUBLIC include dir (src/wire/Ivac.h
+# needs it); on Windows the app target pulled it in transitively, but this
+# standalone target has to ask for it.  It also compiles the same
+# __declspec-annotated ChannelMaster sources the app does.
+target_link_libraries(test_ivac PRIVATE Qt6::Core portaudio)
 if(MSVC)
     target_compile_options(test_ivac PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+if(APPLE)
+    target_compile_options(test_ivac PRIVATE -fdeclspec)
 endif()
 
 # #89 Stage A — voice-keyer injector core unit test (ClipRecorderPlayer).
@@ -1082,6 +1288,19 @@ if(MSVC)
     target_compile_options(test_parameq PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
+# #59 RX EQ — live analyzer unit test (dBFS calibration + the RX power-domain
+# averaging; raw path unchanged when off).  No Qt.  EXCLUDE_FROM_ALL.
+# Build + run:  cmake --build build --target test_eq_analyzer
+add_executable(test_eq_analyzer EXCLUDE_FROM_ALL
+    scratch/test_eq_analyzer.cpp
+    src/dsp/EqAnalyzer.h
+    src/dsp/EqAnalyzer.cpp
+)
+target_include_directories(test_eq_analyzer PRIVATE src)
+if(MSVC)
+    target_compile_options(test_eq_analyzer PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
 # #88 — native speech pre-processor unit test (Auto-AGC + De-esser).
 # EXCLUDE_FROM_ALL; `cmake --build build --target test_speech`.  No Qt.
 add_executable(test_speech EXCLUDE_FROM_ALL
@@ -1152,4 +1371,118 @@ target_link_libraries(test_profile_rack PRIVATE Qt6::Core)
 set_target_properties(test_profile_rack PROPERTIES AUTOMOC ON)
 if(MSVC)
     target_compile_options(test_profile_rack PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# macOS thread-priority shims — the MMCSS stand-ins in
+# src/platform/win32_compat.h (Lyra's wire threads) and
+# third_party/wdsp_posix/include (WDSP's DSP threads) must raise the calling
+# thread to QOS_CLASS_USER_INTERACTIVE.  Qt-free; EXCLUDE_FROM_ALL.
+# Build + run:  cmake --build build --target test_thread_qos test_wdsp_posix_qos
+if(APPLE)
+    add_executable(test_thread_qos EXCLUDE_FROM_ALL
+        scratch/test_thread_qos.cpp
+    )
+    target_include_directories(test_thread_qos PRIVATE src)
+
+    enable_language(C)
+    add_executable(test_wdsp_posix_qos EXCLUDE_FROM_ALL
+        scratch/test_wdsp_posix_qos.c
+    )
+    target_include_directories(test_wdsp_posix_qos PRIVATE
+        third_party/wdsp_posix/include)
+
+    # Closing a shim semaphore below its initial count must not trip
+    # libdispatch's dispose trap (WDSP's flush_iobuffs does exactly that).
+    # Build + run:  cmake --build build --target test_semaphore_close test_wdsp_posix_semaphore
+    add_executable(test_semaphore_close EXCLUDE_FROM_ALL
+        scratch/test_semaphore_close.cpp
+    )
+    target_include_directories(test_semaphore_close PRIVATE src)
+
+    add_executable(test_wdsp_posix_semaphore EXCLUDE_FROM_ALL
+        scratch/test_wdsp_posix_semaphore.c
+    )
+    target_include_directories(test_wdsp_posix_semaphore PRIVATE
+        third_party/wdsp_posix/include)
+endif()
+
+# Meter face style indices (src/meter_styles.h): retired faces remap to the
+# nearest kept face and indices stay append-only.  Header-only, no Qt.
+# Build + run:  cmake --build build --target test_meter_styles
+add_executable(test_meter_styles EXCLUDE_FROM_ALL
+    scratch/test_meter_styles.cpp
+    src/meter_styles.h
+)
+target_include_directories(test_meter_styles PRIVATE src)
+if(MSVC)
+    target_compile_options(test_meter_styles PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# VFO frequency-display wheel stepping (src/wheel_steps.h): one digit step per
+# notch for macOS smooth-scrolling mice, 120 units per step elsewhere and for
+# trackpad gestures.  Qt Core only; EXCLUDE_FROM_ALL.
+# Build + run:  cmake --build build --target test_wheel_steps
+add_executable(test_wheel_steps EXCLUDE_FROM_ALL
+    scratch/test_wheel_steps.cpp
+    src/wheel_steps.h
+)
+target_include_directories(test_wheel_steps PRIVATE src)
+target_link_libraries(test_wheel_steps PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_wheel_steps PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# TX band-jump rule (src/bands.h bandJumpCrosses): a one-click jump that leaves
+# the current amateur band is ignored while transmitting.  Qt Core only;
+# EXCLUDE_FROM_ALL.  Build + run:  cmake --build build --target test_band_jump
+add_executable(test_band_jump EXCLUDE_FROM_ALL
+    scratch/test_band_jump.cpp
+    src/bands.cpp
+    src/bands.h
+)
+target_include_directories(test_band_jump PRIVATE src)
+target_link_libraries(test_band_jump PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_band_jump PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# VFO saved-style id migration (src/vfo_style_migrate.h): a removed style's id
+# maps to its successor on load.  Qt Core only; EXCLUDE_FROM_ALL.
+# Build + run:  cmake --build build --target test_vfo_style_migrate
+add_executable(test_vfo_style_migrate EXCLUDE_FROM_ALL
+    scratch/test_vfo_style_migrate.cpp
+    src/vfo_style_migrate.h
+)
+target_include_directories(test_vfo_style_migrate PRIVATE src)
+target_link_libraries(test_vfo_style_migrate PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_vfo_style_migrate PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# VFO style digit hit-testing (src/vfo_digit_hit.h) — which digit place a
+# click / wheel lands on, from the rects the active VFO style reports.
+# Qt Core only.  Build + run:  cmake --build build --target test_vfo_digit_hit
+add_executable(test_vfo_digit_hit EXCLUDE_FROM_ALL
+    scratch/test_vfo_digit_hit.cpp
+    src/vfo_digit_hit.h
+)
+target_include_directories(test_vfo_digit_hit PRIVATE src)
+target_link_libraries(test_vfo_digit_hit PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_vfo_digit_hit PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# VFO style contract test — loads src/qml/VfoStyles.js and every registered
+# VfoStyle*.qml from the source tree (headless, offscreen) and checks the
+# geometry/theme contract VfoBox.qml relies on.
+# Build + run:  cmake --build build --target test_vfo_styles
+add_executable(test_vfo_styles EXCLUDE_FROM_ALL
+    scratch/test_vfo_styles.cpp
+)
+target_compile_definitions(test_vfo_styles PRIVATE
+    LYRA_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/qml"
+    LYRA_FONT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/assets/fonts")
+target_link_libraries(test_vfo_styles PRIVATE Qt6::Gui Qt6::Qml Qt6::Quick)
+if(MSVC)
+    target_compile_options(test_vfo_styles PRIVATE /utf-8 /Zc:preprocessor)
 endif()

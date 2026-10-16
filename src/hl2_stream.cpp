@@ -34,6 +34,7 @@
 // WinSock2 MUST be included before windows.h to avoid winsock 1.x
 // being pulled in via windows.h transitively.  NOMINMAX keeps the
 // windows.h macros from clobbering std::min/std::max.
+#if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -45,6 +46,19 @@
 #include <windows.h>
 #include <iphlpapi.h>    // GetUdpStatisticsEx (Task #48 diagnostic)
 #include <process.h>     // _beginthreadex — EP2 writer thread (P4.b; reference StartAudioNative netInterface.c:66)
+#else
+// POSIX: BSD sockets under the Winsock names the wire logic below uses,
+// plus the Win32 thread/sync primitives for the EP2 writer.  See
+// src/platform/socket_compat.h and src/platform/win32_compat.h.
+#include "platform/socket_compat.h"
+#include "platform/win32_compat.h"
+#include "platform/thread_priority.h"
+#include <netinet/udp.h>
+#if defined(__APPLE__)
+#include <netinet/udp_var.h>   // struct udpstat — net.inet.udp.stats sysctl
+#include <sys/sysctl.h>
+#endif
+#endif
 
 #include <QByteArray>
 #include <QDebug>           // qInfo / qCritical for safety-event mirror
@@ -100,8 +114,9 @@ QByteArray buildControlPacket(bool start) {
 }
 
 // 1032-byte EP2 host→radio keepalive datagram.  Frame-0 C&C carries
-// Stringify a Windows error code (FormatMessage) for log lines.
+// Stringify a socket error code for log lines.
 QString winsockError(int code) {
+#if defined(_WIN32)
     wchar_t *buf = nullptr;
     const DWORD len = ::FormatMessageW(
         FORMAT_MESSAGE_ALLOCATE_BUFFER |
@@ -115,6 +130,11 @@ QString winsockError(int code) {
         descr = QString::fromWCharArray(buf, len).trimmed();
         ::LocalFree(buf);
     }
+#else
+    // POSIX: the socket error IS errno, so strerror gives the same
+    // operator-readable text FormatMessage does on Windows.
+    const QString descr = QString::fromUtf8(::strerror(code)).trimmed();
+#endif
     return descr.isEmpty()
         ? QStringLiteral("WSA=%1").arg(code)
         : QStringLiteral("WSA=%1: %2").arg(code).arg(descr);
@@ -164,6 +184,7 @@ QString winsockError(int code) {
 bool snapshotUdpStatsV4(qint64 *inDatagrams,
                         qint64 *inNoPorts,
                         qint64 *inErrors) {
+#if defined(_WIN32)
     MIB_UDPSTATS stats{};
     const DWORD rc = ::GetUdpStatisticsEx(&stats, AF_INET);
     if (rc != NO_ERROR) {
@@ -173,6 +194,33 @@ bool snapshotUdpStatsV4(qint64 *inDatagrams,
     if (inNoPorts)   *inNoPorts   = static_cast<qint64>(stats.dwNoPorts);
     if (inErrors)    *inErrors    = static_cast<qint64>(stats.dwInErrors);
     return true;
+#elif defined(__APPLE__)
+    // macOS exposes the same system-wide UDPv4 counters through the
+    // `net.inet.udp.stats` sysctl, so the diagnostic above keeps its
+    // meaning verbatim — including the one that matters most:
+    // udps_fullsock is "not delivered, input socket full", the direct
+    // analogue of Windows' dwInErrors socket-buffer-overflow case.
+    struct udpstat stats{};
+    size_t length = sizeof(stats);
+    if (::sysctlbyname("net.inet.udp.stats", &stats, &length, nullptr, 0) != 0) {
+        return false;
+    }
+    if (inDatagrams) *inDatagrams = static_cast<qint64>(stats.udps_ipackets);
+    if (inNoPorts)   *inNoPorts   = static_cast<qint64>(stats.udps_noport);
+    // Group the "arrived but undeliverable for a reason other than
+    // no-listener" counters, matching dwInErrors' definition.
+    if (inErrors) {
+        *inErrors = static_cast<qint64>(stats.udps_fullsock) +
+                    static_cast<qint64>(stats.udps_hdrops)   +
+                    static_cast<qint64>(stats.udps_badsum)   +
+                    static_cast<qint64>(stats.udps_badlen);
+    }
+    return true;
+#else
+    // No portable equivalent; caller writes sentinel -1.
+    (void)inDatagrams; (void)inNoPorts; (void)inErrors;
+    return false;
+#endif
 }
 
 // Open a native UDP socket bound to ANY:ephemeral.  Sets a 4 MiB
@@ -206,7 +254,12 @@ SocketHandle openNativeUdpSocket(QString *errOut) {
 
 quint16 localPortOf(SocketHandle sh) {
     sockaddr_in local{};
+    // Winsock declares the length as int*, POSIX as socklen_t*.
+#if defined(_WIN32)
     int len = sizeof(local);
+#else
+    socklen_t len = sizeof(local);
+#endif
     if (::getsockname(static_cast<SOCKET>(sh),
                       reinterpret_cast<sockaddr*>(&local), &len) == 0) {
         return ntohs(local.sin_port);
@@ -1316,10 +1369,21 @@ void HL2Stream::open(const QString &ip) {
         dest.sin_port   = htons(kRadioPort);
         ::inet_pton(AF_INET, ip.toLatin1().constData(), &dest.sin_addr);
         const QByteArray startPkt = buildControlPacket(true);
+        // Connected-socket send: see send_packet() in wire/MetisFrame.cpp.
+        // sendto() with an explicit `dest` returns EISCONN (56) on macOS/BSD
+        // once open() has connect()ed this socket -- `dest` is that same
+        // peer, so send() is the identical datagram.
+#if defined(_WIN32)
         const int sent = ::sendto(static_cast<SOCKET>(socket_),
                                   startPkt.constData(), startPkt.size(), 0,
                                   reinterpret_cast<sockaddr*>(&dest),
                                   sizeof(dest));
+#else
+        (void) dest;
+        const int sent = static_cast<int>(
+            ::send(static_cast<SOCKET>(socket_),
+                   startPkt.constData(), startPkt.size(), 0));
+#endif
         if (sent != startPkt.size()) {
             const int wsaErr = ::WSAGetLastError();
             onFatalError(QStringLiteral("START: %1").arg(winsockError(wsaErr)));
@@ -1493,6 +1557,7 @@ void HL2Stream::open(const QString &ip) {
         (lyra::wire::prn->hsendIQSem = ::CreateSemaphore(nullptr, 0, 1, nullptr));
     lyra::wire::prn->hobbuffsRun[0] = ::CreateSemaphore(nullptr, 0, 1, nullptr);
     lyra::wire::prn->hobbuffsRun[1] = ::CreateSemaphore(nullptr, 0, 1, nullptr);
+    _InterlockedExchange(&lyra::wire::prn->obStopWait, 0);   // close() set it
 
     // Stage 2b2-fix: timer consumers START LAST — only after
     // create_rnet() above has allocated `prn` and the EP6/TX
@@ -1627,7 +1692,7 @@ void HL2Stream::close() {
         qWarning("[shutdown] HL2Stream::close socket shutdown (wake EP6)");
     }
     qWarning("[shutdown] HL2Stream::close ep6Thread_.stop() - start");
-    ep6Thread_.stop();   // ref: wait the read thread (producers quiesce; ob_main parks on Sem_BuffReady)
+    ep6Thread_.stop();   // ref: wait the read thread
     qWarning("[shutdown] HL2Stream::close ep6Thread_.stop() - done");
     if (lyra::wire::prn != nullptr) {
         // Wake the parked writer (the accommodation the reference omits)
@@ -1645,18 +1710,18 @@ void HL2Stream::close() {
             lyra::wire::prn->hWriteThreadMain = nullptr;
         }
         qWarning("[shutdown] HL2Stream::close EP2 writer join - done");
-        // Close the 4 P1 sems (ref network.c:1464-1467).  Safe here —
-        // BEFORE destroy_obbuffs as in the reference — because
-        // ep6Thread_.stop() + the writer join above quiesced every
-        // producer, so ob_main is parked on Sem_BuffReady and will not
-        // ReleaseSemaphore a closed handle.  Null-cleared for a clean
-        // re-open (open() recreates them).
-        if (lyra::wire::prn->hsendIQSem)     { ::CloseHandle(lyra::wire::prn->hsendIQSem);     lyra::wire::prn->hsendIQSem = nullptr; }
-        if (lyra::wire::prn->hsendLRSem)     { ::CloseHandle(lyra::wire::prn->hsendLRSem);     lyra::wire::prn->hsendLRSem = nullptr; }
-        if (lyra::wire::prn->hobbuffsRun[0]) { ::CloseHandle(lyra::wire::prn->hobbuffsRun[0]); lyra::wire::prn->hobbuffsRun[0] = nullptr; }
-        if (lyra::wire::prn->hobbuffsRun[1]) { ::CloseHandle(lyra::wire::prn->hobbuffsRun[1]); lyra::wire::prn->hobbuffsRun[1] = nullptr; }
-        lyra::wire::prn->hsendEventHandles[0] = nullptr;
-        lyra::wire::prn->hsendEventHandles[1] = nullptr;
+        // The ob_main pumps are NOT necessarily parked on Sem_BuffReady
+        // here: the cm (TX I/Q) and aamix (RX audio) producers keep
+        // feeding the obbuffs rings, and a pump that handed a buffer to
+        // the writer just before it exited is blocked in sendOutbound()
+        // on hobbuffsRun[], which only the writer releases.  Stop those
+        // waits and wake any current waiter, so destroy_obbuffs() below
+        // can trap both pumps.
+        _InterlockedExchange(&lyra::wire::prn->obStopWait, 1);
+        if (lyra::wire::prn->hobbuffsRun[0])
+            ::ReleaseSemaphore(lyra::wire::prn->hobbuffsRun[0], 1, nullptr);
+        if (lyra::wire::prn->hobbuffsRun[1])
+            ::ReleaseSemaphore(lyra::wire::prn->hobbuffsRun[1], 1, nullptr);
     }
 
     // Both workers stopped — main thread sends STOP, then closes
@@ -1670,9 +1735,16 @@ void HL2Stream::close() {
                     targetIp_.toLatin1().constData(),
                     &dest.sin_addr);
         const QByteArray stopPkt = buildControlPacket(false);
+        // Connected-socket send -- see the START path above.
+#if defined(_WIN32)
         ::sendto(static_cast<SOCKET>(socket_),
                  stopPkt.constData(), stopPkt.size(), 0,
                  reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
+#else
+        (void) dest;
+        ::send(static_cast<SOCKET>(socket_),
+               stopPkt.constData(), stopPkt.size(), 0);
+#endif
         ::closesocket(static_cast<SOCKET>(socket_));
         socket_ = kInvalidSocket;
     }
@@ -1695,6 +1767,19 @@ void HL2Stream::close() {
     // obp aliases after free — P1 verbatim).
     lyra::wire::destroy_obbuffs(0);
     lyra::wire::destroy_obbuffs(1);
+    if (lyra::wire::prn != nullptr) {
+        // Close the 4 P1 sems (ref network.c:1464-1467) — AFTER
+        // destroy_obbuffs, unlike the reference: until the pumps are
+        // gone, sendOutbound() still releases hsend*Sem and could have
+        // been waiting on hobbuffsRun[] (see obStopWait above).  Null-
+        // cleared for a clean re-open (open() recreates them).
+        if (lyra::wire::prn->hsendIQSem)     { ::CloseHandle(lyra::wire::prn->hsendIQSem);     lyra::wire::prn->hsendIQSem = nullptr; }
+        if (lyra::wire::prn->hsendLRSem)     { ::CloseHandle(lyra::wire::prn->hsendLRSem);     lyra::wire::prn->hsendLRSem = nullptr; }
+        if (lyra::wire::prn->hobbuffsRun[0]) { ::CloseHandle(lyra::wire::prn->hobbuffsRun[0]); lyra::wire::prn->hobbuffsRun[0] = nullptr; }
+        if (lyra::wire::prn->hobbuffsRun[1]) { ::CloseHandle(lyra::wire::prn->hobbuffsRun[1]); lyra::wire::prn->hobbuffsRun[1] = nullptr; }
+        lyra::wire::prn->hsendEventHandles[0] = nullptr;
+        lyra::wire::prn->hsendEventHandles[1] = nullptr;
+    }
 
     statsTimer_.stop();
     ioboardSettleTimer_.stop();
@@ -2309,6 +2394,29 @@ void HL2Stream::setVfoBHz(quint32 hz) {
         }
         pushEffectiveRxFreq();
     }
+}
+
+bool HL2Stream::txBlocksBandJump(quint32 targetHz, bool sub) {
+    return txBlocksJumpFrom(sub ? rx2FreqHz() : rx1FreqHz(), targetHz);
+}
+
+bool HL2Stream::txBlocksVfoBJump(quint32 targetHz) {
+    return splitEnabled() && txBlocksJumpFrom(vfoBHz(), targetHz);
+}
+
+bool HL2Stream::txBlocksJumpFrom(quint32 fromHz, quint32 targetHz) {
+    if (!txDisplayActive_) return false;
+    if (!lyra::bandJumpCrosses(int(fromHz), int(targetHz))) return false;
+    stopTxForBlockedJump();
+    return true;
+}
+
+void HL2Stream::stopTxForBlockedJump() {
+    safetyLog(QStringLiteral("TX: band jump refused while transmitting — un-keying"));
+    if (cwKeyingActive_)
+        abortCw();
+    requestMox(false);              // keyup always passes; TUN clears on the MOX-off edge
+    emit txBandChangeBlocked();
 }
 
 void HL2Stream::setSubEnabled(bool on) {

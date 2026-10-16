@@ -11,6 +11,16 @@ import LyraUI
 
 Item {
     id: root
+
+    // Wheel direction for tuning: vertical scroll, or a sideways scroll /
+    // tilt when there is no vertical part.  Right (and up) tunes up; a
+    // zero-movement event gives 0 and is ignored.
+    function wheelDir(wheel) {
+        var y = wheel.angleDelta.y, x = wheel.angleDelta.x
+        if (y !== 0) return y > 0 ? 1 : -1
+        if (x !== 0) return x < 0 ? 1 : -1
+        return 0
+    }
     implicitWidth: 600
     implicitHeight: 180
     readonly property int lyraMinWidth: 320
@@ -599,8 +609,9 @@ Item {
                         Stream.setRx2FreqHz(Math.round(newDdc))
                 }
                 onWheel: (wheel) => {
-                    var dir = wheel.angleDelta.y > 0 ? 1 : -1
-                    root.setCarrierHz(root.carrierHz + dir * Prefs.panScrollStepHz)
+                    var dir = root.wheelDir(wheel)
+                    if (dir !== 0)
+                        root.setCarrierHz(root.carrierHz + dir * Prefs.panScrollStepHz)
                     wheel.accepted = true
                 }
             }
@@ -690,8 +701,9 @@ Item {
                     dbMode = ""
                 }
                 onWheel: (wheel) => {
-                    var dir = wheel.angleDelta.y > 0 ? 1 : -1
-                    root.setCarrierHz(root.carrierHz + dir * Prefs.panScrollStepHz)
+                    var dir = root.wheelDir(wheel)
+                    if (dir !== 0)
+                        root.setCarrierHz(root.carrierHz + dir * Prefs.panScrollStepHz)
                     wheel.accepted = true
                 }
             }

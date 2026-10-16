@@ -434,7 +434,11 @@ Item {
                 }
             }
 
-            // ---- Meteor streaks (rare ambient shooting stars) ----
+            // ---- Meteor streaks ----
+            // With DX spots shown, each newly arrived spot that is on screen
+            // gets one comet aimed down at its frequency (rate-limited: one in flight,
+            // kSpotGapS apart, newest kSpotQueueMax kept).  With spots hidden,
+            // rare random ambient shooting stars as before.
             Canvas {
                 id: meteorCanvas
                 anchors.fill: parent
@@ -445,6 +449,12 @@ Item {
                 property var meteors: []
                 property real nextSpawn: 0
                 property bool schedInit: false
+                readonly property bool spotMode: Spots.showSpots
+                property var spotQueue: []      // [{ call, t }], oldest first
+                property real lastSpotLaunch: 0
+                readonly property real kSpotGapS: 1.5
+                readonly property int  kSpotQueueMax: 5
+                readonly property real kSpotStaleS: 20.0
 
                 readonly property real durMin: 0.50
                 readonly property real durMax: 0.85
@@ -484,6 +494,49 @@ Item {
                              dur: dur, gold: gold };
                 }
 
+                // A comet aimed at a spot: enters from above, off to one side,
+                // and dives onto the spot's frequency, ending at the bottom of
+                // the spectrum where the waterfall begins.
+                function spawnAt(hz) {
+                    var x = bandPlan.xOf(hz)
+                    var w = width, h = height
+                    var side = Math.random() < 0.5 ? -1 : 1
+                    var sx = Math.max(-10, Math.min(w + 10, x + side * rnd(0.06 * w, 0.16 * w)))
+                    var sy = -10
+                    var tx = x, ty = h + 10          // into the waterfall edge
+                    var dur = rnd(durMin, durMax)
+                    var g = gravity * 0.25
+                    var vx = (tx - sx) / dur
+                    var vy = (ty - sy - 0.5 * g * dur * dur) / dur
+                    var gold = Math.random() < (Prefs.meteorGold / 100.0)
+                    return { t0: nowS(), sx: sx, sy: sy, vx: vx, vy: vy, ay: g,
+                             dur: dur, gold: gold, hz: hz }
+                }
+
+                // Frequency of <call>'s marker if it is drawn now (in span and passing
+                // the display filters), else -1.
+                function spotHz(call) {
+                    var list = bandPlan.spotsList
+                    for (var i = 0; i < list.length; i++)
+                        if (list[i].call === call) {
+                            var x = bandPlan.xOf(list[i].freqHz)
+                            return (x >= 0 && x <= width) ? list[i].freqHz : -1
+                        }
+                    return -1
+                }
+
+                Connections {
+                    target: Spots
+                    function onSpotArrived(call) {
+                        if (!meteorCanvas.visible || !meteorCanvas.spotMode) return
+                        var q = meteorCanvas.spotQueue
+                        q.push({ call: call, t: meteorCanvas.nowS() })
+                        while (q.length > meteorCanvas.kSpotQueueMax) q.shift()
+                        meteorCanvas.spotQueue = q
+                    }
+                }
+                onSpotModeChanged: spotQueue = []
+
                 Timer {
                     interval: 33; repeat: true; running: meteorCanvas.visible
                     onTriggered: meteorCanvas.tick()
@@ -491,14 +544,35 @@ Item {
 
                 function tick() {
                     var now = nowS();
-                    if (!schedInit) { scheduleNext(now); schedInit = true; }
-                    if (now >= nextSpawn && meteors.length < 1) {
-                        meteors.push(spawn());
-                        scheduleNext(now);
+                    if (spotMode) {
+                        // Newest first; skip stale or off-screen spots.
+                        if (meteors.length < 1 && spotQueue.length > 0
+                                && now - lastSpotLaunch >= kSpotGapS) {
+                            var q = spotQueue
+                            while (q.length > 0) {
+                                var s = q.pop()
+                                if (now - s.t > kSpotStaleS) continue
+                                var hz = spotHz(s.call)
+                                if (hz < 0) continue
+                                meteors.push(spawnAt(hz))
+                                lastSpotLaunch = now
+                                break
+                            }
+                            spotQueue = q
+                        }
+                    } else {
+                        if (!schedInit) { scheduleNext(now); schedInit = true; }
+                        if (now >= nextSpawn && meteors.length < 1) {
+                            meteors.push(spawn());
+                            scheduleNext(now);
+                        }
                     }
                     var alive = [];
-                    for (var i = 0; i < meteors.length; i++)
+                    for (var i = 0; i < meteors.length; i++) {
                         if (now - meteors[i].t0 < meteors[i].dur) alive.push(meteors[i]);
+                        else if (meteors[i].hz !== undefined)   // spot comet landed
+                            wfImpact.add(meteors[i].hz, meteors[i].gold);
+                    }
                     var wasActive = meteors.length > 0;
                     meteors = alive;
                     if (meteors.length > 0 || wasActive) requestPaint();
@@ -1000,6 +1074,24 @@ Item {
                               * Prefs.panScrollStepHz
                     return c
                 }
+                // Wheel step.  With the 100 Hz grid on, a step under 100 Hz
+                // is rounded straight back by snapCarrier (+1/+10 Hz never
+                // leave the grid line; -50 Hz rounds back up), so the wheel
+                // did nothing.  Step at least one grid line in that mode.
+                // Wheel direction for tuning: vertical scroll, or a sideways
+                // scroll / tilt when there is no vertical part.  Right (and
+                // up) tunes up; a zero-movement event gives 0 and is ignored.
+                function wheelDir(wheel) {
+                    var y = wheel.angleDelta.y, x = wheel.angleDelta.x
+                    if (y !== 0) return y > 0 ? 1 : -1
+                    if (x !== 0) return x < 0 ? 1 : -1
+                    return 0
+                }
+                function wheelStepHz() {
+                    return Prefs.panRound100
+                        ? Math.max(100, Prefs.panScrollStepHz)
+                        : Prefs.panScrollStepHz
+                }
                 function currentCarrierHz(rx) {
                     if (rx === 2) {
                         if (root.splitOn)
@@ -1209,10 +1301,11 @@ Item {
                         WdspEngine.setZoom(WdspEngine.zoom
                             * (wheel.angleDelta.y > 0 ? 1.25 : 0.8))
                     } else {
-                        var dir = wheel.angleDelta.y > 0 ? 1 : -1
+                        var dir = wheelDir(wheel)
                         var rx = root.panTuneRx
-                        tuneCarrier(currentCarrierHz(rx)
-                                    + dir * Prefs.panScrollStepHz, rx)
+                        if (dir !== 0)
+                            tuneCarrier(currentCarrierHz(rx)
+                                        + dir * wheelStepHz(), rx)
                     }
                     wheel.accepted = true
                 }
@@ -1796,6 +1889,8 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
+                                if (Stream.txBlocksBandJump(Math.round(segItem.modelData.qsy)))
+                                    return
                                 Prefs.mode = "USB"
                                 Stream.setRx1FreqHz(
                                     Math.round(segItem.modelData.qsy))
@@ -1907,6 +2002,8 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
+                                if (Stream.txBlocksBandJump(Math.round(markItem.modelData.freq)))
+                                    return
                                 Prefs.mode = markItem.modelData.mode
                                 Stream.setRx1FreqHz(Math.round(markItem.modelData.freq))
                                 Status.show(qsTr("Tuned to ")
@@ -1972,6 +2069,8 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
+                                if (Stream.txBlocksBandJump(Math.round(cbItem.modelData.freq)))
+                                    return
                                 Prefs.mode = cbItem.md
                                 Stream.setRx1FreqHz(Math.round(cbItem.modelData.freq))
                                 Status.show(qsTr("Tuned to CB ") + cbItem.modelData.label
@@ -2022,6 +2121,8 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
+                                if (Stream.txBlocksBandJump(Math.round(ebItem.modelData.freqHz)))
+                                    return
                                 Prefs.mode = "AM"
                                 Stream.setRx1FreqHz(Math.round(ebItem.modelData.freqHz))
                                 Status.show(qsTr("Tuned to ")
@@ -2209,6 +2310,94 @@ Item {
             strengthColor: Prefs.waterfallColor
             speed: Prefs.waterfallSpeed
 
+            // Spot impact: where a spot comet lands, a flash and two ripples
+            // spread along the top edge, then a faint column runs down the
+            // waterfall at the spot's frequency and fades.  Positions track
+            // the frequency, so the column stays on the signal while panning.
+            // Only paints while an impact is playing.
+            Canvas {
+                id: wfImpact
+                anchors.fill: parent
+                renderStrategy: Canvas.Cooperative
+                property var impacts: []            // [{ hz, t0, gold }]
+                readonly property real lifeS: 4.0   // whole effect
+                readonly property real flashS: 0.35
+                readonly property real rippleS: 1.2
+
+                function nowS() { return Date.now() / 1000.0 }
+                // A new array each time: re-assigning the same array would not
+                // notify, and the timer below would never start.
+                function add(hz, gold) {
+                    impacts = impacts.concat([{ hz: hz, t0: nowS(), gold: gold }])
+                    requestPaint()
+                }
+
+                Timer {
+                    interval: 33; repeat: true
+                    running: wfImpact.impacts.length > 0 && wf.visible
+                    onTriggered: {
+                        var now = wfImpact.nowS(), live = []
+                        for (var i = 0; i < wfImpact.impacts.length; i++)
+                            if (now - wfImpact.impacts[i].t0 < wfImpact.lifeS)
+                                live.push(wfImpact.impacts[i])
+                        wfImpact.impacts = live
+                        wfImpact.requestPaint()
+                    }
+                }
+
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.clearRect(0, 0, width, height)
+                    var now = nowS()
+                    ctx.globalCompositeOperation = "lighter"
+                    for (var i = 0; i < impacts.length; i++) {
+                        var m = impacts[i]
+                        var age = now - m.t0
+                        if (age >= lifeS) continue
+                        var x = bandPlan.xOf(m.hz)
+                        if (x < -40 || x > width + 40) continue
+                        var rgb = m.gold ? "255,215,130" : "180,235,255"
+                        // Column: a soft vertical band down the waterfall.
+                        var colA = 0.30 * Math.pow(1 - age / lifeS, 1.5)
+                        // Three nested strips, each fading toward the bottom,
+                        // give a bright core with a soft halo.
+                        var strips = [[1.5, 1.0], [5, 0.45], [11, 0.2]]
+                        for (var k = 0; k < strips.length; k++) {
+                            var half = strips[k][0], a = colA * strips[k][1]
+                            var vg = ctx.createLinearGradient(0, 0, 0, height)
+                            vg.addColorStop(0, "rgba(" + rgb + "," + a.toFixed(3) + ")")
+                            vg.addColorStop(1, "rgba(" + rgb + ",0)")
+                            ctx.fillStyle = vg
+                            ctx.fillRect(x - half, 0, half * 2, height)
+                        }
+                        // Flash at the landing point.
+                        if (age < flashS) {
+                            var fp = age / flashS
+                            var fr = 8 + 40 * fp
+                            var fg = ctx.createRadialGradient(x, 0, 0, x, 0, fr)
+                            fg.addColorStop(0, "rgba(255,255,255," + (0.9 * (1 - fp)).toFixed(3) + ")")
+                            fg.addColorStop(0.35, "rgba(" + rgb + "," + (0.7 * (1 - fp)).toFixed(3) + ")")
+                            fg.addColorStop(1, "rgba(" + rgb + ",0)")
+                            ctx.fillStyle = fg
+                            ctx.beginPath(); ctx.arc(x, 0, fr, 0, 2 * Math.PI); ctx.fill()
+                        }
+                        // Two ripples spreading along the top edge.
+                        for (var r = 0; r < 2; r++) {
+                            var ra = age - r * 0.25
+                            if (ra < 0 || ra > rippleS) continue
+                            var rp = ra / rippleS
+                            var rw = 10 + 140 * rp, rh = 3 + 26 * rp
+                            ctx.strokeStyle = "rgba(" + rgb + "," + (0.75 * (1 - rp)).toFixed(3) + ")"
+                            ctx.lineWidth = 2 - rp
+                            ctx.beginPath()
+                            ctx.ellipse(x - rw, -rh, rw * 2, rh * 2)
+                            ctx.stroke()
+                        }
+                    }
+                    ctx.globalCompositeOperation = "source-over"
+                }
+            }
+
             // Click-to-tune in the waterfall.  It shares the spectrum's exact
             // frequency extent and width, so reuse the spectrum mouse's
             // freqAtX / tuneCarrier helpers: a plain left click tunes RX1 to
@@ -2251,11 +2440,12 @@ Item {
                         WdspEngine.setZoom(WdspEngine.zoom
                             * (wheel.angleDelta.y > 0 ? 1.25 : 0.8))
                     } else {
-                        var dir = wheel.angleDelta.y > 0 ? 1 : -1
+                        var dir = specMouse.wheelDir(wheel)
                         var rx = root.panTuneRx
-                        specMouse.tuneCarrier(
-                            specMouse.currentCarrierHz(rx)
-                            + dir * Prefs.panScrollStepHz, rx)
+                        if (dir !== 0)
+                            specMouse.tuneCarrier(
+                                specMouse.currentCarrierHz(rx)
+                                + dir * specMouse.wheelStepHz(), rx)
                     }
                     wheel.accepted = true
                 }

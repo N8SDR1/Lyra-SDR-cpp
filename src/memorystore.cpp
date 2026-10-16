@@ -88,6 +88,8 @@ QVariantList MemoryStore::list() const {
 void MemoryStore::recall(int index) {
     if (index < 0 || index >= presets_.size()) return;
     const Preset &p = presets_[index];
+    if (stream_ && stream_->txBlocksBandJump(quint32(p.freq))) return;
+    emit aboutToTune();
     // Freq first, then mode (see TimeStations::tune) — so recalling a
     // preset doesn't overwrite the mode memory of the band we're leaving,
     // and the preset's mode wins over any band-default restore.

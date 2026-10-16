@@ -55,6 +55,11 @@ public:
     // to stations that region would actually hear (empty / NONE = show all).
     Q_INVOKABLE QVariantList calStations(const QString &region = QString()) const;
 
+signals:
+    // The jump is going ahead (not blocked by the TX band lockout): MainWindow
+    // drops the GEN slot's ownership of the VFO, before the retune lands.
+    void aboutToTune();
+
 private:
     struct Station {
         QString id, name, country, continent, mode, notes;

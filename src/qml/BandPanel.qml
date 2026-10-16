@@ -64,6 +64,12 @@ Rectangle {
         Stream.setVfoBHz(f > 0 ? f : defaultHz)
     }
     function goBand(key, defaultHz, forceSub) {
+        // A band change retunes filters / OC outputs / PA band — never under power.
+        // Refuse it and stop transmitting (the stream posts the status cue).
+        if (Stream.txDisplayActive) {
+            Stream.stopTxForBlockedJump()
+            return
+        }
         if (forceSub) {
             tuneSub(key, defaultHz)
             return
@@ -366,7 +372,10 @@ Rectangle {
                 text: qsTr("TIME")
                 Layout.preferredWidth: 50
                 chipActive: false
-                onClicked: { Gen.deactivate(); Status.show(Time.cycleNext(), 2500) }
+                onClicked: {
+                    var msg = Time.cycleNext()
+                    if (msg !== "") Status.show(msg, 2500)
+                }
                 ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
                 ToolTip.text: qsTr("HF time stations\n"
                     + "Click to cycle · right-click for the full list")
@@ -421,10 +430,9 @@ Rectangle {
                                 enabled: !modelData.header
                                 font.bold: modelData.header
                                 onTriggered: {
-                                    Gen.deactivate()
-                                    Status.show(
-                                        Time.tuneEntry(modelData.station,
-                                                       modelData.freq), 2500)
+                                    var msg = Time.tuneEntry(modelData.station,
+                                                             modelData.freq)
+                                    if (msg !== "") Status.show(msg, 2500)
                                 }
                             }
                         }
@@ -449,7 +457,7 @@ Rectangle {
                 MemoryRecallPopup {
                     id: memRecallPopup
                     memories: root.memList
-                    onRecalled: function(index) { Gen.deactivate(); Memory.recall(index) }
+                    onRecalled: function(index) { Memory.recall(index) }
                 }
                 TapHandler {
                     acceptedButtons: Qt.RightButton
@@ -540,7 +548,6 @@ Rectangle {
                             xvtrEditor.openFor(index)
                             return
                         }
-                        Gen.deactivate()
                         Xvtr.tune(index)
                     }
                     MouseArea {
@@ -556,7 +563,6 @@ Rectangle {
                                 return
                             }
                             if (Xvtr.slotEnabled(index)) {
-                                Gen.deactivate()
                                 Xvtr.tuneSub(index)
                             }
                         }

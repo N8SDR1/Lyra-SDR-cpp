@@ -51,10 +51,11 @@
 #include "recorder/SessionConverter.h" // #201 — offline MP4 converter
 #include <QImage>                    // #201 — panadapter snapshot grab
 #include "tx/VoiceKeyer.h"
-#include "wire/Ep6RecvThread.h"       // #89 B1 — ep6Thread().set_tx_clip_source(...)
+#include "wire/CMaster.h"             // #89 — SendpTxClipInject / SendpTxMicRecordTap
 #include "wire/P2RxBridge.h"          // Saturn / ANAN G2 Protocol 2 RX path
 #include "wire/RadioNet.h"            // prn — refuse Start until create_rnet
 #include "hardware/ActiveFrontEndModel.h"
+#include "platform/app_activity.h"     // hold off App Nap / idle sleep while streaming
 #include "settingsdialog.h"
 #include "dockdragcontroller.h"
 #include "panelrack.h"
@@ -73,6 +74,8 @@
 #include <QGridLayout>
 #include <QGuiApplication>
 #include <QScreen>
+#include <QWindow>
+#include <QPointer>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
@@ -134,11 +137,33 @@
 #include <QSystemTrayIcon>
 
 #include <memory>
+#include <atomic>
 #include <utility>
 
 namespace lyra::ui {
 
 namespace {
+// #89 voice keyer ↔ CMaster TX hooks (plain C function pointers, so the
+// objects are reached through these).  Called on the cm (TX) thread.
+std::atomic<lyra::tx::ClipRecorderPlayer *> g_keyerPlayer{nullptr};
+std::atomic<lyra::tx::ClipRecorder *>       g_keyerRecorder{nullptr};
+
+void keyerMicRecordTap(int nsamples, double *buff)
+{
+    if (auto *r = g_keyerRecorder.load(std::memory_order_acquire))
+        r->feedMicPairs(buff, nsamples);   // no-op unless a Mic record is running
+}
+
+// 0 = no clip, 1 = clip written, 2 = clip written + skip the native rack.
+int keyerClipInject(int nsamples, double *buff)
+{
+    auto *p = g_keyerPlayer.load(std::memory_order_acquire);
+    if (!p || !p->active()) return 0;   // no lock on the idle path
+    const bool bypass = p->activeBypassDsp();
+    if (!p->fillBlock(nsamples, buff)) return 0;
+    return bypass ? 2 : 1;
+}
+
 // Standard feature set for an UNlocked dock: drag, float, close.
 constexpr QDockWidget::DockWidgetFeatures kUnlockedFeatures =
     QDockWidget::DockWidgetMovable |
@@ -223,26 +248,23 @@ inline const QCursor &moveCursor() {
     return c;
 }
 
-// Panels that are hidden-by-default floating tool windows summoned by the
-// header chip-strip (TX DSP rack + RX EQ + CW console/decoder) — NOT part of
-// the always-visible main layout.  A layout recall / reset must NOT force
-// these visible; their saved (usually hidden) state from restoreState()
-// governs, so the operator's closed rack panels stay closed.
+// Panels summoned by the header chip-strip (TX/RX DSP, CW console / decoder,
+// Voice Keyer, Tuner, Freq Cal, Recorder, PureSignal, Amp View, Diversity) — hidden by
+// default and NOT part of the always-visible main layout.  A layout recall /
+// reset must NOT force these visible; their saved (usually hidden) state from
+// restoreState() governs, so the operator's closed panels stay closed.  They
+// open floating but dock into the main window like any panel (drop on the
+// cyan highlight, or ⧉); while panels are locked a floating one only moves.
+constexpr const char *kChipSummonedPanels[] = {
+    "txspeech", "txeq", "txcombinator", "txplate", "rxeq",
+    "cwconsole", "cwdecoder", "voicekeyer", "tuner", "freqcal",
+    "recorder", "ps", "ampview", "diversity",
+};
+
 inline bool isChipSummonedPanel(const QString &objectName) {
-    return objectName == QLatin1String("txspeech")
-        || objectName == QLatin1String("txeq")
-        || objectName == QLatin1String("txcombinator")
-        || objectName == QLatin1String("txplate")
-        || objectName == QLatin1String("rxeq")
-        || objectName == QLatin1String("cwconsole")
-        || objectName == QLatin1String("cwdecoder")
-        || objectName == QLatin1String("voicekeyer")
-        || objectName == QLatin1String("tuner")
-        || objectName == QLatin1String("freqcal")
-        || objectName == QLatin1String("recorder")
-        || objectName == QLatin1String("ps")
-        || objectName == QLatin1String("ampview")
-        || objectName == QLatin1String("diversity");
+    for (const char *nm : kChipSummonedPanels)
+        if (objectName == QLatin1String(nm)) return true;
+    return false;
 }
 
 // Diagnostic: LYRA_TEST_SIZE=WxH opens the window at exactly that LOGICAL size.
@@ -291,7 +313,9 @@ inline bool safeBootLayout() {
 // show comes back at the size hint, wherever Qt drops it. Remember the last
 // on-screen position and size while the window is still floating, and put
 // that frame back on the next show. Reads happen on Move/Resize/Hide, before
-// Qt folds the float back into the dock area.
+// Qt folds the float back into the dock area.  A panel the operator docked
+// into the main window is left docked: the frame is only put back when the
+// panel was floating as it was hidden (or is floating now, e.g. at start-up).
 class FloatingDockMemory : public QObject {
 public:
     FloatingDockMemory(QDockWidget *dock, const QString &settingsKey,
@@ -312,7 +336,7 @@ public:
             // Qt resizes a float back to its size hint before this signal.
             // tracking_ stays false across that, so the hint cannot replace
             // the frame we stored on the way down.
-            if (!layoutBusy() && have_)
+            if (!layoutBusy() && have_ && (wasFloating_ || dock_->isFloating()))
                 armRecall();
             else
                 QTimer::singleShot(80, this, [this]() {
@@ -323,6 +347,8 @@ public:
 
 protected:
     bool eventFilter(QObject *o, QEvent *e) override {
+        if (o == dock_ && e->type() == QEvent::Hide && !recalling_)
+            wasFloating_ = dock_->isFloating();
         if (o != dock_ || recalling_ || !tracking_)
             return QObject::eventFilter(o, e);
         const bool live = dock_->isFloating()
@@ -405,6 +431,7 @@ private:
     bool have_ = false;
     bool recalling_ = false;
     bool tracking_ = false;
+    bool wasFloating_ = false;   // floating when last hidden
 };
 
 // The session layout is stored per DISPLAY SETUP, not in one global slot.
@@ -732,6 +759,13 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     memory_ = new MemoryStore(
         prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
 
+    // A TIME / Mem / XVTR jump that really happens releases the GEN slot (a
+    // band-lockout-blocked jump does not).  Emitted before the retune, so
+    // GenSlots::onFreqChanged can't overwrite the slot with the new frequency.
+    connect(time_,   &TimeStations::aboutToTune, gen_, &GenSlots::deactivate);
+    connect(memory_, &MemoryStore::aboutToTune,  gen_, &GenSlots::deactivate);
+    connect(xvtr_,   &XvtrSlots::aboutToTune,    gen_, &GenSlots::deactivate);
+
     // EiBi shortwave-broadcaster overlay (Settings → Bands → SW Database).
     eibi_ = new EibiStore(prefs_, bands_, this);
 
@@ -815,11 +849,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     clipBank_   = new lyra::tx::ClipBank(this);
     voiceKeyer_ = new lyra::tx::VoiceKeyer(clipBank_, this);
 
-    // #89 B1 — wire the injector into the live TX path.  Done ONCE here, in the
-    // ctor, which runs before any connect starts the Ep6 reader thread, so
-    // Ep6RecvThread::set_tx_clip_source satisfies its set-once-before-start
-    // contract (the sink persists across reconnects; never cleared).  All three
-    // seams are ALWAYS installed — but nothing keys until the operator opts in
+    // #89 B1 — keying seams.  Nothing keys until the operator opts in
     // (VoiceKeyer.live, default OFF) AND deliberately triggers OTA / an F-key.
     if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
         auto *player = voiceKeyer_->player();
@@ -833,23 +863,25 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         player->setBlockedFn([st]() {
             return st->moxActive() && st->pttSource() != PttSource::Keyer;
         });
-        // Mic-funnel injection: while a clip transmits, feed its samples in
-        // place of the live mic at the reference's mic→TX hand-off, so the clip
-        // runs the full TXA chain (PS-safe).  Idle → the lock-free gate returns
-        // false and the live mic flows unchanged (RX byte-identical to pre-#89).
-        st->ep6Thread().set_tx_clip_source(
-            [player](int n, double *buf) -> bool {
-                if (!player->active()) return false;   // no lock on the idle path
-                return player->fillBlock(n, buf);
-            });
-        // #89 Stage C — mic-record tap: read-only observer of the real mic
-        // (before injection), feeds the recorder while a voice message records.
-        auto *recorder = voiceKeyer_->recorder();
-        st->ep6Thread().set_mic_record_tap(
-            [recorder](int n, const double *iq) { recorder->feedMicPairs(iq, n); });
-        // #89 C2 — mic-path voice-keyer recorder is HL2-only (EP6 mic).
-        // The RX session-recorder tap is installed below for both P1 and P2.
     }
+    // #89 — record tap + clip injector on the TX path (xcmaster), right after
+    // the mic-source selection, so REC captures and OTA replaces whichever
+    // source is live: codec mic, VAC (PC / USB / Bluetooth mic) or TCI.  They
+    // used to sit on the HL2 EP6 mic, upstream of the VAC/TCI override, so
+    // with a VAC mic REC recorded the idle codec jack and OTA was overwritten
+    // by the VAC audio.  Idle → lock-free early return, mic flows unchanged.
+    g_keyerPlayer.store(voiceKeyer_->player(), std::memory_order_release);
+    g_keyerRecorder.store(voiceKeyer_->recorder(), std::memory_order_release);
+    lyra::wire::SendpTxMicRecordTap(&keyerMicRecordTap);
+    lyra::wire::SendpTxClipInject(&keyerClipInject);
+    // Unhook before the keyer objects go away.  At quit destroy_cmaster()
+    // has already stopped the cm threads, so no call can be in flight.
+    connect(voiceKeyer_, &QObject::destroyed, this, []() {
+        lyra::wire::SendpTxClipInject(nullptr);
+        lyra::wire::SendpTxMicRecordTap(nullptr);
+        g_keyerPlayer.store(nullptr, std::memory_order_release);
+        g_keyerRecorder.store(nullptr, std::memory_order_release);
+    });
 
     // #201 session recorder + #89 RX-clip tap: post-RX-DSP "what you heard".
     // Must live on WdspEngine regardless of Protocol 1 vs 2 — gating this
@@ -1166,9 +1198,12 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     // dock title bar (makeDockTitleBar), so it MUST exist before buildDocks().
     // A committed drag persists the layout immediately (save-on-commit).
     dragController_ = new DockDragController(this, &docks_, this);
-    // Chip-summoned tool windows (TX/RX DSP racks, CW console, CW decoder) are
-    // float-only: the controller must free-move them and NEVER dock them.
-    dragController_->setFloatOnlyPredicate(&isChipSummonedPanel);
+    // Chip-summoned panels (TX/RX DSP, CW, Tuner, Recorder, …) dock like
+    // front-panel docks, except while panels are locked — then a floating one
+    // only free-moves (see applyPanelLock).
+    dragController_->setFloatOnlyPredicate([this](const QString &name) {
+        return panelsLocked_ && isChipSummonedPanel(name);
+    });
     connect(dragController_, &DockDragController::layoutChanged,
             this, &MainWindow::saveLayout);
 
@@ -1467,6 +1502,35 @@ void MainWindow::finishQuickSource(QQuickWidget *qw, const QString &qmlFile) {
                           : qRound(root->property("implicitHeight").toReal());
         if (h > 0) qw->setMinimumHeight(h);
     }
+
+    // Tuning: the VFO style decides the panel's height.  Keep the minimum
+    // live (a taller style, or the zero-beat strip appearing, must never be
+    // clipped), and when the operator picks a new style resize the dock to
+    // it — taller or shorter.  Only on a style change, so a saved layout is
+    // never overridden at start-up.
+    if (root && qmlFile == QLatin1String("TuningPanel.qml")) {
+        connect(root, SIGNAL(lyraMinHeightChanged()),
+                this, SLOT(syncTuningDockHeight()));
+        connect(prefs_, &Prefs::vfoStyleChanged, this, [this]() {
+            tuningResizePending_ = true;
+            QTimer::singleShot(1000, this, [this]() { tuningResizePending_ = false; });
+        });
+    }
+}
+
+void MainWindow::syncTuningDockHeight() {
+    QDockWidget *d = docks_.value(QStringLiteral("tuning"));
+    auto *qw = d ? d->findChild<QQuickWidget *>() : nullptr;
+    QObject *root = qw ? qw->rootObject() : nullptr;
+    if (!root) return;
+    const int h = root->property("lyraMinHeight").toInt();
+    if (h <= 0) return;
+    qw->setMinimumHeight(h);
+    if (tuningResizePending_ && !d->isFloating()) {
+        tuningResizePending_ = false;
+        const int chrome = d->height() - qw->height();   // title bar + frame
+        resizeDocks({d}, {h + chrome}, Qt::Vertical);
+    }
 }
 
 void MainWindow::loadDeferredQuickSources() {
@@ -1508,6 +1572,14 @@ void MainWindow::showEvent(QShowEvent *event) {
     QMainWindow::showEvent(event);
     if (quickSourcesPending_)
         QTimer::singleShot(0, this, &MainWindow::loadDeferredQuickSources);
+    // After the main window is on screen, pull open chip docks back on
+    // screen.  Immediate is too early (QML still loading, restoreState
+    // still settling); a short delay lets both finish.
+    static bool chipDocksResurrected = false;
+    if (!chipDocksResurrected) {
+        chipDocksResurrected = true;
+        QTimer::singleShot(400, this, &MainWindow::resurrectOpenChipDocks);
+    }
     // 1 Hz GUI-thread heartbeat in lyra-log.txt.  If the UI freezes,
     // copy the log while it is stuck: last `[hb] gui` is when the
     // event loop last ran; later lines from other threads still flush.
@@ -1775,14 +1847,21 @@ QWidget *MainWindow::makeDockTitleBar(QDockWidget *dock,
     floatBtn->setText(QStringLiteral("⧉"));   // ⧉ float/overlay glyph
     floatBtn->setCursor(Qt::PointingHandCursor);
     floatBtn->setStyleSheet(btnStyle);
-    floatBtn->setToolTip(tr("Float this panel (rest it on top) / re-dock "
-                            "— or double-click the title bar"));
-    connect(floatBtn, &QToolButton::clicked, dock, [dock]() {
-        const bool toFloat = !dock->isFloating();
-        dock->setFloating(toFloat);
-        if (toFloat) {           // make the popped-out window visible
+    floatBtn->setToolTip(tr("Pop this panel out, or dock it back into the "
+                            "main window — or double-click the title bar. "
+                            "Drag a popped-out panel onto Lyra to dock it."));
+    connect(floatBtn, &QToolButton::clicked, this, [this, dock]() {
+        const bool dockable = isChipSummonedPanel(dock->objectName());
+        if (!dock->isFloating()) {
+            dock->setFloating(true);
+            if (dockable) adoptFloatedRackMember(dock);
             dock->raise();
             dock->activateWindow();
+        } else if (dockable) {
+            // ⧉ on an already-floating chip panel docks it into Lyra.
+            dockChipPanelIntoMain(dock, frameGeometry().center());
+        } else {
+            dock->setFloating(false);
         }
     });
     row->addWidget(floatBtn);
@@ -1978,8 +2057,44 @@ void MainWindow::buildDocks() {
             d->hide();
         }
     }
-    // Diversity is a float-only chip. Hide/show drops the frame Qt was
-    // using, so the next open would ignore where the operator left it.
+    // View menu + header chips share toggleViewAction.  On macOS a restored
+    // floating dock can report visible (check stays on) while its window is
+    // ordered out, and a later "show" is a no-op.  Re-present whenever the
+    // operator turns one of these on.  (A rack member is skipped inside
+    // presentChipDock — the rack owns it.)
+    for (const char *nm : kChipSummonedPanels) {
+        if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
+            connect(d->toggleViewAction(), &QAction::toggled, this,
+                    [this, d](bool on) {
+                        if (on) presentChipDock(d, 0);
+                    });
+            // Turned on by the operator (View menu) while it lives in a
+            // grouped rack: the rack window may be closed, or the panel
+            // tabbed behind another, so it would be "on" yet unseen.  Open
+            // the rack through its chip (keeps the chip in step) and bring
+            // the panel's tab forward.  triggered, not toggled: a rack
+            // restoring its own state must not pop the rack open.
+            connect(d->toggleViewAction(), &QAction::triggered, this,
+                    [this, d](bool on) {
+                        auto *rack = qobject_cast<lyra::ui::PanelRack *>(d->window());
+                        if (!on || !rack) return;
+                        QToolButton *chip = rack == dspRack_     ? dspRackChip_
+                                          : rack == optionsRack_ ? optionsRackChip_
+                                                                 : nullptr;
+                        if (chip && !chip->isChecked()) {
+                            chip->setChecked(true);   // shows + raises the rack
+                        } else {
+                            rack->show();
+                            rack->raise();
+                            rack->activateWindow();
+                        }
+                        d->raise();                   // front tab if tabbed
+                    });
+        }
+    }
+    // Diversity opens floating like the other chip panels. Hide/show drops
+    // the frame Qt was using, so the next open would ignore where the
+    // operator left it.
     if (QDockWidget *div = docks_.value(QStringLiteral("diversity"))) {
         new FloatingDockMemory(div, QStringLiteral("ui/diversityDock"),
                                &layoutRestoring_, div);
@@ -2007,10 +2122,18 @@ void MainWindow::buildDocks() {
     // Solar / Propagation — HamQSL SFI/A/K + 10-band day/night heat-map.
     // A plain QtWidgets strip (not QML); docks at the bottom like the
     // other control panels.
+    auto *solarPanel = new SolarPanel(solar_, ncdxfFollow_,
+                                      qobject_cast<lyra::ipc::HL2Stream *>(stream_),
+                                      bandMemory_, gen_, this);
+    auto bandBlocked = [this] {
+        statusBus_->show(tr("Band change blocked — transmit stopped"), 3000);
+    };
+    // Any refused band jump (heat-map, band chips, GEN/TIME/Mem/XVTR, band-plan
+    // markers, spots, CAT/TCI) un-keys and reports through the stream.
+    if (auto *hl2 = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+        connect(hl2, &lyra::ipc::HL2Stream::txBandChangeBlocked, this, bandBlocked);
     addWidgetDock(QStringLiteral("propagation"), tr("Solar / Propagation"),
-                  new SolarPanel(solar_, ncdxfFollow_,
-                                 qobject_cast<lyra::ipc::HL2Stream *>(stream_),
-                                 bandMemory_, gen_, this),
+                  solarPanel,
                   QStringLiteral("propagation"), Qt::BottomDockWidgetArea);
 }
 
@@ -2023,6 +2146,26 @@ lyra::ui::PanelRack *MainWindow::buildRack(const QString &objName,
                                            const QString &title,
                                            const QStringList &members) {
     auto *rack = new lyra::ui::PanelRack(objName, title, this);
+    // Speech / TX EQ / RX EQ / Combinator / Plating pop out of the DSP rack
+    // and can then dock into the main window.  Options stays sealed.
+    if (objName == QLatin1String("dsprack")) {
+        rack->setAllowTearOut(true);
+        // Dragged off the rack: the panel appears under the cursor where it
+        // was grabbed, and docks only if released on one of this window's
+        // drop zones (edge band, or beside / tabbed with a panel).
+        rack->setTearOutHandler([this](QDockWidget *d, const QPoint &g,
+                                       const QPoint &grab) {
+            adoptFloatedRackMember(d, QRect(g - grab, d->size()));
+            dragController_->dropAt(d, g);
+        });
+    }
+    connect(rack, &lyra::ui::PanelRack::memberFloated, this,
+            [this](QDockWidget *d) {
+                QPointer<QDockWidget> dock(d);   // may be gone by the next turn
+                QTimer::singleShot(0, this, [this, dock]() {
+                    if (dock) adoptFloatedRackMember(dock);
+                });
+            });
     for (const QString &m : members) {
         QDockWidget *d = docks_.value(m);
         if (!d) continue;
@@ -2033,6 +2176,104 @@ lyra::ui::PanelRack *MainWindow::buildRack(const QString &objName,
     }
     rack->restore();                                // geometry + member visibility
     return rack;
+}
+
+void MainWindow::adoptFloatedRackMember(QDockWidget *d, const QRect &target) {
+    if (!d || adoptingRackDock_) return;
+    lyra::ui::PanelRack *rack = nullptr;
+    if (dspRack_ && dspRack_->hasMember(d)) rack = dspRack_;
+    else if (optionsRack_ && optionsRack_->hasMember(d)) rack = optionsRack_;
+    if (!rack) return;
+
+    adoptingRackDock_ = true;
+    // Where the popped-out window goes: the caller's target, else where the
+    // panel is on screen now.  A docked member's frameGeometry() is relative
+    // to the rack, so map a docked one to global coordinates.
+    const QRect frame = target.isValid() ? target
+                      : d->isFloating()  ? d->frameGeometry()
+                                         : QRect(d->mapToGlobal(QPoint(0, 0)),
+                                                 d->size());
+    rack->detachMember(d);
+    if (QWidget *tb = d->titleBarWidget()) {
+        tb->installEventFilter(dragController_);
+        if (auto *fb = tb->findChild<QToolButton *>(QStringLiteral("dockFloat")))
+            fb->setVisible(true);
+        if (auto *cb = tb->findChild<QToolButton *>(QStringLiteral("dockClose")))
+            cb->setVisible(true);
+    }
+    d->setFeatures(kUnlockedFeatures);
+    addDockWidget(Qt::LeftDockWidgetArea, d);
+    d->setFloating(true);
+    if (frame.isValid()) {
+        d->resize(frame.size());
+        d->move(frame.topLeft());
+    }
+    // setFloating can reparent the title bar.  Put the main-window drag
+    // filter on whatever title bar exists after that, or the next drag
+    // still belongs to the rack and a drop on Lyra does nothing.
+    if (QWidget *tb = d->titleBarWidget()) {
+        tb->removeEventFilter(dragController_);
+        tb->installEventFilter(dragController_);
+    }
+    d->show();
+    d->raise();
+    d->activateWindow();
+    adoptingRackDock_ = false;
+}
+
+void MainWindow::dockChipPanelIntoMain(QDockWidget *d, const QPoint &globalPos) {
+    if (!d) return;
+    if ((dspRack_ && dspRack_->hasMember(d))
+        || (optionsRack_ && optionsRack_->hasMember(d)))
+        adoptFloatedRackMember(d);
+    if (QWidget *tb = d->titleBarWidget()) {
+        tb->removeEventFilter(dragController_);
+        tb->installEventFilter(dragController_);
+    }
+    d->setFeatures(kUnlockedFeatures);
+
+    const QPoint p = mapFromGlobal(globalPos);
+    QDockWidget *neighbor = nullptr;
+    for (QDockWidget *t : std::as_const(docks_)) {
+        if (!t || t == d || !t->isVisible() || t->isFloating()) continue;
+        if (qobject_cast<lyra::ui::PanelRack *>(t->window())) continue;
+        const QRect tr(t->mapTo(this, QPoint(0, 0)), t->size());
+        if (tr.contains(p)) { neighbor = t; break; }
+    }
+    if (neighbor) {
+        const QPoint lp = neighbor->mapFrom(this, p);
+        const int w = qMax(1, neighbor->width());
+        const int h = qMax(1, neighbor->height());
+        if (lp.x() < w / 4) {
+            splitDockWidget(neighbor, d, Qt::Horizontal);
+            splitDockWidget(d, neighbor, Qt::Horizontal);
+        } else if (lp.x() > 3 * w / 4) {
+            splitDockWidget(neighbor, d, Qt::Horizontal);
+        } else if (lp.y() < h / 4) {
+            splitDockWidget(neighbor, d, Qt::Vertical);
+            splitDockWidget(d, neighbor, Qt::Vertical);
+        } else if (lp.y() > 3 * h / 4) {
+            splitDockWidget(neighbor, d, Qt::Vertical);
+        } else {
+            tabifyDockWidget(neighbor, d);
+        }
+    } else {
+        const QRect r = rect();
+        const int dl = qAbs(p.x() - r.left());
+        const int dr = qAbs(r.right() - p.x());
+        const int dt = qAbs(p.y() - r.top());
+        const int db = qAbs(r.bottom() - p.y());
+        const int m = qMin(qMin(dl, dr), qMin(dt, db));
+        const Qt::DockWidgetArea area =
+            m == dl ? Qt::LeftDockWidgetArea :
+            m == dt ? Qt::TopDockWidgetArea :
+            m == db ? Qt::BottomDockWidgetArea :
+                      Qt::RightDockWidgetArea;
+        addDockWidget(area, d);
+    }
+    d->setFloating(false);
+    d->show();
+    d->raise();
 }
 
 void MainWindow::buildMenus() {
@@ -2602,7 +2843,7 @@ void MainWindow::buildToolbar() {
             recChip_->setStyleSheet(recIdleQss);
             recChip_->setToolTip(tr("Open the Session Recorder panel.  Turns into "
                                     "a live REC timer while recording."));
-            // Pop the Recorder panel out (or hide it) — it's a float-only dock.
+            // Show the Recorder panel (or hide it) — opens floating, can dock.
             connect(recChip_, &QToolButton::clicked, this, [this] {
                 if (QDockWidget *d = docks_.value(QStringLiteral("recorder")))
                     d->toggleViewAction()->trigger();
@@ -2752,7 +2993,8 @@ void MainWindow::buildToolbar() {
             tb->addWidget(fc);
             connect(fc, &QToolButton::toggled, this, [d](bool on) {
                 if (on) {
-                    d->setFloating(true);
+                    // No setFloating(true): it opens floating by default, and
+                    // forcing it would tear out a panel the operator docked.
                     d->show();
                     d->raise();
                     d->activateWindow();
@@ -2760,9 +3002,21 @@ void MainWindow::buildToolbar() {
                     d->hide();
                 }
             });
+            // Mirror the dock's state onto the chip WITHOUT re-driving it.
+            // Floating / docking re-parents the dock, which hides then re-shows
+            // it, so visibilityChanged can fire from inside a toggled()
+            // handler.  Unblocked, setChecked() re-emits toggled(), which
+            // re-drives the dock — the two connections then drive each other
+            // until the stack is exhausted (SIGSEGV, "excessive recursion").
+            // The isChecked() != vis test does not break it: the transient
+            // hide genuinely flips the value each pass.  visibilityChanged is
+            // a report, never a command, so block the echo — same idiom as the
+            // rack chip's closed() handler above.
             connect(d, &QDockWidget::visibilityChanged, fc, [fc](bool vis) {
-                if (fc->isChecked() != vis)
+                if (fc->isChecked() != vis) {
+                    QSignalBlocker b(fc);
                     fc->setChecked(vis);
+                }
             });
             attachChipHelp(fc, QStringLiteral("freqcal"));  // right-click → guide
         }
@@ -3449,6 +3703,7 @@ void MainWindow::updateConnState() {
     // The button reflects EITHER wire path — a live P2 session is
     // just as "running" as a live P1 stream (see onStartStop).
     const bool anyRunning = running || p2Running;
+    lyra::platform::setStreamingActivity(anyRunning);
     if (startStopAction_) {
         startStopAction_->setText(anyRunning ? tr("■  Stop")
                                              : tr("▶  Start"));
@@ -3533,30 +3788,30 @@ void MainWindow::applyPanelLock(bool locked) {
     const QDockWidget::DockWidgetFeatures f =
         locked ? QDockWidget::NoDockWidgetFeatures : kUnlockedFeatures;
     for (auto *dock : std::as_const(docks_)) {
-        // The chip-summoned tool windows (TX DSP rack: Speech / EQ /
-        // Combinator / Plating, RX EQ, CW console, CW decoder) are floating
-        // tool windows reached from the header chip-strip — they are NOT part
-        // of the lockable main layout.  Locking them removed their features
-        // (so the CW console + decoder became unreachable) AND froze their
-        // size, so the chips could no longer open them.  Always keep them
-        // fully featured + unfrozen, regardless of the lock, so the launchers
-        // keep working.  Mirrors DockDragController's float-only predicate.
+        // The chip-summoned panels (TX/RX DSP, CW console / decoder, Tuner,
+        // Recorder, …) are reached from the header chip-strip.  A FLOATING one
+        // is not part of the lockable main layout: locking it once removed its
+        // features (so the CW console + decoder became unreachable) AND froze
+        // its size, so the chips could no longer open it.  Keep a floating one
+        // movable, closable and unfrozen regardless of the lock.
         const QString on = dock->objectName();
-        if (isChipSummonedPanel(on)) {
-            // A chip panel currently housed in a grouped rack re-tiles / tabs
-            // INSIDE the rack (Movable + Closable) but never floats OUT of it —
-            // the rack's own no-tear-out controller manages that, so leave its
-            // features alone regardless of the main-window lock.
-            if (qobject_cast<lyra::ui::PanelRack *>(dock->window())) {
-                dock->setFeatures(QDockWidget::DockWidgetMovable
-                                  | QDockWidget::DockWidgetClosable);
-                continue;
-            }
-            dock->setFeatures(kUnlockedFeatures);
+        // A chip panel housed in a grouped rack re-tiles / tabs INSIDE the
+        // rack; the rack applies its own features (setLocked below).
+        if (isChipSummonedPanel(on)
+            && qobject_cast<lyra::ui::PanelRack *>(dock->window()))
+            continue;
+        // Docked in the main layout, a chip panel locks with it (fall
+        // through).  Floating while locked, it cannot dock (the drag controller
+        // treats it as float-only) or be docked by ⧉ / a title-bar
+        // double-click (no Floatable, ⧉ hidden).
+        if (isChipSummonedPanel(on) && !(locked && !dock->isFloating())) {
+            dock->setFeatures(locked
+                                  ? kUnlockedFeatures & ~QDockWidget::DockWidgetFloatable
+                                  : kUnlockedFeatures);
             if (QWidget *tb = dock->titleBarWidget()) {
-                tb->setCursor(moveCursor());   // rack docks always draggable
+                tb->setCursor(moveCursor());   // floating chip panels always draggable
                 if (auto *fb = tb->findChild<QToolButton *>(QStringLiteral("dockFloat")))
-                    fb->setVisible(true);
+                    fb->setVisible(!locked);
                 if (auto *cb = tb->findChild<QToolButton *>(QStringLiteral("dockClose")))
                     cb->setVisible(true);
             }
@@ -3585,6 +3840,8 @@ void MainWindow::applyPanelLock(bool locked) {
         // while locked; that's a fair trade for a layout that always restores
         // correctly.
     }
+    if (dspRack_)     dspRack_->setLocked(locked);
+    if (optionsRack_) optionsRack_->setLocked(locked);
 }
 
 // Explicit operator-driven layout saves (View ▸ Save my layout / Save to slot N)
@@ -3595,6 +3852,117 @@ void MainWindow::refuseLayoutWrite() {
         tr("Layout saving is disabled for this session (safe boot, or a "
            "LYRA_TEST_SIZE diagnostic) so it can't overwrite your real "
            "layout."), 6000);
+}
+
+// Present a chip dock the operator turned on (or that restored open).  A
+// docked one is just shown where the layout put it.  A floating one on macOS
+// can stay checked in View while the window is ordered out (toggleViewAction
+// follows Qt's visible flag, and a later show() is a no-op because Qt already
+// thinks it is showing), so there it is hidden and shown again to order the
+// native window in.  Any floating one that is a crushed stub or off screen
+// gets a usable size on the screen the main window is on.
+void MainWindow::presentChipDock(QDockWidget *d, int slot) {
+    // adoptingRackDock_: a panel popping out of the rack is placed by
+    // adoptFloatedRackMember (under the cursor) — don't re-place it.
+    if (!d || chipDockPresenting_ || adoptingRackDock_) return;
+    // restoreState can mark a dock visible before this window is on screen.
+    // Showing a floating dock then leaves macOS with the window ordered out
+    // while the View check stays on.  Wait until the main window is showing.
+    if (!isVisible()) return;
+    if (qobject_cast<lyra::ui::PanelRack *>(d->window())) return;
+    if (!d->isFloating()) {             // docked: keep the operator's placement
+        d->show();
+        d->raise();
+        return;
+    }
+    chipDockPresenting_ = true;
+
+    QAction *act = d->toggleViewAction();
+    if (act) act->blockSignals(true);
+#ifdef Q_OS_MACOS
+    d->hide();
+    d->show();
+    d->winId();
+    if (QWindow *wh = d->windowHandle()) {
+        wh->setVisibility(QWindow::Windowed);
+        wh->raise();
+        wh->requestActivate();
+    }
+#else
+    d->show();
+#endif
+
+    // Size and place AFTER show.  hide/show replays the saved floating
+    // geometry, which for these docks is a 200×100 stub stacked off the
+    // window the operator is looking at.
+    QScreen *sc = screen();
+    if (!sc) sc = d->screen();
+    if (!sc) sc = QGuiApplication::primaryScreen();
+    if (sc) {
+        const QRect avail = sc->availableGeometry();
+        // A small panel (Recorder) is not a stub at its own natural size, so
+        // measure against the panel's size hint, capped at the old 420×200.
+        const QSize hint = d->sizeHint();
+        // A QML root with no implicit size hints ~0; ignore anything smaller
+        // than the 200×100 stub itself.
+        const bool hinted = hint.width() > 200 && hint.height() > 100;
+        const QSize floor = hinted ? hint.boundedTo(QSize(420, 200))
+                                   : QSize(420, 200);
+        const bool stub = d->width() < floor.width()
+                       || d->height() < floor.height();
+        const bool onScreen = avail.contains(d->frameGeometry().center());
+        if (stub || !onScreen) {
+            // The two EQs get a wide default ("freqcal" also contains "eq");
+            // the rest open at their natural size, at most 500×420.
+            const bool eq = d->objectName() == QLatin1String("txeq")
+                         || d->objectName() == QLatin1String("rxeq");
+            QSize sz = eq ? QSize(920, 480)
+                     : hinted ? hint.boundedTo(QSize(500, 420))
+                              : QSize(500, 420);
+            sz = sz.boundedTo(avail.size());
+            if (slot < 0) slot = 0;
+            QPoint origin = avail.topLeft()
+                            + QPoint(60 + slot * 40, 80 + slot * 36);
+            if (origin.x() + sz.width() > avail.right())
+                origin.setX(qMax(avail.left(), avail.right() - sz.width()));
+            if (origin.y() + sz.height() > avail.bottom())
+                origin.setY(qMax(avail.top(), avail.bottom() - sz.height()));
+            d->resize(sz);
+            d->move(origin);
+        }
+    }
+    if (act) {
+        act->setChecked(true);
+        act->blockSignals(false);
+    }
+    d->raise();
+    d->activateWindow();
+    chipDockPresenting_ = false;
+}
+
+void MainWindow::resurrectOpenChipDocks() {
+    int slot = 0;
+    for (const char *nm : kChipSummonedPanels) {
+        QDockWidget *d = docks_.value(QLatin1String(nm));
+        if (!d) continue;
+        QAction *a = d->toggleViewAction();
+        const bool checked = a && a->isChecked();
+        if (!d->isVisible() && !checked) continue;
+        presentChipDock(d, slot++);
+    }
+    // Grouped mode: the rack is shown during toolbar setup, before this
+    // window is on screen, so the main window covers it and the chip stays
+    // checked with nothing in front.  Raise it once we are visible.
+    auto raiseRack = [](lyra::ui::PanelRack *rack, QToolButton *chip) {
+        if (!rack) return;
+        const bool want = rack->isVisible() || (chip && chip->isChecked());
+        if (!want) return;
+        rack->show();
+        rack->raise();
+        rack->activateWindow();
+    };
+    raiseRack(dspRack_, dspRackChip_);
+    raiseRack(optionsRack_, optionsRackChip_);
 }
 
 // Clamp the window into the screen it landed on.  A geometry saved on a screen
@@ -4284,10 +4652,23 @@ void MainWindow::applyDefaultLayout() {
     QDockWidget *tx  = dock("tx");
 
     // Clean slate — but only for the always-on panels.  Chip-summoned rack/CW
-    // tool windows keep whatever state they're in, so a reset doesn't pop all
-    // of them open in the operator's face.
+    // tool windows keep their open/closed state, so a reset doesn't pop all
+    // of them open in the operator's face.  One docked into the main window
+    // goes back to floating (its default) so it can't wedge into the rebuilt
+    // rows; an open one is placed on screen like a chip click would.  Rack
+    // members live in their rack's window and are left alone.
+    int chipSlot = 0;
     for (auto *d : std::as_const(docks_)) {
-        if (isChipSummonedPanel(d->objectName())) continue;
+        if (isChipSummonedPanel(d->objectName())) {
+            if (d->window() == this && !d->isFloating()) {
+                // Not isVisible(): a tab behind another tab is open but hidden.
+                const bool open = d->toggleViewAction()->isChecked();
+                d->setFloating(true);
+                if (open) presentChipDock(d, chipSlot++);
+                else      d->hide();
+            }
+            continue;
+        }
         d->setFloating(false);
         removeDockWidget(d);   // also hides it; re-shown below if it's in the set
     }
@@ -4441,11 +4822,26 @@ void MainWindow::refreshLayoutUndoAction() {
 // removed; declarations dropped in mainwindow.h.  TX wiring rebuilt per
 // docs/TX_ARCHITECTURAL_MAPPING.md §10.3.
 
-void MainWindow::closeEvent(QCloseEvent *event) {
+// Quitting (Cmd-Q, the app menu's Quit, QCoreApplication::quit) closes Lyra's
+// windows one at a time in no fixed order.  A floating panel or rack closed
+// before this window would be saved as shut, so store the layout and each
+// grouped rack's geometry + open state FIRST, while everything is still on
+// screen, and let the racks accept their close without storing again.  Runs
+// once per exit: from the Quit event (eventFilter) or, for a plain close of
+// this window, from closeEvent.
+void MainWindow::storeSessionForExit() {
+    if (exitStored_) return;
+    exitStored_ = true;
     saveLayout();
-    // Persist each grouped rack's geometry + open state so it recalls next launch.
-    if (dspRack_)     dspRack_->store();
-    if (optionsRack_) optionsRack_->store();
+    for (PanelRack *rack : { dspRack_, optionsRack_ }) {
+        if (!rack) continue;
+        rack->store();
+        rack->setQuitting(true);
+    }
+}
+
+void MainWindow::closeEvent(QCloseEvent *event) {
+    storeSessionForExit();
 
     // Task #47 — QML null-safety on shutdown teardown.
     //
@@ -4586,8 +4982,19 @@ static bool isEditableFocus(QWidget *fw) {
 // QComboBox (Mode/Step) or QPushButton (band button) can't consume Space to
 // open its popup / click itself the way keyPressEvent-after-focus allowed
 // (Pierre HS0ZRT report).  This is the Qt equivalent of Thetis's KeyPreview.
+// It also sees the application's Quit first — see storeSessionForExit().
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     const QEvent::Type t = event->type();
+    if (t == QEvent::Quit && watched == qApp) {
+        storeSessionForExit();
+        // If a window refuses to close, the quit is cancelled and the event
+        // loop runs on: re-arm so the next exit stores the then-current state.
+        QTimer::singleShot(0, this, [this]() {
+            exitStored_ = false;
+            for (PanelRack *rack : { dspRack_, optionsRack_ })
+                if (rack) rack->setQuitting(false);
+        });
+    }
     if ((t == QEvent::KeyPress || t == QEvent::KeyRelease)
         && prefs_ && prefs_->spaceBarPttEnabled()) {
         auto *ke = static_cast<QKeyEvent *>(event);

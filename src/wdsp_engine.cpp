@@ -766,6 +766,11 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
 
 WdspEngine::~WdspEngine()
 {
+    shutdown();
+}
+
+void WdspEngine::shutdown()
+{
     // Reverse-destruction-order hazard: neuralCw_ is declared (wdsp_engine.h)
     // BEFORE cwArbiter_ and the cwHarvest*/cwHarvester_ members, so members
     // destruct in the OPPOSITE order — cwHarvester_, cwHarvestDecim_,
@@ -1601,13 +1606,29 @@ static int paHostApiIndexForName(const QString &name)
             }
         }
     }
-    for (int i = 0; i < nApi; ++i) {   // fallback: first WASAPI
+    // Fallback: the platform's native host API.  Windows uses WASAPI
+    // (the reference's posture, and what VB-Audio / VAC cables present
+    // themselves on); macOS has no WASAPI at all, so asking for it would
+    // return -1 and disable the whole VAC/digital-mode path.  CoreAudio
+    // is the direct equivalent — it is where BlackHole, Loopback and
+    // Soundflower virtual devices appear.
+#if defined(_WIN32)
+    constexpr PaHostApiTypeId kNativeHostApi = paWASAPI;
+#elif defined(__APPLE__)
+    constexpr PaHostApiTypeId kNativeHostApi = paCoreAudio;
+#else
+    constexpr PaHostApiTypeId kNativeHostApi = paALSA;
+#endif
+    for (int i = 0; i < nApi; ++i) {
         const PaHostApiInfo *ha = Pa_GetHostApiInfo(i);
-        if (ha && ha->type == paWASAPI) {
+        if (ha && ha->type == kNativeHostApi) {
             return i;
         }
     }
-    return -1;
+    // Last resort: PortAudio's own default host API, so a machine with an
+    // unexpected driver set still gets audio rather than silence.
+    const PaHostApiIndex fallback = Pa_GetDefaultHostApi();
+    return fallback >= 0 ? fallback : -1;
 }
 
 // #158 DL-3 — host APIs exposing >=1 device: display names + parallel PA
@@ -1653,9 +1674,20 @@ static QStringList paDevicesForHostApi(int paHostApi, bool wantOutput)
     return out;
 }
 
-// Resolve both VAC device names under the operator's chosen host API (by
+// True when the VAC output device is "(none)" (stored as an empty name):
+// a transmit-only VAC.
+static bool vacOutputIsNone(const QString &outName)
+{
+    const QString n = outName.trimmed();
+    return n.isEmpty() || n == QLatin1String("(none)");
+}
+
+// Resolve the VAC device names under the operator's chosen host API (by
 // name; DL-3).  Empty/unmatched host API → first WASAPI (DL-2 behavior).
-// Both must resolve (full-duplex reference model) → true.
+// The input must resolve.  The output must too, unless it is "(none)" —
+// then outDev = -1 and the stream opens input-only (transmit-only VAC).
+// A named output that doesn't resolve is still a failure, never a silent
+// downgrade to transmit-only.
 static bool resolveVacPaSel(const QString &hostApiName, const QString &outName,
                             const QString &inName, VacPaSel &sel)
 {
@@ -1663,9 +1695,10 @@ static bool resolveVacPaSel(const QString &hostApiName, const QString &outName,
     if (api < 0) {
         return false;
     }
-    const int o  = matchPaDeviceInHostApi(api, outName, /*wantOutput*/ true);
+    const int o  = vacOutputIsNone(outName)
+        ? -1 : matchPaDeviceInHostApi(api, outName, /*wantOutput*/ true);
     const int in = matchPaDeviceInHostApi(api, inName,  /*wantOutput*/ false);
-    if (o < 0 || in < 0) {
+    if ((o < 0 && !vacOutputIsNone(outName)) || in < 0) {
         return false;
     }
     sel.hostApi = api;
@@ -1692,16 +1725,16 @@ void WdspEngine::rebuildVac(int id)
     }
     const QString tag = QStringLiteral("[vac%1]").arg(id + 1);
     // #158 DL-2 — resolve the chosen VAC devices to PortAudio indices.  The
-    // reference VAC is ONE full-duplex stream, so BOTH an input AND an output
-    // device are required, under one WASAPI host API.  The shipped
-    // transmit-only "(none)" output is NOT available here — TX-without-feedback
-    // is restored properly at DL-4 (MOX/MON gating mutes RX→VAC during TX),
-    // not by half-opening the stream.
+    // reference VAC is ONE full-duplex stream (input + output under one host
+    // API).  Output "(none)" = transmit-only: the stream opens input-only
+    // (StartAudioIVAC, output_dev_index -1) and dispatchAudioFrame does not
+    // feed RX audio to it (hasOutput_).  The input is always required.
     VacPaSel sel;
     if (!resolveVacPaSel(v.hostApiName, v.outName, v.inName, sel)) {
-        emitLog(QStringLiteral("%1 not started — need a WASAPI-resolvable "
-                               "input AND output device (out='%2' in='%3'); "
-                               "DL-2 is full-duplex (both required)")
+        emitLog(QStringLiteral("%1 not started — need an input device and "
+                               "either an output device or \"(none)\" that "
+                               "resolve under the selected driver "
+                               "(out='%2' in='%3')")
                     .arg(tag,
                          v.outName.isEmpty() ? QStringLiteral("(unset)") : v.outName,
                          v.inName.isEmpty()  ? QStringLiteral("(unset)") : v.inName));
@@ -1799,6 +1832,7 @@ void WdspEngine::rebuildVac(int id)
     }
     {
         std::lock_guard<std::mutex> lk(v.mtx_);
+        v.hasOutput_.store(sel.outDev >= 0, std::memory_order_relaxed);
         v.active_.store(true, std::memory_order_release);
     }
     // #158 DL-4 — re-apply the current MOX state (a fresh ivac starts mox=0);
@@ -1811,11 +1845,15 @@ void WdspEngine::rebuildVac(int id)
     // (re)build (e.g. a sample-rate reopen mid-session).
     SetIVACmon(id, monEnabled_.load(std::memory_order_relaxed) ? 1 : 0);
     SetIVACmonVol(id, monVolume_.load(std::memory_order_relaxed));
-    emitLog(QStringLiteral("%1 LIVE (PortAudio duplex): out='%2' (RX gain "
+    emitLog(QStringLiteral("%1 LIVE (PortAudio %8): out='%2' (RX gain "
                            "%3 dB) | in='%4' (TX gain %5 dB) | %6 Hz, vac %7")
-                .arg(tag).arg(v.outName).arg(v.rxGainDb)
+                .arg(tag)
+                .arg(sel.outDev >= 0 ? v.outName : QStringLiteral("(none)"))
+                .arg(v.rxGainDb)
                 .arg(v.inName).arg(v.txGainDb)
-                .arg(cfg_.outRate).arg(v.vacSize));
+                .arg(cfg_.outRate).arg(v.vacSize)
+                .arg(sel.outDev >= 0 ? QStringLiteral("duplex")
+                                     : QStringLiteral("input-only, transmit-only VAC")));
 }
 
 // Stop the VAC-out tee + device + engine instance.  Idempotent.  Main
@@ -2068,6 +2106,8 @@ QVariantMap WdspEngine::vacDiagsFor(int id)
     if (!active) {
         return m;
     }
+    m.insert(QStringLiteral("hasOutput"),
+             vac_[id].hasOutput_.load(std::memory_order_relaxed));
     auto read = [&](int type, const char *uKey, const char *oKey,
                     const char *pctKey) {
         int under = 0, over = 0, ringsize = 0, nring = 0;
@@ -5088,7 +5128,8 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
                                && vacMuteVac)
         ? 0.0
         : posToGain(volumeRx2_.load(std::memory_order_relaxed));
-    if (vac_[0].active_.load(std::memory_order_relaxed)) {
+    if (vac_[0].active_.load(std::memory_order_relaxed) &&
+        vac_[0].hasOutput_.load(std::memory_order_relaxed)) {   // transmit-only VAC: no RX tee
         std::lock_guard<std::mutex> lk(vac_[0].mtx_);
         if (vac_[0].active_.load(std::memory_order_relaxed) &&
             nframes == outSize_) {
@@ -5142,7 +5183,8 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
     // VAC2 RX-out tee — RX2 only (SUB right).  SUB off: cable stays open
     // but silent so a second app does not lose the device.  Monitor stays
     // on VAC1 (stream 2 = silence here).
-    if (vac_[kVac2Id].active_.load(std::memory_order_relaxed)) {
+    if (vac_[kVac2Id].active_.load(std::memory_order_relaxed) &&
+        vac_[kVac2Id].hasOutput_.load(std::memory_order_relaxed)) {   // transmit-only VAC: no RX tee
         std::lock_guard<std::mutex> lk(vac_[kVac2Id].mtx_);
         if (vac_[kVac2Id].active_.load(std::memory_order_relaxed) &&
             nframes == outSize_) {

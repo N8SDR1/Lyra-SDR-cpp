@@ -6,13 +6,17 @@
 
 #include "wire/wdspcalls.h"
 
-#ifndef WIN32_LEAN_AND_MEAN
-#  define WIN32_LEAN_AND_MEAN
+#include "platform/dynamic_library.h"
+
+#if defined(_WIN32)
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
 #endif
-#ifndef NOMINMAX
-#  define NOMINMAX
-#endif
-#include <windows.h>
 
 #include <QtGlobal>   // qWarning
 
@@ -199,9 +203,13 @@ void (*SetPSFeedbackRate)(int, int) = nullptr;
 
 int resolve_wdsp_calls()
 {
-    HMODULE h = GetModuleHandleW(L"wdsp.dll");
+    // Borrow the handle WdspNative::load() registered.  (Windows used
+    // GetModuleHandleW(L"wdsp.dll") here; there is no portable
+    // by-name lookup, and dlopen-by-name could map a different copy.)
+    // We do NOT own this handle and must not unload it.
+    lyra::platform::ModuleHandle h = lyra::platform::wdspModule();
     if (h == nullptr) {
-        qWarning("[wdspcalls] wdsp.dll is not loaded — "
+        qWarning("[wdspcalls] WDSP engine is not loaded — "
                  "resolve_wdsp_calls() called before WdspNative::load()?");
         return -1;
     }
@@ -210,9 +218,9 @@ int resolve_wdsp_calls()
 
 #define LYRA_RESOLVE(name)                                                  \
     {                                                                       \
-        FARPROC p = GetProcAddress(h, #name);                               \
+        void *p = lyra::platform::resolveSymbol(h, #name);                  \
         if (p == nullptr) {                                                 \
-            qWarning("[wdspcalls] UNRESOLVED wdsp.dll export: %s", #name);  \
+            qWarning("[wdspcalls] UNRESOLVED WDSP export: %s", #name);     \
             ++missing;                                                      \
         }                                                                   \
         name = reinterpret_cast<decltype(name)>(                            \
