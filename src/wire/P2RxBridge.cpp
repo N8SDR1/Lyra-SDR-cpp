@@ -8,6 +8,7 @@
 #include "Router.h"
 #include "bandmemory.h"
 #include "bands.h"
+#include "xvtrslots.h"
 #include "hardware/HardwareCatalog.h"
 #include "hl2_stream.h"
 #include "rig/RadioCapabilities.h"
@@ -655,7 +656,12 @@ void P2RxBridge::pushDialToSession() {
         lyra::ui::BandMemory::bandNameFor(static_cast<int>(stream_->rx1FreqHz()));
     if (band != currentBand_) {
         currentBand_ = band;
-        restoreFrontEndForBand(band);
+        // Empty name = Xvtr RF (2 m / 70 cm). Ham BandMemory has no key;
+        // restoring here would zero ATT / MAP. XvtrSlots owns that gain.
+        if (!band.isEmpty())
+            restoreFrontEndForBand(band);
+        if (auto *xv = stream_->xvtrSlots())
+            xv->reapplyStoredGain();
     }
     quint32 rx = stream_->rx1FreqHz();
     if (stream_->ritEnabled())
@@ -778,6 +784,10 @@ void P2RxBridge::setRxAttenuationDb(int db) {
     if (db == rxAttenuationDb_) return;
     rxAttenuationDb_ = db;
     persistFrontEndValue(QStringLiteral("attenuationDb"), db);
+    if (stream_) {
+        if (auto *xv = stream_->xvtrSlots())
+            xv->noteAttDb(db);
+    }
     pushFrontEndToSession();
     emit frontEndChanged();
 }
@@ -1231,7 +1241,12 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     defaultTrxAntenna_ = clampTrxAntenna(ant);
     currentBand_ =
         lyra::ui::BandMemory::bandNameFor(static_cast<int>(hz));
-    restoreFrontEndForBand(currentBand_);
+    if (!currentBand_.isEmpty())
+        restoreFrontEndForBand(currentBand_);
+    if (stream_) {
+        if (auto *xv = stream_->xvtrSlots())
+            xv->reapplyStoredGain();
+    }
     const int att = rxAttenuationDb_;
     const int adc = ddcAdc_;
     const int input = rxInput_;

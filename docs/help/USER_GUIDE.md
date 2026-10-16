@@ -1538,7 +1538,11 @@ display cap, not the slot editor. ~2.147 GHz is the signed-int ceiling
 **Slot editor (right-click a chip).** On/off, name, **RF** low/high
 (MHz), LO (MHz), error (Hz), Disable PA, RX-only. Disable PA defaults
 **on** so the Hermes Lite onboard PA stays off with a transverter in
-circuit. PA-gain and USB-BCD follow **displayed RF**. The N2ADR / OC
+circuit. Clicking a chip (or QSYing into its RF range) also recalls that
+slot’s last **LNA** (Hermes Lite PGA) or **ATT** (Protocol 2 pad). Auto-LNA /
+Auto Step stay the global switch; the **number** they last left on that
+chip is what comes back. 20 m vs **2m** vs **70cm** are separate. First
+visit to a slot keeps the live value until you move the slider. PA-gain and USB-BCD follow **displayed RF**. The N2ADR / OC
 filter map uses the **IF of that slot’s RF-low** (not the live IF as
 you QSY). Otherwise a 2 m hop such as 145.675 ↔ 145.775 with a 116 MHz
 LO would cross the 10 m amateur edge at **29.7 MHz IF** and chatter the

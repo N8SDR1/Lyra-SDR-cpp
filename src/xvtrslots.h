@@ -7,6 +7,8 @@
 #include <QObject>
 #include <QString>
 #include <cstdint>
+#include <functional>
+#include <optional>
 
 namespace lyra::ipc { class HL2Stream; }
 
@@ -43,6 +45,15 @@ public:
     Q_INVOKABLE void tune(int i);
     Q_INVOKABLE void tuneSub(int i);
 
+    // P2 ATT writer (optional). LNA uses HL2Stream::setLnaGainDb.
+    void setAttApply(std::function<void(int)> fn);
+
+    // Live ATT from the P2 path — stored on the active Xvtr slot.
+    void noteAttDb(int db);
+
+    // Re-push stored LNA/ATT for the active slot (P2 open, band hop).
+    void reapplyStoredGain();
+
     // Radio DDS / DUC / DDC Hz for a displayed RF. Identity when no
     // enabled slot contains rfHz. Negative IF is clamped to 0.
     int ddsHz(qint64 rfHz) const;
@@ -64,17 +75,26 @@ private:
         bool    disablePa = true;
         bool    rxOnly    = false;
         qint64  lastHz    = 0;
+        std::optional<int> lnaDb;   // HL2 PGA, set after first operator/auto write
+        std::optional<int> attDb;   // P2 step pad 0..31
     };
 
     static bool valid(int i) { return i >= 0 && i < kCount; }
     void load();
     void persist(int i) const;
+    void persistGain(int i) const;
     void applyDefaults();
     qint64 tuneHzFor(int i) const;
     void rememberRx1();
+    void onActiveSlotMaybeChanged();
+    void applyStoredGain(int i);
+    void noteLnaDb(int db);
 
     lyra::ipc::HL2Stream *stream_ = nullptr;
     Slot slots_[kCount];
+    bool applying_ = false;
+    int  lastSlot_ = -2;   // not -1: first freq event must run
+    std::function<void(int)> attApply_;
 };
 
 } // namespace lyra::ui

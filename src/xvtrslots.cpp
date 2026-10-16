@@ -29,11 +29,18 @@ XvtrSlots::XvtrSlots(lyra::ipc::HL2Stream *stream, QObject *parent)
     if (stream_) {
         stream_->setXvtrSlots(this);
         connect(stream_, &lyra::ipc::HL2Stream::rx1FreqChanged,
-                this, [this]() { rememberRx1(); emit slotsChanged(); });
+                this, [this]() {
+                    rememberRx1();
+                    onActiveSlotMaybeChanged();
+                    emit slotsChanged();
+                });
         connect(stream_, &lyra::ipc::HL2Stream::rx2FreqChanged,
                 this, &XvtrSlots::slotsChanged);
         connect(stream_, &lyra::ipc::HL2Stream::subEnabledChanged,
                 this, &XvtrSlots::slotsChanged);
+        connect(stream_, &lyra::ipc::HL2Stream::lnaSetByOperator, this,
+                [this](int db) { noteLnaDb(db); });
+        onActiveSlotMaybeChanged();
     }
 }
 
@@ -64,6 +71,10 @@ void XvtrSlots::load() {
         slots_[i].disablePa = s.value(p + QStringLiteral("disablePa"), true).toBool();
         slots_[i].rxOnly    = s.value(p + QStringLiteral("rxOnly"), false).toBool();
         slots_[i].lastHz    = s.value(p + QStringLiteral("lastHz"), QVariant::fromValue(slots_[i].lastHz)).toLongLong();
+        if (s.contains(p + QStringLiteral("lnaDb")))
+            slots_[i].lnaDb = s.value(p + QStringLiteral("lnaDb")).toInt();
+        if (s.contains(p + QStringLiteral("attDb")))
+            slots_[i].attDb = s.value(p + QStringLiteral("attDb")).toInt();
     }
 }
 
@@ -80,6 +91,17 @@ void XvtrSlots::persist(int i) const {
     s.setValue(p + QStringLiteral("disablePa"), slots_[i].disablePa);
     s.setValue(p + QStringLiteral("rxOnly"),    slots_[i].rxOnly);
     s.setValue(p + QStringLiteral("lastHz"),    QVariant::fromValue(slots_[i].lastHz));
+    persistGain(i);
+}
+
+void XvtrSlots::persistGain(int i) const {
+    if (!valid(i)) return;
+    QSettings s;
+    const QString p = QString::fromLatin1(kPfx) + QString::number(i) + QLatin1Char('/');
+    if (slots_[i].lnaDb.has_value())
+        s.setValue(p + QStringLiteral("lnaDb"), *slots_[i].lnaDb);
+    if (slots_[i].attDb.has_value())
+        s.setValue(p + QStringLiteral("attDb"), *slots_[i].attDb);
 }
 
 int XvtrSlots::matchingSlot(qint64 rfHz) const {
@@ -141,6 +163,62 @@ qint64 XvtrSlots::tuneHzFor(int i) const {
     if (sl.rfHiHz > sl.rfLoHz)
         return (sl.rfLoHz + sl.rfHiHz) / 2;
     return sl.rfLoHz;
+}
+
+void XvtrSlots::setAttApply(std::function<void(int)> fn) {
+    attApply_ = std::move(fn);
+}
+
+void XvtrSlots::noteLnaDb(int db) {
+    if (applying_ || !stream_) return;
+    const int i = activeSlot();
+    if (i < 0) return;
+    db = std::clamp(db, lyra::ipc::HL2Stream::kLnaMinDb,
+                    lyra::ipc::HL2Stream::kLnaMaxDb);
+    if (slots_[i].lnaDb == db) return;
+    slots_[i].lnaDb = db;
+    persistGain(i);
+}
+
+void XvtrSlots::noteAttDb(int db) {
+    if (applying_) return;
+    const int i = activeSlot();
+    if (i < 0) return;
+    db = std::clamp(db, 0, 31);
+    if (slots_[i].attDb == db) return;
+    slots_[i].attDb = db;
+    persistGain(i);
+}
+
+void XvtrSlots::reapplyStoredGain() {
+    if (applying_) return;
+    const int i = activeSlot();
+    if (i < 0) return;
+    lastSlot_ = i;
+    applyStoredGain(i);
+}
+
+void XvtrSlots::onActiveSlotMaybeChanged() {
+    if (applying_) return;
+    const int i = activeSlot();
+    if (i == lastSlot_) return;
+    lastSlot_ = i;
+    if (i >= 0)
+        applyStoredGain(i);
+}
+
+void XvtrSlots::applyStoredGain(int i) {
+    if (!valid(i) || !stream_) return;
+    applying_ = true;
+    stream_->noteBandChange();
+    if (slots_[i].lnaDb.has_value()) {
+        stream_->setLnaGainDb(std::clamp(*slots_[i].lnaDb,
+                                         lyra::ipc::HL2Stream::kLnaMinDb,
+                                         lyra::ipc::HL2Stream::kLnaMaxDb));
+    }
+    if (slots_[i].attDb.has_value() && attApply_)
+        attApply_(std::clamp(*slots_[i].attDb, 0, 31));
+    applying_ = false;
 }
 
 void XvtrSlots::tune(int i) {

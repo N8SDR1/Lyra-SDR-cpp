@@ -1317,6 +1317,7 @@ public slots:
     void syncPsAttToTxBand();
     void setPaEnabled(bool on);
     void setXvtrSlots(lyra::ui::XvtrSlots *xvtrSlots);
+    lyra::ui::XvtrSlots *xvtrSlots() const { return xvtr_; }
     // Display RF → radio IF/DDS (identity when no Xvtr slot matches).
     int ddsHzForRf(quint32 rfHz) const;
     // Enabled Xvtr slot index containing displayed RF, or -1.

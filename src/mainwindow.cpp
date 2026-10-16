@@ -723,6 +723,11 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
 
     xvtr_ = new XvtrSlots(
         qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
+    xvtr_->setAttApply([this](int db) {
+        if (p2Bridge_)
+            p2Bridge_->setRxAttenuationDb(db);
+    });
+    xvtr_->reapplyStoredGain();
 
     // HF time-station TIME cycle (TIME button on the GEN row).
     time_ = new TimeStations(
