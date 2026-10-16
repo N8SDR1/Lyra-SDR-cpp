@@ -1,8 +1,8 @@
 // Lyra — Meter dock panel (RX/TX meter).
 //
-// Hosts one of three GPU-flavoured renderers — Horizon Arc (default),
-// Plasma Bar, or Vertical Ladder (Multi-source) — all fed by the C++
-// `Meter` context property (MeterModel).  A tiny Arc|Bar|Ladder toggle
+// Hosts four GPU-flavoured renderers — Horizon Arc (default),
+// Plasma Bar, Vertical Ladder, or Lyra Radar — all fed by the C++
+// `Meter` context property (MeterModel).  A tiny style toggle
 // in the corner flips the style live; the choice persists.
 //
 // Arc and Bar are single-source views (one needle / bar, peak pip,
@@ -31,7 +31,7 @@ Rectangle {
     readonly property int lyraMinWidth:  220
     readonly property int lyraMinHeight: 150
 
-    // ── Style toggle (top-right): Arc | Bar | Ladder ──
+    // ── Style toggle (top-right): Arc | Bar | Ladder | Radar ──
     Row {
         id: styleToggle
         anchors.top: parent.top
@@ -45,10 +45,11 @@ Rectangle {
             model: [
                 { t: "Arc",    s: 0 },
                 { t: "Bar",    s: 1 },
-                { t: "Ladder", s: 2 }
+                { t: "Ladder", s: 2 },
+                { t: "Radar",  s: 3 }
             ]
             delegate: Rectangle {
-                width: 44; height: 18
+                width: 42; height: 18
                 readonly property bool sel: Meter.activeStyle === modelData.s
                 color: sel ? "#15435a" : "#0c1218"
                 border.color: sel ? "#00e5ff" : "#2a4a5a"
@@ -80,6 +81,7 @@ Rectangle {
             switch (Meter.activeStyle) {
             case 1:  return barFace
             case 2:  return ladderFace
+            case 3:  return lyraFace
             default: return arcFace
             }
         }
@@ -88,6 +90,7 @@ Rectangle {
     Component { id: arcFace;    HorizonArc {} }
     Component { id: barFace;    PlasmaBar {} }
     Component { id: ladderFace; VerticalLadder {} }
+    Component { id: lyraFace;   LyraMeter {} }
 
     // ── Click-to-cycle source picker (task #35 / FEATURES.md §6) ──
     // Click on the meter face cycles the source through the wired
@@ -109,7 +112,7 @@ Rectangle {
         // Disabled on the Ladder style — Multi shows all sources at
         // once, so there's no primary to cycle.  Operator picks per-
         // state preference from Settings → Meter as usual.
-        enabled: Meter.activeStyle !== 2
+        enabled: Meter.activeStyle !== 2 && Meter.activeStyle !== 3
         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
         acceptedButtons: Qt.LeftButton
         property var sourceCycle: [0, 1, 2]  // RX_SMETER, PWR, SWR

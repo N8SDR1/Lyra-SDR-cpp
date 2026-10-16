@@ -152,6 +152,8 @@ private:
     // The floor is a slow rolling-minimum of the level; SNR = signal-floor.
     Q_PROPERTY(double noiseLevel READ noiseLevel NOTIFY updated)
     Q_PROPERTY(QString snrText   READ snrText    NOTIFY updated)
+    Q_PROPERTY(double noiseFloorDbm READ noiseFloorDbm NOTIFY updated)
+    Q_PROPERTY(double rxSnrDb READ rxSnrDb NOTIFY updated)
     // The normalized position of the S9 boundary — renderers paint the
     // over-S9 region red.  Tracks the HF/VHF scale (S9 shifts at 30 MHz).
     Q_PROPERTY(double normAtS9 READ normAtS9 NOTIFY updated)
@@ -164,10 +166,10 @@ private:
     // on a P2 rig.  Refreshes on the meter tick (NOTIFY updated).
     Q_PROPERTY(double liveSwr READ liveSwr NOTIFY updated)
     // Operator-selectable visual style: 0 = Horizon Arc (default),
-    // 1 = Plasma Bar, 2 = Vertical Ladder.  `style` is the RX (default)
-    // style; `txStyle` is used on TX when `separateStyle` is on.  The
-    // renderer + header toggle read `activeStyle`, which swaps on the MOX
-    // edge (mirrors the panadapter dB-range swap).
+    // 1 = Plasma Bar, 2 = Vertical Ladder, 3 = Lyra Radar (PPI blob +
+    // satellite cards).  `style` is the RX (default) style; `txStyle`
+    // is used on TX when `separateStyle` is on.  The renderer + header
+    // toggle read `activeStyle`, which swaps on the MOX edge.
     Q_PROPERTY(int style READ style WRITE setStyle NOTIFY styleChanged)
     Q_PROPERTY(int txStyle READ txStyle WRITE setTxStyle NOTIFY txStyleChanged)
     Q_PROPERTY(bool separateStyle READ separateStyle WRITE setSeparateStyle
@@ -292,6 +294,7 @@ public:
     double  glow()     const { return glow_; }
     double  noiseLevel() const { return noiseLevel_; }
     QString snrText()  const { return snrText_; }
+    double  noiseFloorDbm() const { return noiseFloorDbm_; }
     QString text()     const { return text_; }
     QString dbmText()  const { return dbmText_; }
     QVariantList history() const { return history_; }
@@ -331,7 +334,7 @@ public:
     // The style the renderer + header toggle actually use: txStyle on TX
     // (when separateStyle is on), else style.  Swaps on the MOX edge.
     int  activeStyle() const;
-    // Header Arc/Bar/Ladder buttons: set the style of whatever state is
+    // Header Arc/Bar/Ladder/Radar buttons: set the style of whatever state is
     // showing NOW (TX style if separate+keyed, else the RX/default style).
     Q_INVOKABLE void setActiveStyle(int s);
     double calDb() const { return calDb_; }
@@ -359,6 +362,7 @@ public:
 
     // Tick marks for the scale: list of { pos: 0..1, label: "9"/"+20", major: bool }.
     Q_INVOKABLE QVariantList tickMarks() const;
+    Q_INVOKABLE QVariantList tickMarksFor(int source) const;
 
     // The rolling-minimum RX noise floor converted from calibrated dBm back
     // into the WDSP-dBFS *raw* domain (the exact inverse of
@@ -394,6 +398,7 @@ private:
     // a bogus TX peak across the edge.  Wired to BOTH
     // HL2Stream::moxActiveChanged and ::cwKeyingActiveChanged.
     void applyKeyStateSource();
+    bool clusterLive() const;
     // Per-source tick computations.  Each fills the model's Q_PROPERTY
     // fields (level_/peak_/maxPeak_/glow_/text_/dbmText_/snrText_/
     // history_/noiseLevel_/floorDbm_/ceilDbm_/s9Dbm_) appropriately for

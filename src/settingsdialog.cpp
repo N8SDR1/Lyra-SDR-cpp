@@ -5388,7 +5388,7 @@ QWidget *SettingsDialog::buildMeterTab() {
 
         // Separate RX/TX meter STYLE (Arc/Bar/Ladder per state) — auto-swaps
         // on the MOX edge, mirroring the panadapter dB-range swap.  The
-        // header Arc|Bar|Ladder buttons stay a live quick override.
+        // header Arc|Bar|Ladder|Lyra buttons stay a live quick override.
         auto *sepStyle = new QCheckBox(tr("Separate RX / TX meter style"), page);
         sepStyle->setChecked(meter_->separateStyle());
         sepStyle->setToolTip(tr(
@@ -5403,7 +5403,9 @@ QWidget *SettingsDialog::buildMeterTab() {
             cb->addItem(tr("Horizon Arc"),     0);
             cb->addItem(tr("Plasma Bar"),      1);
             cb->addItem(tr("Vertical Ladder"), 2);
-            cb->setCurrentIndex(std::clamp(cur, 0, 2));
+            cb->addItem(tr("Lyra Radar"),      3);
+            const int ix = cb->findData(cur);
+            cb->setCurrentIndex(ix < 0 ? 0 : ix);
             return cb;
         };
         auto *rxStyleCb = buildStyleCombo(meter_->style());

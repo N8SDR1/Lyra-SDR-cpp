@@ -1548,6 +1548,15 @@ you QSY). Otherwise a 2 m hop such as 145.675 ↔ 145.775 with a 116 MHz
 LO would cross the 10 m amateur edge at **29.7 MHz IF** and chatter the
 HL2 filter-board relays. USB-BCD does not do that (it keys on RF).
 
+**HL2 + transverter with a 30 dB pad** (for example UR3LMZ TR2020 Mini and
+an automatic TX/RX switch). The split RX/TX ports are **on that box**, not
+an extra HL2 antenna. Right-click the **2m** (or matching) chip: uncheck
+**Disable radio PA**, set **Error** about **−200…−300 Hz** (re-trim if the
+LO drifts). Turn **Enable PA** on in Settings when you want the HL2 PA into
+the pad. **Auto** on the DSP+Audio strip is Auto-LNA (lit = on, the default).
+Click Auto off for a fixed LNA, then use the LNA slider. Each Xvtr chip
+remembers its last LNA number; Auto stays one global switch.
+
 **IF window.** The HL2 ADC/NCO is HF (~DC–30.72 MHz). Example: RF
 144–146 MHz with LO 116 MHz → IF 28–30 MHz (inside). RF **148** MHz at
 the same LO → IF **32** MHz (outside that window). Tighten RF high or
@@ -2214,9 +2223,9 @@ is the extra Visuals pair for the second pane.
 
 ## Meter panel
 
-A GPU-drawn **RX signal-strength meter** with three looks — pick whichever
-you like with the small **Arc | Bar | Ladder** toggle in the panel's
-top-right corner (your choice is remembered):
+A GPU-drawn **RX / TX meter** with four looks — pick with the small
+**Arc | Bar | Ladder | Lyra** toggle in the panel's top-right corner
+(your choice is remembered):
 
 - **Horizon Arc** (default) — a sweep dial against a fixed, calibrated
   S-scale. The fill climbs through colour zones (cyan → green → amber →
@@ -2232,6 +2241,9 @@ top-right corner (your choice is remembered):
   readouts at once as labelled bars (e.g. PWR / SWR / ALC together on
   transmit) instead of one big primary readout — handy when you want to
   watch the whole picture at a glance.
+- **Lyra Radar** — PPI blob (radius = the same 0…1 as Arc). Giant S / watts
+  digits in the well; fat **NF·SNR** or **SWR·MIC·ALC** cards underneath.
+  Same calibration as Arc.
 
 Both styles also carry an optional **max-peak marker** — a second, **red**
 "high-water mark" that latches the highest level reached and falls back
@@ -2250,7 +2262,7 @@ both receive and transmit. Tick **Separate RX / TX meter style** in
 **Horizon Arc** while receiving and **Vertical Ladder** for a clean
 PWR/SWR read on transmit. Just like the source swap below, the style then
 changes automatically the instant you key up and back on unkey. The header
-**Arc | Bar | Ladder** buttons stay a live override for whichever state is
+**Arc | Bar | Ladder | Lyra** buttons stay a live override for whichever state is
 showing at that moment.
 
 What the meter shows:
