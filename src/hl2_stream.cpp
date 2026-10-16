@@ -47,6 +47,7 @@
 #include <process.h>     // _beginthreadex — EP2 writer thread (P4.b; reference StartAudioNative netInterface.c:66)
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QDebug>           // qInfo / qCritical for safety-event mirror
 #include <QMetaObject>
 #include <QSettings>
@@ -1978,30 +1979,52 @@ void HL2Stream::setPwrTrimForBand(int idx, double scale) {
 // _radionet + file-scope-global pattern (network.h / networkproto1.c).
 // ----------------------------------------------------------------
 
-void HL2Stream::setRx1FreqHz(quint32 hz) {
-    const quint32 prev = rx1FreqHz_.exchange(hz, std::memory_order_relaxed);
-    if (prev != hz) {
-        QSettings().setValue(QStringLiteral("rx/freqHz"), hz);
-        // NCOs first, then notify.  Protocol 2 mirrors DUC from txFreqHz_
-        // on rx1FreqChanged — if that fires before pushEffectiveTxFreq,
-        // TX stays on the previous dial (start is correct; any later VFO
-        // move leaves TX one step behind, including after returning).
-        pushEffectiveRxFreq();
-        if (!splitEnabled_.load(std::memory_order_relaxed))
-            pushEffectiveTxFreq();
-        else
-            emit txAnalyzerOffsetChanged(txAnalyzerOffsetHz());
-        emit rx1FreqChanged();
-        emit logLine(QStringLiteral("RX1 -> %1 Hz (%2 MHz)")
-                     .arg(hz).arg(hz / 1.0e6, 0, 'f', 6));
-        syncDiversityToRxBand();
-        updateOcPattern();
-    } else if (!splitEnabled_.load(std::memory_order_relaxed)) {
-        // Same dial Hz (band chip re-selected, stack slot unchanged).
-        // Still write analog: a missed latch otherwise stays on the
-        // previous band's voltage until some other frequency is chosen.
-        pushIoboardTxFreq();
+bool HL2Stream::refuseTxBandJump(quint32 fromHz, quint32 toHz) {
+    if (fromHz == toHz)
+        return false;
+    if (!txDisplayActive_)
+        return false;
+    if (!lyra::bandJumpCrosses(static_cast<int>(fromHz),
+                               static_cast<int>(toHz)))
+        return false;
+    static qint64 lastMs = 0;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - lastMs >= 1200) {
+        lastMs = now;
+        emit txBandChangeBlocked();
+        emit logLine(QStringLiteral(
+            "Frequency change ignored while transmitting"));
     }
+    return true;
+}
+
+void HL2Stream::setRx1FreqHz(quint32 hz) {
+    const quint32 prev = rx1FreqHz_.load(std::memory_order_relaxed);
+    // Simplex: VFO A is TX.  SPLIT: A is RX-only; B carries TX.
+    if (!splitEnabled_.load(std::memory_order_relaxed)
+        && refuseTxBandJump(prev, hz))
+        return;
+    if (prev == hz) {
+        if (!splitEnabled_.load(std::memory_order_relaxed))
+            pushIoboardTxFreq();
+        return;
+    }
+    rx1FreqHz_.store(hz, std::memory_order_relaxed);
+    QSettings().setValue(QStringLiteral("rx/freqHz"), hz);
+    // NCOs first, then notify.  Protocol 2 mirrors DUC from txFreqHz_
+    // on rx1FreqChanged — if that fires before pushEffectiveTxFreq,
+    // TX stays on the previous dial (start is correct; any later VFO
+    // move leaves TX one step behind, including after returning).
+    pushEffectiveRxFreq();
+    if (!splitEnabled_.load(std::memory_order_relaxed))
+        pushEffectiveTxFreq();
+    else
+        emit txAnalyzerOffsetChanged(txAnalyzerOffsetHz());
+    emit rx1FreqChanged();
+    emit logLine(QStringLiteral("RX1 -> %1 Hz (%2 MHz)")
+                 .arg(hz).arg(hz / 1.0e6, 0, 'f', 6));
+    syncDiversityToRxBand();
+    updateOcPattern();
 }
 
 double HL2Stream::freqCorrection() const {
@@ -2292,9 +2315,13 @@ void HL2Stream::setSplitEnabled(bool on) {
 }
 
 void HL2Stream::setVfoBHz(quint32 hz) {
-    const quint32 prev = vfoBHz_.exchange(hz, std::memory_order_relaxed);
+    const quint32 prev = vfoBHz_.load(std::memory_order_relaxed);
     if (prev == hz)
         return;
+    if (splitEnabled_.load(std::memory_order_relaxed)
+        && refuseTxBandJump(prev, hz))
+        return;
+    vfoBHz_.store(hz, std::memory_order_relaxed);
     QSettings().setValue(QStringLiteral("tx/vfoBHz"), hz);
     if (splitEnabled_.load(std::memory_order_relaxed))
         pushEffectiveTxFreq();
@@ -2444,9 +2471,15 @@ void HL2Stream::refreshDualAdcFromSettings() {
 }
 
 void HL2Stream::setRx2FreqHz(quint32 hz) {
-    const quint32 prev = rx2FreqHz_.exchange(hz, std::memory_order_relaxed);
+    const quint32 prev = rx2FreqHz_.load(std::memory_order_relaxed);
     if (prev == hz)
         return;
+    // SUB+SPLIT: RX2 writes VFO B, which is TX.
+    if (subEnabled_.load(std::memory_order_relaxed)
+        && splitEnabled_.load(std::memory_order_relaxed)
+        && refuseTxBandJump(prev, hz))
+        return;
+    rx2FreqHz_.store(hz, std::memory_order_relaxed);
     QSettings().setValue(QStringLiteral("rx/rx2FreqHz"), hz);
     emit rx2FreqChanged();
     emit logLine(QStringLiteral("RX2 -> %1 Hz (%2 MHz)")

@@ -2241,15 +2241,17 @@ A GPU-drawn **RX / TX meter** with four looks — pick with the small
   readouts at once as labelled bars (e.g. PWR / SWR / ALC together on
   transmit) instead of one big primary readout — handy when you want to
   watch the whole picture at a glance.
-- **Lyra Radar** — PPI blob (radius = the same 0…1 as Arc). Giant S / watts
-  digits in the well; fat **NF·SNR** or **SWR·MIC·ALC** cards underneath.
-  Same calibration as Arc.
+- **Sonar** — PPI with a compass ring. The return rides the sweep all the
+  way round (afterglow of the last rotation). Same 0…1 as Arc. Replaces
+  the earlier Radar face (saved style 3 becomes Sonar).
 - **Helios** — sun plus a planet row on the **same 0…1** as Arc. On RX,
   Earth holds S5–S7, Jupiter is S9+, Saturn +15, Uranus +30, Pluto a
   tickle at +45, wormhole at +50. On TX the planets follow the watts
   scale (rated max in Settings → Meter); a small **MIC · ALC · GAIN**
   line (cyan / green / red, no bars) sits under the poster. The big
   S / watts number stays.
+- **Cluster** — cockpit arc of lamps plus segmented bars for the Ladder
+  stack (S / NF / SNR on RX; PWR and the TX rows on TX). Theme cyan.
 
 Both styles also carry an optional **max-peak marker** — a second, **red**
 "high-water mark" that latches the highest level reached and falls back
@@ -2268,7 +2270,7 @@ both receive and transmit. Tick **Separate RX / TX meter style** in
 **Horizon Arc** while receiving and **Vertical Ladder** for a clean
 PWR/SWR read on transmit. Just like the source swap below, the style then
 changes automatically the instant you key up and back on unkey. The header
-**Arc | Bar | Ladder | Lyra** buttons stay a live override for whichever state is
+**Arc | Bar | Ladder | Sonar | Sol | Clus** buttons stay a live override for whichever state is
 showing at that moment.
 
 What the meter shows:
@@ -4656,6 +4658,12 @@ amplifier. Both live in **Settings → TX** (the safety column, next to
 ATT-on-TX); SWR protection also has a front-panel **PROT lamp** on the
 TX panel.
 
+**Band change while transmitting.** A one-shot VFO jump that would leave
+the amateur band (band chip, memory, GEN/TIME, CAT, TCI, and so on) is
+**ignored**. Transmit stays up. The status bar says *Frequency change
+ignored while transmitting.* Same-band hops still go through. Filters
+and the PA band do not switch under RF.
+
 **SWR protection (auto-cut / fold on high reflected power).** While you
 transmit, Lyra watches forward/reflected power and acts if the SWR stays
 above your limit — protection against a bad antenna, a disconnected
@@ -5432,9 +5440,7 @@ Taking the token is what moves the microphone. A TCI connection by itself leaves
 
 Unkey only stops the transmit audio. The remote profile stays until the session ends or the link drops, and then the previous microphone, rack, and leveler come back. Lyra does not write those changes into Settings, so a crash comes back on the desk profile.
 
-One password covers three things: listening, when you tick the box below; changing the radio; and transmit. A listen-only connection does not receive a transmit token.
-
-**Password required to listen** is off unless you tick it. The box is saved. Spectrum and receiver audio stay open. The later hold, where spectrum and audio wait for the same proof, is not applied yet. Programs on the computer running Lyra are not asked.
+**Password required to listen** is **disabled** in this build. The tick was saved but never held spectrum or audio. Enabling it would look like a lock we do not apply, and it would break a receiver page or a digital program on another computer. **Start voice** already proves the password. Address lists still apply. A listen-only connection does not receive a transmit token.
 
 The browser chooses its own microphone and applies its own EQ before the samples are sent. Lyra never sees the device name.
 
@@ -5446,7 +5452,7 @@ A remote program that asks to start a voice session receives one challenge. The 
 
 When a token is granted, Lyra moves transmit audio to that connection, steps the speech rack aside, and parks the leveler. Those three stay live only. Settings keep the desk microphone. Unkey leaves the session up. Releasing the token, or dropping the link, puts the desk microphone, rack, and leveler back.
 
-The page asks for the password only after **Start voice**. A normal connection leaves the desk profile alone. After the session is on, **MOX** sends that computer's microphone and **Tune** sends a carrier from Lyra. Open the page with **Open Lyra Remote**. A file opened by double-click can still listen, and it cannot prove the password or open a microphone. **Password required to listen** is saved. It does not hold the spectrum, and it does not drop a connection. The address lists and an unforwarded port keep other computers out.
+The page asks for the password only after **Start voice**. A normal connection leaves the desk profile alone. After the session is on, **MOX** sends that computer's microphone and **Tune** sends a carrier from Lyra. Open the page with **Open Lyra Remote**. A file opened by double-click can still listen, and it cannot prove the password or open a microphone. **Password required to listen** is disabled until a listen lock can run without breaking those paths. The address lists and an unforwarded port keep other computers out.
 
 Save the password before you allow a remote to transmit. The proof is checked by Lyra, on the Lyra computer, for that connection alone.
 

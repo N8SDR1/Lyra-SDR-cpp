@@ -2756,28 +2756,21 @@ QWidget *SettingsDialog::buildRemoteTab() {
     auto *listen = new QCheckBox(
         tr("Password required to listen"), pw);
     listen->setChecked(prefs_->remoteListenRequiresPassword());
+    listen->setEnabled(false);
     listen->setToolTip(
-        tr("Off: spectrum and audio stay open on your network. "
-           "On: spectrum and audio wait for the same password. "
-           "Programs on this computer are always let through."));
-    connect(listen, &QCheckBox::toggled, prefs_,
-            &Prefs::setRemoteListenRequiresPassword);
-    connect(prefs_, &Prefs::remoteListenRequiresPasswordChanged, listen,
-            [this, listen]() {
-                const bool on = prefs_->remoteListenRequiresPassword();
-                if (listen->isChecked() != on) {
-                    QSignalBlocker block(listen);
-                    listen->setChecked(on);
-                }
-            });
+        tr("Disabled for now. The tick was saved but never held spectrum "
+           "or receiver audio. Turning it on would look like a lock we "
+           "do not apply: WSJT-X and the Remote page still need an open "
+           "listen path. Start voice already uses the password. Address "
+           "lists still apply."));
     pwForm->addRow(QString(), listen);
 
     auto *listenNote = new QLabel(
-        tr("One password covers listening (when the box is ticked), "
-           "changing the radio, and transmit. A listen-only connection "
-           "does not receive a transmit token. Programs on this computer "
-           "keep working without the password, so a digital program here "
-           "is not asked for it."),
+        tr("Disabled until a listen lock can run without breaking a "
+           "receiver page or a digital program on another computer. "
+           "Start voice already proves the password. Address lists "
+           "and an unforwarded port keep other computers out. "
+           "Programs on this computer are not asked."),
         pw);
     listenNote->setWordWrap(true);
     listenNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
@@ -5403,8 +5396,9 @@ QWidget *SettingsDialog::buildMeterTab() {
             cb->addItem(tr("Horizon Arc"),     0);
             cb->addItem(tr("Plasma Bar"),      1);
             cb->addItem(tr("Vertical Ladder"), 2);
-            cb->addItem(tr("Lyra Radar"),      3);
+            cb->addItem(tr("Sonar"),           3);
             cb->addItem(tr("Helios"),          4);
+            cb->addItem(tr("Cluster"),         5);
             const int ix = cb->findData(cur);
             cb->setCurrentIndex(ix < 0 ? 0 : ix);
             return cb;

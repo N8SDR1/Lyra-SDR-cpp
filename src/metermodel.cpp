@@ -47,7 +47,7 @@ constexpr double kSmooth        = 0.55;
 constexpr int    kHistory       = 90;     // ~4.5 s trail
 
 int clampMeterStyle(int s) {
-    return std::clamp(s, 0, 4);
+    return std::clamp(s, 0, 5);
 }
 
 constexpr auto kKeyStyle    = "meter/style";
@@ -364,11 +364,12 @@ int MeterModel::activeStyle() const {
 
 bool MeterModel::clusterLive() const {
     const int a = activeStyle();
-    return a == 2 || a == 3 || a == 4;
+    // Ladder, Helios TX chips, Cluster.  Sonar (3) uses the S/PWR tick.
+    return a == 2 || a == 4 || a == 5;
 }
 
 void MeterModel::setStyle(int s) {
-    // 0=HorizonArc, 1=PlasmaBar, 2=VerticalLadder, 3=Lyra Radar, 4=Helios.
+    // 0=HorizonArc, 1=PlasmaBar, 2=VerticalLadder, 3=Sonar, 4=Helios, 5=Cluster.
     // This is the RX / default style.
     s = clampMeterStyle(s);
     if (s == style_) return;
@@ -1046,22 +1047,16 @@ void MeterModel::buildLadderRows() {
     // meter uses, so the Ladder flips to the TX rows when sending CW.
     const bool tx = stream_->moxActive() || stream_->cwKeyingActive();
     const int style = activeStyle();
-    const bool radar = style == 3;
     const bool helios = style == 4;
     QList<int> srcs;
     QStringList labels;
     if (tx) {
-        // Radar: short SWR/MIC/ALC cards under a PWR blob.
-        // Helios: title+value only (MIC/ALC/GAIN) — no bars, no SWR.
-        // Ladder: full telemetry stack.
+        // Helios: title+value only (MIC/ALC/GAIN).
+        // Ladder / Cluster: full telemetry stack.
         if (helios) {
             srcs   = {MIC, ALC_PK, ALC_G};
             labels = {QStringLiteral("MIC"), QStringLiteral("ALC"),
                       QStringLiteral("GAIN")};
-        } else if (radar) {
-            srcs   = {PWR, SWR, MIC, ALC_PK};
-            labels = {QStringLiteral("PWR"), QStringLiteral("SWR"),
-                      QStringLiteral("MIC"), QStringLiteral("ALC")};
         } else {
             srcs   = {PWR, SWR, MIC, ALC_PK, ALC_G, LVL_PK,
                       PA_CURRENT, PA_VOLTS, TEMP};
@@ -1092,6 +1087,7 @@ void MeterModel::buildLadderRows() {
                        : formatSecondaryText(srcs[i]));
         row.insert(QStringLiteral("level"),  level);
         row.insert(QStringLiteral("danger"), danger);
+        row.insert(QStringLiteral("source"), srcs[i]);
         ladderRows_.append(row);
     }
 
@@ -1161,7 +1157,7 @@ void MeterModel::tick() {
     // Radar's hero is always S on RX / PWR on TX.  Click-cycle on Arc
     // can leave source_ on PWR/SWR, which skipped computeSMeter() and
     // froze NF/SNR (those only update in the S-meter tick).
-    if (activeStyle() == 3 || activeStyle() == 4) {
+    if (activeStyle() == 3 || activeStyle() == 4) {  // Sonar / Helios
         const bool keyed = stream_ &&
             (stream_->moxActive() || stream_->cwKeyingActive());
         if (keyed) computePwr();

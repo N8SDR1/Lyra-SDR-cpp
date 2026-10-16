@@ -558,8 +558,10 @@ qt_add_qml_module(lyra
         src/qml/HorizonArc.qml
         src/qml/PlasmaBar.qml
         src/qml/VerticalLadder.qml
-        src/qml/LyraMeter.qml
+        src/qml/MeterInk.js
+        src/qml/MeterSonar.qml
         src/qml/LyraHelios.qml
+        src/qml/MeterCluster.qml
     RESOURCES
         src/assets/watermarks/lyra-watermark.jpg
         src/assets/logo/lyra-icon-128.png
@@ -933,6 +935,17 @@ target_link_libraries(test_hl2_ioboard_i2c PRIVATE Qt6::Core)
 set_target_properties(test_hl2_ioboard_i2c PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 if(MSVC)
     target_compile_options(test_hl2_ioboard_i2c PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+add_executable(test_band_jump EXCLUDE_FROM_ALL
+    scratch/test_band_jump.cpp
+    src/bands.h
+    src/bands.cpp
+)
+target_include_directories(test_band_jump PRIVATE src)
+target_link_libraries(test_band_jump PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_band_jump PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # Transverter RF→IF math (header-only).  EXCLUDE_FROM_ALL; no HL2Stream.

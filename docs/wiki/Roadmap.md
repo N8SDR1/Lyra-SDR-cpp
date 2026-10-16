@@ -9,7 +9,9 @@ P1, BrickSDR2 / Brick3SDR P2, SUB + SPLIT, PureSignal, TX rack. Brick3 /
 ANAN-100D get a second SUB panadapter. **Diversity** (two ADCs, same
 frequency) is in and confirmed on Brick3SDR.
 **Next:** confirm Orion MkII testers (Anvelina / 7000 / 8000), G2 on-air
-validation, then Linux then macOS.
+validation, then Linux. **macOS stays a separate branch** (`macos-port`);
+it is not merged into the Windows tree. Brent tracks trunk into that
+branch. P2 on Mac is untested.
 
 > **Legend:** ✅ done · 🚧 in progress · 🗺️ planned · 💡 exploring (early idea, not scheduled)
 
@@ -114,25 +116,20 @@ features above and may change shape or timing.
 
 ### 💡 Remote operation
 
-Run a radio at one location from a Lyra somewhere else, over the internet — a
-purpose-built **Lyra-to-Lyra** link that carries the DSP, compressed audio, and
-spectrum, with the operating position's controls driving the remote radio. This
-is an early idea, not a dated feature: it sits **behind** the remaining
-platform work (Linux / macOS, 7000/8000),
-and would only ship with **mandatory authentication, encryption,
-and fail-safe transmit** — a dropped or degraded link must never leave the
-transmitter keyed.
+**Hold** (2026-10-16): a second Lyra as the desk, shack Lyra stays Open
+(**Hosted Lyra** as the rig). Auth, encryption, fail-safe unkey. Behind
+confirmed radios, then Linux.
 
-### 💡 TX rack setup without RF (looped speech + bandwidth)
+**Drop:** Windows service / headless-only package; in-app gateware flash;
+naked WAN / port-forward of HPSDR UDP to the radio (Reid-style). LTE IQ
+is huge even on Wireguard (tester note). LAN **Lyra Remote** (TCI browser)
+stays what we ship for remote-on-the-house-net.
 
-Dial in EQ / speech / Combinator / Plate **without keying** — no MOX, no
-TX I/Q, PA stays off. Optional **20–30 s recorded speech**, looped into the
-same pre-rack mic funnel so rack knobs and **TX bandwidth (3 / 4 / 6 kHz
-and ESSB)** can be A/B'd on identical words.
+### TX rack setup without RF — dropped
 
-Today: **▶ Review** is raw WAV (no rack); **MON TX** is post-rack **before**
-ALC and TX bandpass, and only while keyed. Hearing 3 kHz vs 6 kHz needs a
-**post-bandpass listen tap**, not the current MON tap. Parked — later add-in.
+On-air TX always sounds different from a local tap. **MON TX** into a dummy
+load is enough to hear whether the rack grabbed; a Kiwi or a trusted ear
+is how you set it. No no-RF listen path.
 
 ## Want to influence it?
 

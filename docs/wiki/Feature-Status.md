@@ -71,13 +71,14 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **5-band Combinator** (multiband compressor — Lyra’s CFC equivalent)
 - ✅ **Plate reverb** for ESSB "air"
 - ✅ **Speech processing** — formant boost, sibilance/consonant emphasis, DX cut-through, de-esser, auto-AGC
-- ✅ **Voice keyer** (message memory) + **VOX** (with anti-VOX)
+- ✅ **Voice keyer** (message memory) + **VOX** (with anti-VOX). **Parked:** REC / OTA still use the HL2 EP6 jack, not VAC/TCI mic — fix on a dedicated Windows pass, not the macOS branch.
 - ✅ **TX profiles** — save/recall the whole chain (including VAC1 **and VAC2** knobs; audio device names stay global); a profile can even launch its companion app (VarAC / MSHV / WSJT-X). Startup: mode-family binding → last-used → Default (v0.25.15). How to build one: in-app **Help → How to create a profile**.
 - ✅ **Hot-mic monitor** / SSB sidetone, separate monitor output device
 
 ### Metering &amp; TX safety
 
-- ✅ Multimeter — **PO / SWR / MIC / COMP / ALC / PA current**. The **PWR** needle keeps the loudest coupler sample between ticks so voice peaks land on the scale (factory peak-hold 700 ms if you have not saved your own). Optional **Lyra Radar** (PPI) and **Helios** (sun + planets; S9 = Jupiter, TX watts + MIC/ALC/GAIN text) looks — same cal as Arc.
+- ✅ Multimeter — **PO / SWR / MIC / COMP / ALC / PA current**. The **PWR** needle keeps the loudest coupler sample between ticks so voice peaks land on the scale (factory peak-hold 700 ms if you have not saved your own). Optional **Sonar** (PPI + compass; replaces Radar), **Helios** (sun + planets), and **Cluster** (arc + segmented bars) — same cal as Arc.
+- ✅ **TX band-jump ignore** — while keyed, a VFO write that would change amateur-band region is refused; transmit stays up. Status: *Frequency change ignored while transmitting.*
 - ✅ **ATT-on-TX** RX-front-end protection · **RX2 jack isolate on TX** (two-converter radios, default on) · **TR-sequencing** for amp hot-switch safety
 - ✅ **SWR protection** (auto-cut above threshold) · **max power / drive cap** for low-drive amps
 - ✅ **TX time-out** · hard **External TX Inhibit**

@@ -1281,6 +1281,9 @@ public slots:
     // the split TX VFO and re-pushes the TX NCO when split is on.
     void setSplitEnabled(bool on);
     void setVfoBHz(quint32 hz);
+    // While keyed: refuse a VFO write that would change amateur-band
+    // region (filters / OC / PA band under RF).  Stay transmitting.
+    // Status bar: "Frequency change ignored while transmitting."
     void setSubEnabled(bool on);
     void setDualAdc(bool on);
     void setDiversityCapable(bool on);
@@ -1708,6 +1711,7 @@ signals:
     void filterBoardChanged(bool on);
     void ocBitsChanged(int pattern);
     void logLine(QString line);
+    void txBandChangeBlocked();
     // TX-0c-fsm — fires when the wire MOX state changes after a TR-delay
     // transition completes (true at end of keydown rf_delay; false at end
     // of keyup ptt_out_delay).  Does NOT fire on mid-transition states.
@@ -1976,6 +1980,7 @@ private:
     // then is written twice.  Skipped on Protocol 2.  force is accepted
     // so startup / P1-return call sites stay source-compatible.
     void pushIoboardTxFreq(bool force = false);
+    bool refuseTxBandJump(quint32 fromHz, quint32 toHz);
     // Writes the RX DDC NCOs from rx1FreqHz_ + (ritEnabled ? ritOffsetHz : 0)
     // — the single RX-NCO writer, mirror of pushEffectiveTxFreq.  Called by
     // setRx1FreqHz (every dial gesture) and the RIT setters.

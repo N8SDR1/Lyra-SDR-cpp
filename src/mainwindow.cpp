@@ -847,8 +847,8 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
                 if (!player->active()) return false;   // no lock on the idle path
                 return player->fillBlock(n, buf);
             });
-        // #89 Stage C — mic-record tap: read-only observer of the real mic
-        // (before injection), feeds the recorder while a voice message records.
+        // #89 Stage C — mic-record tap: HL2 EP6 jack (before VAC/TCI select).
+        // PARKED: follow the live mic source (see VoiceKeyer.h).
         auto *recorder = voiceKeyer_->recorder();
         st->ep6Thread().set_mic_record_tap(
             [recorder](int n, const double *iq) { recorder->feedMicPairs(iq, n); });
@@ -1113,6 +1113,11 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         // Band-plan in/out-of-band advisory: on a band-state transition
         // post a status message (gated like old Lyra on the edge-warning
         // layer + a real region).  The red edge lines are the visual half.
+        connect(st, &lyra::ipc::HL2Stream::txBandChangeBlocked, this,
+                [this]() {
+            statusBar()->showMessage(
+                tr("Frequency change ignored while transmitting."), 4000);
+        });
         connect(st, &lyra::ipc::HL2Stream::rx1FreqChanged, this,
                 [this, st]() {
             if (!prefs_->bandPlanEdges()
