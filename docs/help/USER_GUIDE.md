@@ -22,7 +22,22 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.21 Sheliak.** See [What's new in 0.25.21](#whats-new-in-02521).
+**v0.25.22 Sheliak.** See [What's new in 0.25.22](#whats-new-in-02522).
+
+## What's new in 0.25.22
+
+- **Meter faces.** Header **Arc | Bar | Ladder | Sonar | Sol | Clus**.
+  **Helios** is the sun-and-planets look (S9 = Jupiter; TX watts plus
+  MIC / ALC / GAIN). **Sonar** is the PPI with a compass ring (replaces
+  Radar). **Cluster** is the cockpit arc plus segmented bars. Same
+  calibration as Arc. See [The meter](#the-meter).
+- **Band change while transmitting.** A jump that would leave the
+  amateur band is ignored. You stay keyed. Status bar:
+  *Frequency change ignored while transmitting.*
+- **Xvtr.** Each transverter chip remembers its LNA (HL2) or ATT (P2).
+- **Password required to listen** is disabled until a listen lock can
+  run without breaking a receiver page or a digital program on another
+  computer. **Start voice** still uses the password.
 
 ## What's new in 0.25.21
 
@@ -352,6 +367,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.22](#whats-new-in-02522)
 - [What's new in 0.25.21](#whats-new-in-02521)
 - [What's new in 0.25.20](#whats-new-in-02520)
 - [What's new in 0.25.19](#whats-new-in-02519)

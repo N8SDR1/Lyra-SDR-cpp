@@ -4,6 +4,13 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-16 — v0.25.22 Sheliak RELEASED
+
+Helios, Sonar (replaces Radar), Cluster meters. Frequency change
+ignored while transmitting; stay keyed. Xvtr LNA/ATT recall.
+Listen-password checkbox disabled. macOS stays `macos-port`.
+Do not merge `main`.
+
 ## 2026-10-15 — v0.25.21 Sheliak RELEASED
 
 Lyra Remote is a separate browser desk. Settings → Remote holds

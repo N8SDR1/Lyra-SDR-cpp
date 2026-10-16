@@ -1,15 +1,16 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.21 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.22 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.21)
+### Last several builds (0.25.16 → 0.25.22)
 
 | Build | What landed |
 |---|---|
+| **0.25.22** | **Helios / Sonar / Cluster** meter faces · **TX band-jump ignore** (stay keyed) · Xvtr per-chip LNA (HL2) / ATT (P2) · listen-password box disabled until a real RX lock |
 | **0.25.21** | **[Lyra Remote](Lyra-Remote)** voice session (separate browser desk) · Brick3 holds the first key until PA enable is already in receive · TCI meter line carries ALC headroom |
 | **0.25.20** | **Diversity** (Brick3 / 100D / 200D) · **band stack** (three frequencies per chip) · **separate RX and TX filter lows** · filter-board voltage follows a return to a band already on the dial (Issue #17) |
 | **0.25.19** | IQ backlog cap · PC-ring underrun fade · NB/AF atomics |
