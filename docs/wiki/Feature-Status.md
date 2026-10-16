@@ -113,7 +113,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 ## Not yet — see the Roadmap 🗺️
 
 - 🚧 **ANAN-G2 / G2-1K** — Saturn BPF; TX still dummy-load arm until on-air validated. **ANAN-10…200D** already use Brick2 / Brick3 TX (see above).
-- 🗺️ **ANAN-7000DLE / 8000** — OrionMkII BPF / PA not in this pass
+- 🚧 **ANAN-7000DLE / 8000DLE / Anvelina-Pro3** — Orion MkII BPF being tested (Anvelina PROIII: filters follow the band). TX dummy-load arm + drive ceiling until RF is confirmed. Pick the marketed model in Settings → Hardware.
 - 🗺️ **Linux, then macOS**
 - 💡 **TX rack setup without RF** — looped speech through the rack + hear TX bandwidth (3/4/6 kHz); not scheduled ([Roadmap](Roadmap#tx-rack-setup-without-rf-looped-speech--bandwidth))
 

@@ -49,7 +49,7 @@ wired Ethernet link to the radio.
 | **ANAN-10 / 10E** (P2) | 🚧 BrickSDR2 TX (on-air, classic Alex). Pick model in Settings. |
 | **ANAN-100 / 100B / 100D / 200D** (P2) | 🚧 Brick3SDR TX (on-air, independent Enable PA). **100D / 200D**: SUB second pane. |
 | ANAN-G2 / G2-1K | 🚧 Dummy-load TX arm (Saturn BPF) |
-| ANAN-7000DLE / 8000 | 🗺️ Locked (OrionMkII BPF not in this pass) |
+| ANAN-7000DLE / 8000 / Anvelina-Pro3 | 🚧 Orion MkII BPF — being tested (Anvelina PROIII BPF follow). TX dummy-load + drive ceiling. |
 | Brick / classic ANAN still on **Protocol 1** FPGA | ❌ Refused — HL2 TX layout would be wrong. Flash **P2**. |
 
 Full detail (why Open is refused, what TX would do, Brick flash help) on the **[Supported Radios](Supported-Radios)** page.
@@ -98,7 +98,7 @@ Brick3 PS jack) · ✅ **VAC2** · ✅ **SUB / SPLIT** (second pan on Brick3 /
 RX2 jack / Ext1, not ANT2; not a second VFO) · ✅ **Band stack** (three
 frequencies per chip) · ✅ **Separate RX / TX filter lows** · 🚧 **ANAN-10…200D** P2
 (10/10E = Brick2 TX; 100-series = Brick3 TX; G2 dummy-load) ·
-🗺️ **7000DLE / 8000** · 🗺️ **Linux, then macOS**.
+🚧 **7000DLE / 8000 / Anvelina-Pro3** (Orion MkII, being tested) · 🗺️ **Linux, then macOS**.
 
 Details, ordering, and status on the **[Roadmap](Roadmap)**.
 
