@@ -43,6 +43,14 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
         // applying_ guards out the change WE make while restoring.  No
         // lnaSetByOperator-equivalent distinction is needed here because
         // there's no Auto-drive that roams; every set is the operator.
+        connect(stream_, &lyra::ipc::HL2Stream::autoLnaChanged, this,
+                [this]() {
+                    if (applying_ || currentBand_.isEmpty() || !stream_)
+                        return;
+                    QSettings().setValue(
+                        bandMemPfx() + currentBand_ +
+                        QStringLiteral("/autoLna"), stream_->autoLna());
+                });
         connect(stream_, &lyra::ipc::HL2Stream::txDriveLevelChanged, this,
                 [this](int level) {
                     if (applying_ || currentBand_.isEmpty()) return;
@@ -320,13 +328,22 @@ void BandMemory::saveCurrent() {
 
 void BandMemory::applyBand(const QString &band) {
     if (!prefs_) return;
-    // Arm Auto-LNA's fast acquire.  The reference sets `_band_change` in
-    // its band-select handler (console.cs:43776) so the auto-attenuator
-    // climbs quickly to the new band's overload edge instead of waiting
-    // out a hold interval per dB.
-    if (stream_) stream_->noteBandChange();
     QSettings s;
     const QString p = bandMemPfx() + band + QLatin1Char('/');
+    // Auto-LNA is per amateur band (not one global switch).  Unvisited
+    // HF bands default on.  Restore before LNA so Auto-off does not
+    // immediately walk a stored 20m/2m number.  Acquire only when Auto
+    // is on for this band.
+    if (stream_) {
+        applying_ = true;
+        const bool autoOn = s.contains(p + QStringLiteral("autoLna"))
+            ? s.value(p + QStringLiteral("autoLna")).toBool()
+            : true;
+        stream_->setAutoLna(autoOn, /*armAcquire=*/autoOn);
+        if (!s.contains(p + QStringLiteral("autoLna")))
+            s.setValue(p + QStringLiteral("autoLna"), autoOn);
+        applying_ = false;
+    }
     // Per-band manual LNA — restored independently of the mode/dB block
     // below (a band may have an LNA set point but no stored mode).  The
     // applying_ guard keeps the resulting lnaSetByOperator from re-saving.

@@ -34,7 +34,9 @@ not programmers — if you can click a menu, you can use this.
 - **Band change while transmitting.** A jump that would leave the
   amateur band is ignored. You stay keyed. Status bar:
   *Frequency change ignored while transmitting.*
-- **Xvtr.** Each transverter chip remembers its LNA (HL2) or ATT (P2).
+- **Xvtr.** Each transverter chip remembers its LNA (HL2) or ATT (P2),
+  last mode, and Auto on/off (Auto defaults **off** on the chip). HF
+  Auto-LNA is per amateur band.
 - **Password required to listen** is disabled until a listen lock can
   run without breaking a receiver page or a digital program on another
   computer. **Start voice** still uses the password.
@@ -1555,10 +1557,12 @@ display cap, not the slot editor. ~2.147 GHz is the signed-int ceiling
 (MHz), LO (MHz), error (Hz), Disable PA, RX-only. Disable PA defaults
 **on** so the Hermes Lite onboard PA stays off with a transverter in
 circuit. Clicking a chip (or QSYing into its RF range) also recalls that
-slot’s last **LNA** (Hermes Lite PGA) or **ATT** (Protocol 2 pad). Auto-LNA /
-Auto Step stay the global switch; the **number** they last left on that
-chip is what comes back. 20 m vs **2m** vs **70cm** are separate. First
-visit to a slot keeps the live value until you move the slider. PA-gain and USB-BCD follow **displayed RF**. The N2ADR / OC
+slot’s last **mode**, **LNA** (Hermes Lite PGA) or **ATT** (Protocol 2 pad),
+and whether **Auto** was on. Auto-LNA is **per HF band and per Xvtr chip**,
+not one switch for the whole radio. Xvtr chips default Auto **off**, so a
+20 m Auto-on hop onto **2m** keeps the stored 2 m LNA instead of walking
+it. Turn Auto on on 2 m if you want it there. First visit to a slot keeps
+the live mode until you change it; LNA stays live until you move the slider. PA-gain and USB-BCD follow **displayed RF**. The N2ADR / OC
 filter map uses the **IF of that slot’s RF-low** (not the live IF as
 you QSY). Otherwise a 2 m hop such as 145.675 ↔ 145.775 with a 116 MHz
 LO would cross the 10 m amateur edge at **29.7 MHz IF** and chatter the
@@ -1569,9 +1573,10 @@ an automatic TX/RX switch). The split RX/TX ports are **on that box**, not
 an extra HL2 antenna. Right-click the **2m** (or matching) chip: uncheck
 **Disable radio PA**, set **Error** about **−200…−300 Hz** (re-trim if the
 LO drifts). Turn **Enable PA** on in Settings when you want the HL2 PA into
-the pad. **Auto** on the DSP+Audio strip is Auto-LNA (lit = on, the default).
-Click Auto off for a fixed LNA, then use the LNA slider. Each Xvtr chip
-remembers its last LNA number; Auto stays one global switch.
+the pad. **Auto** on the DSP+Audio strip is Auto-LNA (lit = on). It is
+remembered **per band / per Xvtr chip**. HF bands default on; Xvtr chips
+default off. Click Auto off for a fixed LNA, then use the LNA slider.
+Each chip remembers its last LNA **and** last mode.
 
 **IF window.** The HL2 ADC/NCO is HF (~DC–30.72 MHz). Example: RF
 144–146 MHz with LO 116 MHz → IF 28–30 MHz (inside). RF **148** MHz at
@@ -1701,12 +1706,17 @@ laid out in old Lyra's three-row arrangement:
   goes — the **HL2 jack or selected output device** (the **Out** picker), and,
   when enabled, a **VAC** PC device **and** your **TCI** clients — all from the
   single MON TX toggle (matching the reference's monitor routing).
-- **Auto / Step · Out** — on Hermes Lite 2, **Auto** is Auto-LNA (PGA).
-  On Protocol 2 the same slot is **Step** (Auto Step 0–31): confirmed
-  ADC clip → ATT **+3 dB** (cap 31); when the band clears, ATT **−1 dB**
-  toward 0, frozen while transmitting. Turning it off leaves the pad
-  where it settled. Hold / Undo knobs in **Settings → Hardware** are
-  shared. **Out** is a live output-device quick switch: click it for a
+- **Auto / Step · Out** — on Hermes Lite 2, **Auto** is Auto-LNA (PGA),
+  remembered per amateur band and per Xvtr chip (lit = on). HF defaults
+  on; a transverter chip defaults off so 20 m Auto does not follow you
+  onto 2 m and overwrite that chip’s LNA. Manual: click Auto off, then
+  the LNA slider or mouse-wheel (−12…+48 dB). The S-meter compensates,
+  so moving LNA should not jump the S-reading (extremes can differ a
+  little). On Protocol 2 the same slot is **Step** (Auto Step 0–31):
+  confirmed ADC clip → ATT **+3 dB** (cap 31); when the band clears, ATT
+  **−1 dB** toward 0, frozen while transmitting. Turning it off leaves
+  the pad where it settled. Hold / Undo knobs in **Settings → Hardware**
+  are shared. **Out** is a live output-device quick switch: click it for a
   pop-up list of the **HL2 audio jack** + your **PC output devices** (the
   current one marked), and pick one to move RX audio — and the monitor — there
   live. The full audio setup (host API, exclusive mode, VAC) still lives in

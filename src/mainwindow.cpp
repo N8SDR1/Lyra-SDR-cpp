@@ -722,7 +722,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
 
     xvtr_ = new XvtrSlots(
-        qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
+        qobject_cast<lyra::ipc::HL2Stream *>(stream_), prefs_, this);
     xvtr_->setAttApply([this](int db) {
         if (p2Bridge_)
             p2Bridge_->setRxAttenuationDb(db);

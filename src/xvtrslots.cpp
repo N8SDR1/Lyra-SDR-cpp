@@ -3,6 +3,7 @@
 #include "xvtrslots.h"
 
 #include "hl2_stream.h"
+#include "prefs.h"
 #include "xvtr_math.h"
 
 #include <QSettings>
@@ -22,8 +23,9 @@ qint64 clampHz(double v) {
 }
 } // namespace
 
-XvtrSlots::XvtrSlots(lyra::ipc::HL2Stream *stream, QObject *parent)
-    : QObject(parent), stream_(stream) {
+XvtrSlots::XvtrSlots(lyra::ipc::HL2Stream *stream, Prefs *prefs,
+                     QObject *parent)
+    : QObject(parent), stream_(stream), prefs_(prefs) {
     applyDefaults();
     load();
     if (stream_) {
@@ -40,7 +42,12 @@ XvtrSlots::XvtrSlots(lyra::ipc::HL2Stream *stream, QObject *parent)
                 this, &XvtrSlots::slotsChanged);
         connect(stream_, &lyra::ipc::HL2Stream::lnaSetByOperator, this,
                 [this](int db) { noteLnaDb(db); });
+        connect(stream_, &lyra::ipc::HL2Stream::autoLnaChanged, this,
+                [this]() { noteAutoLna(); });
         onActiveSlotMaybeChanged();
+    }
+    if (prefs_) {
+        connect(prefs_, &Prefs::modeChanged, this, [this]() { noteMode(); });
     }
 }
 
@@ -75,6 +82,9 @@ void XvtrSlots::load() {
             slots_[i].lnaDb = s.value(p + QStringLiteral("lnaDb")).toInt();
         if (s.contains(p + QStringLiteral("attDb")))
             slots_[i].attDb = s.value(p + QStringLiteral("attDb")).toInt();
+        if (s.contains(p + QStringLiteral("autoLna")))
+            slots_[i].autoLna = s.value(p + QStringLiteral("autoLna")).toBool();
+        slots_[i].mode = s.value(p + QStringLiteral("mode")).toString();
     }
 }
 
@@ -102,6 +112,10 @@ void XvtrSlots::persistGain(int i) const {
         s.setValue(p + QStringLiteral("lnaDb"), *slots_[i].lnaDb);
     if (slots_[i].attDb.has_value())
         s.setValue(p + QStringLiteral("attDb"), *slots_[i].attDb);
+    if (slots_[i].autoLna.has_value())
+        s.setValue(p + QStringLiteral("autoLna"), *slots_[i].autoLna);
+    if (!slots_[i].mode.isEmpty())
+        s.setValue(p + QStringLiteral("mode"), slots_[i].mode);
 }
 
 int XvtrSlots::matchingSlot(qint64 rfHz) const {
@@ -180,6 +194,26 @@ void XvtrSlots::noteLnaDb(int db) {
     persistGain(i);
 }
 
+void XvtrSlots::noteMode() {
+    if (applying_ || !prefs_) return;
+    const int i = activeSlot();
+    if (i < 0) return;
+    const QString m = prefs_->mode();
+    if (slots_[i].mode == m) return;
+    slots_[i].mode = m;
+    persistGain(i);
+}
+
+void XvtrSlots::noteAutoLna() {
+    if (applying_ || !stream_) return;
+    const int i = activeSlot();
+    if (i < 0) return;
+    const bool on = stream_->autoLna();
+    if (slots_[i].autoLna == on) return;
+    slots_[i].autoLna = on;
+    persistGain(i);
+}
+
 void XvtrSlots::noteAttDb(int db) {
     if (applying_) return;
     const int i = activeSlot();
@@ -210,7 +244,10 @@ void XvtrSlots::onActiveSlotMaybeChanged() {
 void XvtrSlots::applyStoredGain(int i) {
     if (!valid(i) || !stream_) return;
     applying_ = true;
-    stream_->noteBandChange();
+    // Xvtr chips default Auto off so HF Auto-on does not follow you onto
+    // 2m/70cm and walk the stored LNA to the ceiling on fast acquire.
+    const bool autoOn = slots_[i].autoLna.value_or(false);
+    stream_->setAutoLna(autoOn, /*armAcquire=*/autoOn);
     if (slots_[i].lnaDb.has_value()) {
         stream_->setLnaGainDb(std::clamp(*slots_[i].lnaDb,
                                          lyra::ipc::HL2Stream::kLnaMinDb,
@@ -218,6 +255,8 @@ void XvtrSlots::applyStoredGain(int i) {
     }
     if (slots_[i].attDb.has_value() && attApply_)
         attApply_(std::clamp(*slots_[i].attDb, 0, 31));
+    if (prefs_ && !slots_[i].mode.isEmpty())
+        prefs_->setMode(slots_[i].mode);
     applying_ = false;
 }
 

@@ -14,6 +14,8 @@ namespace lyra::ipc { class HL2Stream; }
 
 namespace lyra::ui {
 
+class Prefs;
+
 class XvtrSlots : public QObject {
     Q_OBJECT
     Q_PROPERTY(int slotCount READ slotCount CONSTANT)
@@ -22,7 +24,8 @@ class XvtrSlots : public QObject {
 public:
     static constexpr int kCount = 4;
 
-    explicit XvtrSlots(lyra::ipc::HL2Stream *stream, QObject *parent = nullptr);
+    explicit XvtrSlots(lyra::ipc::HL2Stream *stream, Prefs *prefs,
+                       QObject *parent = nullptr);
 
     int slotCount() const { return kCount; }
     int activeSlot() const;
@@ -77,6 +80,8 @@ private:
         qint64  lastHz    = 0;
         std::optional<int> lnaDb;   // HL2 PGA, set after first operator/auto write
         std::optional<int> attDb;   // P2 step pad 0..31
+        std::optional<bool> autoLna; // per-chip; default off (HF Auto does not follow)
+        QString mode;               // last RX1 demod on this chip
     };
 
     static bool valid(int i) { return i >= 0 && i < kCount; }
@@ -89,8 +94,11 @@ private:
     void onActiveSlotMaybeChanged();
     void applyStoredGain(int i);
     void noteLnaDb(int db);
+    void noteMode();
+    void noteAutoLna();
 
     lyra::ipc::HL2Stream *stream_ = nullptr;
+    Prefs                *prefs_  = nullptr;
     Slot slots_[kCount];
     bool applying_ = false;
     int  lastSlot_ = -2;   // not -1: first freq event must run

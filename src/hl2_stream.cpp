@@ -810,9 +810,11 @@ void HL2Stream::applyLnaGainAuto(int db)
     emit lnaSetByOperator(db);   // → BandMemory stores it for this band
 }
 
-void HL2Stream::setAutoLna(bool on)
+void HL2Stream::setAutoLna(bool on, bool armAcquire)
 {
     if (on == autoLnaEnabled_) {
+        if (on && armAcquire)
+            bandChange_ = true;
         return;
     }
     autoLnaEnabled_ = on;
@@ -824,8 +826,12 @@ void HL2Stream::setAutoLna(bool on)
         // counter or restart the hold clock, which we used to do; a
         // counter carried across the enable is deliberate, so enabling
         // Auto into an already-clipping band acts immediately.
-        bandChange_ = true;
-        lnaLog(QStringLiteral("Auto ON"));
+        // Band/Xvtr restore passes armAcquire=false so a stored LNA
+        // is the start point (hold-paced creep only, no 1 dB/100 ms climb).
+        if (armAcquire)
+            bandChange_ = true;
+        lnaLog(armAcquire ? QStringLiteral("Auto ON")
+                          : QStringLiteral("Auto ON (restored, no acquire)"));
     } else {
         // Leave the gain where auto left it.
         //

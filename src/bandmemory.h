@@ -6,7 +6,9 @@
 // band, any change is saved live to it.  The LNA value saved is the
 // operator's MANUAL set point only (via lnaSetByOperator) — Auto-LNA's
 // roaming is never captured; Auto simply roams from the restored set
-// point.  Auto-scale on/off and RX bandwidth stay global / per-mode
+// point.  Auto-LNA itself is remembered per amateur band (Xvtr chips
+// store their own Auto, default off).  Auto-scale on/off and RX bandwidth
+// stay global / per-mode
 // (matching old Lyra — bandwidth is already per-mode in Prefs).
 //
 // Pure C++: watches the stream's RX1 frequency, maps it to a band via the

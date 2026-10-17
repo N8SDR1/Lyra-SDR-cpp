@@ -1220,10 +1220,12 @@ public slots:
     void setFreqCorrection(double factor);
     double freqCorrection() const;
 
-    // Auto-LNA controls (main thread).  setAutoLna(false) restores the
-    // operator's persisted manual gain; setAutoLna(true) hands the LNA
-    // to the overload-protection loop.  Undo + hold time are persisted.
-    void setAutoLna(bool on);
+    // Auto-LNA controls (main thread).  setAutoLna(false) leaves the
+    // gain where it is; setAutoLna(true) hands the LNA to the
+    // overload-protection loop.  armAcquire (default true) starts the
+    // post-band-change fast climb; band/slot restore passes false so a
+    // stored LNA is not walked away on the next 100 ms tick.
+    void setAutoLna(bool on, bool armAcquire = true);
     void setAutoLnaUndo(bool on);
     void setAutoLnaHoldSec(int sec);
 
