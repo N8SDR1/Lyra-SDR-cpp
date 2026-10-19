@@ -315,15 +315,23 @@ P2Session::~P2Session() {
 }
 
 void P2Session::setDucFrequencyHz(quint32 hz) {
+    const bool changed = ducFreqHz_ != hz;
     ducFreqHz_ = hz;
     // Alex LPF and the TX phase word are rebuilt from this on every HP
     // packet. A band change that waits for the 100 ms tick ships the new
     // filter in the same datagram as the first MOX, and that key produces
-    // no RF. Push the new word while still in receive.
-    if (!open_)
+    // no RF. Push the new word while still in receive. An unchanged word
+    // must not send: Tune's NCO push and the following MOX were landing
+    // in one turn when the session thread was busy (desk attached), and
+    // that burst closed the T/R relay with PA latched off.
+    if (!open_ || !changed)
         return;
+    const bool transmitting =
+        P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit;
     sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_,
                         kPortHpToSdr);
+    if (!transmitting)
+        filterHpAge_.start();
 }
 
 void P2Session::setDdcFrequencyHz(int ddc, quint32 hz) {
@@ -1094,6 +1102,30 @@ void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
     // refresh while already keyed must not latch (Settings paint + cap
     // fold used to re-enter here and lock Tune until Lyra restarted).
     const bool alreadyKeyed = txIntent_.transmitRequested;
+    if (!on && keyDeferPending_) {
+        keyDeferPending_ = false;
+        ++keyDeferEpoch_;
+    }
+    // A receive-state frequency HP (Tune NCO, band change) and the first
+    // MOX must not be the same turn. Desk traffic delays the session
+    // thread so both queued calls run back to back: relay closes, PA
+    // latches off, and the next host Tune is dark too.
+    if (on && !alreadyKeyed && !keyDeferPending_
+        && filterHpAge_.isValid() && filterHpAge_.elapsed() < 150) {
+        deferredPa_ = paRequested;
+        deferredDrive_ = std::clamp(drive, 0, 255);
+        keyDeferPending_ = true;
+        const quint32 epoch = ++keyDeferEpoch_;
+        const int wait = static_cast<int>(150 - filterHpAge_.elapsed());
+        QTimer::singleShot(std::max(20, wait), this, [this, epoch]() {
+            if (epoch != keyDeferEpoch_ || !keyDeferPending_)
+                return;
+            keyDeferPending_ = false;
+            filterHpAge_.invalidate();
+            setTransmitIntent(true, deferredPa_, deferredDrive_);
+        });
+        return;
+    }
     if (on && !alreadyKeyed
         && (!statusAge_.isValid() || statusAge_.elapsed() > 1000)) {
         // Do not clear telemetryHealthy here. That made the next general
@@ -1113,6 +1145,7 @@ void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
         emitTxState(QStringLiteral("key refused, telemetry stale"));
         return;
     }
+    const bool paWas = paHold_;
     if (on) {
         txIntent_.transmitRequested = true;
         txIntent_.paRequested = paRequested;
@@ -1129,10 +1162,26 @@ void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
         }
     }
 
+    // PA enable rising in this same call as the first MOX latches the
+    // radio PA off until the bit has been 1 in receive again. Leave the
+    // bit in receive and refuse the key. The bridge holds the next key
+    // until that settle finishes. A key whose bit is already 1 does not
+    // rewrite it (skip general below).
+    const bool newKey = on && !alreadyKeyed;
+    if (newKey && paRequested && !paWas) {
+        txIntent_ = {};
+        paHold_ = paRequested;
+        if (open_)
+            sock_.writeDatagram(buildGeneralPacket(), radioAddr_,
+                                kPortCommand);
+        emitTxState(QStringLiteral(
+            "key refused, PA enable was not in receive"));
+        return;
+    }
     txSafety_.transportRunning = txWriter_.isRunning();
     const auto effective = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
     if (open_)
-        applyTxControlNow();
+        applyTxControlNow(newKey && paWas == paHold_);
     if (on && !effective.transmit) {
         emit logLine(QStringLiteral(
             "P2 TX: MOX/PTT blocked by safety gate "
@@ -1158,7 +1207,7 @@ void P2Session::setPaHold(bool on) {
     sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
 }
 
-void P2Session::applyTxControlNow() {
+void P2Session::applyTxControlNow(bool skipGeneralWhileKeying) {
     if (!open_)
         return;
     // Authorise the wire transmit/PA/drive bytes against the LIVE transport
@@ -1177,7 +1226,8 @@ void P2Session::applyTxControlNow() {
     const QByteArray general = buildGeneralPacket();
     const QByteArray hp = buildHighPriorityPacket(true);
     if (transmitting) {
-        sock_.writeDatagram(general, radioAddr_, kPortCommand);
+        if (!skipGeneralWhileKeying)
+            sock_.writeDatagram(general, radioAddr_, kPortCommand);
         for (int i = 0; i < 3; ++i)
             sock_.writeDatagram(hp, radioAddr_, kPortHpToSdr);
     } else {

@@ -2,6 +2,7 @@
 // See wdsp_engine.h for the locked scope + the §14.2 gotcha list.
 
 #include "wdsp_engine.h"
+#include "desk_session.h"
 
 #include "capturedprofile.h"
 #include "noisereducer.h"
@@ -270,6 +271,12 @@ int modeToWdsp(const QString &m) {
     if (m == QLatin1String("DIGL")) return 9;
     if (m == QLatin1String("SAM"))  return 10;   // synchronous AM detector
     return 1;   // USB
+}
+
+void keepShack(const QString &key, const QVariant &value)
+{
+    if (lyra::deskApplyQuiet()) return;
+    QSettings().setValue(key, value);
 }
 
 } // namespace
@@ -2616,7 +2623,7 @@ void WdspEngine::setCwPitchHz(int hz)
     cwPitchHz_ = static_cast<double>(hz);
     cwDecoder_.setToneHz(cwPitchHz_);   // #173 — bind decoder AFC centre to the pitch
     zbMarkerHz_.store(cwMarkerOffsetForMode(mode_), std::memory_order_relaxed);
-    QSettings().setValue(QStringLiteral("dsp/cwPitchHz"), hz);
+    keepShack(QStringLiteral("dsp/cwPitchHz"), hz);
     recomputePassband();   // CW filter recentres on the new pitch
     applyModeFilter();
     recomputePassbandRx2();
@@ -2893,14 +2900,14 @@ double WdspEngine::txAnalyzerOffBins() const noexcept
 }
 
 void WdspEngine::cropSpectrum(const float *full, float *dst, int n,
-                              double offBins) const noexcept
+                              double offBins, double zoom) const noexcept
 {
     // Centre the displayed window on (analyzer DC − offBins) bins.  With
     // offBins==0 this is the legacy centred zoom crop.  During TUN
     // offBins = (NCO−dial) in bins, so the gen1 carrier (at −cw_pitch
     // baseband relative to the NCO, i.e. AT the dial on air) lands at the
     // display centre — on the SSB marker — instead of NCO-relative.
-    const double z    = displayZoom();
+    const double z    = zoom > 0.0 ? zoom : displayZoom();
     const double keep = (z <= 1.0) ? static_cast<double>(kAnPixels)
                                    : static_cast<double>(kAnPixels) / z;
     const double lo    = (kAnPixels - keep) * 0.5 - offBins;
@@ -2915,6 +2922,27 @@ void WdspEngine::cropSpectrum(const float *full, float *dst, int n,
         dst[i] = static_cast<float>(full[i0] * (1.0 - frac)
                                     + full[i0 + 1] * frac);
     }
+}
+
+int WdspEngine::copyHostSpectrumForDesk(float *dst, int maxN, int *spanHz)
+{
+    if (!dst || !spanHz) return 0;
+    const bool tx = txOwnsAnalyzer_.load(std::memory_order_acquire);
+    if (tx) {
+        const int full = txSpanHz_.load(std::memory_order_relaxed);
+        *spanHz = full > 0 ? full : 96000;
+    } else {
+        *spanHz = iqRateHz();
+    }
+    const int n = copySpectrumCache(dst, maxN);
+    if (!tx || n < kAnPixels) return n;
+    const double off = txAnalyzerOffBins();
+    if (off == 0.0) return n;
+    // Full TX span, shifted the way the host panadapter shifts Tune.
+    // Zoom stays 1 here — the desk applies its own zoom on top.
+    std::vector<float> full(dst, dst + n);
+    cropSpectrum(full.data(), dst, n, off, 1.0);
+    return n;
 }
 
 int WdspEngine::copySpectrumCache(float *dst, int maxN)
@@ -3557,10 +3585,10 @@ void WdspEngine::setNrEnabled(bool on)
 {
     if (nrEnabled_ == on) return;
     nrEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/nrEnabled"), on);
+    keepShack(QStringLiteral("dsp/nrEnabled"), on);
     if (on && nnrEnabled_) {
         nnrEnabled_ = false;
-        QSettings().setValue(QStringLiteral("dsp/nnrEnabled"), false);
+        keepShack(QStringLiteral("dsp/nnrEnabled"), false);
     }
     pushNrState();
     emit nrChanged();
@@ -3574,7 +3602,7 @@ void WdspEngine::setNrMode(int mode)
     mode = std::clamp(mode, 1, 4);
     if (nrMode_ == mode) return;
     nrMode_ = mode;
-    QSettings().setValue(QStringLiteral("dsp/nrMode"), mode);
+    keepShack(QStringLiteral("dsp/nrMode"), mode);
     pushNrState();
     emit nrChanged();
 }
@@ -3583,7 +3611,7 @@ void WdspEngine::setAepfEnabled(bool on)
 {
     if (aepfEnabled_ == on) return;
     aepfEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/aepf"), on);
+    keepShack(QStringLiteral("dsp/aepf"), on);
     pushNrState();
     emit nrChanged();
 }
@@ -3593,7 +3621,7 @@ void WdspEngine::setNpeMethod(int method)
     method = std::clamp(method, 0, 1);
     if (npeMethod_ == method) return;
     npeMethod_ = method;
-    QSettings().setValue(QStringLiteral("dsp/npeMethod"), method);
+    keepShack(QStringLiteral("dsp/npeMethod"), method);
     pushNrState();
     emit nrChanged();
 }
@@ -3606,10 +3634,10 @@ void WdspEngine::setNnrEnabled(bool on)
         return;
     }
     nnrEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/nnrEnabled"), on);
+    keepShack(QStringLiteral("dsp/nnrEnabled"), on);
     if (on && nrEnabled_) {
         nrEnabled_ = false;
-        QSettings().setValue(QStringLiteral("dsp/nrEnabled"), false);
+        keepShack(QStringLiteral("dsp/nrEnabled"), false);
     }
     pushNrState();
     emit nrChanged();
@@ -3625,7 +3653,7 @@ void WdspEngine::setNnrModel(int slot)
     slot = std::clamp(slot, 0, 1);
     if (nnrModel_ == slot) return;
     nnrModel_ = slot;
-    QSettings().setValue(QStringLiteral("dsp/nnrModel"), slot);
+    keepShack(QStringLiteral("dsp/nnrModel"), slot);
     pushNrState();
     emit nrChanged();
     emitLog(QStringLiteral("[wdsp] NNR model %1")
@@ -3638,7 +3666,7 @@ void WdspEngine::setNnrMaskFloorDb(double db)
     db = std::clamp(std::round(db), kNnrMaskFloorMinDb, kNnrMaskFloorMaxDb);
     if (nnrMaskFloorDb_ == db) return;
     nnrMaskFloorDb_ = db;
-    QSettings().setValue(QStringLiteral("dsp/nnrMaskFloorDb"), db);
+    keepShack(QStringLiteral("dsp/nnrMaskFloorDb"), db);
     pushNrState();
     emit nrChanged();
     emitLog(QStringLiteral("[wdsp] NNR mask floor %1 dB")
@@ -3820,7 +3848,7 @@ void WdspEngine::setAgcMode(const QString &mode)
         return;   // ignore unknown values
     if (agcMode_ == m) return;
     agcMode_ = m;
-    QSettings().setValue(QStringLiteral("dsp/agcMode"), m);
+    keepShack(QStringLiteral("dsp/agcMode"), m);
     pushAgcMode();
     emit agcModeChanged();
     emitLog(QStringLiteral("[wdsp] AGC mode %1").arg(m));
@@ -3862,7 +3890,7 @@ void WdspEngine::setAnfEnabled(bool on)
 {
     if (anfEnabled_ == on) return;
     anfEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/anfEnabled"), on);
+    keepShack(QStringLiteral("dsp/anfEnabled"), on);
     pushAnfState();
     emit anfChanged();
     emitLog(QStringLiteral("[wdsp] ANF %1")
@@ -3873,7 +3901,7 @@ void WdspEngine::setLmsEnabled(bool on)
 {
     if (lmsEnabled_ == on) return;
     lmsEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/lmsEnabled"), on);
+    keepShack(QStringLiteral("dsp/lmsEnabled"), on);
     pushLmsState();
     emit lmsChanged();
     emitLog(QStringLiteral("[wdsp] LMS %1 (strength %2%)")
@@ -3886,7 +3914,7 @@ void WdspEngine::setLmsStrength(double s)
     s = std::clamp(s, 0.0, 1.0);
     if (std::abs(s - lmsStrength_) < 1e-6) return;
     lmsStrength_ = s;
-    QSettings().setValue(QStringLiteral("dsp/lmsStrength"), s);
+    keepShack(QStringLiteral("dsp/lmsStrength"), s);
     pushLmsState();   // re-push taps/gain even while enabled (live tune)
     emit lmsChanged();
 }
@@ -4058,7 +4086,7 @@ void WdspEngine::setSquelchEnabled(bool on)
 {
     if (squelchEnabled_ == on) return;
     squelchEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/squelchEnabled"), on);
+    keepShack(QStringLiteral("dsp/squelchEnabled"), on);
     pushSquelchState();
     emit squelchChanged();
     emitLog(QStringLiteral("[wdsp] squelch %1")
@@ -4070,7 +4098,7 @@ void WdspEngine::setSquelchThreshold(double t)
     t = std::clamp(t, 0.0, 1.0);
     if (std::abs(t - squelchThreshold_) < 1e-6) return;
     squelchThreshold_ = t;
-    QSettings().setValue(QStringLiteral("dsp/squelchThreshold"), t);
+    keepShack(QStringLiteral("dsp/squelchThreshold"), t);
     pushSquelchState();
     emit squelchChanged();
 }
@@ -4105,7 +4133,7 @@ void WdspEngine::setNbEnabled(bool on)
         nbEnabled_.store(on, std::memory_order_relaxed);
         pushNbState();
     }
-    QSettings().setValue(QStringLiteral("dsp/nbEnabled"), on);
+    keepShack(QStringLiteral("dsp/nbEnabled"), on);
     emit nbChanged();
     emitLog(QStringLiteral("[wdsp] NB %1 (strength %2%)")
                 .arg(on ? QStringLiteral("on") : QStringLiteral("off"))
@@ -4123,7 +4151,7 @@ void WdspEngine::setNbStrength(double s)
         nbStrength_.store(s, std::memory_order_relaxed);
         pushNbState();
     }
-    QSettings().setValue(QStringLiteral("dsp/nbStrength"), s);
+    keepShack(QStringLiteral("dsp/nbStrength"), s);
     emit nbChanged();
 }
 
@@ -4152,7 +4180,7 @@ void WdspEngine::setApfEnabled(bool on)
 {
     if (apfEnabled_ == on) return;
     apfEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/apfEnabled"), on);
+    keepShack(QStringLiteral("dsp/apfEnabled"), on);
     pushApfState();
     emit apfChanged();
     emitLog(QStringLiteral("[wdsp] APF %1")
@@ -4164,7 +4192,7 @@ void WdspEngine::setApfGainDb(double db)
     db = std::clamp(db, 0.0, 24.0);
     if (std::abs(db - apfGainDb_) < 1e-6) return;
     apfGainDb_ = db;
-    QSettings().setValue(QStringLiteral("dsp/apfGainDb"), db);
+    keepShack(QStringLiteral("dsp/apfGainDb"), db);
     pushApfState();   // re-apply the biquad gain live
     emit apfChanged();
 }

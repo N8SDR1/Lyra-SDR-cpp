@@ -1538,6 +1538,9 @@ public slots:
     // Live run flag only. The desk checkbox and tx/levelerOn stay put,
     // so a crash still comes up on the saved profile.
     void pushLevelerRun(bool on);
+    // Live panel gain only. The saved Mic slider and tx/micGainDb stay
+    // put. Digital TCI audio is already at the level the app sent.
+    void holdMicGainUnity(bool hold);
     void setLevelerMaxGainLinear(double linear);
     void setLevelerDecayMs(int decay_ms);
     void setPhrotEnabled(bool on);   // #109 phase rotator on/off
@@ -2704,6 +2707,10 @@ private:
     double alcMaxGainLinear_       = kDefaultAlcMaxGainLinear;
     int    alcDecayMs_             = kDefaultAlcDecayMs;
     bool   levelerOn_              = kDefaultLevelerOn;
+    // Digital key: panel mic gain held at unity, leveler run held off.
+    // The checkbox values above are not rewritten.
+    bool   micGainParked_          = false;
+    bool   levelerRunHeldOff_      = false;
     double levelerMaxGainLinear_   = kDefaultLevelerMaxGainLinear;
     int    levelerDecayMs_         = kDefaultLevelerDecayMs;
     // #109 — PHROT (phase rotator) enable.  Default ON = WDSP create-time

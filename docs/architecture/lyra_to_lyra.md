@@ -33,14 +33,14 @@ Capacity and delay are separate. A 3 ms reading to a nearby speed-test server is
 |---|---|---|---|
 | **Preferred** | 100 Mbps upload | 100 Mbps download | under 40 ms, the preferred feel |
 | **Supported** | 25 Mbps upload | 25 Mbps download | under 100 ms |
-| **Not supported** | under 25 Mbps upload | under 25 Mbps download | over 150 ms |
+| **Not supported** | under 25 Mbps upload | under 25 Mbps download | CW transmit from 150 ms; other transmit from 200 ms. Listening continues |
 
 The 25 Mbps and 100 Mbps figures are what the guide tells you to buy. Lyra does not run a speed test and does not read the ISP plan. What Lyra measures is the keepalive round trip, and whether spectrum frames are arriving whole.
 
 - **Preferred feel** is under 40 ms. Same-region paths land here.
 - **Supported** is the 25 Mbps floor and a round trip under 100 ms. One panadapter at 60 Hz and the receiver audio are the designed link on that path. The 120 Hz rate and RX2 are allowed when the frames are keeping up, including on a long-haul path under 100 ms.
-- **Between 100 and 150 ms,** listening can stay up. Transmit is not offered. Keying is already late.
-- **Over 150 ms,** or when 60 Hz frames are not arriving whole, the session says the path is not supported and does not offer transmit.
+- **From 150 ms up to 200 ms,** listening stays up. CW transmit stays off. Other transmit stays available under 200 ms.
+- **At 200 ms and above,** listening stays up and transmit stays off. When 60 Hz frames are not arriving whole, the session says the path cannot hold the picture. A silent link unkeys in about 300 ms.
 - **Under 25 Mbps** in the carrying direction is outside the design. Say that in the guide. A phone tether and ordinary cell service are not a supported connection. There is no cellphone mode. Lyra catches them by round trip and by frames that do not keep up, not by a speed test.
 
 A link that was fine and then falls apart still unkeys. That safety step is not a promise that a weak circuit can operate.
@@ -81,7 +81,7 @@ These are the whole setup. Nothing on the router.
 3. On the shack, Lyra stays Open on the radio. The hostname field shows the Tailscale name. Copy it. Turn **Allow desk** on. Lyra listens on that private name, not on the public internet.
 4. On the desk, paste that name into the hostname field and choose **Attach to host**. Do not type a public IP, and do not type the radio's address. The name in the two fields should match.
 5. Listening can start. **Start voice** still proves the Remote password. The password stays off the wire. The token is memory-only, same rules as the browser desk.
-6. If Tailscale shows the path as relayed rather than direct, check the round trip. Relayed is still encrypted. A relay that lands over 150 ms is not a supported path. Under 100 ms, the session is supported. Under 40 ms is the preferred feel.
+6. If Tailscale shows the path as relayed rather than direct, check the round trip. Relayed is still encrypted. CW transmit needs under 150 ms. Other transmit needs under 200 ms. Listening continues above that. Under 100 ms, the session is supported. Under 40 ms is the preferred feel. A silent link unkeys in about 300 ms. The desk shows the worst ping for about 3 seconds, then the latest ping, with RX, CW, and Voice lamps for that latest ping.
 
 Do not port-forward. Do not turn on Tailscale Funnel. Funnel would publish the shack onto the public internet. This design uses the private tailnet only.
 
@@ -99,8 +99,9 @@ Never drop the keepalive to save bandwidth. Never add a tier whose purpose is to
 
 - **Frames keeping up,** round trip under 100 ms: receiver audio about 128–192 kbps, spectrum at 60 Hz, full 4096 points. When the frames still keep up, the rate may follow the Spec slider to 120 Hz, and RX2's spectrum plus RX2's audio are allowed. The stream stays under about 20 Mbps.
 - **25 Mbps floor, frames keeping up, round trip under 100 ms:** one spectrum at 60 Hz and one receiver audio. The second picture and the second audio are not promised if the frames are only just holding 60 Hz.
-- **Frames falling behind, or round trip over 150 ms:** not supported. The session says the path cannot hold the picture. Transmit is not offered. If the control socket goes late or silent while transmitting, forced receive still happens.
-- **Round trip 100–150 ms:** listening can stay up. Transmit is not offered.
+- **Frames falling behind:** the session says the path cannot hold the picture. If the control socket goes late or silent while transmitting, forced receive still happens. A silent link unkeys in about 300 ms.
+- **Round trip from 150 ms up to 200 ms:** listening stays up. CW transmit stays off. Other transmit stays available under 200 ms.
+- **Round trip 200 ms and above:** listening stays up. Transmit stays off.
 
 ## What "operate" includes
 
@@ -139,11 +140,11 @@ The host side sits next to `src/tci_server.cpp` as its own link, not as more TCI
 
 Still a hold on coding until a go-ahead. The order below is the plan. Each slice keeps the rules above. A later slice does not relax them to make a weak link look connected.
 
-1. **Attach, and refuse a bad path.** The shack shows its hostname and listens only after **Allow desk**. The desk pastes that name and uses **Attach to host**. A public IP, a blank name, or a listen on the open internet is refused. Control socket, keepalive, session lamps. Lyra measures round trip from the keepalive. Over 150 ms, transmit is not offered and the session says the path is not supported. From 100 to 150 ms, listening can stay up and transmit stays off. No port-forward control anywhere in the UI. No speed test. The TCI address lists are not applied.
+1. **Attach, and refuse a bad path.** The shack shows its hostname and listens only after **Allow desk**. The desk pastes that name and uses **Attach to host**. A public IP, a blank name, or a listen on the open internet is refused. Control socket, keepalive, session lamps. Lyra measures round trip from the keepalive. One latest ping decides. CW transmit needs under 150 ms. Other transmit needs under 200 ms. Above that, listening stays up and the key stays off. A silent link unkeys in about 300 ms. The desk shows that ping as a peak held for about 3 seconds, plus RX, CW, and Voice lamps that follow the latest ping. No port-forward control anywhere in the UI. No speed test. The TCI address lists are not applied.
 2. **Receiver audio.** Audio socket, separate from control and from spectrum. Compressed mono about 128–192 kbps. Jitter buffer starts near 80 ms, grows under loss, and is capped. A stall on this socket does not delay an unkey on the control socket.
 3. **One spectrum at 60 Hz.** Full 4096-point cache, int16 tenths of a dB, read from the cache the display already updated. No `GetPixels` on this path. Waterfall is those lines. Center and span go with the frame so the desk zooms locally. This is the supported picture: about 4 Mbps plus the audio. Click-tune sends a frequency.
 4. **Operate controls.** VFO, band, mode, filter width, RIT, Split, volume, AGC, NR on or off, squelch, drive inside the host caps, S-meter, forward power, SWR. The shack panel stays live. The remote cannot Open, stop, or Discover a radio. The host can drop the desk.
-5. **Transmit.** MOX and Tune only after the Remote password proof. One owner. A browser voice token and this link cannot both hold the microphone. Mic audio returns on the audio socket into the transmitter. CW transmit needs a round trip under 100 ms. Other voice modes need under 150 ms. Above that, listening stays up and the key stays off. Three missed keepalives while transmitting unkey in about 300 ms. Host unkey, TX inhibit, and TX timeout win. Dropping the link, dropping the desk, or stopping the radio drops the token. This is the current local build.
+5. **Transmit.** MOX and Tune only after the Remote password proof. One owner. A browser voice token and this link cannot both hold the microphone. Mic audio returns on the audio socket into the transmitter. CW transmit needs a round trip under 150 ms. Other transmit needs under 200 ms. Above that, listening stays up and the key stays off. The desk shows a short peak-held ping and RX, CW, and Voice lamps for the latest ping. Three missed keepalives while transmitting unkey in about 300 ms. Host unkey, TX inhibit, and TX timeout win. Dropping the link, dropping the desk, or stopping the radio drops the token. This is the current local build.
 6. **120 Hz and RX2.** When 60 Hz frames are arriving whole and the round trip is under 100 ms, the spectrum may follow the Spec slider up to 120 Hz, and RX2's spectrum plus RX2's audio are allowed. The stream stays under about 20 Mbps. If frames fall behind, those two turn off and the session says the path cannot hold that picture.
 
 ## Acceptance against the minimums
@@ -152,7 +153,7 @@ A slice is done only if all of these are true on a dummy load:
 
 - On a path at or above **25 Mbps** in the carrying direction, with round trip under **100 ms**, one 60 Hz spectrum and the audio arrive whole.
 - On a path at the preferred **100 Mbps**, with frames keeping up, 60–120 Hz and RX2's spectrum plus RX2's audio stay under about **20 Mbps**. A round trip under **40 ms** is the preferred feel, not a gate that hides 120 Hz from a long-haul path under 100 ms.
-- Round trip over **150 ms**, or 60 Hz frames that are not arriving whole, is told the path is not supported. Transmit is not offered. From 100 to 150 ms, listening can stay up and transmit stays off.
+- CW transmit needs a round trip under **150 ms**. Other transmit needs under **200 ms**. Above that, listening stays up and the key stays off. A silent link unkeys in about **300 ms**. The desk shows a short peak-held ping and RX, CW, and Voice lamps for the latest ping. 60 Hz frames that are not arriving whole are told the path cannot hold the picture.
 - The guide states the 25 Mbps floor. Lyra does not run a speed test to enforce it.
 - A public IP cannot attach. A private mesh name can. The TCI accept and refuse lists do not drop this session.
 - No router port is opened. The guide's six Tailscale steps are sufficient, including the personal-email signup.

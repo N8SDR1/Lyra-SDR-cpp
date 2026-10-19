@@ -377,7 +377,10 @@ private:
     // transient host stall must recover in place, not latch and lock out the
     // next key-up. Keyed -> latchTxFault; RX-idle -> deferred re-prime.
     void onTxTransportCadenceFault(const QString &reason);
-    void applyTxControlNow();
+    // skipGeneralWhileKeying: a new key whose PA-enable bit is already 1
+    // must not rewrite that bit in the same burst as the rising MOX.
+    // The radio latches PA off when the two change together.
+    void applyTxControlNow(bool skipGeneralWhileKeying = false);
     void emitTxState(const QString &detail = QString());
 
     QUdpSocket   sock_;
@@ -396,6 +399,14 @@ private:
     quint32      openEpoch_     = 0;     // invalidates delayed open handshake
     std::array<quint32, 10> ddcFreqHz_{};
     quint32      ducFreqHz_  = 14'100'000;
+    // Last HP sent in receive because the TX frequency word changed.
+    // A new key that follows in the same turn (desk Tune moves the NCO,
+    // then MOX) is the burst that leaves the relay closed and PA dark.
+    QElapsedTimer filterHpAge_;
+    bool         keyDeferPending_ = false;
+    quint32      keyDeferEpoch_ = 0;
+    bool         deferredPa_ = false;
+    int          deferredDrive_ = 0;
     // Phase C receive-stream config + per-DDC sequence tracking.
     std::array<bool,    10> ddcEnabled_{};
     std::array<quint16, 10> ddcRateKhz_{};

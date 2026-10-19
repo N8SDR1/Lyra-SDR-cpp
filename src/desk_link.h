@@ -3,7 +3,8 @@
 // The shack listens on its Tailscale address only after Allow desk.
 // The desk connects to that name. Receiver audio is a second socket.
 // Spectrum is a third socket. Frequency and mode ride the control
-// socket. MOX and Tune ride it after the Remote password proof.
+// socket. MOX, Tune, and 2-tone ride it after the Remote password
+// proof. PureSignal arm is a host request; the shack runs the math.
 // No public bind and no TCI address lists. See
 // docs/architecture/lyra_to_lyra.md.
 
@@ -17,6 +18,7 @@
 #include <mutex>
 #include <vector>
 
+class QJsonObject;
 class QTcpServer;
 class QTcpSocket;
 class QTimer;
@@ -35,6 +37,7 @@ class DeskLink : public QObject {
     Q_PROPERTY(bool voiceHeld READ voiceHeld NOTIFY changed)
     Q_PROPERTY(bool moxLit READ moxLit NOTIFY changed)
     Q_PROPERTY(bool tuneLit READ tuneLit NOTIFY changed)
+    Q_PROPERTY(bool twoToneLit READ twoToneLit NOTIFY changed)
     Q_PROPERTY(bool deskOwnsKey READ deskOwnsKey NOTIFY changed)
 public:
     static constexpr quint16 kPort = 40111;
@@ -61,6 +64,7 @@ public:
     bool    voiceHeld() const { return voiceHeld_; }
     bool    moxLit() const { return moxLit_; }
     bool    tuneLit() const { return tuneLit_; }
+    bool    twoToneLit() const { return twoToneLit_; }
     bool    deskOwnsKey() const { return deskOwnsKey_; }
     bool    keying() const { return keying_; }
 
@@ -99,6 +103,7 @@ public:
                 int d0, int d1, int spr);
     void sendPsPlot(const QByteArray &raw);
     Q_INVOKABLE void requestRemotePsReset();
+    Q_INVOKABLE void requestRemotePsArm(bool on);
     void sendRig(int protocol, const QString &label);
     void sendFrontEnd(int value, bool autoOn, int adc);
     void sendAntenna(bool alex, int count, int mask, int trx, int rx,
@@ -112,12 +117,28 @@ public:
     void sendMeters(double dbm, double fwdW, double revW);
     void sendMox(bool on, bool deskOwns);
     void sendTuneOn(bool on);
+    void sendTwoToneOn(bool on);
     // Desk. The password stays in memory until the proof is sent, then it is cleared.
     Q_INVOKABLE void stageVoicePassword(const QString &password);
     Q_INVOKABLE void askVoice();
     Q_INVOKABLE void endVoice();
     Q_INVOKABLE void requestRemoteMox(bool on);
     Q_INVOKABLE void requestRemoteTune(bool on);
+    Q_INVOKABLE void requestRemoteTwoTone(bool on);
+    // Desk TCI digital app (JTDX / MSHV / Open SSTV). PTT is a separate
+    // line from the laptop-mic MOX so the Mic slider is not applied.
+    // Host confirms with dig 1 once the radio is keyed.
+    Q_INVOKABLE void requestRemoteDigital(bool on);
+    bool digitalKey() const { return digitalKey_; }
+    // Host only. True from the dig request until the radio drops it.
+    void setDigitalWanted(bool on) { digitalWanted_ = on; }
+    bool digitalWanted() const { return digitalWanted_; }
+    void sendDigitalState(bool on);
+    // Pre-volume mono the desk is already playing. 48 kHz int16.
+    void setRxTap(std::function<void(const qint16 *mono, int nframes)> tap);
+    // MIC1 with no laptop Mic-slider gain. Dropped unless the host
+    // has confirmed this digital key.
+    void sendDigitalMono(const float *mono, int nframes);
     // Host replies. The token stays on this socket and is not sent.
     void sendVoiceChallenge(const QByteArray &nonce, const QByteArray &salt, int iters);
     void sendVoiceDeny(const QString &reason);
@@ -170,6 +191,7 @@ signals:
                   int d0, int d1, int spr);
     void remotePsPlot(const QByteArray &raw);
     void remotePsReset();
+    void remotePsArm(bool on);
     void sessionEnded(bool wasHost);
     void remoteRig(int protocol, const QString &label);
     void remoteFrontEnd(int value, bool autoOn, int adc);
@@ -187,6 +209,11 @@ signals:
     void voiceEnded();
     void remoteMox(bool on);
     void remoteTune(bool on);
+    void remoteTwoTone(bool on);
+    void remoteDigital(bool on);
+    // Host confirmed or cleared the digital key. False also means a
+    // local refuse (voice not held, or the link is gone).
+    void digitalState(bool on);
     void forceUnkey();
     void metersTick();
     void spectrumFrame(int fullSpanHz);
@@ -214,9 +241,12 @@ private:
     void closePeer(const QString &why);
     void noteLine(const QByteArray &line);
     void sendLine(const QByteArray &line);
+    void emitProfileObject(const QJsonObject &o);
+    void emitBandedProfile(const QString &key, const QJsonObject &obj);
     void setLamp(const QString &text);
     void publish();
     void applyRtt(int ms);
+    void noteLinkMode(const QString &mode);
     void ensureDeskAudio();
     void armAudioClient();
     void onHostMic();
@@ -237,6 +267,9 @@ private:
     QString peerName_;
     QString lamp_;
     int     rttMs_       = -1;
+    int     rttPeakMs_   = -1;
+    qint64  rttPeakUntilMs_ = 0;
+    QString linkMode_;
     int     lookupGen_   = 0;
     quint32 pingSeq_     = 0;
     qint64  pingAtMs_    = -1;
@@ -260,8 +293,12 @@ private:
     bool        voiceHeld_ = false;
     bool        moxLit_ = false;
     bool        tuneLit_ = false;
+    bool        twoToneLit_ = false;
     bool        deskOwnsKey_ = false;
     bool        keying_ = false;
+    bool        digitalKey_ = false;
+    bool        digitalWanted_ = false;
+    std::function<void(const qint16 *, int)> rxTap_;
     QString     voicePassword_;
     int         voiceProofGen_ = 0;
     QByteArray  voiceNonce_;

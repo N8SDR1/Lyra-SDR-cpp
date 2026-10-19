@@ -47,6 +47,7 @@ class Prefs;
 class SpotStore;
 class MeterModel;
 class CwMacroModel;
+class DeskLink;
 
 class TciServer : public QObject {
     Q_OBJECT
@@ -110,6 +111,17 @@ public:
     bool browserOwnsVoice() const { return voiceSessionWs_ != nullptr; }
     bool deskOwnsVoice() const { return deskOwnsVoice_; }
     bool setDeskOwnsVoice(bool on);
+    // Desk digital-app path. Null when this Lyra is the host or is
+    // not attached. Loopback TCI then carries the host receiver and
+    // forwards transmit audio to the shack.
+    void setDeskLink(DeskLink *desk);
+    bool deskRelay() const { return deskRelay_; }
+    // 48 kHz int16 mono, pre-volume, from the desk audio socket.
+    void offerDeskRx(const qint16 *mono, int nframes);
+    // Host TX input for a digital key. Does not step the speech rack
+    // aside and does not change the Mic-slider setting.
+    void armDeskDigitalInput();
+    void releaseDeskDigitalInput();
 
     // TX-rip Phase 1 (Q2): setTciMicSource / setTxDspWorker removed
     // here and at main.cpp.  Inbound TCI TX_AUDIO_STREAM frames are
@@ -324,6 +336,10 @@ private:
     QTimer                *chronoTimer_       = nullptr;
     int                    chronoOutstanding_ = 0;
     qint64                 chronoLastInboundMs_    = 0;    // monotonic ms
+    // Desk digital forward: samples handed to the host and not yet
+    // played at 48 kHz. The local TciTxBridge is empty on that path.
+    int                    deskAheadSamples_ = 0;
+    qint64                 deskAheadMs_ = 0;
     // Dynamic client-negotiated parameters (default to MSHV values).
     // Updated when the client sends AUDIO_SAMPLERATE / AUDIO_STREAM_
     // SAMPLES / TX_STREAM_AUDIO_BUFFERING; consumed every CHRONO tick.
@@ -433,6 +449,12 @@ private:
     QPointer<QWebSocket>           voiceSessionWs_;
     bool                           voiceLive_ = false;
     bool                           deskOwnsVoice_ = false;
+    DeskLink                      *desk_ = nullptr;
+    bool                           deskRelay_ = false;
+    bool                           deskListenOverride_ = false;
+    QString                        deskSavedHost_;
+    void ensureDeskLoopback();
+    void handleDeskTrx(QWebSocket *ws, const QStringList &args);
     bool                           voiceLevelerParked_ = false;
     QString                        lastLockNotice_;
 

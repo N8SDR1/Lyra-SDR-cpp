@@ -2529,13 +2529,20 @@ QWidget *SettingsDialog::buildRemoteTab() {
                "Start voice asks for the Remote password. MOX and Tune "
                "key the shack after that. The laptop microphone goes to "
                "the shack transmitter. A slow path can listen and cannot "
-               "key. CW needs a round trip under 100 ms. Voice needs "
-               "under 150 ms. "
+               "key. CW needs a round trip under 150 ms. Other transmit "
+               "needs under 200 ms. Listening continues above that. "
+               "The status shows the worst ping, held for about 3 seconds, "
+               "and RX, CW, and Voice lamps for the latest ping. "
                "Save desk profile keeps the laptop filters and transmit "
                "rack on this computer. Recall on host applies that set "
-               "on the shack for this session. The shack does not store "
-               "it. End voice, Detach, and Drop desk put the shack "
-               "filters and rack back. PureSignal and Amp View on the "
+               "on the shack for this session, and also AGC, NR, NNR, "
+               "NB, ANF, LMS, APF, squelch, RIT on or off, and CW pitch. "
+               "The shack does not store it. End voice, Detach, and "
+               "Drop desk put the shack filters, rack, and those "
+               "receiver settings back. The Mic slider level is part of "
+               "the laptop profile and stays on the laptop. "
+               "PureSignal ON and 2-tone ask the shack. Voice-cal noise "
+               "stays on the shack. PureSignal and Amp View on the "
                "laptop show the correction the shack calculated. "
                "Windows may ask to allow Lyra the first time, and again "
                "for the audio port. Allow it on private networks. "
@@ -2570,10 +2577,44 @@ QWidget *SettingsDialog::buildRemoteTab() {
         deskRow->addWidget(detach);
         lyLay->addLayout(deskRow);
 
+        auto *statusRow = new QHBoxLayout();
         auto *lamp = new QLabel(lyra);
         lamp->setWordWrap(true);
         lamp->setStyleSheet(QStringLiteral("color:#cdd9e5;"));
-        lyLay->addWidget(lamp);
+        auto *rxLamp = new QLabel(tr("RX"), lyra);
+        auto *cwLamp = new QLabel(tr("CW"), lyra);
+        auto *voiceLamp = new QLabel(tr("Voice"), lyra);
+        rxLamp->setAlignment(Qt::AlignCenter);
+        cwLamp->setAlignment(Qt::AlignCenter);
+        voiceLamp->setAlignment(Qt::AlignCenter);
+        rxLamp->setMinimumWidth(44);
+        cwLamp->setMinimumWidth(44);
+        voiceLamp->setMinimumWidth(56);
+        rxLamp->setToolTip(tr("Lit while this desk is attached and pings are arriving. Listening stays up past the transmit gates."));
+        cwLamp->setToolTip(tr("Lit when the latest ping is under 150 ms."));
+        voiceLamp->setToolTip(tr("Lit when the latest ping is under 200 ms."));
+        auto paintPathLamp = [](QLabel *w, bool on) {
+            w->setStyleSheet(on
+                ? QStringLiteral("color:#00e5ff; border:1px solid #00e5ff; "
+                                 "border-radius:3px; padding:1px 6px;")
+                : QStringLiteral("color:#6a7a8a; border:1px solid #3d4a58; "
+                                 "border-radius:3px; padding:1px 6px;"));
+        };
+        statusRow->addWidget(lamp, 1);
+        statusRow->addWidget(rxLamp);
+        statusRow->addWidget(cwLamp);
+        statusRow->addWidget(voiceLamp);
+        lyLay->addLayout(statusRow);
+
+        auto *pathLegend = new QLabel(
+            tr("RX: lit while this desk is attached. Listening stays up. "
+               "CW: lit when the latest ping is under 150 ms. "
+               "Voice: lit when the latest ping is under 200 ms. "
+               "Dim is out of range."),
+            lyra);
+        pathLegend->setWordWrap(true);
+        pathLegend->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+        lyLay->addWidget(pathLegend);
 
         auto *micRow = new QHBoxLayout();
         auto *micPick = new QComboBox(lyra);
@@ -2620,10 +2661,12 @@ QWidget *SettingsDialog::buildRemoteTab() {
 
         auto *profNote = new QLabel(
             tr("The desk profile is stored on this laptop. It holds the "
-               "receive and transmit filters, the leveler, and the transmit "
-               "rack (EQ, speech, combinator, and plate). Recall sends that "
-               "set to the shack as a live apply. The shack profile store "
-               "is left as it was."),
+               "receive and transmit filters, the leveler, the transmit "
+               "rack (EQ, speech, combinator, and plate), AGC, NR, NNR, "
+               "NB, ANF, LMS, APF, squelch, RIT on or off, CW pitch, and "
+               "the Mic slider. Recall applies the radio settings on the "
+               "shack for this session and sets the Mic slider on this "
+               "laptop. The shack profile store is left as it was."),
             lyra);
         profNote->setWordWrap(true);
         profNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
@@ -2651,6 +2694,7 @@ QWidget *SettingsDialog::buildRemoteTab() {
 
         auto refresh = [desk = desk_, hostName, copy, allow, drop,
                         deskName, attach, detach, lamp,
+                        rxLamp, cwLamp, voiceLamp, paintPathLamp,
                         voicePw, voiceStart, voiceEnd,
                         saveProf, recallProf]() {
             hostName->setText(desk->selfName());
@@ -2665,6 +2709,11 @@ QWidget *SettingsDialog::buildRemoteTab() {
             detach->setEnabled(desk->attached() && !desk->allowDesk());
             deskName->setReadOnly(desk->attached() || desk->attaching());
             lamp->setText(desk->lamp());
+            const bool live = desk->attached() && desk->rttMs() >= 0;
+            const int rtt = desk->rttMs();
+            paintPathLamp(rxLamp, live);
+            paintPathLamp(cwLamp, live && rtt < 150);
+            paintPathLamp(voiceLamp, live && rtt < 200);
             const bool deskSide = desk->attached() && !desk->allowDesk();
             voicePw->setEnabled(deskSide && !desk->voiceHeld());
             voiceStart->setEnabled(deskSide && !desk->voiceHeld());
@@ -2712,6 +2761,29 @@ QWidget *SettingsDialog::buildRemoteTab() {
                 o.insert(QStringLiteral("combinator"), m->saveState());
             if (auto *m = PlateModel::instance())
                 o.insert(QStringLiteral("plate"), m->saveState());
+            if (engine_) {
+                o.insert(QStringLiteral("agc"), engine_->agcMode());
+                o.insert(QStringLiteral("nr"), engine_->nrEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("nrm"), engine_->nrMode());
+                o.insert(QStringLiteral("aepf"), engine_->aepfEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("npe"), engine_->npeMethod());
+                o.insert(QStringLiteral("nnr"), engine_->nnrEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("nnm"), engine_->nnrModel());
+                o.insert(QStringLiteral("nnf"), qRound(engine_->nnrMaskFloorDb()));
+                o.insert(QStringLiteral("nb"), engine_->nbEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("nbs"), qRound(engine_->nbStrength() * 1000.0));
+                o.insert(QStringLiteral("anf"), engine_->anfEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("lms"), engine_->lmsEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("lmsv"), qRound(engine_->lmsStrength() * 1000.0));
+                o.insert(QStringLiteral("apf"), engine_->apfEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("apfv"), qRound(engine_->apfGainDb() * 10.0));
+                o.insert(QStringLiteral("sq"), engine_->squelchEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("sqv"), qRound(engine_->squelchThreshold() * 1000.0));
+                o.insert(QStringLiteral("cw"), engine_->cwPitchHz());
+            }
+            if (stream_)
+                o.insert(QStringLiteral("rit"), stream_->ritEnabled() ? 1 : 0);
+            o.insert(QStringLiteral("mic"), desk->micGainDb());
             QSettings().setValue(
                 QStringLiteral("deskRemote/profile"),
                 QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact)));
@@ -2719,8 +2791,18 @@ QWidget *SettingsDialog::buildRemoteTab() {
         });
         connect(recallProf, &QPushButton::clicked, lyra, [desk = desk_]() {
             if (!desk->deskSide()) return;
-            const QByteArray json = QSettings()
+            QByteArray json = QSettings()
                 .value(QStringLiteral("deskRemote/profile")).toString().toUtf8();
+            if (json.isEmpty()) return;
+            const QJsonDocument doc = QJsonDocument::fromJson(json);
+            if (doc.isObject()) {
+                QJsonObject o = doc.object();
+                if (o.contains(QStringLiteral("mic"))) {
+                    desk->setMicGainDb(o.value(QStringLiteral("mic")).toInt());
+                    o.remove(QStringLiteral("mic"));
+                    json = QJsonDocument(o).toJson(QJsonDocument::Compact);
+                }
+            }
             if (!json.isEmpty())
                 desk->sendDeskProfile(json);
         });

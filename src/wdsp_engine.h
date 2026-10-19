@@ -497,6 +497,11 @@ public:
     // Full uncropped cache, no GetPixels. The panadapter already
     // refreshed specCache_. Used by the Lyra-to-Lyra spectrum sender.
     int  copySpectrumCache(float *dst, int maxN);
+    // Lyra-to-Lyra panadapter. RX: full converter span + the cache.
+    // TX: the host's sip1 picture (full TX span, Tune shift included)
+    // so the desk passband matches the shack, then back to the RX span
+    // when the host leaves TX. The desk zooms inside that span itself.
+    int  copyHostSpectrumForDesk(float *dst, int maxN, int *spanHz);
     // Desk paints these instead of the local analyzer. fullSpanHz is
     // the shack's whole IQ span; local zoom crops it.
     void postDeskSpectrum(const float *db, int n, int fullSpanHz);
@@ -1240,7 +1245,7 @@ private:
     // display points about a centre shifted left by offBins.
     double txAnalyzerOffBins() const noexcept;
     void   cropSpectrum(const float *full, float *dst, int n,
-                        double offBins) const noexcept;
+                        double offBins, double zoom = -1.0) const noexcept;
 
     WdspNative *wdsp_    = nullptr;
     RxConfig    cfg_;

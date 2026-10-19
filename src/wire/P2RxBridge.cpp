@@ -214,6 +214,8 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                         ? fwd : fwdPowerW_ + 0.35 * (fwd - fwdPowerW_);
                     revPowerW_ = std::isnan(revPowerW_)
                         ? rev : revPowerW_ + 0.35 * (rev - revPowerW_);
+                    if (txTransmitting_ && !std::isnan(fwdPowerW_))
+                        txPeakFwdW_ = std::max(txPeakFwdW_, fwdPowerW_);
                     // Feed the P2 coupler watts into HL2Stream's power model
                     // so the PA-Gain tab's Calibrate / Full-Output / watts-cap
                     // (which read stream_->fwdPowerW()) work on the Brick.
@@ -239,6 +241,11 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                    bool paEnabled, int drive, bool fault,
                    const QString &detail) {
                 const bool wasTransmitting = txTransmitting_;
+                const bool wasPa = txPaEnabled_;
+                const int wasDrive = txEffectiveDrive_;
+                const double peakFwd = txPeakFwdW_;
+                const qint64 keyedMs =
+                    txOnAge_.isValid() ? txOnAge_.elapsed() : 0;
                 txTransportReady_ = ready;
                 txBenchArmed_ = armed;
                 if (!armed)
@@ -248,16 +255,35 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 txEffectiveDrive_ = drive;
                 txFaultLatched_ = fault;
                 txStateDetail_ = detail;
+                if (!wasTransmitting && transmitting) {
+                    txPeakFwdW_ = 0.0;
+                    txOnAge_.start();
+                } else if (!transmitting) {
+                    txOnAge_.invalidate();
+                }
                 if (fault && stream_ && stream_->moxActive())
+                    stream_->requestMox(false);
+                // PA was not already in receive, so this key must not stay
+                // latched in the FSM. Not every key — only this refuse.
+                // Tune clears itself on the MOX-off edge.
+                if (detail.startsWith(QLatin1String(
+                        "key refused, PA enable"))
+                    && stream_ && stream_->moxActive())
                     stream_->requestMox(false);
                 // A fault or a refused key forces the radio PA latch off. The
                 // unkey that follows must rewrite PA enable and let it sit
                 // in receive before the next key. A clean unkey does not
                 // take this path — hooking it to every key was reverted.
+                // A held key that asked for PA and a real drive byte and
+                // never showed forward power is the same latch (desk Tune
+                // closed the relay, host Tune stayed dark). Rewrite PA on
+                // that unkey only.
                 const bool keyRefused = detail.startsWith(
                     QLatin1String("key refused"));
                 const bool returnedToRx = wasTransmitting && !transmitting;
-                if (fault || keyRefused ||
+                const bool darkKey = returnedToRx && wasPa && wasDrive >= 128
+                    && peakFwd < 0.05 && keyedMs >= 400;
+                if (fault || keyRefused || darkKey ||
                     (armed && returnedToRx && paNeedsResettle_)) {
                     paNeedsResettle_ = true;
                     if (armed)

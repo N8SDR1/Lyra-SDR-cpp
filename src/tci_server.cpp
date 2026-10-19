@@ -2,6 +2,7 @@
 
 #include "tci_server.h"
 
+#include "desk_link.h"
 #include "CwMacroModel.h"
 #include "bandmemory.h"
 #include "hl2_stream.h"
@@ -167,7 +168,7 @@ std::vector<float> decodeTciTxAudio(const char *data, int dataBytes,
 
     if (channels == 1) {
         for (int f = 0; f < frames; ++f)
-            mono.push_back(sanitize(decodeScalar(f)));
+            mono.push_back(decodeScalar(f));
     } else {
         // 2-channel inbound: average left + right into a single mono
         // float per audio frame.  This matches the working reference's
@@ -189,9 +190,32 @@ std::vector<float> decodeTciTxAudio(const char *data, int dataBytes,
         for (int f = 0; f < frames; ++f) {
             const float l = decodeScalar(f * 2);
             const float r = decodeScalar(f * 2 + 1);
-            mono.push_back(sanitize(0.5f * (l + r)));
+            mono.push_back(0.5f * (l + r));
         }
     }
+    // Some clients label the header FLOAT32 but store the sample as
+    // the integer count (16-bit or 24-bit) in the float. A tone at
+    // 8000 then survives the ±4 clamp as ±4, and the int16 desk hop
+    // turns every slider position into a full-scale square. Divide
+    // back to ±1 before that clamp so the slider still sets the height.
+    if (fmt == FMT_FLOAT32 && !mono.empty()) {
+        int hot = 0;
+        float peak = 0.0f;
+        for (float s : mono) {
+            if (!std::isfinite(s)) continue;
+            const float a = std::fabs(s);
+            if (a > peak) peak = a;
+            if (a > 16.0f) ++hot;
+        }
+        if (peak > 16.0f && hot * 4 > int(mono.size())) {
+            const float div = (peak > 8388608.0f) ? 2147483648.0f
+                            : (peak > 32768.0f)   ? 8388608.0f
+                                                  : 32768.0f;
+            for (float &s : mono)
+                if (std::isfinite(s)) s /= div;
+        }
+    }
+    for (float &s : mono) s = sanitize(s);
     return mono;
 }
 QByteArray streamHeader(quint32 receiver, quint32 rate, quint32 fmt,
@@ -415,7 +439,12 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
         // Binary streams arrive from the DSP worker thread — queued onto
         // ours so the QWebSocket sends happen on the right thread.
         connect(engine_, &lyra::dsp::WdspEngine::tciAudioBlock,
-                this, &TciServer::onTciAudioBlock, Qt::QueuedConnection);
+                this, [this](const QByteArray &mono, int rate) {
+            // Attached as the desk: receiver audio is the host tap,
+            // not this PC's idle radio.
+            if (deskRelay_) return;
+            onTciAudioBlock(mono, rate);
+        }, Qt::QueuedConnection);
         connect(engine_, &lyra::dsp::WdspEngine::tciIqBlock,
                 this, &TciServer::onTciIqBlock, Qt::QueuedConnection);
     }
@@ -508,6 +537,17 @@ void TciServer::setPort(int p) {
     if (running()) { stop(); start(); }
 }
 void TciServer::setBindHost(const QString &h) {
+    if (deskRelay_) {
+        // Remember the operator's choice. The desk listener stays on
+        // loopback until detach. Do not open Tailscale or every interface.
+        QSettings().setValue(QString::fromLatin1(kKeyHost), h);
+        deskSavedHost_ = h;
+        if (!deskListenOverride_ && h != QLatin1String("127.0.0.1")
+            && h.compare(QLatin1String("localhost"), Qt::CaseInsensitive) != 0)
+            deskListenOverride_ = true;
+        ensureDeskLoopback();
+        return;
+    }
     if (h == bindHost_) return;
     bindHost_ = h;
     QSettings().setValue(QString::fromLatin1(kKeyHost), h);
@@ -536,6 +576,13 @@ void TciServer::setCwluBecomesCw(bool on) {
 void TciServer::setEnabled(bool on) {
     enabled_ = on;
     QSettings().setValue(QString::fromLatin1(kKeyEnabled), on);
+    // While this Lyra is the desk, digital apps need the loopback
+    // listener even if the operator turns the local-radio TCI off.
+    // The saved checkbox is restored when the desk detaches.
+    if (deskRelay_) {
+        ensureDeskLoopback();
+        return;
+    }
     if (on) start(); else stop();
 }
 
@@ -597,7 +644,10 @@ void TciServer::stop() {
     }
     if (txAudioOwner_) {
         txAudioOwner_ = nullptr;
-        if (stream_) stream_->requestMoxFromTci(false);
+        if (deskRelay_ && desk_)
+            desk_->requestRemoteDigital(false);
+        else if (stream_)
+            stream_->requestMoxFromTci(false);
     }
     lyra::tci::TciTxBridge::instance().clear();   // drop stale TX backlog (no replay next session)
     sensorsEnabled_ = false;
@@ -623,6 +673,14 @@ void TciServer::onNewConnection() {
         // Address lists from Setup → Remote. Blank lists accept every
         // reachable peer. This computer is always accepted. A refused
         // peer never joins the client list and never sees radio state.
+        if (deskRelay_ && !voicePeerLocal(ws)) {
+            qInfo("[tci] desk digital refused %s",
+                  qPrintable(ws->peerAddress().toString()));
+            ws->close(QWebSocketProtocol::CloseCodePolicyViolated,
+                      QStringLiteral("desk TCI is local only"));
+            ws->deleteLater();
+            continue;
+        }
         if (prefs_ && !prefs_->remotePeerAllowed(ws->peerAddress())) {
             qInfo("[remote] refused %s",
                   qPrintable(ws->peerAddress().toString()));
@@ -664,7 +722,10 @@ void TciServer::onClientDisconnected() {
         chronoTimer_->stop();
         emit statusMessage(QStringLiteral(
             "TCI: TX-audio ownership released (client disconnected)"));
-        if (stream_) stream_->requestMoxFromTci(false);
+        if (deskRelay_ && desk_)
+            desk_->requestRemoteDigital(false);
+        else if (stream_)
+            stream_->requestMoxFromTci(false);
         // TX-rip Phase 1 (Q2): R-H2 activeMicSource_ save/restore
         // returns with the new TX DSP worker per
         // docs/TX_ARCHITECTURAL_MAPPING.md §10.3.
@@ -974,7 +1035,7 @@ void TciServer::onBinaryMessage(const QByteArray &frame) {
 
     if (frame.size() < 64) return;
     const char *p = frame.constData();
-    const quint32 sampleRate = getU32(p + 4);
+    quint32 sampleRate = getU32(p + 4);
     const quint32 fmt        = getU32(p + 8);
     const quint32 length     = getU32(p + 20);  // scalar count requested
     const quint32 type       = getU32(p + 24);
@@ -988,31 +1049,68 @@ void TciServer::onBinaryMessage(const QByteArray &frame) {
 
     const int dataOffset = 64;
     const int dataBytes  = frame.size() - dataOffset;
-    const int bps        = bytesPerSample(int(fmt));
-    if (bps == 0 || dataBytes < bps) return;
-
-    // Channel inference — modern (1 or 2) per the working reference's
-    // header convention.  Legacy clients send channels=0 in the
-    // header and rely on payload size to disambiguate (TCIServer.cs:
-    // 5630-5652): if payload has 2× length scalars, it's stereo
-    // interleaved; otherwise mono.  Preserve that compatibility so
-    // older JTDX-style clients also work.
-    int channels = int(headerChan);
-    if (channels != 1 && channels != 2) {
-        const int actualScalars = dataBytes / bps;
-        channels = (actualScalars >= int(length) * 2) ? 2 : 1;
-    }
+    if (bytesPerSample(int(fmt)) == 0 && dataBytes < 2) return;
 
     // Cap decode to whatever the header advertised in `length`, but
     // never read past the actual payload.  `length` is in scalars
     // (samples × channels) per the working reference's convention.
-    int decodeScalars = std::min<int>(int(length), dataBytes / bps);
+    //
+    // The format field is not always the payload. MSHV's TX slider
+    // scales an int16 (or int24) tone; a CHRONO reply can still say
+    // float32 / 48000 / stereo because that is what we asked for.
+    // Reading those int16 bytes as float32 produces values far outside
+    // ±1. The desk hop then clamps every one of them to full scale, so
+    // the slider does nothing and the DIGU passband fills with the
+    // harmonics of a square wave. Trust the byte count when it says
+    // the payload is 2 or 3 bytes per advertised sample.
+    int useFmt = int(fmt);
+    if (length > 0 && dataBytes >= int(length)) {
+        const int per = dataBytes / int(length);
+        if (per == 2 && useFmt != FMT_INT16)
+            useFmt = FMT_INT16;
+        else if (per == 3 && useFmt != FMT_INT24)
+            useFmt = FMT_INT24;
+    }
+    const int useBps = bytesPerSample(useFmt);
+    if (useBps == 0 || dataBytes < useBps) return;
+    if (useFmt == FMT_FLOAT32 && dataBytes >= 32) {
+        int bad = 0;
+        const int n = std::min(dataBytes / 4, 64);
+        for (int i = 0; i < n; ++i) {
+            float v;
+            std::memcpy(&v, p + dataOffset + i * 4, 4);
+            if (!std::isfinite(v) || std::fabs(v) > 1.0e5f) ++bad;
+        }
+        // int16 PCM mislabeled as float32. A real tone is finite and
+        // inside ±4; these bit patterns are not.
+        if (n >= 8 && bad * 8 > n)
+            useFmt = FMT_INT16;
+    }
+    const int bpsUse = bytesPerSample(useFmt);
+    if (bpsUse == 0 || dataBytes < bpsUse) return;
+    // Channel inference — modern (1 or 2) per the working reference's
+    // header convention.  Legacy clients send channels=0 in the
+    // header and rely on payload size to disambiguate (TCIServer.cs:
+    // 5630-5652): if payload has 2× length scalars, it's stereo
+    // interleaved; otherwise mono.  Uses the repaired format so an
+    // int16 payload is not counted with a float stride.
+    int channels = int(headerChan);
+    if (channels != 1 && channels != 2) {
+        const int actualScalars = dataBytes / bpsUse;
+        channels = (actualScalars >= int(length) * 2) ? 2 : 1;
+    }
+    int decodeScalars = std::min<int>(int(length), dataBytes / bpsUse);
+    // A lying length (float scalar count over an int16 payload) would
+    // keep only half the tone. When the format repair above fired,
+    // the payload itself is the sample count.
+    if (useFmt != int(fmt))
+        decodeScalars = dataBytes / bpsUse;
     if (channels == 2) decodeScalars -= decodeScalars % 2;  // pair-align
     if (decodeScalars <= 0) return;
 
     std::vector<float> mono = decodeTciTxAudio(p + dataOffset,
-                                               decodeScalars * bps,
-                                               int(fmt), channels);
+                                               decodeScalars * bpsUse,
+                                               useFmt, channels);
     if (mono.empty()) return;
 
     // Match the reference (cmaster.cs:1431-1473 resampleTCITxSamples)
@@ -1024,6 +1122,12 @@ void TciServer::onBinaryMessage(const QByteArray &frame) {
     // non-48 kHz native rate (uncommon for digital-modes clients
     // — MSHV / JTDX / WSJT-X all use 48 kHz — but a divergence
     // from the reference for zero benefit).
+    // A zero rate is not a reason to drop the frame. Dropping a
+    // stretch of them is a hole in the waterfall while the key is
+    // still down. 8000 / 12000 / 24000 still resample below.
+    if (sampleRate == 0)
+        sampleRate = requestRate_ > 0 ? quint32(requestRate_)
+                                      : quint32(kTciTxTargetRate);
     if (sampleRate != kTciTxTargetRate) {
         mono = resampleTxIn(mono, int(sampleRate), kTciTxTargetRate);
         if (mono.empty()) {
@@ -1044,6 +1148,26 @@ void TciServer::onBinaryMessage(const QByteArray &frame) {
     // the InboundTCITxAudio seam (CMaster.cpp xcmaster case 1) when the
     // operator has selected TCI as the mic source (use_tci_audio); on the
     // wire only while MOX (sendProtocol1Samples zeroes outIQbufp at !XmitBit).
+    if (deskRelay_ && desk_) {
+        // Host runs the modulator. The laptop Mic slider is not applied.
+        // Count what actually left for the host. The local TciTxBridge
+        // stays empty on this path, so the CHRONO pull was treating
+        // every reply as "queue empty" and then as a full packet even
+        // when MSHV sent a short 8 kHz block. The host then played
+        // zeros in the middle of a key that was still down.
+        if (desk_->digitalKey()) {
+            desk_->sendDigitalMono(mono.data(), int(mono.size()));
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (deskAheadMs_ > 0) {
+                const int played = int((now - deskAheadMs_) * kTciTxTargetRate
+                                       / 1000);
+                deskAheadSamples_ = std::max(0, deskAheadSamples_ - played);
+            }
+            deskAheadMs_ = now;
+            deskAheadSamples_ += int(mono.size());
+        }
+        return;
+    }
     lyra::tci::TciTxBridge::instance().pushMono(mono);
 }
 
@@ -1065,7 +1189,16 @@ void TciServer::onChronoTick() {
     // it was delivering audio at our cadence rather than its own
     // (the operator-bench-confirmed FT8 zero-spots symptom
     // 2026-06-01).
-    if (!txAudioOwner_ || !stream_ || !stream_->moxActive()) return;
+    const bool keyed = deskRelay_
+        ? (desk_ && desk_->digitalKey())
+        : (stream_ && stream_->moxActive());
+    if (!txAudioOwner_ || !keyed) {
+        if (!keyed) {
+            deskAheadSamples_ = 0;
+            deskAheadMs_ = 0;
+        }
+        return;
+    }
     if (txAudioOwner_->state() != QAbstractSocket::ConnectedState) {
         // Do not unkey from the CHRONO tick.  Disconnect / TRX-off
         // own PTT release.  A brief socket state flicker must not
@@ -1115,7 +1248,20 @@ void TciServer::onChronoTick() {
     // queuedSamples = current TX-mic-source inbound depth = the
     // TciTxBridge backlog the cm_main pump hasn't drained yet.  Feeds the
     // reference CHRONO dynamic-pull so the client is backpressured.
-    const int queuedSamples = lyra::tci::TciTxBridge::instance().queuedSamples();
+    int queuedSamples = lyra::tci::TciTxBridge::instance().queuedSamples();
+    if (deskRelay_) {
+        // Samples were forwarded to the host, not parked in the local
+        // bridge. Drain the count at the 48 kHz play rate so a short
+        // packet is not credited as a full CHRONO block.
+        const qint64 nowAhead = QDateTime::currentMSecsSinceEpoch();
+        if (deskAheadMs_ > 0) {
+            const int played = int((nowAhead - deskAheadMs_) * kTciTxTargetRate
+                                   / 1000);
+            deskAheadSamples_ = std::max(0, deskAheadSamples_ - played);
+        }
+        deskAheadMs_ = nowAhead;
+        queuedSamples = deskAheadSamples_;
+    }
 
     // futureSamples = what we'll have after all outstanding requests
     // get answered with predictedPacketSamples each.
@@ -1611,6 +1757,198 @@ void TciServer::restoreVoiceLive() {
     voiceLevelerParked_ = false;
 }
 
+void TciServer::setDeskLink(DeskLink *desk)
+{
+    if (desk_ == desk) return;
+    desk_ = desk;
+    if (!desk_) return;
+    connect(desk_, &DeskLink::digitalState, this, [this](bool on) {
+        if (!deskRelay_) return;
+        if (on) {
+            if (txAudioOwner_) {
+                chronoOutstanding_ = 0;
+                chronoLastInboundMs_ = QDateTime::currentMSecsSinceEpoch();
+                if (chronoTimer_) chronoTimer_->start();
+            }
+            broadcastNow(QStringLiteral("trx:0,true"));
+            return;
+        }
+        if (chronoTimer_) chronoTimer_->stop();
+        chronoOutstanding_ = 0;
+        const bool had = txAudioOwner_ != nullptr;
+        txAudioOwner_ = nullptr;
+        if (had)
+            broadcastNow(QStringLiteral("trx:0,false"));
+    });
+    connect(desk_, &DeskLink::changed, this, [this]() {
+        const bool side = desk_ && desk_->deskSide();
+        if (side && deskRelay_) {
+            if (!running()) ensureDeskLoopback();
+            return;
+        }
+        if (!side && !deskRelay_) return;
+        if (side) {
+            deskRelay_ = true;
+            if (voiceSessionWs_) dropVoiceHold(voiceSessionWs_);
+            ensureDeskLoopback();
+            broadcastNow(QStringLiteral("start"));
+            return;
+        }
+        if (desk_ && desk_->digitalKey())
+            desk_->requestRemoteDigital(false);
+        deskRelay_ = false;
+        if (deskListenOverride_) {
+            stop();
+            bindHost_ = deskSavedHost_;
+            deskListenOverride_ = false;
+            if (enabled_) start();
+            return;
+        }
+        // The operator turned the local-radio TCI off during the
+        // desk session. The loopback listener does not stay up.
+        if (!enabled_ && running()) stop();
+    });
+    if (desk_->deskSide()) {
+        deskRelay_ = true;
+        ensureDeskLoopback();
+    }
+}
+
+void TciServer::ensureDeskLoopback()
+{
+    const bool loop = running()
+        && (bindHost_ == QLatin1String("127.0.0.1")
+            || bindHost_.compare(QLatin1String("localhost"), Qt::CaseInsensitive) == 0);
+    if (loop) return;
+    if (!deskListenOverride_) {
+        deskListenOverride_ = true;
+        deskSavedHost_ = bindHost_;
+    }
+    if (running()) stop();
+    // Session only. Do not write tci/bind_host or tci/enabled, and do
+    // not listen on Tailscale or on every interface.
+    bindHost_ = QStringLiteral("127.0.0.1");
+    start();
+}
+
+void TciServer::offerDeskRx(const qint16 *mono, int nframes)
+{
+    if (!deskRelay_ || !mono || nframes <= 0) return;
+    bool any = false;
+    for (auto it = streams_.cbegin(); it != streams_.cend(); ++it) {
+        if (it.value().audio) { any = true; break; }
+    }
+    if (!any) return;
+    QByteArray block(nframes * int(sizeof(float)), Qt::Uninitialized);
+    auto *dst = reinterpret_cast<float *>(block.data());
+    for (int i = 0; i < nframes; ++i)
+        dst[i] = static_cast<float>(mono[i]) / 32768.0f;
+    onTciAudioBlock(block, 48000);
+}
+
+void TciServer::armDeskDigitalInput()
+{
+    lyra::wire::SetTXTCIAudio(0, 1);
+    lyra::wire::SetTXVacAudio(0, 0);
+    // MSHV / JTDX / SSTV. A steady DIGU tone through the leveler
+    // climbs for a few seconds, ALC clips it, the tone drops, then
+    // it climbs again. Speech and the combinator compressor sit in
+    // the same rack. Browser voice already steps that rack aside.
+    // Desk SSB keeps it. This key does not.
+    lyra::wire::SetTxRackBypass(1);
+    if (stream_ && stream_->levelerOn() && !voiceLevelerParked_) {
+        voiceLevelerParked_ = true;
+        stream_->pushLevelerRun(false);
+    }
+    // The host Mic slider (the +6 dB on the TX panel) is a voice trim.
+    // It sits on the modulator after these samples. A full-scale DIGU
+    // tone plus that trim clips, and the clip fills the passband. The
+    // app slider is the level. Hold the panel at unity until unkey.
+    if (stream_)
+        stream_->holdMicGainUnity(true);
+}
+
+void TciServer::releaseDeskDigitalInput()
+{
+    if (voiceSessionWs_) return;
+    lyra::tci::TciTxBridge::instance().clear();
+    if (voiceLevelerParked_ && stream_)
+        stream_->pushLevelerRun(stream_->levelerOn());
+    voiceLevelerParked_ = false;
+    if (stream_)
+        stream_->holdMicGainUnity(false);
+    if (engine_) {
+        const QString m = engine_->mode().toUpper();
+        const bool bypass = m == QLatin1String("DIGU")
+            || m == QLatin1String("DIGL")
+            || m == QLatin1String("DRM")
+            || m == QLatin1String("FM");
+        lyra::wire::SetTxRackBypass(bypass ? 1 : 0);
+    }
+    if (deskOwnsVoice_ && !voiceModeBlocksSession()) {
+        lyra::wire::SetTXTCIAudio(0, 1);
+        lyra::wire::SetTXVacAudio(0, 0);
+        return;
+    }
+    if (prefs_ && engine_) {
+        const QString src = prefs_->micSource();
+        const bool tci = src == QLatin1String("tci");
+        const bool vac = engine_->applyMicSourceToVacTx(src);
+        lyra::wire::SetTXTCIAudio(0, tci ? 1 : 0);
+        lyra::wire::SetTXVacAudio(0, vac ? 1 : 0);
+    }
+}
+
+void TciServer::handleDeskTrx(QWebSocket *ws, const QStringList &args)
+{
+    bool okc = false;
+    const int ch = args.size() >= 1 ? parseChannel(args[0], &okc) : -1;
+    if (!okc || !ws) return;
+    if (ch != 0) return;
+    const bool keyed = desk_ && desk_->digitalKey();
+    if (args.size() < 2) {
+        sendTo(ws, QStringLiteral("trx:0,%1%2")
+                       .arg(keyed ? QStringLiteral("true") : QStringLiteral("false"),
+                            keyed ? QStringLiteral(",tci") : QString()));
+        return;
+    }
+    const bool wantsTx = parseBool(args[1]);
+    if (!wantsTx) {
+        if (txAudioOwner_ && txAudioOwner_ != ws) return;
+        if (desk_) desk_->requestRemoteDigital(false);
+        else {
+            txAudioOwner_ = nullptr;
+            if (chronoTimer_) chronoTimer_->stop();
+        }
+        return;
+    }
+    if (!voicePeerLocal(ws)) {
+        sendTo(ws, QStringLiteral("trx:0,false"));
+        return;
+    }
+    // A browser token on this server, or on the host, is the other owner.
+    if (voiceSessionWs_ && voiceSessionWs_ != ws) {
+        emit statusMessage(tr("A browser voice session holds the microphone."));
+        sendTo(ws, QStringLiteral("trx:0,false"));
+        return;
+    }
+    if (!desk_ || !desk_->voiceHeld()) {
+        emit statusMessage(tr(
+            "Start voice in Settings → Remote before the digital app can transmit."));
+        sendTo(ws, QStringLiteral("trx:0,false"));
+        return;
+    }
+    if (txAudioOwner_ && txAudioOwner_ != ws) {
+        emit statusMessage(QStringLiteral(
+            "TCI: TX-audio acquire denied — another client owns TX audio"));
+        sendTo(ws, QStringLiteral("trx:0,false"));
+        return;
+    }
+    txAudioOwner_ = ws;
+    chronoOutstanding_ = 0;
+    desk_->requestRemoteDigital(true);
+}
+
 bool TciServer::setDeskOwnsVoice(bool on) {
     if (on) {
         if (voiceSessionWs_) return false;
@@ -1753,6 +2091,12 @@ void TciServer::handleLyraVoice(QWebSocket *ws, const QString &cmd,
     };
 
     if (cmd == QLatin1String("LYRA_VOICE")) {
+        // This computer is the desk. A browser token is taken on the
+        // host, and it cannot also be taken here.
+        if (deskRelay_) {
+            sendTo(ws, QStringLiteral("lyra_voice:denied"));
+            return;
+        }
         if (deskOwnsVoice_) {
             sendTo(ws, QStringLiteral("lyra_voice:denied"));
             return;
@@ -1866,7 +2210,8 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
     // ── lifecycle ────────────────────────────────────────────────
     if (cmd == QStringLiteral("START")) {
         sendTo(ws, QStringLiteral("start"));   // WSJT-X waits for this echo
-        emit startRequested();
+        // The desk has no local radio. START must not open one.
+        if (!deskRelay_) emit startRequested();
         return;
     }
     if (cmd == QStringLiteral("STOP")) {
@@ -2337,6 +2682,12 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
     // accepted (0 or 1); SET does not reply.  Query reports the TUN
     // flag, not MOX.
     if (cmd == QStringLiteral("TUNE")) {
+        if (deskRelay_) {
+            // Tune stays on the desk's Tune button. Do not key the
+            // idle local radio from a digital-app TUNE.
+            sendTo(ws, QStringLiteral("tune:0,false"));
+            return;
+        }
         bool okc = false;
         (void)(args.size() >= 1 ? parseChannel(args[0], &okc) : -1);
         if (args.size() < 2) {
@@ -2365,6 +2716,10 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
     //    via TRX without source, TUNE / RIT_ENABLE / XIT_ENABLE /
     //    SPLIT_ENABLE) keep the v0.2.2 acknowledge-inactive stub.
     if (cmd == QStringLiteral("TRX")) {
+        if (deskRelay_) {
+            handleDeskTrx(ws, args);
+            return;
+        }
         bool okc = false; const int ch = args.size() >= 1 ? parseChannel(args[0], &okc) : -1;
         const bool wantsTx = args.size() >= 2 && parseBool(args[1]);
         const bool useTciAudio = args.size() >= 3
@@ -2847,6 +3202,12 @@ void TciServer::onPassbandRx2Changed() {
 }
 void TciServer::onRunningChanged() {
     if (!stream_) return;
+    // The desk's local radio stays closed. Digital apps follow the
+    // host, which is already on, so a local stop must not clear them.
+    if (deskRelay_) {
+        broadcastNow(QStringLiteral("start"));
+        return;
+    }
     broadcastNow(stream_->isRunning() ? QStringLiteral("start")
                                       : QStringLiteral("stop"));
 }

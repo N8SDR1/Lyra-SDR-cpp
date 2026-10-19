@@ -71,8 +71,15 @@ Rectangle {
             text: root.liveOn ? qsTr("ON") : qsTr("OFF")
             font.bold: true
             font.pixelSize: 12
-            enabled: !DeskLink.deskSide && Stream.psAttestation && !root.digitalLock
-            onClicked: Stream.setPsArmed(!Stream.psArmed)
+            enabled: DeskLink.deskSide
+                     ? (root.liveOn || !root.digitalLock)
+                     : (Stream.psAttestation && !root.digitalLock)
+            onClicked: {
+                if (DeskLink.deskSide)
+                    DeskLink.requestRemotePsArm(!root.liveOn)
+                else
+                    Stream.setPsArmed(!Stream.psArmed)
+            }
             background: Rectangle {
                 radius: 4
                 color: root.liveOn ? "#30200c" : "#161e28"
@@ -103,10 +110,14 @@ Rectangle {
             text: qsTr("2-tone")
             font.bold: true
             font.pixelSize: 12
-            enabled: !DeskLink.deskSide && Stream.psAttestation && root.liveOn
-                     && (!Stream.tuneEnabled || Stream.twoToneEnabled)
+            enabled: DeskLink.deskSide
+                     ? (root.liveOn && !(DeskLink.tuneLit && !DeskLink.twoToneLit))
+                     : (Stream.psAttestation && root.liveOn
+                        && (!Stream.tuneEnabled || Stream.twoToneEnabled))
             onClicked: {
-                if (!Stream.twoToneEnabled) {
+                if (DeskLink.deskSide) {
+                    DeskLink.requestRemoteTwoTone(!DeskLink.twoToneLit)
+                } else if (!Stream.twoToneEnabled) {
                     Stream.setTwoToneEnabled(true)
                     Stream.requestMox(true)
                 } else {
@@ -116,15 +127,15 @@ Rectangle {
             }
             background: Rectangle {
                 radius: 4
-                color: Stream.twoToneEnabled ? "#302044" : "#161e28"
-                border.color: Stream.twoToneEnabled ? "#d68cff" : "#2a3a4a"
+                color: (DeskLink.deskSide ? DeskLink.twoToneLit : Stream.twoToneEnabled) ? "#302044" : "#161e28"
+                border.color: (DeskLink.deskSide ? DeskLink.twoToneLit : Stream.twoToneEnabled) ? "#d68cff" : "#2a3a4a"
                 border.width: 2
             }
             contentItem: Text {
                 text: twoToneBtn.text
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
-                color: Stream.twoToneEnabled ? "#d68cff" : root.cText
+                color: (DeskLink.deskSide ? DeskLink.twoToneLit : Stream.twoToneEnabled) ? "#d68cff" : root.cText
                 font: twoToneBtn.font
             }
             ToolTip.text: qsTr("Two-tone into the TX chain (same as TX dock). Dummy load.")
@@ -177,7 +188,7 @@ Rectangle {
             editable: true
             value: Stream.psNoiseLevelDb
             implicitWidth: 72
-            enabled: Stream.psAttestation && root.liveOn
+            enabled: !DeskLink.deskSide && Stream.psAttestation && root.liveOn
             onValueModified: Stream.psNoiseLevelDb = value
             ToolTip.text: qsTr("Voice-noise level, dB. −12 is quiet. +3 is the top. Shaped like a male voice. The TX filter still sets the width, so the wattmeter stays under a full tune carrier.")
             ToolTip.delay: 800

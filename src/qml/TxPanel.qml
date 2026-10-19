@@ -667,13 +667,16 @@ Rectangle {
             text: qsTr('2-Tone')
             font.bold: true
             font.pixelSize: 12
-            checked: Stream.twoToneEnabled
-            enabled: !DeskLink.deskSide
-                     && (!P2Bridge.running
-                      || (P2Bridge.txBenchArmed && !P2Bridge.txFaultLatched))
-                     && (!Stream.tuneEnabled || Stream.twoToneEnabled)
+            checked: DeskLink.deskSide ? DeskLink.twoToneLit : Stream.twoToneEnabled
+            enabled: DeskLink.deskSide
+                     ? !(DeskLink.tuneLit && !DeskLink.twoToneLit)
+                     : ((!P2Bridge.running
+                         || (P2Bridge.txBenchArmed && !P2Bridge.txFaultLatched))
+                        && (!Stream.tuneEnabled || Stream.twoToneEnabled))
             onClicked: {
-                if (!Stream.twoToneEnabled) {
+                if (DeskLink.deskSide) {
+                    DeskLink.requestRemoteTwoTone(!DeskLink.twoToneLit)
+                } else if (!Stream.twoToneEnabled) {
                     Stream.setTwoToneEnabled(true)
                     Stream.requestMox(true)
                 } else {
@@ -683,15 +686,15 @@ Rectangle {
             }
             background: Rectangle {
                 radius: 4
-                color: Stream.twoToneEnabled ? '#302044' : '#1f2a35'
-                border.color: Stream.twoToneEnabled ? '#d68cff' : '#3a5060'
+                color: (DeskLink.deskSide ? DeskLink.twoToneLit : Stream.twoToneEnabled) ? '#302044' : '#1f2a35'
+                border.color: (DeskLink.deskSide ? DeskLink.twoToneLit : Stream.twoToneEnabled) ? '#d68cff' : '#3a5060'
                 border.width: 2
             }
             contentItem: Text {
                 text: twoToneBtn.text
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
-                color: Stream.twoToneEnabled ? '#d68cff' : root.cText
+                color: (DeskLink.deskSide ? DeskLink.twoToneLit : Stream.twoToneEnabled) ? '#d68cff' : root.cText
                 font: twoToneBtn.font
                 elide: Text.ElideRight
                 clip: true

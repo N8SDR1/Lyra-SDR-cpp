@@ -5516,16 +5516,32 @@ Type the password, then **Start voice**.
 Microphone audio goes to the host and passes through the host TX rack
 (EQ, leveler, speech, combinator, plate). PureSignal math stays on
 the shack. The laptop **PureSignal** and **Amp View** panels show the
-shack correction.
+shack correction. From the desk, **PureSignal ON** and **2-tone** ask
+the host. The panel still shows the host correction. Voice-cal noise
+stays on the shack.
 
 During transmit, the laptop panadapter is that host transmit picture,
 after the rack and before the **Drive** slider. The **Drive** slider
 sets voice power. **Tune** uses the host Tune setting: **Use TX Drive
 slider**, **Use Tune slider**, or **Use fixed drive**.
 
-A dead link unkeys in about 300 ms. Listening can continue when the
-key is refused for a long delay. CW transmit wants a round trip under
-100 ms. SSB and other voice may key up to 150 ms.
+A dead link unkeys in about 300 ms. Listening continues above the
+transmit limits. CW transmit wants a round trip under 150 ms. Other
+transmit may key under 200 ms. The status shows the worst ping, held
+for about 3 seconds, then the latest ping. Next to it, **RX**, **CW**,
+and **Voice** follow that latest ping: RX stays lit while the desk is
+attached, CW under 150 ms, Voice under 200 ms. The line under the
+chips says the same thing, and dim means out of range.
+
+#### Digital apps on the desk
+
+JTDX, MSHV, and Open SSTV on the laptop connect to TCI on this desk,
+at `127.0.0.1` and the TCI port (normally `40001`). Receiver audio
+flows while the desk is attached, before **Start voice**. Transmit
+audio and the key go to the host after **Start voice**, and the host
+keys the radio. WSJT-X is not this path, and a virtual audio cable is
+not required. The port stays on this computer. It is not opened to
+the internet, and Tailscale Funnel stays off.
 
 #### The path you need
 
@@ -5538,8 +5554,12 @@ number that matters is the shack's **upload** and the laptop's
 - **Supported for listening:** 25 Mbps in that direction, and a round
   trip under 100 ms. That holds the 60 Hz picture and the receiver
   audio.
-- **Under 25 Mbps**, or a round trip **over 150 ms**, is not
-  supported. A phone tether sits under that floor.
+- **Under 25 Mbps** is not supported. A phone tether sits under
+  that floor. CW transmit wants a round trip under 150 ms. Other
+  transmit wants under 200 ms. Listening continues above that. A
+  silent link unkeys in about 300 ms. The desk shows a short
+  peak-held ping and **RX**, **CW**, and **Voice** lamps for the
+  latest ping.
 
 Lyra watches the round trip and whether the picture is arriving
 whole.
@@ -5551,9 +5571,12 @@ work while you are attached as the desk.
 
 **Save desk profile** keeps the laptop's filters and transmit rack on
 the laptop. **Recall on host** applies that set on the shack for this
-session. The shack's saved profile stays as it was. **End voice**,
-**Detach**, or **Drop desk** puts the shack's own filters and rack
-back.
+session, and also applies AGC, NR, NNR, NB, ANF, LMS, APF, squelch,
+RIT on/off, and CW pitch for the session. The shack's saved profile
+stays as it was. **End voice**, **Detach**, or **Drop desk** puts the
+shack's own filters, rack, and those receiver settings back. The
+**Mic** slider level is part of the laptop profile and is applied on
+the laptop.
 
 Browser Lyra Remote (TCI) is a separate path, in
 [The browser desk](#the-browser-desk). One transmit owner: a browser

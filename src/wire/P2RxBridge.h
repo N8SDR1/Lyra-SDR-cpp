@@ -296,6 +296,11 @@ private:
     bool       txPaSettled_ = false;
     bool       paResettlePending_ = false;
     bool       paNeedsResettle_ = false;
+    // Peak forward watts while the current key is up. A held Tune that
+    // never leaves zero, with PA requested and a real drive byte, is the
+    // latched-PA key. The unkey rewrites PA in receive.
+    double     txPeakFwdW_ = 0.0;
+    QElapsedTimer txOnAge_;
     quint32    txArmEpoch_ = 0;
     bool       txAutoArm_ = false;
     bool       txHardwareSupported_ = false;

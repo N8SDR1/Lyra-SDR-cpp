@@ -2275,7 +2275,8 @@ void HL2Stream::setCtuneFilterEdges(int lowHz, int highHz) {
 void HL2Stream::setRitEnabled(bool on) {
     if (ritEnabled_.exchange(on, std::memory_order_relaxed) == on)
         return;
-    QSettings().setValue(QStringLiteral("rx/ritEnabled"), on);
+    if (!lyra::deskApplyQuiet())
+        QSettings().setValue(QStringLiteral("rx/ritEnabled"), on);
     emit ritChanged();
     pushEffectiveRxFreq();   // re-tune RX DDCs with/without the offset
 }
@@ -4652,12 +4653,23 @@ void HL2Stream::setMicGainDb(double db) {
     micGainDb_ = clamped;
     QSettings().setValue(QStringLiteral("tx/micGainDb"), clamped);
     emit micGainDbChanged(clamped);
+    if (micGainParked_) return;
     std::function<void(double)> fwd;
     {
         std::lock_guard<std::mutex> lk(txControlMtx_);
         fwd = txControl_.setMicGainDb;
     }
     if (fwd) fwd(clamped);
+}
+
+void HL2Stream::holdMicGainUnity(bool hold) {
+    micGainParked_ = hold;
+    std::function<void(double)> fwd;
+    {
+        std::lock_guard<std::mutex> lk(txControlMtx_);
+        fwd = txControl_.setMicGainDb;
+    }
+    if (fwd) fwd(hold ? 0.0 : micGainDb_);
 }
 
 void HL2Stream::setAlcMaxGainLinear(double linear) {
@@ -4709,6 +4721,7 @@ void HL2Stream::setLevelerOn(bool on) {
     if (!lyra::deskApplyQuiet())
         QSettings().setValue(QStringLiteral("tx/levelerOn"), on);
     emit levelerOnChanged(on);
+    if (levelerRunHeldOff_) return;
     std::function<void(bool,double)> fwd;
     double topLinear;
     {
@@ -4720,6 +4733,9 @@ void HL2Stream::setLevelerOn(bool on) {
 }
 
 void HL2Stream::pushLevelerRun(bool on) {
+    // Held off so a later max-gain or channel-open push cannot turn
+    // the leveler back on in the middle of a digital key.
+    levelerRunHeldOff_ = !on;
     std::function<void(bool,double)> fwd;
     double topLinear;
     {
@@ -5361,7 +5377,7 @@ void HL2Stream::setLevelerMaxGainLinear(double linear) {
     {
         std::lock_guard<std::mutex> lk(txControlMtx_);
         fwd = txControl_.setLevelerOn;
-        on  = levelerOn_;
+        on  = levelerRunHeldOff_ ? false : levelerOn_;
     }
     if (fwd) fwd(on, clamped);
 }
@@ -5615,7 +5631,7 @@ void HL2Stream::registerTxControl(TxControl ctl) {
         pushFmDev        = txControl_.setFmDeviation;
         pushCtcssFreq    = txControl_.setCtcssFreq;
         pushCtcssRun     = txControl_.setCtcssRun;
-        levOn            = levelerOn_;
+        levOn            = levelerRunHeldOff_ ? false : levelerOn_;
         levTop           = levelerMaxGainLinear_;
         amCarLin         = amPctToCarrierLevel(amCarrierPct_);   // % power → c_level
         // #109 — push the EFFECTIVE run (operator intent gated by mode):
@@ -5631,7 +5647,7 @@ void HL2Stream::registerTxControl(TxControl ctl) {
     // must pick the generator back up.  Normal starts are disarmed.
     if (noiseEnabled_.load(std::memory_order_relaxed))
         pushCalNoise();
-    if (pushMic)          pushMic(micGainDb_);
+    if (pushMic)          pushMic(micGainParked_ ? 0.0 : micGainDb_);
     if (pushAlc)          pushAlc(alcMaxGainLinear_);
     if (pushAlcDecay)     pushAlcDecay(alcDecayMs_);
     if (pushLeveler)      pushLeveler(levOn, levTop);

@@ -457,6 +457,9 @@ void DeskLink::takeSocket(QTcpSocket *sock, bool hosting)
     weHost_ = hosting;
     peerName_.clear();
     rttMs_ = -1;
+    rttPeakMs_ = -1;
+    rttPeakUntilMs_ = 0;
+    linkMode_.clear();
     rxBuf_.clear();
     lastRxMs_ = nowMs();
     pingSeq_ = 0;
@@ -618,6 +621,29 @@ void DeskLink::noteLine(const QByteArray &line)
         }
         return;
     }
+    if (line.startsWith("dig ")) {
+        bool ok = false;
+        const int on = line.mid(4).trimmed().toInt(&ok);
+        if (!ok) return;
+        if (weHost_) {
+            emit remoteDigital(on != 0);
+            return;
+        }
+        if (on != 0) {
+            if (digitalKey_) return;
+            digitalKey_ = true;
+            emit digitalState(true);
+            publish();
+            return;
+        }
+        // A refuse arrives before the key was confirmed. Still tell
+        // the local TCI client so it can leave transmit.
+        const bool was = digitalKey_;
+        digitalKey_ = false;
+        emit digitalState(false);
+        if (was) publish();
+        return;
+    }
     if (line.startsWith("mox ")) {
         const QList<QByteArray> p = line.mid(4).split(' ');
         if (weHost_) {
@@ -631,7 +657,9 @@ void DeskLink::noteLine(const QByteArray &line)
             if (a) {
                 moxLit_ = on != 0;
                 deskOwnsKey_ = b && own != 0;
-                if (!moxLit_ || !deskOwnsKey_) stopDeskMic();
+                // A digital key uses the same host MOX. Leave the laptop
+                // microphone off so its samples are not mixed in.
+                if (!moxLit_ || !deskOwnsKey_ || digitalKey_) stopDeskMic();
                 else if (voiceHeld_) startDeskMic();
                 publish();
             }
@@ -645,6 +673,17 @@ void DeskLink::noteLine(const QByteArray &line)
         if (weHost_) emit remoteTune(on != 0);
         else {
             tuneLit_ = on != 0;
+            publish();
+        }
+        return;
+    }
+    if (line.startsWith("tt ")) {
+        bool ok = false;
+        const int on = line.mid(3).toInt(&ok);
+        if (!ok) return;
+        if (weHost_) emit remoteTwoTone(on != 0);
+        else {
+            twoToneLit_ = on != 0;
             publish();
         }
         return;
@@ -674,8 +713,10 @@ void DeskLink::noteLine(const QByteArray &line)
     }
     if (line.startsWith("mode ")) {
         const QString mode = QString::fromUtf8(line.mid(5)).trimmed();
-        if (mode.size() >= 2 && mode.size() <= 5)
+        if (mode.size() >= 2 && mode.size() <= 5) {
+            noteLinkMode(mode);
             emit remoteMode(mode);
+        }
         return;
     }
     if (line.startsWith("bw ")) {
@@ -796,6 +837,13 @@ void DeskLink::noteLine(const QByteArray &line)
     }
     if (line == "psrst") {
         emit remotePsReset();
+        return;
+    }
+    if (line.startsWith("psa ")) {
+        if (!weHost_) return;
+        bool ok = false;
+        const int on = line.mid(4).toInt(&ok);
+        if (ok) emit remotePsArm(on != 0);
         return;
     }
     if (line.startsWith("psplot ")) {
@@ -933,21 +981,39 @@ void DeskLink::noteLine(const QByteArray &line)
     }
 }
 
+void DeskLink::noteLinkMode(const QString &mode)
+{
+    const QString m = mode.trimmed().toUpper();
+    if (m.size() < 2 || m.size() > 5 || linkMode_ == m) return;
+    linkMode_ = m;
+    if (rttMs_ >= 0) applyRtt(rttMs_);
+}
+
 void DeskLink::applyRtt(int ms)
 {
     if (ms < 0) ms = 0;
     if (ms > 10000) ms = 10000;
     rttMs_ = ms;
+    const qint64 now = nowMs();
+    if (rttPeakMs_ < 0 || ms > rttPeakMs_ || now >= rttPeakUntilMs_) {
+        rttPeakMs_ = ms;
+        rttPeakUntilMs_ = now + 3000;
+    }
     if (!weHost_)
         sendLine("rtt " + QByteArray::number(ms));
     const QString who = peerName_.isEmpty()
         ? (weHost_ ? tr("Desk") : tr("Shack")) : peerName_;
-    if (ms > 150)
-        setLamp(tr("Not supported, %1 ms to %2. Transmit stays off.").arg(ms).arg(who));
-    else if (ms >= 100)
-        setLamp(tr("Attached to %1, %2 ms. Transmit stays off.").arg(who).arg(ms));
+    const bool cw = linkMode_ == QLatin1String("CW")
+        || linkMode_ == QLatin1String("CWU")
+        || linkMode_ == QLatin1String("CWL");
+    const int shown = rttPeakMs_;
+    if (ms >= 200)
+        setLamp(tr("The path is too slow, peak %1 ms to %2. Transmit stays off. Listening stays up.")
+                    .arg(shown).arg(who));
+    else if (ms >= 150 && cw)
+        setLamp(tr("Attached to %1, peak %2 ms. Transmit stays off.").arg(who).arg(shown));
     else
-        setLamp(tr("Attached to %1, %2 ms. %3").arg(who).arg(ms).arg(audioClause()));
+        setLamp(tr("Attached to %1, peak %2 ms. %3").arg(who).arg(shown).arg(audioClause()));
     publish();
 }
 
@@ -1061,6 +1127,7 @@ void DeskLink::sendMode(const QString &mode)
     const QString m = mode.trimmed();
     if (!peer_ || m.size() < 2 || m.size() > 5) return;
     sendLine("mode " + m.toLatin1());
+    noteLinkMode(m);
 }
 
 void DeskLink::sendBandwidth(int hz)
@@ -1154,10 +1221,108 @@ void DeskLink::sendRxLow(int hz)
     sendLine("rxlo " + QByteArray::number(hz));
 }
 
+namespace {
+
+constexpr int kDeskLineMax = 512;
+
+QByteArray compactJson(const QJsonObject &o)
+{
+    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+bool profileLineFits(const QJsonObject &o)
+{
+    return (7 + compactJson(o).toBase64().size()) <= kDeskLineMax;
+}
+
+} // namespace
+
+void DeskLink::emitProfileObject(const QJsonObject &o)
+{
+    if (o.isEmpty() || !profileLineFits(o)) return;
+    sendLine("dapply " + compactJson(o).toBase64());
+}
+
+void DeskLink::emitBandedProfile(const QString &key, const QJsonObject &src)
+{
+    QJsonObject obj = src;
+    const QJsonArray bands = obj.value(QStringLiteral("bands")).toArray();
+    obj.remove(QStringLiteral("bands"));
+    if (!obj.isEmpty()) {
+        QJsonObject wrap;
+        wrap.insert(key, obj);
+        if (!profileLineFits(wrap)) {
+            for (auto it = obj.constBegin(); it != obj.constEnd(); ++it) {
+                QJsonObject inner;
+                inner.insert(it.key(), it.value());
+                QJsonObject one;
+                one.insert(key, inner);
+                emitProfileObject(one);
+            }
+        } else {
+            emitProfileObject(wrap);
+        }
+    }
+    const QString fromKey = key + QStringLiteral("From");
+    QJsonArray group;
+    int start = 0;
+    auto wrapBands = [&](const QJsonArray &g, int at) {
+        QJsonObject inner;
+        inner.insert(QStringLiteral("bands"), g);
+        QJsonObject wrap;
+        wrap.insert(key, inner);
+        wrap.insert(fromKey, at);
+        return wrap;
+    };
+    for (const QJsonValue &band : bands) {
+        QJsonArray trial = group;
+        trial.append(band);
+        if (!group.isEmpty() && !profileLineFits(wrapBands(trial, start))) {
+            emitProfileObject(wrapBands(group, start));
+            start += group.size();
+            group = QJsonArray();
+        }
+        group.append(band);
+    }
+    if (!group.isEmpty())
+        emitProfileObject(wrapBands(group, start));
+}
+
 void DeskLink::sendDeskProfile(const QByteArray &json)
 {
     if (!peer_ || weHost_ || json.isEmpty() || json.size() > 65536) return;
-    sendLine("dapply " + json.toBase64());
+    const auto doc = QJsonDocument::fromJson(json);
+    if (!doc.isObject()) {
+        const QByteArray line = "dapply " + json.toBase64();
+        if (line.size() <= 512) sendLine(line);
+        return;
+    }
+    QJsonObject src = doc.object();
+    src.remove(QStringLiteral("mic"));
+    QJsonObject chunk;
+    auto flush = [this, &chunk]() {
+        if (chunk.isEmpty()) return;
+        emitProfileObject(chunk);
+        chunk = QJsonObject();
+    };
+    for (auto it = src.constBegin(); it != src.constEnd(); ++it) {
+        QJsonObject trial = chunk;
+        trial.insert(it.key(), it.value());
+        if (profileLineFits(trial)) {
+            chunk = trial;
+            continue;
+        }
+        flush();
+        QJsonObject alone;
+        alone.insert(it.key(), it.value());
+        if (profileLineFits(alone)) {
+            chunk = alone;
+            continue;
+        }
+        if (it.value().isObject())
+            emitBandedProfile(it.key(), it.value().toObject());
+    }
+    flush();
 }
 
 void DeskLink::sendPs(int live, int fb, int att, int correcting, int cal, int fsm,
@@ -1185,6 +1350,12 @@ void DeskLink::requestRemotePsReset()
 {
     if (!peer_ || weHost_) return;
     sendLine("psrst");
+}
+
+void DeskLink::requestRemotePsArm(bool on)
+{
+    if (!deskSide()) return;
+    sendLine(on ? "psa 1" : "psa 0");
 }
 
 void DeskLink::sendTxLow(int hz)
@@ -1456,9 +1627,13 @@ void DeskLink::closePeer(const QString &why)
     if (wasHost && (wasKey || wasVoice)) emit voiceEnded();
     emit sessionEnded(wasHost);
     keying_ = false;
+    digitalKey_ = false;
+    digitalWanted_ = false;
+    emit digitalState(false);
     voiceHeld_ = false;
     moxLit_ = false;
     tuneLit_ = false;
+    twoToneLit_ = false;
     deskOwnsKey_ = false;
     voiceNonce_.clear();
     voicePassword_.fill(QChar(u'\0'));
@@ -1469,6 +1644,9 @@ void DeskLink::closePeer(const QString &why)
     weHost_ = false;
     meterDiv_ = 0;
     rttMs_ = -1;
+    rttPeakMs_ = -1;
+    rttPeakUntilMs_ = 0;
+    linkMode_.clear();
     peerName_.clear();
     const bool hadRig = hostProto_ != 0 || !hostRig_.isEmpty();
     hostProto_ = 0;
@@ -1667,6 +1845,9 @@ void DeskLink::pushPlay(const qint16 *mono, int nframes)
             start = true;
         }
     }
+    // Before the laptop volume. Same mono the shack sent (pre-volume,
+    // pre-BIN on the host). The tap must not run under playMtx_.
+    if (rxTap_) rxTap_(mono, nframes);
     if (start) startDeskPlay();
     feedDeskSpeaker();
 }
@@ -1771,6 +1952,13 @@ void DeskLink::askVoice()
 void DeskLink::endVoice()
 {
     if (peer_ && !weHost_) sendLine("vend");
+    if (digitalKey_ || (peer_ && !weHost_)) {
+        if (peer_ && !weHost_) sendLine("dig 0");
+        if (digitalKey_) {
+            digitalKey_ = false;
+            emit digitalState(false);
+        }
+    }
     voiceHeld_ = false;
     voicePassword_.fill(QChar(u'\0'));
     voicePassword_.clear();
@@ -1796,6 +1984,72 @@ void DeskLink::requestRemoteTune(bool on)
     sendLine(on ? "tun 1" : "tun 0");
 }
 
+void DeskLink::requestRemoteTwoTone(bool on)
+{
+    if (!deskSide() || !voiceHeld_) {
+        emit statusMessage(tr("Start voice in Settings → Remote before 2-tone."));
+        return;
+    }
+    sendLine(on ? "tt 1" : "tt 0");
+}
+
+void DeskLink::requestRemoteDigital(bool on)
+{
+    if (!deskSide()) {
+        if (digitalKey_) {
+            digitalKey_ = false;
+            emit digitalState(false);
+        }
+        return;
+    }
+    if (!on) {
+        if (peer_) sendLine("dig 0");
+        if (digitalKey_) {
+            digitalKey_ = false;
+            emit digitalState(false);
+        }
+        return;
+    }
+    if (!voiceHeld_) {
+        emit statusMessage(tr(
+            "Start voice in Settings → Remote before the digital app can transmit."));
+        emit digitalState(false);
+        return;
+    }
+    sendLine("dig 1");
+}
+
+void DeskLink::sendDigitalState(bool on)
+{
+    if (!peer_ || !weHost_) return;
+    sendLine(on ? "dig 1" : "dig 0");
+}
+
+void DeskLink::setRxTap(std::function<void(const qint16 *mono, int nframes)> tap)
+{
+    rxTap_ = std::move(tap);
+}
+
+void DeskLink::sendDigitalMono(const float *mono, int nframes)
+{
+    if (!mono || nframes <= 0 || weHost_ || !digitalKey_ || !audioPeer_) return;
+    if (audioPeer_->state() != QAbstractSocket::ConnectedState) return;
+    // No Mic-slider gain. That control is the laptop microphone only.
+    int off = 0;
+    while (off < nframes) {
+        const int n = std::min(960, nframes - off);
+        qint16 pcm[960];
+        for (int i = 0; i < n; ++i) {
+            const float s = std::clamp(mono[off + i], -1.0f, 1.0f);
+            pcm[i] = static_cast<qint16>(std::lround(s * 32767.0f));
+        }
+        char hdr[6] = {'M', 'I', 'C', '1', char(n & 0xff), char((n >> 8) & 0xff)};
+        audioPeer_->write(hdr, 6);
+        audioPeer_->write(reinterpret_cast<const char *>(pcm), n * 2);
+        off += n;
+    }
+}
+
 void DeskLink::sendMox(bool on, bool deskOwns)
 {
     if (!peer_ || !weHost_) return;
@@ -1806,6 +2060,12 @@ void DeskLink::sendTuneOn(bool on)
 {
     if (!peer_ || !weHost_) return;
     sendLine(on ? "tun 1" : "tun 0");
+}
+
+void DeskLink::sendTwoToneOn(bool on)
+{
+    if (!peer_ || !weHost_) return;
+    sendLine(on ? "tt 1" : "tt 0");
 }
 
 void DeskLink::sendVoiceChallenge(const QByteArray &nonce, const QByteArray &salt, int iters)
@@ -2003,6 +2263,9 @@ void DeskLink::sendMicChunk()
     QByteArray pcm = micDev_->readAll();
     const int frames = pcm.size() / 2;
     if (frames <= 0) return;
+    // Digital TCI audio owns MIC1 for this key. The Mic slider stays
+    // on the laptop microphone, which is not sent while that key is up.
+    if (digitalKey_) return;
     auto *s = reinterpret_cast<qint16 *>(pcm.data());
     // Desk input gain, before the samples are packed into MIC1.
     // 0 dB is unity. Full-scale int16 is the ceiling.
