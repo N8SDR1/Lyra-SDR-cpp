@@ -3,6 +3,7 @@
 // protocol reference.
 
 #include "hl2_stream.h"
+#include "desk_session.h"
 #include "xvtrslots.h"
 #include "hardware/HardwareCatalog.h"
 
@@ -1897,7 +1898,26 @@ double hl2FwdWattsFromRaw(int raw) {
 }
 }  // namespace
 
+bool HL2Stream::deskPowerFresh() const
+{
+    const qint64 ms = deskPowerMs_.load(std::memory_order_relaxed);
+    if (ms <= 0) return false;
+    return (QDateTime::currentMSecsSinceEpoch() - ms) < 1000;
+}
+
+void HL2Stream::postDeskPower(double fwdW, double revW)
+{
+    if (std::isnan(fwdW) || fwdW < 0) fwdW = 0;
+    if (std::isnan(revW) || revW < 0) revW = 0;
+    deskFwdW_.store(fwdW, std::memory_order_relaxed);
+    deskRevW_.store(revW, std::memory_order_relaxed);
+    deskPowerMs_.store(QDateTime::currentMSecsSinceEpoch(),
+                       std::memory_order_relaxed);
+}
+
 double HL2Stream::fwdPowerW() const {
+    if (deskPowerFresh())
+        return deskFwdW_.load(std::memory_order_relaxed);
     // P2/Brick: the P2 wire has no `prn` fwd/rev, so the P2RxBridge pushes
     // coupler watts via setPowerTelemetry().  Prefer it while a P2 source is
     // active; otherwise (all P1/HL2 operation) fall through to the working
@@ -1910,6 +1930,8 @@ double HL2Stream::fwdPowerW() const {
     return hl2FwdWattsFromRaw(lyra::wire::prn->tx[0].fwd_power);
 }
 double HL2Stream::revPowerW() const {
+    if (deskPowerFresh())
+        return deskRevW_.load(std::memory_order_relaxed);
     if (p2PowerActive_.load(std::memory_order_relaxed))
         return pushedRevW_.load(std::memory_order_relaxed);
     // Stage 2b2: read `prn->tx[0].rev_power` direct (Ep6RecvThread
@@ -1944,6 +1966,8 @@ double HL2Stream::applyPwrTrim(double rawW) const {
 }
 
 double HL2Stream::fwdPowerCalW() const {
+    if (deskPowerFresh())
+        return deskFwdW_.load(std::memory_order_relaxed);
     // Raw formula watts × the current TX band's PWR-meter trim.  This is the
     // live calibrated watts the watts cap reads.  The PWR needle uses
     // takeFwdPowerIntervalMaxCalW() so a syllable between ticks is not missed.
@@ -1952,6 +1976,8 @@ double HL2Stream::fwdPowerCalW() const {
 }
 
 double HL2Stream::takeFwdPowerIntervalMaxCalW() const {
+    if (deskPowerFresh())
+        return deskFwdW_.load(std::memory_order_relaxed);
     if (lyra::wire::prn == nullptr) return kNaN;
     return applyPwrTrim(
         hl2FwdWattsFromRaw(lyra::wire::takeFwdPowerIntervalMax()));
@@ -2801,10 +2827,15 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
     // setpoint) and the per-band watts ceiling below — the emitted drive is
     // always <= both.
     int effRaw = requestedRaw;
+    if (tuneEnabled_.load(std::memory_order_relaxed)) {
+        const int over = tuneDriveOverrideRaw_.load(std::memory_order_relaxed);
+        if (over >= 0)
+            effRaw = over;
+    }
     if (digitalDriveEnabled_.load(std::memory_order_relaxed)) {
         const int m = txMode_.load(std::memory_order_relaxed);
         if (m == 7 || m == 9)
-            effRaw = requestedRaw
+            effRaw = effRaw
                    * digitalDrivePct_.load(std::memory_order_relaxed) / 100;
     }
     const int    ceiling = wattsDriveCeilingRaw_();
@@ -3122,6 +3153,16 @@ void HL2Stream::setTxDriveLevel(int level) {
     const int pct = static_cast<int>(std::lround(clamped * 100.0 / 255.0));
     emit logLine(QStringLiteral("TX: drive -> %1 %  (raw %2/255)")
                  .arg(pct).arg(clamped));
+}
+
+void HL2Stream::setTuneDriveOverride(int raw) {
+    if (raw < 0)
+        raw = -1;
+    else
+        raw = std::clamp(raw, 0, 255);
+    tuneDriveOverrideRaw_.store(raw, std::memory_order_relaxed);
+    applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
+    emit tuneDriveOverrideChanged();
 }
 
 void HL2Stream::applyDriveLevelNoPersist(int level) {
@@ -3543,7 +3584,8 @@ void HL2Stream::setPsArmed(bool on) {
         on = false;
     if (psArmed_ == on) return;
     psArmed_ = on;
-    QSettings().setValue(QStringLiteral("tx/psArmed"), on);
+    if (!lyra::deskApplyQuiet())
+        QSettings().setValue(QStringLiteral("tx/psArmed"), on);
     emit psArmedChanged(on);
     refreshPsWire();
     emit psLiveArmedChanged(psLiveArmed());
@@ -3575,6 +3617,7 @@ void HL2Stream::setPsUiMode(const QString &uiMode) {
 }
 
 bool HL2Stream::psLiveArmed() const {
+    if (deskPs_) return deskPsLive_;
     return psAttestation_ && psArmed_ && !psDigitalLockout();
 }
 
@@ -3633,18 +3676,22 @@ double HL2Stream::psGetPk() const {
 }
 
 QVariantList HL2Stream::psAmpMagX() const {
+    if (deskPs_) return deskMagX_;
     return psFsm_ ? psFsm_->ampMagX() : QVariantList{};
 }
 
 QVariantList HL2Stream::psAmpMagY() const {
+    if (deskPs_) return deskMagY_;
     return psFsm_ ? psFsm_->ampMagY() : QVariantList{};
 }
 
 QVariantList HL2Stream::psAmpCorrX() const {
+    if (deskPs_) return deskCorrX_;
     return psFsm_ ? psFsm_->ampCorrX() : QVariantList{};
 }
 
 QVariantList HL2Stream::psAmpCorrY() const {
+    if (deskPs_) return deskCorrY_;
     return psFsm_ ? psFsm_->ampCorrY() : QVariantList{};
 }
 
@@ -3653,35 +3700,98 @@ QVariantList HL2Stream::psInfo() const {
 }
 
 int HL2Stream::psFeedbackLevel() const {
+    if (deskPs_) return deskPsFb_;
     return psFsm_ ? psFsm_->feedbackLevel() : 0;
 }
 
 int HL2Stream::psAutoAttDb() const {
+    if (deskPs_) return deskPsAtt_;
     return psFsm_ ? psFsm_->autoAttDb() : 0;
 }
 
 int HL2Stream::psFsmState() const {
+    if (deskPs_) return deskPsFsm_;
     return psFsm_ ? psFsm_->fsmState() : 0;
 }
 
 bool HL2Stream::psCorrecting() const {
+    if (deskPs_) return deskPsCorr_;
     return psFsm_ && psFsm_->correcting();
 }
 
 int HL2Stream::psCalCount() const {
+    if (deskPs_) return deskPsCal_;
     return psFsm_ ? psFsm_->calCount() : 0;
 }
 
 int HL2Stream::psDdc0Dbfs() const {
+    if (deskPs_) return deskPsD0_;
     return psFsm_ ? psFsm_->ddc0Dbfs() : -999;
 }
 
 int HL2Stream::psDdc1Dbfs() const {
+    if (deskPs_) return deskPsD1_;
     return psFsm_ ? psFsm_->ddc1Dbfs() : -999;
 }
 
 int HL2Stream::psFeedSpr() const {
+    if (deskPs_) return deskPsSpr_;
     return psFsm_ ? psFsm_->feedSpr() : 0;
+}
+
+void HL2Stream::postDeskPureSignal(bool live, int fb, int att, bool correcting,
+                                   int cal, int fsm, int d0, int d1, int spr)
+{
+    deskPs_ = true;
+    deskPsLive_ = live;
+    deskPsFb_ = fb;
+    deskPsAtt_ = att;
+    deskPsCorr_ = correcting;
+    deskPsCal_ = cal;
+    deskPsFsm_ = fsm;
+    deskPsD0_ = d0;
+    deskPsD1_ = d1;
+    deskPsSpr_ = spr;
+    emit psLiveArmedChanged(live);
+    emit psFeedbackLevelChanged(fb);
+    emit psAutoAttDbChanged(att);
+    emit psCorrectingChanged(correcting);
+    emit psCalCountChanged(cal);
+    emit psFsmStateChanged(fsm);
+    emit psDdc0DbfsChanged(d0);
+    emit psDdc1DbfsChanged(d1);
+    emit psFeedSprChanged(spr);
+}
+
+void HL2Stream::postDeskPsPlot(const QVariantList &magX, const QVariantList &magY,
+                               const QVariantList &corrX, const QVariantList &corrY)
+{
+    deskPs_ = true;
+    deskMagX_ = magX;
+    deskMagY_ = magY;
+    deskCorrX_ = corrX;
+    deskCorrY_ = corrY;
+    emit psAmpPlotChanged();
+}
+
+void HL2Stream::clearDeskPureSignal()
+{
+    if (!deskPs_) return;
+    deskPs_ = false;
+    deskMagX_.clear();
+    deskMagY_.clear();
+    deskCorrX_.clear();
+    deskCorrY_.clear();
+    emit psLiveArmedChanged(psLiveArmed());
+    emit psFeedbackLevelChanged(psFeedbackLevel());
+    emit psAutoAttDbChanged(psAutoAttDb());
+    emit psCorrectingChanged(psCorrecting());
+    emit psCalCountChanged(psCalCount());
+    emit psFsmStateChanged(psFsmState());
+    emit psDdc0DbfsChanged(psDdc0Dbfs());
+    emit psDdc1DbfsChanged(psDdc1Dbfs());
+    emit psFeedSprChanged(psFeedSpr());
+    emit psAmpPlotChanged();
 }
 
 void HL2Stream::refreshPsWire() {
@@ -4596,7 +4706,8 @@ void HL2Stream::setAlcDecayMs(int decay_ms) {
 void HL2Stream::setLevelerOn(bool on) {
     if (on == levelerOn_) return;
     levelerOn_ = on;
-    QSettings().setValue(QStringLiteral("tx/levelerOn"), on);
+    if (!lyra::deskApplyQuiet())
+        QSettings().setValue(QStringLiteral("tx/levelerOn"), on);
     emit levelerOnChanged(on);
     std::function<void(bool,double)> fwd;
     double topLinear;
@@ -5242,7 +5353,8 @@ void HL2Stream::setLevelerMaxGainLinear(double linear) {
                                       kMaxLevelerMaxGainLinear);
     if (clamped == levelerMaxGainLinear_) return;
     levelerMaxGainLinear_ = clamped;
-    QSettings().setValue(QStringLiteral("tx/levelerMaxGainLinear"), clamped);
+    if (!lyra::deskApplyQuiet())
+        QSettings().setValue(QStringLiteral("tx/levelerMaxGainLinear"), clamped);
     emit levelerMaxGainLinearChanged(clamped);
     std::function<void(bool,double)> fwd;
     bool on;
@@ -5261,7 +5373,8 @@ void HL2Stream::setLevelerDecayMs(int decay_ms) {
                                    kMaxLevelerDecayMs);
     if (clamped == levelerDecayMs_) return;
     levelerDecayMs_ = clamped;
-    QSettings().setValue(QStringLiteral("tx/levelerDecayMs"), clamped);
+    if (!lyra::deskApplyQuiet())
+        QSettings().setValue(QStringLiteral("tx/levelerDecayMs"), clamped);
     emit levelerDecayMsChanged(clamped);
     std::function<void(int)> fwd;
     {

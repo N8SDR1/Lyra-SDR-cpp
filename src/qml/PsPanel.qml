@@ -32,11 +32,12 @@ Rectangle {
         return m === "DIGU" || m === "DIGL" || m === "DRM"
             || m === "CWL" || m === "CWU" || m === "FM"
     }
+    readonly property bool txNow: DeskLink.deskSide ? DeskLink.moxLit : Stream.moxActive
     readonly property bool liveOn: Stream.psLiveArmed && !root.digitalMode
     readonly property bool digitalLock: Stream.psDigitalLockout || root.digitalMode
 
     function fbZoneColor() {
-        if (!(Stream.moxActive && root.liveOn))
+        if (!(root.txNow && root.liveOn))
             return root.cMuted
         var fb = Number(Stream.psFeedbackLevel)
         if (fb > 181)
@@ -70,7 +71,7 @@ Rectangle {
             text: root.liveOn ? qsTr("ON") : qsTr("OFF")
             font.bold: true
             font.pixelSize: 12
-            enabled: Stream.psAttestation && !root.digitalLock
+            enabled: !DeskLink.deskSide && Stream.psAttestation && !root.digitalLock
             onClicked: Stream.setPsArmed(!Stream.psArmed)
             background: Rectangle {
                 radius: 4
@@ -102,7 +103,7 @@ Rectangle {
             text: qsTr("2-tone")
             font.bold: true
             font.pixelSize: 12
-            enabled: Stream.psAttestation && root.liveOn
+            enabled: !DeskLink.deskSide && Stream.psAttestation && root.liveOn
                      && (!Stream.tuneEnabled || Stream.twoToneEnabled)
             onClicked: {
                 if (!Stream.twoToneEnabled) {
@@ -139,7 +140,7 @@ Rectangle {
             text: qsTr("Voice")
             font.bold: true
             font.pixelSize: 12
-            enabled: Stream.psAttestation && root.liveOn
+            enabled: !DeskLink.deskSide && Stream.psAttestation && root.liveOn
                      && (!Stream.tuneEnabled || Stream.noiseEnabled)
             onClicked: {
                 if (!Stream.noiseEnabled) {
@@ -188,16 +189,16 @@ Rectangle {
             implicitHeight: 26
             implicitWidth: attTxt.implicitWidth + 16
             radius: 4
-            color: Stream.moxActive && root.liveOn ? "#30200c" : "transparent"
-            border.color: Stream.moxActive && root.liveOn ? root.cOn : "#2a3a4a"
-            border.width: Stream.moxActive && root.liveOn ? 2 : 1
+            color: root.txNow && root.liveOn ? "#30200c" : "transparent"
+            border.color: root.txNow && root.liveOn ? root.cOn : "#2a3a4a"
+            border.width: root.txNow && root.liveOn ? 2 : 1
             HoverHandler { id: attHover }
             Label {
                 id: attTxt
                 anchors.centerIn: parent
                 text: qsTr("ATT %1 dB").arg(Number(Stream.psAutoAttDb))
-                color: Stream.moxActive && root.liveOn ? root.cOn : root.cMuted
-                font.bold: Stream.moxActive && root.liveOn
+                color: root.txNow && root.liveOn ? root.cOn : root.cMuted
+                font.bold: root.txNow && root.liveOn
                 font.pixelSize: 12
             }
             ToolTip.text: qsTr("PS auto-att, remembered per TX band. 0 dB is normal when FB is already 129–181 (no extra pad). Brick/Hermes: ADC0 coupler 0…31 dB. HL2: TX step-att −28…+31 dB.")
@@ -212,14 +213,14 @@ Rectangle {
             radius: 4
             color: "transparent"
             border.color: root.fbZoneColor()
-            border.width: Stream.moxActive && root.liveOn ? 2 : 1
+            border.width: root.txNow && root.liveOn ? 2 : 1
             HoverHandler { id: fbHover }
             Label {
                 id: fbTxt
                 anchors.centerIn: parent
                 text: qsTr("FB %1").arg(Stream.psFeedbackLevel)
                 color: root.fbZoneColor()
-                font.bold: Stream.moxActive && root.liveOn
+                font.bold: root.txNow && root.liveOn
                 font.pixelSize: 12
             }
             ToolTip.text: qsTr("Coupler FB. Teal below 129 (low), green 129–181, red above 181 (hot).")
@@ -234,8 +235,13 @@ Rectangle {
             implicitHeight: 26
             text: qsTr("Reset")
             font.pixelSize: 12
-            enabled: Stream.psAttestation && root.liveOn
-            onClicked: Stream.resetPureSignal()
+            enabled: root.liveOn && (DeskLink.deskSide || Stream.psAttestation)
+            onClicked: {
+                if (DeskLink.deskSide)
+                    DeskLink.requestRemotePsReset()
+                else
+                    Stream.resetPureSignal()
+            }
             background: Rectangle {
                 radius: 4
                 color: "#161e28"

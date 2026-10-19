@@ -38,6 +38,18 @@ Rectangle {
     readonly property color cAccent:   "#00e5ff"
     readonly property color cText:     "#cdd9e5"
     readonly property color cMuted:    "#8a9aac"
+    // Desk: this is the laptop microphone into MIC1. Local radio: WDSP TXA.
+    readonly property real micGainShown: DeskLink.deskSide
+                                         ? DeskLink.micGainDb : Stream.micGainDb
+    function commitMicGain(db) {
+        var nv = Math.round(db)
+        if (nv < -90) nv = -90
+        if (nv > 40) nv = 40
+        if (DeskLink.deskSide)
+            DeskLink.setMicGainDb(nv)
+        else
+            Stream.setMicGainDb(nv)
+    }
     readonly property color cOn:       "#ff9a3c"   // tune-armed orange
     readonly property color cMox:      "#d11515"   // wire-MOX red
     readonly property color cMoxEdge:  "#ff8080"
@@ -215,41 +227,43 @@ Rectangle {
             HoverHandler { id: micLblHov }
             ToolTip.visible: (micLblHov.hovered) && Prefs.tooltipsEnabled
             ToolTip.delay: 600
-            ToolTip.text: qsTr("Mic gain into the TX modulator (WDSP TXA "
-                + "PanelGain1).  0 dB = unity.  Raise toward +10 to +20 dB for "
-                + "typical SSB voice — watch the ALC meter (Settings → TX → "
-                + "ALC ceiling) and back off when ALC engages hard.  Wheel "
-                + "adjusts (Shift = 5 dB).  Settings → TX → Mic Gain offers "
-                + "a typed spin-box for the same value — both surfaces tune "
-                + "the same control bidirectionally.")
+            ToolTip.text: DeskLink.deskSide
+                ? qsTr("Sets the level of the laptop microphone sent to the shack. "
+                    + "The level changes while you are transmitting. "
+                    + "0 dB leaves that input unchanged.")
+                : qsTr("Mic gain into the TX modulator (WDSP TXA "
+                    + "PanelGain1).  0 dB = unity.  Raise toward +10 to +20 dB for "
+                    + "typical SSB voice — watch the ALC meter (Settings → TX → "
+                    + "ALC ceiling) and back off when ALC engages hard.  Wheel "
+                    + "adjusts (Shift = 5 dB).  Settings → TX → Mic Gain offers "
+                    + "a typed spin-box for the same value — both surfaces tune "
+                    + "the same control bidirectionally.")
         }
         LyraSlider {
             id: micGainSlider
             Layout.preferredWidth: 90    // matches driveSlider — front-panel sliders kept short
             // Range matches the verified reference's Default TX profile
-            // (Max +40, Min -90) so the operator's full reference-style
-            // travel is preserved.  Live value bidirectionally binds
-            // with the Settings → TX Mic Gain spin-box so either
-            // surface tunes the same QSettings tx/micGainDb value.
+            // (Max +40, Min -90). On the local radio this is tx/micGainDb.
+            // While attached as the desk it is the laptop mic into MIC1
+            // (deskRemote/micGainDb) and does not write the host rack.
             from: -90; to: 40; stepSize: 1; snapMode: Slider.SnapAlways
-            value: Stream.micGainDb
-            onMoved: Stream.setMicGainDb(value)
+            value: root.micGainShown
+            onMoved: root.commitMicGain(value)
             WheelHandler {
                 onWheel: (ev) => {
                     var step = (ev.modifiers & Qt.ShiftModifier) ? 5 : 1
                     var nv = micGainSlider.value + (ev.angleDelta.y > 0 ? step : -step)
                     nv = Math.max(-90, Math.min(40, nv))
-                    Stream.setMicGainDb(nv)
+                    root.commitMicGain(nv)
                 }
             }
             // (Help moved to the "Mic" label above — slider stays clear.)
         }
         Label {
-            // Live readback from the persisted Q_PROPERTY — so an
-            // external change (Settings dialog, persistence reload,
-            // future profile-recall) refreshes the readout.
-            text: (Stream.micGainDb >= 0 ? "+" : "") +
-                  Math.round(Stream.micGainDb) + qsTr(" dB")
+            // Live readback. Desk shows the laptop input; the local
+            // radio shows the WDSP TXA mic gain.
+            text: (root.micGainShown >= 0 ? "+" : "") +
+                  Math.round(root.micGainShown) + qsTr(" dB")
             color: cText
             font.family: "Consolas"
             font.bold: true
@@ -593,10 +607,14 @@ Rectangle {
             text: qsTr("Tune")
             font.bold: true
             font.pixelSize: 12
-            checked: Stream.tuneEnabled
+            checked: DeskLink.deskSide ? DeskLink.tuneLit : Stream.tuneEnabled
             enabled: !P2Bridge.running
                      || (P2Bridge.txBenchArmed && !P2Bridge.txFaultLatched)
             onClicked: {
+                if (DeskLink.deskSide) {
+                    DeskLink.requestRemoteTune(!DeskLink.tuneLit)
+                    return
+                }
                 if (!Stream.tuneEnabled) {
                     // Arming: set tone first so the very first EP2 frame
                     // after wire-MOX rises already carries the carrier.
@@ -610,15 +628,15 @@ Rectangle {
             }
             background: Rectangle {
                 radius: 4
-                color: Stream.tuneEnabled ? "#3a2a14" : "#1f2a35"
-                border.color: Stream.tuneEnabled ? root.cOn : "#3a5060"
+                color: (DeskLink.deskSide ? DeskLink.tuneLit : Stream.tuneEnabled) ? "#3a2a14" : "#1f2a35"
+                border.color: (DeskLink.deskSide ? DeskLink.tuneLit : Stream.tuneEnabled) ? root.cOn : "#3a5060"
                 border.width: 2
             }
             contentItem: Text {
                 text: tunBtn.text
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
-                color: Stream.tuneEnabled ? root.cOn : root.cText
+                color: (DeskLink.deskSide ? DeskLink.tuneLit : Stream.tuneEnabled) ? root.cOn : root.cText
                 font: tunBtn.font
                 elide: Text.ElideRight
                 clip: true
@@ -650,7 +668,8 @@ Rectangle {
             font.bold: true
             font.pixelSize: 12
             checked: Stream.twoToneEnabled
-            enabled: (!P2Bridge.running
+            enabled: !DeskLink.deskSide
+                     && (!P2Bridge.running
                       || (P2Bridge.txBenchArmed && !P2Bridge.txFaultLatched))
                      && (!Stream.tuneEnabled || Stream.twoToneEnabled)
             onClicked: {
@@ -691,10 +710,17 @@ Rectangle {
             text: qsTr("MOX")
             font.bold: true
             font.pixelSize: 12
-            checked: Stream.moxActive
+            checked: DeskLink.deskSide
+                      ? (DeskLink.moxLit && DeskLink.deskOwnsKey)
+                      : Stream.moxActive
             enabled: !P2Bridge.running
                      || (P2Bridge.txBenchArmed && !P2Bridge.txFaultLatched)
-            onClicked: Stream.requestMox(!Stream.moxActive)
+            onClicked: {
+                if (DeskLink.deskSide)
+                    DeskLink.requestRemoteMox(!(DeskLink.moxLit && DeskLink.deskOwnsKey))
+                else
+                    Stream.requestMox(!Stream.moxActive)
+            }
             background: Rectangle {
                 // Three-way state: moxActive (wire MOX live) → red;
                 // pressIntent (operator pressed within last ~220 ms,
@@ -702,10 +728,12 @@ Rectangle {
                 // tinted dark fill; otherwise gray.  Matches the TUN
                 // armed visual idiom so operators read both buttons
                 // the same way.
-                color: Stream.moxActive ? root.cMox
+                color: (DeskLink.deskSide ? (DeskLink.moxLit && DeskLink.deskOwnsKey)
+                                      : Stream.moxActive) ? root.cMox
                      : root.pressIntent ? "#3a2a14"
                      : "#1f2a35"
-                border.color: Stream.moxActive ? root.cMoxEdge
+                border.color: (DeskLink.deskSide ? (DeskLink.moxLit && DeskLink.deskOwnsKey)
+                                                 : Stream.moxActive) ? root.cMoxEdge
                             : root.pressIntent ? root.cOn
                             : "#3a5060"
                 border.width: 2
@@ -713,7 +741,8 @@ Rectangle {
             }
             contentItem: Text {
                 text: moxBtn.text
-                color: Stream.moxActive ? "#ffffff"
+                color: (DeskLink.deskSide ? (DeskLink.moxLit && DeskLink.deskOwnsKey)
+                                      : Stream.moxActive) ? "#ffffff"
                      : root.pressIntent ? root.cOn
                      : root.cText
                 font: moxBtn.font

@@ -45,6 +45,8 @@ public slots:
     void setValue(int value);
     void setAutoEnabled(bool on);
     void setAdcIndex(int index);
+    // 0 = this computer's radio. 1 = host Hermes Lite. 2 = host Protocol 2.
+    void setDeskProtocol(int protocol);
 
 signals:
     void changed();
@@ -52,6 +54,7 @@ signals:
 private:
     lyra::ipc::HL2Stream *p1_ = nullptr;
     lyra::wire::P2RxBridge *p2_ = nullptr;
+    int deskProto_ = 0;
 };
 
 } // namespace lyra::hardware

@@ -2917,10 +2917,59 @@ void WdspEngine::cropSpectrum(const float *full, float *dst, int n,
     }
 }
 
+int WdspEngine::copySpectrumCache(float *dst, int maxN)
+{
+    if (!dst) return 0;
+    const int n = std::min(maxN, kAnPixels);
+    if (n <= 0) return 0;
+    std::unique_lock<std::mutex> lk(analyzerMtx_, std::try_to_lock);
+    if (!lk.owns_lock() || static_cast<int>(specCache_.size()) < n)
+        return 0;
+    std::memcpy(dst, specCache_.data(), static_cast<size_t>(n) * sizeof(float));
+    const float cal = static_cast<float>(
+        rxDisplayCalibrationDb_.load(std::memory_order_relaxed));
+    if (cal != 0.0f)
+        for (int i = 0; i < n; ++i) dst[i] += cal;
+    return n;
+}
+
+void WdspEngine::postDeskSpectrum(const float *db, int n, int fullSpanHz)
+{
+    if (!db || n < 2 || fullSpanHz <= 0) return;
+    {
+        std::lock_guard<std::mutex> lk(deskSpecMtx_);
+        deskSpec_.assign(db, db + n);
+        if (static_cast<int>(deskSpec_.size()) < kAnPixels)
+            deskSpec_.resize(kAnPixels, -200.0f);
+    }
+    const int prev = deskFullSpan_.exchange(fullSpanHz, std::memory_order_relaxed);
+    deskSpecMs_.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count(),
+        std::memory_order_relaxed);
+    if (prev != fullSpanHz) emit spanChanged();
+}
+
 int WdspEngine::copySpectrum(float *dst, int maxN)
 {
     if (dst == nullptr) {
         return 0;
+    }
+    const qint64 specNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (deskFullSpan_.load(std::memory_order_relaxed) > 0
+        && (specNow - deskSpecMs_.load(std::memory_order_relaxed)) < 500) {
+        std::lock_guard<std::mutex> lk(deskSpecMtx_);
+        if (static_cast<int>(deskSpec_.size()) >= kAnPixels) {
+            const int n = std::min(maxN, kAnPixels);
+            const double z = displayZoom();
+            if (z <= 1.0) {
+                std::memcpy(dst, deskSpec_.data(),
+                            static_cast<size_t>(n) * sizeof(float));
+            } else {
+                cropSpectrum(deskSpec_.data(), dst, n, 0.0);
+            }
+            return n;
+        }
     }
     const WdspApi &api = wdsp_->api();
     if (!api.GetPixels) {
@@ -2982,6 +3031,13 @@ int WdspEngine::copySpectrum(float *dst, int maxN)
 
 int WdspEngine::copySpectrumRx2(float *dst, int maxN)
 {
+    // A desk session only has the host's main picture. Focusing the
+    // second receiver must not blank that panadapter.
+    const qint64 specNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (deskFullSpan_.load(std::memory_order_relaxed) > 0
+        && (specNow - deskSpecMs_.load(std::memory_order_relaxed)) < 500)
+        return copySpectrum(dst, maxN);
     // Full converter span. No zoom crop and no tune-carrier shift —
     // those belong to the first receiver's panadapter.
     if (!dst || !wdsp_)
@@ -3172,8 +3228,28 @@ double WdspEngine::volumeDb() const
     return posToDb(volume_.load(std::memory_order_relaxed));
 }
 
+void WdspEngine::postDeskMeter(double dbm)
+{
+    if (std::isnan(dbm)) dbm = -200.0;
+    deskSmeter_.store(dbm, std::memory_order_relaxed);
+    deskMeterMs_.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count(),
+        std::memory_order_relaxed);
+}
+
+bool WdspEngine::deskMeterFresh() const
+{
+    const qint64 ms = deskMeterMs_.load(std::memory_order_relaxed);
+    if (ms <= 0) return false;
+    const qint64 now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    return (now - ms) < 1000;
+}
+
 double WdspEngine::sMeterDbm() const
 {
+    if (deskMeterFresh())
+        return deskSmeter_.load(std::memory_order_relaxed);
     if (!running_ || !wdsp_) return -200.0;
     const WdspApi &api = wdsp_->api();
     if (!api.GetRXAMeter) return -200.0;
@@ -4622,6 +4698,13 @@ void WdspEngine::setRadioAudioSink(
     radioSink_ = std::move(sink);
 }
 
+void WdspEngine::setDeskAudioTap(
+    std::function<void(const double *lr, int nframes)> tap)
+{
+    std::lock_guard<std::mutex> lk(deskAudioMtx_);
+    deskAudioTap_ = std::move(tap);
+}
+
 void WdspEngine::applyAudioRouteTransient(bool hl2,
                                           const QString &deviceName)
 {
@@ -5175,6 +5258,17 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
         }
     }
 
+    // Desk hears this block before volume, mute, balance, and the
+    // HL2 jack pad, so the shack speaker level stays local.  try_lock:
+    // a busy tap must not stall the speakers on this computer.
+    {
+        std::function<void(const double *, int)> tap;
+        if (deskAudioMtx_.try_lock()) {
+            tap = deskAudioTap_;
+            deskAudioMtx_.unlock();
+            if (tap && audio) tap(audio, nframes);
+        }
+    }
     // Two mute paths OR together: the operator's manual mute_
     // (Audio panel) AND the auto-mute-on-TX gate (live wire MOX
     // bit, gated by autoMuteOnTx_ pref).  Either silences audio

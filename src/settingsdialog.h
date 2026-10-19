@@ -30,6 +30,7 @@ class UsbBcd;
 class MemoryStore;
 class EibiStore;
 class TciServer;
+class DeskLink;
 class SpotStore;
 class SpotHoleFeeder;
 class DxClusterFeeder;
@@ -59,6 +60,7 @@ public:
                    lyra::cat::SerialCwKey *serialCwKey,
                    const QList<lyra::cat::CatServer *> &catServers,
                    lyra::wire::P2RxBridge *p2 = nullptr,
+                   DeskLink *desk = nullptr,
                    QWidget *parent = nullptr);
 
     // Raise the tab that owns <topic> (from a panel's "?" → Settings).
@@ -120,6 +122,7 @@ private:
     MemoryStore            *memory_    = nullptr;
     EibiStore              *eibi_      = nullptr;
     TciServer              *tci_       = nullptr;
+    DeskLink               *desk_      = nullptr;
     SpotStore              *spots_     = nullptr;
     SpotHoleFeeder         *spotHole_  = nullptr;
     DxClusterFeeder        *dxCluster_ = nullptr;

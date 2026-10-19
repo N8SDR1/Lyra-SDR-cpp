@@ -34,6 +34,7 @@
 #include <QTimer>
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -380,6 +381,8 @@ public:
     // Returns -200 when the RX channel isn't running.  Safe to call
     // from the UI thread (just reads WDSP's latest stored meter value).
     double sMeterDbm() const;
+    void postDeskMeter(double dbm);
+    bool deskMeterFresh() const;
     // RX2 (WDSP channel 2) RXA_S_PK — same units as sMeterDbm().
     // −200 when SUB/RX2 is not open.
     double sMeterDbmRx2() const;
@@ -426,6 +429,14 @@ public:
     // amendment A.6 in the reconciled doc.
     int    spanHz() const {
         const double zClamp = displayZoom();
+        const qint64 specMs = deskSpecMs_.load(std::memory_order_relaxed);
+        const int specSpan = deskFullSpan_.load(std::memory_order_relaxed);
+        const qint64 specNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (specSpan > 0 && specMs > 0 && (specNow - specMs) < 500) {
+            const int cropped = static_cast<int>(specSpan / zClamp);
+            return cropped > 0 ? cropped : 1;
+        }
         if (txOwnsAnalyzer_.load(std::memory_order_acquire)) {
             const int r = txSpanHz_.load(std::memory_order_relaxed);
             return static_cast<int>(r / zClamp);
@@ -483,6 +494,12 @@ public:
         return rxDisplayCalibrationDb_.load(std::memory_order_relaxed);
     }
     int  copySpectrum(float *dst, int maxN);
+    // Full uncropped cache, no GetPixels. The panadapter already
+    // refreshed specCache_. Used by the Lyra-to-Lyra spectrum sender.
+    int  copySpectrumCache(float *dst, int maxN);
+    // Desk paints these instead of the local analyzer. fullSpanHz is
+    // the shack's whole IQ span; local zoom crops it.
+    void postDeskSpectrum(const float *db, int n, int fullSpanHz);
     // §15.29 C1 — waterfall-specific spectrum read.  During TX state,
     // the analyzer is configured with n_pixout=2 (configureAnalyzerForTx)
     // — pixout=0 = panadapter (30 ms tau IIR), pixout=1 = waterfall
@@ -845,6 +862,12 @@ public:
     // session whose profile audioRoute is "radio"; empty clears.
     void setRadioAudioSink(
         std::function<void(const qint16 *lr, int nframes)> sink);
+    // Lyra-to-Lyra desk tee. Pre-volume receiver audio (doubles,
+    // interleaved stereo, about ±1). Host volume, mute, balance,
+    // and the HL2 jack pad do not apply. The callback must only
+    // copy; it runs on the RX worker thread. Null clears it.
+    void setDeskAudioTap(
+        std::function<void(const double *lr, int nframes)> tap);
 
     // Per-radio audio routing (Layer-2 radio profiles).  Applies an
     // output route for the SESSION only — unlike setAudioOutputDevice
@@ -1319,6 +1342,8 @@ private:
     // dispatch-path lock is uncontended except during set/clear.
     std::mutex          radioSinkMtx_;
     std::function<void(const qint16 *, int)> radioSink_;
+    std::mutex          deskAudioMtx_;
+    std::function<void(const double *, int)> deskAudioTap_;
     // P4.b — interleaved L/R doubles handed to the verbatim
     // OutBound(0) RX-audio tee (dispatchAudioFrame; the §2 asioOUT
     // pattern).  sendProtocol1Samples does the reference 16-bit
@@ -1491,6 +1516,12 @@ private:
     // garbage feeding the zoom crop).  GUI-thread only (the QQuickWidget
     // panadapter + waterfall reads are serialised).
     std::vector<float> specCache_;
+    std::vector<float> deskSpec_;
+    std::atomic<qint64> deskSpecMs_{0};
+    std::atomic<double> deskSmeter_{-200.0};
+    std::atomic<qint64> deskMeterMs_{0};
+    std::atomic<int> deskFullSpan_{0};
+    mutable std::mutex deskSpecMtx_;
     std::vector<float> specCacheRx2_;
     std::atomic<double> rxDisplayCalibrationDb_{0.0};
     // §15.29 C1 — pixout=1 waterfall cache, mirrors specCache_ but

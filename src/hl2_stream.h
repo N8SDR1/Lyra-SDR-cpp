@@ -922,6 +922,8 @@ public:
     // UI thread (lock-free atomics).
     void    setPowerTelemetry(double fwdW, double revW);
     void    clearPowerTelemetry();   // P2 session teardown → fall back to prn
+    // Lyra-to-Lyra desk: show the shack's watts without a local radio.
+    void    postDeskPower(double fwdW, double revW);
     // TX-0c-fsm — true while the radio is wire-level keyed (post-keydown
     // settle, pre-keyup-clear).  Read by the UI red-on-air indicator.
     bool    moxActive()  const { return moxActive_; }
@@ -1315,6 +1317,10 @@ public slots:
     void setCtuneDisplaySpanHz(double hz);
     void setCtuneFilterEdges(int lowHz, int highHz);
     void setTxDriveLevel(int level);
+    // While Tune is armed and a separate tune level is selected, the
+    // carrier uses this raw 0..255 instead of the Drive slider. -1
+    // means Tune follows the Drive slider. Does not move or save Drive.
+    void setTuneDriveOverride(int raw);
     void setTxStepAttnDb(int db);
     // HL2: TX step-att. Brick/Hermes P2: ADC0 coupler pad (0..31, seed 0).
     void bindPsAttnWriter(std::function<void(int)> fn,
@@ -1357,6 +1363,13 @@ public slots:
     void setPsAttestation(bool on);
     void setPsArmed(bool on);
     Q_INVOKABLE void resetPureSignal();
+    // Desk display of the shack's PureSignal readout. Does not arm
+    // this process and does not write settings.
+    void postDeskPureSignal(bool live, int fb, int att, bool correcting,
+                            int cal, int fsm, int d0, int d1, int spr);
+    void postDeskPsPlot(const QVariantList &magX, const QVariantList &magY,
+                        const QVariantList &corrX, const QVariantList &corrY);
+    void clearDeskPureSignal();
     Q_INVOKABLE void capturePsGetPk();
     Q_INVOKABLE void setPsAmpPlotHeld(bool on);
     void setPsHwPeak(double peak);
@@ -1760,6 +1773,7 @@ signals:
     // TX-0c-tune — tune-tone armed state changed (via TX panel button,
     // operator unarm, or the moxActiveChanged(false) safety auto-clear).
     void tuneEnabledChanged(bool on);
+    void tuneDriveOverrideChanged();
     void twoToneEnabledChanged(bool on);
     void noiseEnabledChanged(bool on);
     void psNoiseLevelDbChanged(int db);
@@ -2103,6 +2117,10 @@ private:
     std::atomic<bool>    p2PowerActive_{false};
     std::atomic<double>  pushedFwdW_{std::numeric_limits<double>::quiet_NaN()};
     std::atomic<double>  pushedRevW_{std::numeric_limits<double>::quiet_NaN()};
+    std::atomic<double>  deskFwdW_{0};
+    std::atomic<double>  deskRevW_{0};
+    std::atomic<qint64>  deskPowerMs_{0};
+    bool deskPowerFresh() const;
     // Stage 2b2: txSeq_ retired — metis_write_frame() owns the wire
     // sequence counter via the TU-scope MetisOutBoundSeqNum, shared
     // with the priming path for PureSignal-correct posture.
@@ -2249,6 +2267,7 @@ private:
     std::atomic<int>     ctuneFiltLoHz_{0};   // #174 CTUNE Stage2 — signed RX filter low edge (Hz)
     std::atomic<int>     ctuneFiltHiHz_{3000};// #174 CTUNE Stage2 — signed RX filter high edge (Hz)
     std::atomic<int>     txDriveLevel_{0};      // 0..255 operator setpoint
+    std::atomic<int>     tuneDriveOverrideRaw_{-1}; // -1 = Tune uses Drive
     std::atomic<int>     txEmittedDriveByte_{0}; // applyTxPower_ output (wire)
     std::atomic<bool>    p2DrivePath_{false};   // P2 analog drive vs HL2 P1
     QString              txCalRigId_;           // empty = active-rig PA cal
@@ -2337,6 +2356,20 @@ private:
     int                  psNoiseLevelDb_{0};
     bool                 psAttestation_{false};
     bool                 psArmed_{false};
+    bool                 deskPs_{false};
+    bool                 deskPsLive_{false};
+    int                  deskPsFb_{0};
+    int                  deskPsAtt_{0};
+    bool                 deskPsCorr_{false};
+    int                  deskPsCal_{0};
+    int                  deskPsFsm_{0};
+    int                  deskPsD0_{-999};
+    int                  deskPsD1_{-999};
+    int                  deskPsSpr_{0};
+    QVariantList         deskMagX_;
+    QVariantList         deskMagY_;
+    QVariantList         deskCorrX_;
+    QVariantList         deskCorrY_;
     bool                 subPausedForPs_{false};
     std::unique_ptr<lyra::ps::PsFsm> psFsm_;
     QString              psAttBand_;

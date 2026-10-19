@@ -463,6 +463,8 @@ Dummy load first.
   - [SDRLogger+ Combo link](#sdrlogger-combo-link)
   - [CW keying over TCI](#cw-keying-over-tci)
 - [Settings → Remote](#settings--remote)
+  - [Lyra to Lyra](#lyra-to-lyra)
+  - [The browser desk](#the-browser-desk)
   - [A direct connection](#a-direct-connection)
   - [Who may connect](#who-may-connect)
   - [Password and the voice session](#password-and-the-voice-session)
@@ -5404,6 +5406,160 @@ of whichever colour mode you choose.
 ---
 
 ## Settings → Remote
+
+This tab holds two desks. **[Lyra to Lyra](#lyra-to-lyra)** is a second
+copy of Lyra on the laptop. The
+**[browser desk](#the-browser-desk)** is the separate page.
+
+### Lyra to Lyra
+
+Both computers run the same Lyra. The shack PC is the **host**. The
+laptop is the **desk**. The host stays **Open** on the radio. HPSDR
+UDP stays on the shack LAN. The shack panel stays live. Host unkey,
+TX inhibit, and TX timeout win. The host can **Drop desk**.
+
+On the laptop, the header reads **Host rig**, the MagicDNS name, and
+the rig label. Toolbar **Start** stays disabled while this computer
+is attached as the desk. The laptop leaves **Discover** and
+**Add-by-IP** alone, and it sends no UDP to the radio. Its own radio
+stays closed for the session.
+
+#### Tailscale
+
+Reachability is Tailscale Personal. Create an account and install it
+on both PCs from
+[tailscale.com/download](https://tailscale.com/download). The account
+step is also at
+[login.tailscale.com/start](https://login.tailscale.com/start). Sign
+both computers in to the same personal account (a personal email such
+as Gmail). An address on your own domain starts an Enterprise trial.
+Leave Tailscale running. Both machines should show in the Tailscale
+machines list. Lyra leaves the Tailscale Windows service alone.
+
+On the shack, the read-only name on **Settings → Remote** is the
+MagicDNS name. Use **Copy**, then paste that name on the laptop. A
+public IP is refused. A blank name is refused. Lyra listens only on
+the Tailscale IPv4 address (100.64.0.0/10). Leave Tailscale Funnel
+off. Do not port-forward. Lyra does not listen on the open internet.
+
+#### Where to click
+
+Open **Settings → Remote**, group **Lyra to Lyra**. **Rig → Remote…**
+opens that page.
+
+On the shack: the read-only Tailscale name, **Copy**, **Allow desk**,
+and **Drop desk**. Turn **Allow desk** on after you copy the name.
+Until then, Lyra is waiting with the name ready to copy.
+
+On the laptop: paste the shack name into the box whose placeholder is
+*Paste the shack Tailscale name*, then **Attach to host**. **Detach**
+is the way off. The name in the two boxes is the shack's name.
+
+The password is shared with the browser Lyra Remote. Save it once on
+the shack: **Settings → Remote → Password**, then **Password**,
+**Confirm**, and **Save password**. The phrase rules are in
+[Password and the voice session](#password-and-the-voice-session).
+
+On the laptop, type that phrase only after **Attach to host**, in the
+box whose placeholder is **Remote password**, on the same row as
+**Start voice** and **End voice**. Lyra clears that box when voice
+starts. The phrase is not kept on the laptop. The password stays off
+the wire.
+
+**Start voice** stays grey until the laptop is attached. On the shack,
+**Start voice** stays grey.
+
+#### The three connections
+
+Three connections, all on the Tailscale address:
+
+- **Control**, port **40111**. This is the path that unkeys.
+- **Receiver and microphone audio**, port **40112**.
+- **Spectrum**, port **40113**.
+
+One desk at a time. A second laptop is told the shack is busy.
+
+Windows may ask to allow Lyra on private networks for the audio and
+spectrum ports. Allow private. Do not port-forward.
+
+#### From the shack to the laptop
+
+On attach the host sends its current radio state, and the laptop
+follows it. Frequency, band, antenna, and drive stay the shack's at
+connect.
+
+Receiver audio is a mono tap taken before the shack volume and before
+binaural, so the shack **Vol** and **MUTE** leave the laptop level
+alone. The laptop's own volume sets the laptop level.
+
+The spectrum is the host picture, full span. The laptop zooms on its
+own screen. **60 Hz** is the supported picture. A 120 Hz picture and
+the RX2 spectrum come later.
+
+S-meter, forward power, and SWR come from the host.
+
+#### From the laptop, while you listen
+
+While attached, these follow the laptop onto the host: band,
+frequency, mode, filter, RIT, Split, AGC, NR, squelch, drive, NB,
+BIN, ANF, NNR, LMS, APF, TX bandwidth, antenna, and SUB.
+
+**BIN** affects the shack speakers only.
+
+#### Voice
+
+Choose the laptop microphone on **Settings → Remote → Laptop
+microphone**: **Windows default**, or a named input such as
+Microphone High Definition. While this computer is attached as the
+desk, the TX panel **Mic** control sets the laptop microphone level.
+Type the password, then **Start voice**.
+Microphone audio goes to the host and passes through the host TX rack
+(EQ, leveler, speech, combinator, plate). PureSignal math stays on
+the shack. The laptop **PureSignal** and **Amp View** panels show the
+shack correction.
+
+During transmit, the laptop panadapter is that host transmit picture,
+after the rack and before the **Drive** slider. The **Drive** slider
+sets voice power. **Tune** uses the host Tune setting: **Use TX Drive
+slider**, **Use Tune slider**, or **Use fixed drive**.
+
+A dead link unkeys in about 300 ms. Listening can continue when the
+key is refused for a long delay. CW transmit wants a round trip under
+100 ms. SSB and other voice may key up to 150 ms.
+
+#### The path you need
+
+The picture and the receiver audio travel shack to laptop, so the
+number that matters is the shack's **upload** and the laptop's
+**download**.
+
+- **Preferred:** 100 Mbps in that direction, and a round trip under
+  40 ms.
+- **Supported for listening:** 25 Mbps in that direction, and a round
+  trip under 100 ms. That holds the 60 Hz picture and the receiver
+  audio.
+- **Under 25 Mbps**, or a round trip **over 150 ms**, is not
+  supported. A phone tether sits under that floor.
+
+Lyra watches the round trip and whether the picture is arriving
+whole.
+
+#### Desk profile
+
+**Save desk profile** and **Recall on host** sit on this tab. They
+work while you are attached as the desk.
+
+**Save desk profile** keeps the laptop's filters and transmit rack on
+the laptop. **Recall on host** applies that set on the shack for this
+session. The shack's saved profile stays as it was. **End voice**,
+**Detach**, or **Drop desk** puts the shack's own filters and rack
+back.
+
+Browser Lyra Remote (TCI) is a separate path, in
+[The browser desk](#the-browser-desk). One transmit owner: a browser
+voice session and this link take the microphone one at a time.
+
+### The browser desk
 
 The browser desk is a separate package, [Lyra Remote](https://github.com/N8SDR1/Lyra-Remote). Download it from [Lyra Remote releases](https://github.com/N8SDR1/Lyra-Remote/releases). How the page works is in the [Lyra Remote wiki](https://github.com/N8SDR1/Lyra-Remote/wiki). Lyra does not host the page. On the computer you are sitting at, double-click **Open Lyra Remote.cmd**. The browser opens `http://127.0.0.1:4173/`. That address is the page. The box at the top of the page is Lyra, `ws://` plus the radio computer and the TCI port from **Settings → Network** (default `40001`).
 

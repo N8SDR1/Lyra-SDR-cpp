@@ -469,6 +469,8 @@ qt_add_executable(lyra
     src/eibistore.cpp
     src/tci_server.h
     src/tci_server.cpp
+    src/desk_link.h
+    src/desk_link.cpp
     src/spotstore.h
     src/spotstore.cpp
     src/spothole_feeder.h

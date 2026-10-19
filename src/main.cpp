@@ -1416,7 +1416,6 @@ int main(int argc, char *argv[])
     // Stream.requestMox(true) — first TX frame post-MOX-rise
     // carries the tune-drive level.
     {
-        auto savedDrive = std::make_shared<std::optional<int>>();
         // The tune-drive % the active mode wants, or -1 = "no swap"
         // (TuneDriveSlider — TUN keys at the operator's live TX Drive).
         auto tunePctFor = [prefs]() -> int {
@@ -1430,47 +1429,27 @@ int main(int argc, char *argv[])
             }
         };
         QObject::connect(stream, &lyra::ipc::HL2Stream::tuneEnabledChanged,
-                         prefs, [stream, tunePctFor, savedDrive](bool on) {
-            if (on) {
-                const int pct = tunePctFor();
-                if (pct < 0) {
-                    // Slider mode — never stash; clear any orphan stash
-                    // so a later mode-change + arm cycle starts clean.
-                    savedDrive->reset();
-                    return;
-                }
-                // Real TUN-arm with a non-slider mode: stash + push.
-                // Re-arm without a release between (defensive) — keep
-                // the earliest pre-tune value, not a tune-drive value.
-                if (!savedDrive->has_value()) {
-                    *savedDrive = stream->txDriveLevel();
-                }
-                stream->setTxDriveLevel(std::clamp(int(std::lround(
-                    pct * 255.0 / 100.0)), 0, 255));
-            } else {
-                // TUN-release.  Restore whenever a real arm stashed a
-                // value — independent of the current mode, so switching
-                // mode mid-tune still restores correctly.  (#77: the
-                // spurious off-edges at stream start/stop carry no stash
-                // and must no-op.)
-                if (savedDrive->has_value()) {
-                    stream->setTxDriveLevel(savedDrive->value());
-                    savedDrive->reset();
-                }
+                         prefs, [stream, tunePctFor](bool on) {
+            if (!on) {
+                stream->setTuneDriveOverride(-1);
+                return;
             }
+            const int pct = tunePctFor();
+            if (pct < 0) {
+                stream->setTuneDriveOverride(-1);
+                return;
+            }
+            stream->setTuneDriveOverride(std::clamp(int(std::lround(
+                pct * 255.0 / 100.0)), 0, 255));
         });
 
-        // #78 / #95 — live-follow the active tune control while TUN is
-        // armed: drag the TxPanel TUN-drive slider (TuneDriveTune) or
-        // edit the fixed-drive value (TuneDriveFixed) and the wire DAC
-        // follows immediately.  No-op when TUN is not armed or in slider
-        // mode.  Never mutates savedDrive — restore-on-release must use
-        // the pre-tune value, not the last live-tuned value.
+        // Live-follow the Tune slider or the fixed value while TUN is
+        // armed. The Drive slider is left where the operator set it.
         auto liveFollow = [stream, tunePctFor]() {
             if (!stream->tuneEnabled()) return;
             const int pct = tunePctFor();
             if (pct < 0) return;
-            stream->setTxDriveLevel(std::clamp(int(std::lround(
+            stream->setTuneDriveOverride(std::clamp(int(std::lround(
                 pct * 255.0 / 100.0)), 0, 255));
         };
         QObject::connect(prefs, &lyra::ui::Prefs::tuneDrivePctChanged,

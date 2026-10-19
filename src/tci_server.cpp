@@ -1571,6 +1571,13 @@ bool TciServer::voiceModeBlocksSession() const {
 void TciServer::applyVoiceLive() {
     lyra::wire::SetTXTCIAudio(0, 1);
     lyra::wire::SetTXVacAudio(0, 0);
+    // The browser page has its own transmit EQ, so that path steps the
+    // shack rack aside. The laptop has no separate EQ. Its mic runs
+    // through the shack rack, including a recalled desk profile.
+    if (deskOwnsVoice_ && !voiceSessionWs_) {
+        voiceLive_ = true;
+        return;
+    }
     lyra::wire::SetTxRackBypass(1);
     if (stream_ && stream_->levelerOn()) {
         voiceLevelerParked_ = true;
@@ -1602,6 +1609,21 @@ void TciServer::restoreVoiceLive() {
     if (voiceLevelerParked_ && stream_)
         stream_->pushLevelerRun(stream_->levelerOn());
     voiceLevelerParked_ = false;
+}
+
+bool TciServer::setDeskOwnsVoice(bool on) {
+    if (on) {
+        if (voiceSessionWs_) return false;
+        if (deskOwnsVoice_) return true;
+        deskOwnsVoice_ = true;
+        if (!voiceModeBlocksSession()) applyVoiceLive();
+        return true;
+    }
+    if (!deskOwnsVoice_) return true;
+    deskOwnsVoice_ = false;
+    if (voiceLive_) restoreVoiceLive();
+    lyra::tci::TciTxBridge::instance().clear();
+    return true;
 }
 
 void TciServer::beginVoiceSession(QWebSocket *ws) {
@@ -1731,6 +1753,10 @@ void TciServer::handleLyraVoice(QWebSocket *ws, const QString &cmd,
     };
 
     if (cmd == QLatin1String("LYRA_VOICE")) {
+        if (deskOwnsVoice_) {
+            sendTo(ws, QStringLiteral("lyra_voice:denied"));
+            return;
+        }
         VoiceHold hold = voiceHold_.value(ws);
         if (!hold.token.isEmpty()) {
             sendGranted(hold.token);

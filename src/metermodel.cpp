@@ -1300,6 +1300,8 @@ void MeterModel::computeSMeter() {
 }
 
 double MeterModel::calibratedSMeterDbm(double raw) const {
+    // A Lyra-to-Lyra desk already received the shack's displayed dBm.
+    if (wdsp_ && wdsp_->deskMeterFresh()) return raw;
     // SINGLE source of truth for the RX S-meter calibration (see the header
     // decl).  RXA_S_PK is measured after the hardware PGA, so subtract the
     // current LNA gain on P1 to stay true-to-source across LNA changes.

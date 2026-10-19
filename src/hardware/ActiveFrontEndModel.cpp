@@ -29,7 +29,17 @@ ActiveFrontEndModel::ActiveFrontEndModel(lyra::ipc::HL2Stream *p1,
     }
 }
 
+void ActiveFrontEndModel::setDeskProtocol(int protocol)
+{
+    if (protocol < 0 || protocol > 2) protocol = 0;
+    if (deskProto_ == protocol) return;
+    deskProto_ = protocol;
+    emit changed();
+}
+
 bool ActiveFrontEndModel::p2Active() const {
+    if (deskProto_ == 2) return p2_ != nullptr;
+    if (deskProto_ == 1) return false;
     return p2_ && p2_->isRunning();
 }
 

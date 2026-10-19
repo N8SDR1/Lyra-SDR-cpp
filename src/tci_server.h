@@ -105,6 +105,11 @@ public:
     // Names any address currently locked out of a voice-session proof.
     // Empty when none are locked.
     QString remoteLockText() const;
+    // One transmit owner. The desk link and a browser voice token
+    // cannot both hold the microphone.
+    bool browserOwnsVoice() const { return voiceSessionWs_ != nullptr; }
+    bool deskOwnsVoice() const { return deskOwnsVoice_; }
+    bool setDeskOwnsVoice(bool on);
 
     // TX-rip Phase 1 (Q2): setTciMicSource / setTxDspWorker removed
     // here and at main.cpp.  Inbound TCI TX_AUDIO_STREAM frames are
@@ -427,6 +432,7 @@ private:
     // Key and unkey do not clear it. Settings are not rewritten.
     QPointer<QWebSocket>           voiceSessionWs_;
     bool                           voiceLive_ = false;
+    bool                           deskOwnsVoice_ = false;
     bool                           voiceLevelerParked_ = false;
     QString                        lastLockNotice_;
 

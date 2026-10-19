@@ -14,4 +14,4 @@ On the computer where you sit, open the page. Leave the radio box at `ws://127.0
 
 **Start voice** proves the password once. Then **MOX** uses that browser's microphone and **Tune** sends a carrier from Lyra. A digital program on the radio computer is not asked for the password. End the voice session before that program transmits.
 
-The full steps are in the [Lyra Remote wiki](https://github.com/N8SDR1/Lyra-Remote/wiki) and in the [User Guide → Settings → Remote](User-Guide#settings--remote).
+The full steps are in the [Lyra Remote wiki](https://github.com/N8SDR1/Lyra-Remote/wiki) and in the [User Guide → Settings → Remote](User-Guide#settings--remote). A second Lyra on a laptop is [Lyra to Lyra](User-Guide#lyra-to-lyra) in that guide.

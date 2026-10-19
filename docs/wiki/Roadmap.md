@@ -118,8 +118,11 @@ features above and may change shape or timing.
 ### 💡 Remote operation
 
 **Hold** (2026-10-16): a second Lyra as the desk, shack Lyra stays Open
-(**Hosted Lyra** as the rig). Auth, encryption, fail-safe unkey. Behind
-confirmed radios, then Linux.
+(**Hosted Lyra** as the rig). Auth, encryption, fail-safe unkey. Windows
+is the first build. Linux is a separate hold and does not gate this.
+The operate shape (host owns the radio, Tailscale, three sockets, the
+25 Mbps / 100 ms floor) is
+[docs/architecture/lyra_to_lyra.md](../architecture/lyra_to_lyra.md).
 
 **Drop:** Windows service / headless-only package; in-app gateware flash;
 naked WAN / port-forward of HPSDR UDP to the radio (Reid-style). LTE IQ

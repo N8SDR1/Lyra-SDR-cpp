@@ -590,11 +590,13 @@ QByteArray P2Session::buildGeneralPacket() const {
     // [58] bit0 is PA enable. It must already be set in receive: the radio
     // latches it on the rising MOX edge. Tying it to the keyed gate made
     // the first key (and the first key after a band change) send PA-enable
-    // in the same burst as MOX, and that key produced no RF. MOX and drive
-    // stay on the keyed gate; this bit follows the operator PA checkbox.
+    // in the same burst as MOX, and that key produced no RF. A later key
+    // in that same burst latches PA off until this bit has been 1 in
+    // receive again. MOX and drive stay on the keyed gate. A stale status
+    // packet must not clear the bit — that drop is what made the next
+    // Tune / 2-tone / voice key dark until Stop.
     const bool paBit = paHold_ && txSafety_.operatorArmed &&
                        txSafety_.sessionRunning &&
-                       txSafety_.telemetryHealthy &&
                        !txSafety_.faultLatched;
     pkt[58] = paBit ? char{0x01} : char{0x00};
     // [59] = Alex-board enable. Classic-Alex profiles set bit0; BrickSDR
@@ -1094,9 +1096,21 @@ void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
     const bool alreadyKeyed = txIntent_.transmitRequested;
     if (on && !alreadyKeyed
         && (!statusAge_.isValid() || statusAge_.elapsed() > 1000)) {
-        txSafety_.telemetryHealthy = false;
-        latchTxFault(QStringLiteral(
-            "MOX/PTT rejected because status telemetry is stale"));
+        // Do not clear telemetryHealthy here. That made the next general
+        // packet drop PA enable, and the following key latched the radio
+        // PA off until Stop. Refuse the key only. A sick writer is
+        // re-primed below; a healthy one keeps streaming.
+        emit logLine(QStringLiteral(
+            "P2 TX: key refused, status telemetry is stale; "
+            "re-priming in receive"));
+        if (txSafety_.faultLatched || !txWriter_.isRunning() ||
+            !txSafety_.iqPrimed) {
+            QTimer::singleShot(0, this, [this]() {
+                if (!txIntent_.transmitRequested)
+                    restartTxTransportRxState();
+            });
+        }
+        emitTxState(QStringLiteral("key refused, telemetry stale"));
         return;
     }
     if (on) {
@@ -1662,6 +1676,16 @@ void P2Session::stopTxTransport() {
     txSafety_.iqPrimed = false;
 }
 
+void P2Session::recoverIdleTx() {
+    if (!open_ || !running_)
+        return;
+    // A rejected key can leave transmit intent set without the radio
+    // ever having gone to TX. restartTxTransportRxState will not re-prime
+    // while that intent remains, which is the stuck-until-restart latch.
+    txIntent_ = {};
+    restartTxTransportRxState();
+}
+
 void P2Session::restartTxTransportRxState() {
     // Re-prime only while no transmit intent exists (RX rate rebuild, or
     // host unkey after a latched fault). Never clear a fault while keyed.
@@ -1670,6 +1694,13 @@ void P2Session::restartTxTransportRxState() {
     stopTxTransport();
     txSafety_.faultLatched = false;
     txStateDetail_ = QStringLiteral("Re-priming TX transport");
+    // PA enable was forced off with the fault. Put it back while MOX is
+    // still clear so it can sit in receive before the bridge opens the
+    // next key. A key in the same burst as this rising edge latches the
+    // radio PA off for the rest of the session.
+    sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
+    emit logLine(QStringLiteral(
+        "P2 TX: re-priming port 1029 in receive"));
     startTxTransportRxState();
     emitTxState();
 }

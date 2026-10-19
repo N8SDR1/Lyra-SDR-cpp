@@ -140,8 +140,12 @@ public:
     bool hpfBypass() const { return hpfBypass_; }
     int trxAntenna() const { return trxAntenna_; }
     bool hasAlexAntennaSelect() const {
-        return running_ && alexAntennaSelect_;
+        if (running_) return alexAntennaSelect_;
+        return deskAntOn_;
     }
+    // Desk session: the host radio's antenna ladder, applied while this
+    // process has no Protocol 2 session of its own.
+    void postDeskAntenna(bool alex, int count, int mask, const QString &ext1);
     int trxAntennaCount() const;
     int rxJackMask() const;
     QString rxExt1Label() const;
@@ -199,6 +203,15 @@ public slots:
     // persists — but an explicit operator preference (setTxAutoArm) can
     // re-apply it automatically once the TX transport reports Ready.
     void setTxBenchArmed(bool on);
+    // A desk session can leave the TX transport unprimed or faulted.
+    // Dropping the desk does not restart it, so every later local key
+    // (Tune, 2-tone, foot switch) is refused until the process restarts.
+    // Re-prime when that latch is set and the host is back in receive.
+    void recoverLocalTx();
+    // After a refused key or a telemetry unkey, PA enable has to be
+    // written again in receive. The arm-time settle does not repeat
+    // on its own, so a later local key would stay dark until Stop.
+    void ensurePaSettled();
     // Persisted per-rig operator preference: when set, the bench interlock
     // auto-arms on every connect once the transport is healthy/Ready, so a
     // controlled dummy-load bench needn't be re-armed by hand each session.
@@ -216,6 +229,7 @@ signals:
     // independent of whether the radio ever confirmed.
     void openChanged();
     void frontEndChanged();
+    void bandAntennaEdited(const QString &band, int ant, int rxInput);
     void telemetryChanged();
     void txStateChanged();
     void logLine(QString line);
@@ -280,6 +294,8 @@ private:
     // True only after a receive-state PA-enable packet has been out
     // long enough for the radio to latch it before the next key.
     bool       txPaSettled_ = false;
+    bool       paResettlePending_ = false;
+    bool       paNeedsResettle_ = false;
     quint32    txArmEpoch_ = 0;
     bool       txAutoArm_ = false;
     bool       txHardwareSupported_ = false;
@@ -289,6 +305,7 @@ private:
     bool       txTransmitting_ = false;
     bool       txPaEnabled_ = false;
     bool       txFaultLatched_ = false;
+    bool       txRecovering_ = false;
     int        txEffectiveDrive_ = 0;
     int        txDriveLimitPercent_ = 50;
     QString    txStateDetail_ = QStringLiteral("Disconnected");
@@ -328,6 +345,10 @@ private:
     int        rxInput_ = 0;
     bool       hpfBypass_ = false;
     int        trxAntenna_ = 1;
+    bool       deskAntOn_ = false;
+    int        deskAntCount_ = 0;
+    int        deskAntMask_ = 0;
+    QString    deskAntExt1_;
     int        adcOverloadTier_ = 0;
     int        adcOverloadMask_ = 0;
     int        adc1Peak_ = 0;

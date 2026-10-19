@@ -259,6 +259,9 @@ public:
     // Empty provider keeps the safety-gate drive (tests / fail-closed).
     void setWireDriveProvider(std::function<int()> provider);
     void restartTxTransportRxState();
+    // Clear a stuck key intent and re-prime. Used when a desk session
+    // ended with the transport faulted or never finished priming.
+    void recoverIdleTx();
 
     // Golden-packet test seam: exact production encoders, no I/O.
     QByteArray diagnosticHighPriorityPacket(bool run) const {

@@ -1,6 +1,7 @@
 // Lyra — shared UI preferences.  See prefs.h.
 
 #include "prefs.h"
+#include "desk_session.h"
 
 #include "palettes.h"
 #include "grid.h"
@@ -622,7 +623,8 @@ void Prefs::setTuneDriveMode(int v) {
     v = std::clamp(v, 0, 2);
     if (v == tuneDriveMode_) return;
     tuneDriveMode_ = v;
-    QSettings().setValue(kTuneDriveMode, v);
+    if (!lyra::deskApplyQuiet())
+        QSettings().setValue(kTuneDriveMode, v);
     emit tuneDriveModeChanged();
 }
 
@@ -630,7 +632,8 @@ void Prefs::setTuneDrivePct(int v) {
     v = std::clamp(v, 0, 100);
     if (v == tuneDrivePct_) return;
     tuneDrivePct_ = v;
-    QSettings().setValue(kTuneDrivePct, v);
+    if (!lyra::deskApplyQuiet())
+        QSettings().setValue(kTuneDrivePct, v);
     emit tuneDrivePctChanged();
 }
 
@@ -638,7 +641,8 @@ void Prefs::setFixedTuneDrivePct(int v) {
     v = std::clamp(v, 0, 100);
     if (v == fixedTuneDrivePct_) return;
     fixedTuneDrivePct_ = v;
-    QSettings().setValue(kFixedTuneDrive, v);
+    if (!lyra::deskApplyQuiet())
+        QSettings().setValue(kFixedTuneDrive, v);
     emit fixedTuneDrivePctChanged();
 }
 
@@ -1401,7 +1405,8 @@ void Prefs::setRxBandwidth(int hz) {
     }
     const QString key = bwFamilyKey(mode_);   // per-family, not per-sideband
     bwByMode_.insert(key, hz);
-    QSettings().setValue(QString(kBwPrefix) + key, hz);
+    if (!lyra::deskApplyQuiet())
+        QSettings().setValue(QString(kBwPrefix) + key, hz);
     emit rxBandwidthChanged();
     // TX Component 8c — when the RX↔TX lock is on, mirror this change
     // to TX without recursing into setTxBandwidth (we update the dict
@@ -1410,7 +1415,8 @@ void Prefs::setRxBandwidth(int hz) {
     if (bwLocked_ &&
         txBwByMode_.value(key, defaultBandwidthFor(mode_)) != hz) {
         txBwByMode_.insert(key, hz);
-        QSettings().setValue(QString(kTxBwPrefix) + key, hz);
+        if (!lyra::deskApplyQuiet())
+            QSettings().setValue(QString(kTxBwPrefix) + key, hz);
         emit txBandwidthChanged();
     }
 }
@@ -1426,13 +1432,15 @@ void Prefs::setTxBandwidth(int hz) {
     }
     const QString key = bwFamilyKey(mode_);   // per-family, not per-sideband
     txBwByMode_.insert(key, hz);
-    QSettings().setValue(QString(kTxBwPrefix) + key, hz);
+    if (!lyra::deskApplyQuiet())
+        QSettings().setValue(QString(kTxBwPrefix) + key, hz);
     emit txBandwidthChanged();
     // Mirror to RX when locked.  Direct dict update — no recursion.
     if (bwLocked_ &&
         bwByMode_.value(key, defaultBandwidthFor(mode_)) != hz) {
         bwByMode_.insert(key, hz);
-        QSettings().setValue(QString(kBwPrefix) + key, hz);
+        if (!lyra::deskApplyQuiet())
+            QSettings().setValue(QString(kBwPrefix) + key, hz);
         emit rxBandwidthChanged();
     }
 }
@@ -1445,17 +1453,20 @@ void Prefs::setFilterLow(int hz) {
     if (hz == filterLow_) {
         if (bwLocked_ && txFilterLow_ != hz) {
             txFilterLow_ = hz;
-            QSettings().setValue(kTxFilterLow, hz);
+            if (!lyra::deskApplyQuiet())
+                QSettings().setValue(kTxFilterLow, hz);
             emit txFilterLowChanged();
         }
         return;
     }
     filterLow_ = hz;
-    QSettings().setValue(kFilterLow, hz);
+    if (!lyra::deskApplyQuiet())
+        QSettings().setValue(kFilterLow, hz);
     emit filterLowChanged();
     if (bwLocked_ && txFilterLow_ != hz) {
         txFilterLow_ = hz;
-        QSettings().setValue(kTxFilterLow, hz);
+        if (!lyra::deskApplyQuiet())
+            QSettings().setValue(kTxFilterLow, hz);
         emit txFilterLowChanged();
     }
 }
@@ -1465,17 +1476,20 @@ void Prefs::setTxFilterLow(int hz) {
     if (hz == txFilterLow_) {
         if (bwLocked_ && filterLow_ != hz) {
             filterLow_ = hz;
-            QSettings().setValue(kFilterLow, hz);
+            if (!lyra::deskApplyQuiet())
+                QSettings().setValue(kFilterLow, hz);
             emit filterLowChanged();
         }
         return;
     }
     txFilterLow_ = hz;
-    QSettings().setValue(kTxFilterLow, hz);
+    if (!lyra::deskApplyQuiet())
+        QSettings().setValue(kTxFilterLow, hz);
     emit txFilterLowChanged();
     if (bwLocked_ && filterLow_ != hz) {
         filterLow_ = hz;
-        QSettings().setValue(kFilterLow, hz);
+        if (!lyra::deskApplyQuiet())
+            QSettings().setValue(kFilterLow, hz);
         emit filterLowChanged();
     }
 }
