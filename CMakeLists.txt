@@ -18,7 +18,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.25.22
+    VERSION 0.25.23
     DESCRIPTION "Lyra Sheliak — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
@@ -634,7 +634,7 @@ target_include_directories(lyra PRIVATE src)
 # dialog and the update checker both read these (no hardcoded strings).
 target_compile_definitions(lyra PRIVATE
     LYRA_VERSION="${PROJECT_VERSION}"
-    LYRA_VERSION_NAME="Sheliak"
+    LYRA_VERSION_NAME="Sheliak (Lyra-to-Lyra beta)"
     LYRA_REPO_OWNER="N8SDR1"
     LYRA_REPO_NAME="Lyra-SDR-cpp"
 )

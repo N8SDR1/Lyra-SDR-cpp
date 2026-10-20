@@ -4,6 +4,12 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-20 — v0.25.23 Sheliak (Lyra-to-Lyra beta) RELEASED
+
+Full GitHub release so the in-app notice fires. Second Lyra on the
+laptop; shack stays on the radio. Tailscale personal, same account.
+v0.25.22 remains the return point. Do not merge `main`.
+
 ## 2026-10-16 — v0.25.22 Sheliak RELEASED
 
 Helios, Sonar (replaces Radar), Cluster meters. Frequency change

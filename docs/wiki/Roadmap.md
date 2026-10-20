@@ -8,6 +8,10 @@ page.
 P1, BrickSDR2 / Brick3SDR P2, SUB + SPLIT, PureSignal, TX rack. Brick3 /
 ANAN-100D get a second SUB panadapter. **Diversity** (two ADCs, same
 frequency) is in and confirmed on Brick3SDR.
+**Beta (v0.25.23):** Lyra-to-Lyra. A second Lyra on the laptop operates
+the shack rig. The shack stays on the radio. Steps are in the user
+guide, [Lyra to Lyra](User-Guide#lyra-to-lyra). **v0.25.22** remains
+the return point.
 **Next:** graduate Orion MkII testers (ANAN-7000DLE / 8000DLE / Orion MkII /
 Anvelina-Pro3) off dummy-load TX, G2 on-air validation, then Linux.
 **macOS stays a separate branch** (`macos-port`);
@@ -115,11 +119,16 @@ these are real roadmap items, not "maybe someday."
 Ideas we're interested in but haven't scheduled. They sit behind the major
 features above and may change shape or timing.
 
-### 💡 Remote operation
+### 🚧 Lyra to Lyra (beta, v0.25.23)
 
-**Hold** (2026-10-16): a second Lyra as the desk, shack Lyra stays Open
-(**Hosted Lyra** as the rig). Auth, encryption, fail-safe unkey. Windows
-is the first build. Linux is a separate hold and does not gate this.
+**0.25.23** is a beta of Lyra-to-Lyra. A second Lyra on the laptop is
+the desk. The shack Lyra stays on the radio and does not hand the rig
+to the laptop. Install the same version on both PCs. Start here:
+[User Guide → Lyra to Lyra](User-Guide#lyra-to-lyra).
+
+**v0.25.22** remains the return point. Reinstall that GitHub installer
+if this beta misbehaves. Settings stay. That build has no Lyra-to-Lyra.
+
 The operate shape (host owns the radio, Tailscale, three sockets, the
 25 Mbps / 100 ms floor) is
 [docs/architecture/lyra_to_lyra.md](../architecture/lyra_to_lyra.md).

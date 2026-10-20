@@ -22,7 +22,16 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.22 Sheliak.** See [What's new in 0.25.22](#whats-new-in-02522).
+**v0.25.23 Sheliak (Lyra-to-Lyra beta).** See [What's new in 0.25.23](#whats-new-in-02523).
+
+## What's new in 0.25.23
+
+- **Lyra to Lyra (beta).** One Lyra on the shack, one Lyra on the laptop,
+  over Tailscale. The shack is the host and stays on the radio. The
+  laptop is the desk and does not open a local radio. Install this same
+  version on both PCs. See [Lyra to Lyra](#lyra-to-lyra).
+- If this beta misbehaves, reinstall the GitHub **v0.25.22** installer.
+  Settings stay. That build has no Lyra to Lyra.
 
 ## What's new in 0.25.22
 
@@ -369,6 +378,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.23](#whats-new-in-02523)
 - [What's new in 0.25.22](#whats-new-in-02522)
 - [What's new in 0.25.21](#whats-new-in-02521)
 - [What's new in 0.25.20](#whats-new-in-02520)
@@ -5413,16 +5423,17 @@ copy of Lyra on the laptop. The
 
 ### Lyra to Lyra
 
-Both computers run the same Lyra. The shack PC is the **host**. The
-laptop is the **desk**. The host stays **Open** on the radio. HPSDR
-UDP stays on the shack LAN. The shack panel stays live. Host unkey,
-TX inhibit, and TX timeout win. The host can **Drop desk**.
+Both computers run this same version of Lyra. This 0.25.23 build is
+a beta of that link. The shack PC is the **host** and stays on the
+radio. The laptop is the **desk** and does not open a local radio.
+The host stays **Open**. HPSDR UDP stays on the shack LAN. The shack
+panel stays live. Host unkey, TX inhibit, and TX timeout win. The
+host can **Drop desk**.
 
 On the laptop, the header reads **Host rig**, the MagicDNS name, and
 the rig label. Toolbar **Start** stays disabled while this computer
 is attached as the desk. The laptop leaves **Discover** and
-**Add-by-IP** alone, and it sends no UDP to the radio. Its own radio
-stays closed for the session.
+**Add-by-IP** alone, and it sends no UDP to the radio.
 
 #### Tailscale
 
@@ -5514,34 +5525,39 @@ Microphone High Definition. While this computer is attached as the
 desk, the TX panel **Mic** control sets the laptop microphone level.
 Type the password, then **Start voice**.
 Microphone audio goes to the host and passes through the host TX rack
-(EQ, leveler, speech, combinator, plate). PureSignal math stays on
-the shack. The laptop **PureSignal** and **Amp View** panels show the
-shack correction. From the desk, **PureSignal ON** and **2-tone** ask
-the host. The panel still shows the host correction. Voice-cal noise
-stays on the shack.
+(EQ, leveler, speech, combinator, plate). The TX panel **Mic** control
+is the laptop microphone level. PureSignal math stays on the shack.
+The laptop **PureSignal** and **Amp View** panels show the shack
+correction. From the desk, **PureSignal ON** and **2-tone** ask the
+host. Start voice before **2-tone**. Voice-cal noise and the coupler
+attestation stay on the shack (**Settings → TX**).
 
 During transmit, the laptop panadapter is that host transmit picture,
 after the rack and before the **Drive** slider. The **Drive** slider
 sets voice power. **Tune** uses the host Tune setting: **Use TX Drive
 slider**, **Use Tune slider**, or **Use fixed drive**.
 
-A dead link unkeys in about 300 ms. Listening continues above the
-transmit limits. CW transmit wants a round trip under 150 ms. Other
-transmit may key under 200 ms. The status shows the worst ping, held
-for about 3 seconds, then the latest ping. Next to it, **RX**, **CW**,
-and **Voice** follow that latest ping: RX stays lit while the desk is
-attached, CW under 150 ms, Voice under 200 ms. The line under the
-chips says the same thing, and dim means out of range.
+A silent link unkeys in about 300 ms. The number on the status line
+is the worst ping, held about 3 seconds. Listening stays up past the
+transmit gates.
+
+**RX**, **CW**, and **Voice** sit beside that number. **RX** stays lit
+while the desk is attached. **CW** lights when the latest ping is under
+150 ms. **Voice** lights when the latest ping is under 200 ms. Dim
+means out of range.
+
+*The path is too slow to transmit.* means a ping crossed that gate.
+*The link went quiet.* means the session dropped.
 
 #### Digital apps on the desk
 
 JTDX, MSHV, and Open SSTV on the laptop connect to TCI on this desk,
-at `127.0.0.1` and the TCI port (normally `40001`). Receiver audio
-flows while the desk is attached, before **Start voice**. Transmit
-audio and the key go to the host after **Start voice**, and the host
-keys the radio. WSJT-X is not this path, and a virtual audio cable is
-not required. The port stays on this computer. It is not opened to
-the internet, and Tailscale Funnel stays off.
+at `127.0.0.1` port `40001`. Receiver audio flows while the desk is
+attached. Start voice before the app transmits. The host keys the
+radio. The TX panel **Mic** slider is not applied to that app audio.
+WSJT-X is not this path, and a virtual audio cable is not required.
+The port stays on this computer. It is not opened to the internet,
+and Tailscale Funnel stays off.
 
 #### The path you need
 
@@ -5581,6 +5597,9 @@ the laptop.
 Browser Lyra Remote (TCI) is a separate path, in
 [The browser desk](#the-browser-desk). One transmit owner: a browser
 voice session and this link take the microphone one at a time.
+
+If this beta misbehaves, reinstall the GitHub **v0.25.22** installer.
+Settings stay. That build has no Lyra to Lyra.
 
 ### The browser desk
 
