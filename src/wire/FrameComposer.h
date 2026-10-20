@@ -129,7 +129,15 @@ bool enqueue_i2c_write(unsigned char bus, unsigned char address,
 // (register 0 then 4 last).  Replaces any analog bytes still in the
 // ring so the Pico never mixes two TX frequencies.  False if prn is
 // null or fewer than 5 free slots after that drop.
+// Drops ONLY registers 0..4.  REG_RF_INPUTS (11) and any other 0x1D
+// register stay in the ring — GPA100 / J4 PWM must not be mixed with
+// the RX SMA mux.
 bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz);
+
+// Makerfabs / Ahlstrom IO-board RX SMA mux (Thetis REG_RF_INPUTS = 11).
+// value 0 = RF1 (PA / N2ADR antenna), 2 = Alt RX.  One I2C2 write to
+// 0x1D register 11.  Does not touch registers 0..4 (analog TX-Hz).
+bool enqueue_hl2_ioboard_rf_input(unsigned char value);
 
 // Latest TX RF Hz the EP2 writer should push to 0x1D on I2C2.
 // Writer retries until register 4 (BYTE0) is actually overlaid —

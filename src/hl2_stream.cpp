@@ -1405,6 +1405,7 @@ void HL2Stream::open(const QString &ip) {
         lyra::wire::set_tx_freq(            // TX NCO + DDC2/3 mirror (case 1/5/6)
             ddsHzForRf(static_cast<quint32>(txRfTune < 0 ? 0 : txRfTune)));
         pushIoboardTxFreq(true);
+        pushHl2RxPort();
         lyra::wire::set_rx_step_attn_db(    // LNA gain (case 11 !XmitBit)
             std::clamp(lnaGainDb_.load(std::memory_order_relaxed),
                        kLnaMinDb, kLnaMaxDb) + 12, 0);   // HPSDR P1 +12 bias
@@ -2911,8 +2912,10 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
 void HL2Stream::setP2DrivePath(bool on) {
     const bool was = p2DrivePath_.exchange(on, std::memory_order_relaxed);
     applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
-    if (was && !on)
+    if (was && !on) {
         pushIoboardTxFreq(true);
+        pushHl2RxPort();
+    }
 }
 
 QString HL2Stream::txCalKey_(const QString &logical) const {
@@ -3026,6 +3029,28 @@ void HL2Stream::onIoboardSettle() {
         lyra::wire::request_hl2_ioboard_tx_freq(hz);
         lyra::wire::enqueue_hl2_ioboard_tx_freq(hz);
     });
+}
+
+void HL2Stream::setHl2RxPort(int port) {
+    const int v = (port == 2) ? 2 : 0;
+    const int prev = hl2RxPort_.exchange(v, std::memory_order_relaxed);
+    if (prev == v)
+        return;
+    // Only when the SMA mux actually changes.  HF hops that stay on
+    // RF1 must not add I2C2 traffic next to the analog BYTE0–4 burst
+    // (Randy GPA100 / issue #17).
+    pushHl2RxPort();
+    emit hl2RxPortChanged();
+}
+
+void HL2Stream::pushHl2RxPort() {
+    if (p2DrivePath_.load(std::memory_order_relaxed))
+        return;
+    const unsigned char v = static_cast<unsigned char>(
+        hl2RxPort_.load(std::memory_order_relaxed) == 2 ? 2 : 0);
+    lyra::wire::enqueue_hl2_ioboard_rf_input(v);
+    qInfo("HL2 RX port: I2C2 0x1D register 11 = %u (%s) — analog BYTE0–4 not written",
+          unsigned(v), v == 2 ? "Alt RX" : "RF1");
 }
 
 double HL2Stream::paGainForBand(int idx) const {

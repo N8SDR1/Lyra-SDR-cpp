@@ -82,6 +82,7 @@ private:
         std::optional<int> attDb;   // P2 step pad 0..31
         std::optional<bool> autoLna; // per-chip; default off (HF Auto does not follow)
         QString mode;               // last RX1 demod on this chip
+        int rxPort = 0;             // HL2 IO-board: 0 RF1 (default), 2 Alt RX
     };
 
     static bool valid(int i) { return i >= 0 && i < kCount; }
@@ -96,6 +97,7 @@ private:
     void noteLnaDb(int db);
     void noteMode();
     void noteAutoLna();
+    void noteHl2RxPort();
 
     lyra::ipc::HL2Stream *stream_ = nullptr;
     Prefs                *prefs_  = nullptr;

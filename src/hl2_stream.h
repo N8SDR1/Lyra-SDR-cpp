@@ -195,6 +195,10 @@ class HL2Stream : public QObject {
     Q_PROPERTY(bool filterBoardEnabled READ filterBoardEnabled
                WRITE setFilterBoardEnabled NOTIFY filterBoardChanged)
     Q_PROPERTY(int  ocBits             READ ocBits NOTIFY ocBitsChanged)
+    // HL2 / HL2+ IO-board RX SMA.  0 = RF1, 2 = Alt RX (Thetis
+    // REG_RF_INPUTS).  Protocol 1 only.  Does not write analog BYTE0–4.
+    Q_PROPERTY(int hl2RxPort READ hl2RxPort WRITE setHl2RxPort
+               NOTIFY hl2RxPortChanged)
     // TX-0a — HL2 telemetry decoded from the EP6 status rotation
     // (C0&0xF8 address field).  RF-SAFE: pure read of the radio→host
     // stream, zero effect on what we transmit.  Temp + supply are
@@ -1244,6 +1248,13 @@ public slots:
     // ON.  Persisted as hw/filterBoard.  J3 Band Volts is a separate box.
     void setFilterBoardEnabled(bool on);
 
+    // HL2 IO-board RX jack.  0 = RF1, 2 = Alt RX.  Other values → RF1.
+    // I2C2 0x1D register 11 only — never registers 0..4 (GPA100 analog).
+    int  hl2RxPort() const {
+        return hl2RxPort_.load(std::memory_order_relaxed);
+    }
+    Q_INVOKABLE void setHl2RxPort(int port);
+
     // ---- TX-state C&C registers (TX-0b foundation) -----------------
     // Operator / PTT-FSM RF-transmit state.  Each setter clamps + stores
     // an atomic holding the HL2+ byte encoding for its TX C&C frame,
@@ -1725,6 +1736,7 @@ signals:
     // capturing an auto-roamed value.
     void lnaSetByOperator(int db);
     void autoLnaChanged();
+    void hl2RxPortChanged();
     void adcOverloadChanged();
     void filterBoardChanged(bool on);
     void ocBitsChanged(int pattern);
@@ -1999,6 +2011,9 @@ private:
     // then is written twice.  Skipped on Protocol 2.  force is accepted
     // so startup / P1-return call sites stay source-compatible.
     void pushIoboardTxFreq(bool force = false);
+    // I2C2 0x1D register 11 (RF1 vs Alt RX).  Independent of analog
+    // BYTE0–4.  Skipped on Protocol 2.
+    void pushHl2RxPort();
     bool refuseTxBandJump(quint32 fromHz, quint32 toHz);
     // Writes the RX DDC NCOs from rx1FreqHz_ + (ritEnabled ? ritOffsetHz : 0)
     // — the single RX-NCO writer, mirror of pushEffectiveTxFreq.  Called by
@@ -2338,6 +2353,7 @@ private:
     // until some other frequency was written (#17).
     QTimer               ioboardSettleTimer_;
     int                  ioboardEpoch_ = 0;
+    std::atomic<int>     hl2RxPort_{0};  // 0 RF1, 2 Alt RX; P1 IO-board only
     std::atomic<int>     txStepAttnDb_{0};      // 0..31 dB; 0x1C C3 (31-db)
     std::atomic<int>     txMode_{1};            // 0=LSB 1=USB; mirror of the WDSP TXA mode, for the TUN DDS-offset sign (txDdsHzForTune)
     std::atomic<bool>    psUiDigital_{false};   // focused RX DIG/DRM/CW/FM lock-out

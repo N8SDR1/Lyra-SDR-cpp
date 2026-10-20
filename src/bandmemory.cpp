@@ -51,6 +51,15 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                         bandMemPfx() + currentBand_ +
                         QStringLiteral("/autoLna"), stream_->autoLna());
                 });
+        connect(stream_, &lyra::ipc::HL2Stream::hl2RxPortChanged, this,
+                [this]() {
+                    if (applying_ || currentBand_.isEmpty() || !stream_)
+                        return;
+                    QSettings().setValue(
+                        bandMemPfx() + currentBand_ +
+                        QStringLiteral("/rxPort"),
+                        stream_->hl2RxPort() == 2 ? 2 : 0);
+                });
         connect(stream_, &lyra::ipc::HL2Stream::txDriveLevelChanged, this,
                 [this](int level) {
                     if (applying_ || currentBand_.isEmpty()) return;
@@ -342,6 +351,10 @@ void BandMemory::applyBand(const QString &band) {
         stream_->setAutoLna(autoOn, /*armAcquire=*/autoOn);
         if (!s.contains(p + QStringLiteral("autoLna")))
             s.setValue(p + QStringLiteral("autoLna"), autoOn);
+        const int rxPort = s.contains(p + QStringLiteral("rxPort"))
+            ? s.value(p + QStringLiteral("rxPort")).toInt()
+            : 0;
+        stream_->setHl2RxPort(rxPort == 2 ? 2 : 0);
         applying_ = false;
     }
     // Per-band manual LNA — restored independently of the mode/dB block

@@ -4,9 +4,8 @@
 //   1. AMATEUR  — 160m … 6m amateur bands
 //   2. BC       — shortwave broadcast meter bands (120m … 13m)
 //   3. GEN      — GEN1/2/3 general-coverage slots (TIME + Mem join here)
-//   4. XVTR     — transverter slots, and on the right the Alex ANT / RX
-//                 chips (P2 radios with a front-end ladder, including a
-//                 desk session whose host radio has that ladder)
+//   4. XVTR     — transverter slots, then HL2 IO-board RF1 / Alt RX
+//                 (Protocol 1) or Alex ANT / RX chips (P2)
 // All built from the shared C++ band tables (Bands context property),
 // so the lists never drift from the protocol/DSP side.
 //
@@ -564,6 +563,32 @@ Rectangle {
                 }
             }
             Item { Layout.fillWidth: true }
+            RowLabel {
+                visible: !FrontEnd.p2Active
+                text: qsTr("RX")
+            }
+            ChipButton {
+                visible: !FrontEnd.p2Active
+                text: qsTr("RF1")
+                Layout.preferredWidth: 44
+                chipActive: Stream.hl2RxPort === 0
+                onClicked: Stream.setHl2RxPort(0)
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("RF1 — HL2 antenna / PA / N2ADR jack (default).\nLeave this for a basic radio or a transverter on that SMA.\nDoes not change J4 band voltage (GPA100). Band Help: Which Hermes Lite station.")
+            }
+            ChipButton {
+                visible: !FrontEnd.p2Active
+                text: qsTr("Alt")
+                Layout.preferredWidth: 44
+                chipActive: Stream.hl2RxPort === 2
+                onClicked: Stream.setHl2RxPort(2)
+                ToolTip.visible: hovered && Prefs.tooltipsEnabled
+                ToolTip.text: qsTr("Alt RX — IO-board SMA only. Click once on the Xvtr chip\nwhose IF is on Alt RX (remembered). Do not use with one SMA.\nDoes not change J4 band voltage. Band Help: Which Hermes Lite station.")
+            }
+            Item {
+                visible: !FrontEnd.p2Active
+                Layout.preferredWidth: 10
+            }
             // Alex ANT / RX sit on this row so a short Band dock does not
             // clip them. Shown for a live P2 radio and for a desk whose
             // host radio has the ladder.

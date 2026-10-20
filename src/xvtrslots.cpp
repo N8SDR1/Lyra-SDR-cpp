@@ -44,6 +44,8 @@ XvtrSlots::XvtrSlots(lyra::ipc::HL2Stream *stream, Prefs *prefs,
                 [this](int db) { noteLnaDb(db); });
         connect(stream_, &lyra::ipc::HL2Stream::autoLnaChanged, this,
                 [this]() { noteAutoLna(); });
+        connect(stream_, &lyra::ipc::HL2Stream::hl2RxPortChanged, this,
+                [this]() { noteHl2RxPort(); });
         onActiveSlotMaybeChanged();
     }
     if (prefs_) {
@@ -85,6 +87,9 @@ void XvtrSlots::load() {
         if (s.contains(p + QStringLiteral("autoLna")))
             slots_[i].autoLna = s.value(p + QStringLiteral("autoLna")).toBool();
         slots_[i].mode = s.value(p + QStringLiteral("mode")).toString();
+        slots_[i].rxPort = s.value(p + QStringLiteral("rxPort"), 0).toInt();
+        if (slots_[i].rxPort != 2)
+            slots_[i].rxPort = 0;
     }
 }
 
@@ -116,6 +121,7 @@ void XvtrSlots::persistGain(int i) const {
         s.setValue(p + QStringLiteral("autoLna"), *slots_[i].autoLna);
     if (!slots_[i].mode.isEmpty())
         s.setValue(p + QStringLiteral("mode"), slots_[i].mode);
+    s.setValue(p + QStringLiteral("rxPort"), slots_[i].rxPort == 2 ? 2 : 0);
 }
 
 int XvtrSlots::matchingSlot(qint64 rfHz) const {
@@ -214,6 +220,16 @@ void XvtrSlots::noteAutoLna() {
     persistGain(i);
 }
 
+void XvtrSlots::noteHl2RxPort() {
+    if (applying_ || !stream_) return;
+    const int i = activeSlot();
+    if (i < 0) return;
+    const int p = stream_->hl2RxPort() == 2 ? 2 : 0;
+    if (slots_[i].rxPort == p) return;
+    slots_[i].rxPort = p;
+    persistGain(i);
+}
+
 void XvtrSlots::noteAttDb(int db) {
     if (applying_) return;
     const int i = activeSlot();
@@ -257,6 +273,7 @@ void XvtrSlots::applyStoredGain(int i) {
         attApply_(std::clamp(*slots_[i].attDb, 0, 31));
     if (prefs_ && !slots_[i].mode.isEmpty())
         prefs_->setMode(slots_[i].mode);
+    stream_->setHl2RxPort(slots_[i].rxPort == 2 ? 2 : 0);
     applying_ = false;
 }
 

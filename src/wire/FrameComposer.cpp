@@ -126,15 +126,28 @@ std::recursive_mutex g_i2c_mu;
 std::atomic<std::uint64_t> g_ioboard_want{0};
 std::atomic<std::uint64_t> g_ioboard_queued{~std::uint64_t{0}};
 std::atomic<std::uint64_t> g_ioboard_sent{~std::uint64_t{0}};
+std::atomic<unsigned char> g_rf_input_want{0};
+std::atomic<unsigned char> g_rf_input_queued{0xFF};
+std::atomic<unsigned char> g_rf_input_sent{0xFF};
 
 // HL2 I2C2 (C0 command 0x3d).  Filter chip 0x20 and analog slave 0x1D
 // share this bus — I2C1 (0x3c) never reaches the IO board.
 constexpr unsigned char kI2cBusIoboard = 1;
 constexpr unsigned char kIoboardSlave  = 0x1D;
+// Pico n2adr_basic / Thetis IoBoardHl2.cs: BYTE4..BYTE0 = 0..4,
+// REG_RF_INPUTS = 11.  Analog coalesce must never match register 11.
+constexpr unsigned char kIoboardRegRfInputs = 11;
 
 bool is_ioboard_analog_entry(const I2cState::I2cQueueEntry& e)
 {
-    return e.bus == kI2cBusIoboard && e.address == kIoboardSlave;
+    return e.bus == kI2cBusIoboard && e.address == kIoboardSlave
+        && e.control <= 4;
+}
+
+bool is_ioboard_rf_input_entry(const I2cState::I2cQueueEntry& e)
+{
+    return e.bus == kI2cBusIoboard && e.address == kIoboardSlave
+        && e.control == kIoboardRegRfInputs;
 }
 
 bool enqueue_i2c_write_unlocked(unsigned char bus, unsigned char address,
@@ -166,10 +179,11 @@ int i2c_free_unlocked()
     return kMaxI2cQueue - 1 - used;
 }
 
-// Pull any pending 0x1D analog bytes out of the ring.  The Pico latches
-// PWM on register 4 (BYTE0).  Two TX-Hz bursts in the ring (80 m then
-// 20 m) can mix registers so BYTE0 never matches the frequency the
-// operator just clicked — pin 8 stays on the previous band.
+// Pull pending 0x1D analog bytes (registers 0..4 only) out of the ring.
+// The Pico latches PWM on register 4 (BYTE0).  Two TX-Hz bursts in the
+// ring (80 m then 20 m) can mix registers so BYTE0 never matches the
+// frequency the operator just clicked — pin 8 stays on the previous band.
+// Register 11 (Alt RX) is not analog and must stay in the ring.
 void drop_pending_ioboard_unlocked()
 {
     if (prn == nullptr)
@@ -215,6 +229,44 @@ bool enqueue_hl2_ioboard_tx_freq_unlocked(std::uint64_t hz)
     return true;
 }
 
+void drop_pending_rf_input_unlocked()
+{
+    if (prn == nullptr)
+        return;
+    I2cState::I2cQueueEntry keep[kMaxI2cQueue];
+    int n = 0;
+    unsigned char idx = prn->i2c.out_index;
+    while (idx != prn->i2c.in_index) {
+        const unsigned char next =
+            static_cast<unsigned char>((idx + 1) % kMaxI2cQueue);
+        const auto& e = prn->i2c.i2c_queue[next];
+        if (!is_ioboard_rf_input_entry(e))
+            keep[n++] = e;
+        idx = next;
+    }
+    idx = prn->i2c.out_index;
+    for (int i = 0; i < n; ++i) {
+        idx = static_cast<unsigned char>((idx + 1) % kMaxI2cQueue);
+        prn->i2c.i2c_queue[idx] = keep[i];
+    }
+    prn->i2c.in_index = idx;
+}
+
+bool enqueue_hl2_ioboard_rf_input_unlocked(unsigned char value)
+{
+    if (prn == nullptr)
+        return false;
+    const unsigned char v = (value == 2) ? 2 : 0;
+    drop_pending_rf_input_unlocked();
+    if (i2c_free_unlocked() < 1)
+        return false;
+    if (!enqueue_i2c_write_unlocked(kI2cBusIoboard, kIoboardSlave,
+                                    kIoboardRegRfInputs, v))
+        return false;
+    g_rf_input_queued.store(v, std::memory_order_relaxed);
+    return true;
+}
+
 void flush_ioboard_want_unlocked()
 {
     const std::uint64_t want = g_ioboard_want.load(std::memory_order_relaxed);
@@ -222,11 +274,20 @@ void flush_ioboard_want_unlocked()
         g_ioboard_queued.load(std::memory_order_relaxed);
     const std::uint64_t sent =
         g_ioboard_sent.load(std::memory_order_relaxed);
+    // Analog first.  GPA100 / J4 PWM is the 5-byte TX-Hz burst.
     // queued == want: a complete 5-byte burst is already draining.
     // sent == want: BYTE0 already went on the wire for this Hz.
-    if (want == queued || want == sent)
-        return;
-    enqueue_hl2_ioboard_tx_freq_unlocked(want);
+    if (want != queued && want != sent)
+        enqueue_hl2_ioboard_tx_freq_unlocked(want);
+
+    const unsigned char rfWant =
+        g_rf_input_want.load(std::memory_order_relaxed);
+    const unsigned char rfQueued =
+        g_rf_input_queued.load(std::memory_order_relaxed);
+    const unsigned char rfSent =
+        g_rf_input_sent.load(std::memory_order_relaxed);
+    if (rfWant != rfQueued && rfWant != rfSent)
+        enqueue_hl2_ioboard_rf_input_unlocked(rfWant);
 }
 
 }  // namespace
@@ -243,6 +304,14 @@ bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz)
     std::lock_guard<std::recursive_mutex> lk(g_i2c_mu);
     g_ioboard_want.store(hz, std::memory_order_relaxed);
     return enqueue_hl2_ioboard_tx_freq_unlocked(hz);
+}
+
+bool enqueue_hl2_ioboard_rf_input(unsigned char value)
+{
+    std::lock_guard<std::recursive_mutex> lk(g_i2c_mu);
+    const unsigned char v = (value == 2) ? 2 : 0;
+    g_rf_input_want.store(v, std::memory_order_relaxed);
+    return enqueue_hl2_ioboard_rf_input_unlocked(v);
 }
 
 void request_hl2_ioboard_tx_freq(std::uint64_t hz)
@@ -1104,12 +1173,18 @@ void write_main_loop_hl2(const char* out_bufp) {
                     // then missed BYTE0 — J4 stuck on leftover PWM
                     // (usually 20 m), no voltage change (#17).
                     // drop_pending already prevents mixed-Hz bursts.
+                    // Register 11 (Alt RX) is not analog — do not
+                    // mark BYTE0 sent from that overlay.
                     prn->i2c.delay = 5;
                     if (ov.control == 4) {
                         g_ioboard_sent.store(
                             g_ioboard_queued.load(std::memory_order_relaxed),
                             std::memory_order_relaxed);
                     }
+                } else if (is_ioboard_rf_input_entry(ov)) {
+                    prn->i2c.delay = 5;
+                    g_rf_input_sent.store(ov.write_data,
+                                          std::memory_order_relaxed);
                 }
 
                 // NB: I2C-overlay frames do NOT advance g_out_control_idx.

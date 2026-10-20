@@ -24,9 +24,9 @@ Filter board: unknown (N2ADR vs Pico). Does not change ANT count. Pico/N2ADR is 
 | Item | Verdict |
 |---|---|
 | Right-click-only buttons until click-in-window | Win11 focus. **Not Lyra.** |
-| Dead RX until Thetis Open | Leftover HL2/filter/UDP. **Not a Lyra bug** unless cold Open with nothing else on the radio. |
+| Dead RX until Thetis Open | **Lyra.** IO-board RX mux stuck where Thetis left it. Lyra now writes REG_RF_INPUTS on Start and hop. |
 | LNA global; want per-band (esp. xvtr) | **Real.** Ham bands already remember LNA; 2 m/70 cm RF is outside `BandMemory` names so the PGA stays global on the Mini. |
-| Antenna per band, separate RX vs TX | **Not on HL2.** One SMA. His split is the 30 dB box. Do **not** add MAP/ANT1/2/TXANT for him. |
+| Antenna per band, separate RX vs TX | **HL2 IO-board RX mux.** Photos (2026-10-19) show RF1, Alt RX, PURE. Per-band / per-Xvtr **RF1 vs Alt RX** (I2C 0x1D **register 11** only). Not P2 Alex MAP. Not analog BYTE0–4 (Randy GPA100). PURE not mapped. |
 | Lyra Remote usable; want server/service | Remote stays LAN TCI. **No Windows service.** See remote park below. |
 | In-app gateware flash | **No.** Vendor / hl2setup. |
 
@@ -41,7 +41,7 @@ Keep this list short. All optional; none block DIV (DIV already shipped v0.25.20
 **Do not add for him**
 
 - Alex MAP, ANT1/2/3, TXANT, Ext1/XVTR jack chips (P2 / Brick3).
-- Thetis **Alt Rx** unless he has an I/O board *and* a second SMA (photo does not show that).
+- P2 Alex MAP / ANT1/2/3 chips on HL2 (different hardware). PURE SMA until the Pico value is known.
 - In-app FPGA/gateware updater.
 - Tracking LO / 200–300 Hz AFC for Mini drift.
 
@@ -50,9 +50,30 @@ Keep this list short. All optional; none block DIV (DIV already shipped v0.25.20
 Volker asked for headless Lyra-as-service. Rick’s intent is **not** that.
 
 - **Now:** Lyra Remote = TCI desk on LAN.
-- **Reid MI0BOT Thetis:** second Thetis talks **HPSDR UDP to the HL2** (static IP, Any Subnet, port-forward 1024). Shack Thetis **stopped**. Not Thetis-to-Thetis. Do **not** copy naked 1024-to-the-radio; VPN + unicast Open if we ever do this.
-- **Rick’s shape:** second Lyra on the remote PC, **Hosted Lyra** as the rig, shack Lyra stays Open. Needs a TCI **client** (Lyra is server-only today) or a later encrypted Lyra-to-Lyra link. Large. Behind platform work.
+- **Reid MI0BOT Thetis:** second Thetis talks **HPSDR UDP to the HL2** (static IP, Any Subnet, port-forward 1024). Shack Thetis **stopped**. Not Thetis-to-Thetis. **Dropped** — no WAN UDP to the radio.
+- **Rick’s shape:** second Lyra on the remote PC, **Hosted Lyra** as the rig, shack Lyra stays Open. **Hold.** Design: `docs/architecture/lyra_to_lyra.md`.
 
 ## Recall
 
 Photo + mail: hardware T/R and 30 dB; Lyra Xvtr error + **uncheck Disable PA**; **per-Xvtr LNA/ATT** recalls with the chip.
+
+## Operator lock 2026-10-16 (backlog 1–14)
+
+| # | Item | Call |
+|---|---|---|
+| 1 | Xvtr Mini how-to in User Guide | **Add** (in `USER_GUIDE.md`) |
+| 2 | Lyra-to-Lyra (second Lyra as desk, host stays Open) | **Hold** — design in `lyra_to_lyra.md` |
+| 3 | Reid-style unicast Open / WAN UDP to the radio | **Drop** |
+| 4 | Windows service / headless server package | **Drop** |
+| 5 | In-app gateware flash | **Drop** |
+| 6 | HL2 MAP / ANT1–2 / Alt Rx | **RF1 vs Alt RX only** (reopened 2026-10-20). Not P2 MAP. Analog 0x1D BYTE0–4 must stay Randy-safe. |
+| 7 | Mini LO AFC (−200…−300 Hz tracking) | **Drop** |
+| 8 | TX rack listen without keying | **Drop** — on-air always sounds different; dummy-load + MON TX for the rack, Kiwi / trusted ear for the set |
+| 9 | Linux (OS I/O cut, Windows first) | **Hold** |
+| 10 | macOS | **Hold** (no Mac bench) |
+| 11 | DIV extra-DDC `0x0F` (D6) | **Drop** |
+| 12 | DIV CAT / TCI | **Drop** |
+| 13 | OC Control tab | **Drop** — already **Settings → Filters / BCD** |
+| 14 | Extra K1EL Winkeyer USB host driver | **Drop** — Thetis/DeskHPSDR never speak K1EL; they use Radio KEY + optional COM CTS/DSR. Lyra already has both. |
+
+**Remaining from this scan (features):** **#2 Lyra-to-Lyra** only. Linux (#9) and macOS (#10) stay hold as platform, behind radios.

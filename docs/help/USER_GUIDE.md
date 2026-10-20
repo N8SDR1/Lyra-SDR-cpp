@@ -44,8 +44,8 @@ not programmers — if you can click a menu, you can use this.
   amateur band is ignored. You stay keyed. Status bar:
   *Frequency change ignored while transmitting.*
 - **Xvtr.** Each transverter chip remembers its LNA (HL2) or ATT (P2),
-  last mode, and Auto on/off (Auto defaults **off** on the chip). HF
-  Auto-LNA is per amateur band.
+  last mode, Auto on/off (Auto defaults **off** on the chip), and HL2
+  **RF1 / Alt RX**. HF Auto-LNA and RF1/Alt are per amateur band.
 - **Password required to listen** is disabled until a listen lock can
   run without breaking a receiver page or a digital program on another
   computer. **Start voice** still uses the password.
@@ -420,6 +420,7 @@ Dummy load first.
 - [Filters panel](#filters-panel)
 - [Band panel](#band-panel)
   - [Xvtr (transverters)](#xvtr-transverters)
+  - [Which Hermes Lite station is mine?](#which-hermes-lite-station-is-mine)
 - [Audio panel](#audio-panel)
 - [Setting up audio output](#setting-up-audio-output)
 - [Setting up your mic input](#setting-up-your-mic-input)
@@ -712,6 +713,10 @@ the machine is already busy (dual receive, a high waterfall rate).
   updated HL2+ gateware). Adds on-board audio routing and a microphone
   input. The HL2's own headphone jack is the default, lowest-latency audio
   path.
+- **Filter board, transverter, Pico / IO board, or band-voltage amp** —
+  you do **not** pick a “station type” in Settings. Defaults already match
+  a basic radio. See
+  [Which Hermes Lite station is mine?](#which-hermes-lite-station-is-mine).
 - **BrickSDR2** — Protocol **2** only. See [Supported radios](#supported-radios)
   if Discover shows a Protocol 1 Hermes row that will not Open.
 
@@ -1526,7 +1531,9 @@ Quick band switching, in four rows:
 - **Gen** — the GEN1/2/3 general-coverage slots (below).
 - **Xvtr** — four transverter chips (defaults **2m / 70cm / 23cm** plus a
   spare). Click a chip to tune RX1 to that slot’s last RF. Full detail:
-  [Xvtr (transverters)](#xvtr-transverters).
+  [Xvtr (transverters)](#xvtr-transverters). On Protocol 1 the same row
+  has **RF1** / **Alt** (HL2 RX jack). Most stations leave **RF1**. See
+  [Which Hermes Lite station is mine?](#which-hermes-lite-station-is-mine).
 - **Ant** — Protocol 2 radios with an Alex-style front-end (ANAN-100D
   class, Brick3SDR, G2 / Saturn — **not** Hermes-class BrickSDR and
   **not** HL2). ANT chips pick the **shared TX/RX jack** (Brick3SDR:
@@ -1588,7 +1595,16 @@ LO drifts). Turn **Enable PA** on in Settings when you want the HL2 PA into
 the pad. **Auto** on the DSP+Audio strip is Auto-LNA (lit = on). It is
 remembered **per band / per Xvtr chip**. HF bands default on; Xvtr chips
 default off. Click Auto off for a fixed LNA, then use the LNA slider.
-Each chip remembers its last LNA **and** last mode.
+Each chip remembers its last LNA **and** last mode. IF on the HL2
+antenna SMA → leave **RF1**. IF on IO-board **Alt RX** → click **Alt**
+on that chip ([station types](#which-hermes-lite-station-is-mine)).
+
+**HL2 RX jack.** Protocol 1 shows **RF1** and **Alt** on this row.
+Default is **RF1** (the PA / N2ADR antenna SMA). Click **Alt** only if
+that transverter’s IF is plugged into the IO-board **Alt RX** jack.
+Pick once per chip; it is remembered. Not Protocol 2 Alex. Which chips
+to touch for your hardware:
+[Which Hermes Lite station is mine?](#which-hermes-lite-station-is-mine).
 
 **IF window.** The HL2 ADC/NCO is HF (~DC–30.72 MHz). Example: RF
 144–146 MHz with LO 116 MHz → IF 28–30 MHz (inside). RF **148** MHz at
@@ -1605,6 +1621,31 @@ IARU R3 / none) does **not** rewrite Xvtr slots. Factory defaults are US-style
 so Lyra does **not** flash “transmitting out of band” merely because you
 are on an enabled Xvtr slot. It still warns if your occupied bandwidth
 walks past that slot’s **RF low / RF high**.
+
+### Which Hermes Lite station is mine?
+
+Lyra does **not** have a Thetis-style “I2C board” checkbox that you must
+set before the radio works. Protocol 1 defaults are a **basic Hermes Lite
+2 / 2+**: main antenna SMA (**RF1**), N2ADR OC if you leave that box on,
+band voltage for a GPA100-class amp already going out on J4. You only
+click something extra if your **coax** uses a second RX jack.
+
+Find **RF1** / **Alt** on the Band dock, Xvtr row (Protocol 1 only). Find
+N2ADR and band volts in **Settings → Filters / BCD**. Band **?** → Help
+guide opens this Band chapter.
+
+| What you have | What to click in Lyra |
+|---|---|
+| **Basic HL2 or HL2+.** One antenna SMA. PureSignal or not. No Pico, no IO board, no transverter. | Nothing extra. Leave **RF1**. **Enable N2ADR / IO board** on if you have the filter board, off if you do not. PureSignal is its own panel; this jack choice does not move the PS tap. |
+| **N2ADR (and maybe PS) plus a basic transverter** on the antenna jack — IF in/out of **HF** on the transverter, that box does T/R (6 m Mini with VHF / TRX / HF / PTT). No Pico / IO board. | **Xvtr** chip for the LO (so the VFO shows 50 MHz while the radio sits on 10 m IF). Leave **RF1**. Do **not** click **Alt**. Disable PA in the slot editor unless you intentionally drive the pad with the HL2 PA. |
+| **N2ADR + Pico + IO board**, transverter IF on the rear **Alt RX** SMA, HF antenna still on **RF1** (Volker-style Mini). | HF bands: leave **RF1**. On the **2 m** (or matching) Xvtr chip, click **Alt** once. That chip remembers it. Hopping HF ↔ VHF then switches the IO-board mux the same way Thetis does. |
+| **Band voltage / BCD to an amp or antenna switch** (GPA100 on J4 pin 8, USB-BCD cable, or J3 Band Volts). Pico analog, with or without a transverter. | Nothing on **RF1** / **Alt** unless you also have station 3. Analog TX-Hz on J4 is always sent on Protocol 1 — it is **not** the N2ADR checkbox and **not** the Alt chip. **Do not** tick **HL2 Band Volts on J3** for J4 / GPA100. USB-BCD is a separate picker on the same Settings tab. |
+
+**Do not click Alt** if you have only one SMA. It does nothing useful without an IO board, and with an IO board it listens to an empty jack.
+
+Protocol 2 (Brick / ANAN) hides **RF1** / **Alt**. Use **Ant** / **RX** / **MAP** on the same row.
+
+More pin detail: [Settings → Filters / BCD](#settings--filters--bcd).
 
 **GEN1 / GEN2 / GEN3** (to the right of the band buttons) are
 **general-coverage slots** for listening outside the ham bands —
@@ -4137,6 +4178,11 @@ Everything that makes an **external band-following accessory follow your
 tuning** lives here. On an **HL2 / HL2+** there are **two analog-voltage
 paths** plus OC filters — they are not the same pin. Protocol 2 radios
 (Brick SDR, ANAN) do not use the Pico I2C analog path.
+
+If you only need “what do I turn on for *my* Hermes Lite,” start at
+[Which Hermes Lite station is mine?](#which-hermes-lite-station-is-mine)
+(Band dock **RF1** / **Alt**, N2ADR, GPA100 / J4, basic vs IO-board
+transverter). This tab is the pin-level detail.
 
 | Path | Pin | How Lyra turns it on | Same as |
 |------|-----|----------------------|---------|
