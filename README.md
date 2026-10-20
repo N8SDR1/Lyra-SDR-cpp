@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.23 Sheliak (Lyra-to-Lyra beta)** — a second Lyra operates the shack rig over Tailscale. v0.25.22 remains the return point. WDSP 2.10 from 0.25.8.
+**v0.25.24 Sheliak** — HL2 **RF1 / Alt RX** (Volker Mini / IO board) and a Protocol 2 TX clock split (DUC-IQ off the session thread). Lyra-to-Lyra from 0.25.23 stays in the tree. v0.25.22 remains the return point. WDSP 2.10 from 0.25.8.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 

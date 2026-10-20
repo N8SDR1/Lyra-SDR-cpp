@@ -66,7 +66,7 @@ Photo + mail: hardware T/R and 30 dB; Lyra Xvtr error + **uncheck Disable PA**; 
 | 3 | Reid-style unicast Open / WAN UDP to the radio | **Drop** |
 | 4 | Windows service / headless server package | **Drop** |
 | 5 | In-app gateware flash | **Drop** |
-| 6 | HL2 MAP / ANT1–2 / Alt Rx | **RF1 vs Alt RX only** (reopened 2026-10-20). Not P2 MAP. Analog 0x1D BYTE0–4 must stay Randy-safe. |
+| 6 | HL2 MAP / ANT1–2 / Alt Rx | **Shipped v0.25.24** — RF1 vs Alt RX only (I2C 0x1D register 11). Not P2 MAP. Analog 0x1D BYTE0–4 stays Randy-safe. |
 | 7 | Mini LO AFC (−200…−300 Hz tracking) | **Drop** |
 | 8 | TX rack listen without keying | **Drop** — on-air always sounds different; dummy-load + MON TX for the rack, Kiwi / trusted ear for the set |
 | 9 | Linux (OS I/O cut, Windows first) | **Hold** |

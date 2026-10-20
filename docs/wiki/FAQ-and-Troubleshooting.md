@@ -288,6 +288,15 @@ MHz. Band-plan **region does not auto-fill** 144–146 vs 144–148 — set it
 in the Xvtr editor (**right-click** the chip). Full map: **[User Guide →
 Xvtr](User-Guide#xvtr-transverters)**.
 
+**Transverter IF is on the Hermes Lite Alt RX jack (or I hear nothing on 2 m).**
+Protocol 1 shows **RF1** and **Alt** on the Band dock Xvtr row. **RF1** is
+the PA / N2ADR antenna SMA. **Alt** is the Pico / IO **Alt RX** SMA.
+Click **Alt** once on that Xvtr chip; it is remembered. Do **not** click
+Alt if you have only one SMA. GPA100 / J4 analog band voltage is a
+different path — leave **RF1 / Alt** alone unless the IF is on Alt RX.
+Protocol 2 hides these chips (use **Ant / MAP**). Station table:
+**[User Guide → Which Hermes Lite station is mine?](User-Guide#which-hermes-lite-station-is-mine)**.
+
 **Where did the RTTY decoder go?**
 Lyra does **not** ship an in-radio RTTY modem. Use **Settings → Apps** (or
 the **Apps** header chip) to launch fldigi / MMTTY / etc., with **TCI** or

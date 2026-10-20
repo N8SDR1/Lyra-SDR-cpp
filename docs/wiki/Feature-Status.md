@@ -1,18 +1,19 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.22 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.24 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.23** is a beta of Lyra-to-Lyra
+**v0.25.23+** includes a beta of Lyra-to-Lyra
 ([User Guide → Lyra to Lyra](User-Guide#lyra-to-lyra)).
 **v0.25.22** remains the return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.23)
+### Last several builds (0.25.16 → 0.25.24)
 
 | Build | What landed |
 |---|---|
+| **0.25.24** | HL2 **RF1 / Alt RX** per Xvtr (and ham) chip — I2C 0x1D register 11; GPA100 analog BYTE0–4 unchanged. Protocol 2 **DUC-IQ** on its own native pump (keyed / no-RF after a long session). Lyra-to-Lyra from 0.25.23 stays in the tree |
 | **0.25.23** | **Beta of Lyra-to-Lyra.** Second Lyra on the laptop; shack stays on the radio. [User Guide → Lyra to Lyra](User-Guide#lyra-to-lyra). **v0.25.22** remains the return point |
 | **0.25.22** | **Helios / Sonar / Cluster** meter faces · **TX band-jump ignore** (stay keyed) · Xvtr per-chip LNA (HL2) / ATT (P2) · listen-password box disabled until a real RX lock |
 | **0.25.21** | **[Lyra Remote](Lyra-Remote)** voice session (separate browser desk) · Brick3 holds the first key until PA enable is already in receive · TCI meter line carries ALC headroom |
@@ -26,7 +27,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 ## Radio &amp; connection
 
 - ✅ HPSDR **Protocol 1** discovery (multi-NIC, subnet-directed broadcast) + **Add by IP** for fixed-IP / cross-subnet radios
-- ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** and **Brick3SDR** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator); discovery firmware shown as **v10.6**-style, not “fw v0”. **TX DUC follows the VFO after retune** (v0.25.15). **Brick3 Beta Testing** (v0.25.16–0.25.20): MAP ANT/RX chips, Auto Step 0–31, per-band PS pad, TX like BrickSDR2 (no dummy-load arm), **SUB second pan**, **RX2 jack isolate on TX**. **P1 Brick / P1 ANAN: Discover lists, Open refuses** (HL2 TX layout) — flash P2; Brick FPGA help: Anton (linoobs)
+- ✅ HPSDR **Protocol 2** discovery + live RX/TX on **BrickSDR2** and **Brick3SDR** (DUC I/Q, analog drive, ATT-on-TX, radio mic → modulator); discovery firmware shown as **v10.6**-style, not “fw v0”. **TX DUC follows the VFO after retune** (v0.25.15). **v0.25.24:** DUC I/Q (UDP 1029) on its own native pump, not the session thread. **Brick3 Beta Testing** (v0.25.16–0.25.20): MAP ANT/RX chips, Auto Step 0–31, per-band PS pad, TX like BrickSDR2 (no dummy-load arm), **SUB second pan**, **RX2 jack isolate on TX**. **P1 Brick / P1 ANAN: Discover lists, Open refuses** (HL2 TX layout) — flash P2; Brick FPGA help: Anton (linoobs)
 - ✅ **Keyboard VFO** (global arrows: 1 kHz / 10 Hz), **startup profile** (mode binding → last-used → Default), **Tuning Mem** left-click after idle (v0.25.15)
 - 🚧 **ANAN-10 / 10E** Protocol 2 — classic Alex; **BrickSDR2 TX** (on-air, no dummy-load arm). Pick marketed model in Settings (Hermes discovery still defaults to Brick). Boxes that shipped P1 should use a P2 FPGA when they can.
 - 🚧 **ANAN-100 / 100B / 100D / 200D** Protocol 2 — **Brick3SDR TX** (on-air, independent Enable PA). **100D / 200D**: two converters, **SUB** opens a second panadapter.
@@ -39,7 +40,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **Stale-IP** guard (won't freeze trying to reach a radio that moved)
 - ✅ Graphics **crash ladder** (OpenGL → software, MSAA off on software) so a bad GPU driver does not leave Lyra with no window
 - ✅ **MSAA** picker **Off / 2× / 4× / 8×** (Settings → Visuals; default 4×; restart)
-- ✅ **Xvtr** band chips — RF dial (ten-digit LED, ~2.147 GHz), IF NCO, Disable PA default on; Shift+click SUB hop; right-click slot editor. Band-plan **region does not rewrite** slot MHz — set RF low/high/LO for your allocation. See User Guide **Band panel**.
+- ✅ **Xvtr** band chips — RF dial (ten-digit LED, ~2.147 GHz), IF NCO, Disable PA default on; Shift+click SUB hop; right-click slot editor. Per-chip LNA (HL2) / ATT (P2) / last mode. Protocol 1 **RF1 vs Alt RX** per chip (I2C 0x1D register 11; analog BYTE0–4 unchanged for GPA100). Band-plan **region does not rewrite** slot MHz — set RF low/high/LO for your allocation. Station table: [User Guide → Which Hermes Lite station is mine?](User-Guide#which-hermes-lite-station-is-mine).
 - ✅ HL2 **N2ADR / IO board** — OC LPF (I2C **0x20**) is the **Enable N2ADR / IO board** checkbox. Filter-board follow is always Protocol 1 TX frequency on I2C **0x1D**, not gated on that box. **v0.25.20 / #17:** a return to a band already on the dial is written again. Leave **Band Volts on J3** off unless the amp is on the fan header.
 - ✅ **OC Control** — Settings → **Filters / BCD**: per-band J16 RX/TX pins, N2ADR preset, USB-BCD, J3 fan vs analog. Do not add a second tab.
 

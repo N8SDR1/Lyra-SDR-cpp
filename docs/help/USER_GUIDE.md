@@ -22,7 +22,22 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.23 Sheliak (Lyra-to-Lyra beta).** See [What's new in 0.25.23](#whats-new-in-02523).
+**v0.25.24 Sheliak.** See [What's new in 0.25.24](#whats-new-in-02524).
+
+## What's new in 0.25.24
+
+- **HL2 RF1 / Alt RX.** Protocol 1 Xvtr (and ham-band) chips pick the
+  IO-board RX jack: **RF1** is the PA / N2ADR antenna SMA; **Alt** is the
+  Pico / IO **Alt RX** SMA. Remembered per chip. Thetis-style I2C 0x1D
+  **register 11** only — analog BYTE0–4 (GPA100 band voltage) is unchanged.
+  Protocol 2 hides these chips (use Ant / MAP). Station table:
+  [Which Hermes Lite station is mine?](#which-hermes-lite-station-is-mine).
+- **Protocol 2 TX clock.** DUC I/Q (UDP 1029) runs on its own native
+  writer, not the radio session thread. Aimed at the occasional
+  “keyed, relay clicks, no RF” stall after a long digital session.
+  Dummy-load first key on Brick after install.
+- **Lyra to Lyra** from 0.25.23 is still in this build. Both PCs need
+  the same version. If that beta is not for you, reinstall **v0.25.22**.
 
 ## What's new in 0.25.23
 
@@ -44,8 +59,9 @@ not programmers — if you can click a menu, you can use this.
   amateur band is ignored. You stay keyed. Status bar:
   *Frequency change ignored while transmitting.*
 - **Xvtr.** Each transverter chip remembers its LNA (HL2) or ATT (P2),
-  last mode, Auto on/off (Auto defaults **off** on the chip), and HL2
-  **RF1 / Alt RX**. HF Auto-LNA and RF1/Alt are per amateur band.
+  last mode, and Auto on/off (Auto defaults **off** on the chip).
+  HF Auto-LNA is per amateur band. **RF1 / Alt RX** on the wire lands in
+  0.25.24.
 - **Password required to listen** is disabled until a listen lock can
   run without breaking a receiver page or a digital program on another
   computer. **Start voice** still uses the password.
@@ -378,6 +394,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.24](#whats-new-in-02524)
 - [What's new in 0.25.23](#whats-new-in-02523)
 - [What's new in 0.25.22](#whats-new-in-02522)
 - [What's new in 0.25.21](#whats-new-in-02521)
@@ -5469,7 +5486,7 @@ copy of Lyra on the laptop. The
 
 ### Lyra to Lyra
 
-Both computers run this same version of Lyra. This 0.25.23 build is
+Both computers run this same version of Lyra. This 0.25.24 build is
 a beta of that link. The shack PC is the **host** and stays on the
 radio. The laptop is the **desk** and does not open a local radio.
 The host stays **Open**. HPSDR UDP stays on the shack LAN. The shack
