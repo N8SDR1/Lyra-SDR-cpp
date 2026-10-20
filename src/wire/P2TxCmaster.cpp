@@ -110,6 +110,25 @@ double p2TxCmasterLastPeak() {
     return lastPeak.load(std::memory_order_relaxed);
 }
 
+void p2TxCmasterResetPeak() {
+    lastPeak.store(0.0, std::memory_order_relaxed);
+}
+
+void reassertP2TxCmasterProducer() {
+    if (!active.load(std::memory_order_acquire))
+        return;
+    if (!pcm || !pcm->xmtr[0].pilv || !SetTXACFIRRun || !SetChannelState)
+        return;
+    // Do not call SetXmtrDucOutrate here. It reallocates WDSP resamplers
+    // while fexchange0 can still be in flight; that is one path to a
+    // running TXA that emits zeros (relay clicks, 0 W) after a re-prime.
+    SendpOutboundTx(&p2TxCmasterOutbound);
+    setP2TxInputEnabled(true);
+    SetTXACFIRRun(chid(1, 0), 1);
+    SetChannelState(chid(1, 0), 1, 0);
+    channelRunning.store(true, std::memory_order_release);
+}
+
 bool feedP2TxCmasterInput(const double *iq, int samples) {
     if (!active.load(std::memory_order_acquire) || !pcm || !iq ||
         samples <= 0)

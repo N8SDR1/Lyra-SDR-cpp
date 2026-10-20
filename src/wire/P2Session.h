@@ -67,6 +67,7 @@
 
 #pragma once
 
+#include "P2NativeUdp.h"
 #include "P2TxSafety.h"
 #include "P2TxPackets.h"
 #include "P2TxWriter.h"
@@ -82,6 +83,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <vector>
 
 namespace lyra::wire {
@@ -226,18 +228,17 @@ public:
     void setPureSignalArmed(bool on);
     void setTxProducerSink(P2TxPump::InputSink sink) {
         txProducerTerminal_ = std::move(sink);
-        // The pump ticks the 48 kHz modulator-input cadence; feedTxProducer
-        // substitutes the live radio front-panel mic block for the pump's
-        // zeros when one is fresh, else forwards the zeros (prime / gap-fill).
+        // The dedicated pump thread ticks the 48 kHz modulator-input
+        // cadence; feedTxProducer substitutes the live radio mic block
+        // for the pump's zeros when one is fresh, else forwards zeros.
         txPump_.setInputSink([this](const double *iq, int n) {
             return feedTxProducer(iq, n);
         });
     }
-    // Called once per pump tick (session thread). Feeds the latest decoded
-    // mic block into the modulator if fresh, otherwise the pump's zero block
-    // (initial prime + gap-fill when the mic stream slips). Reference model:
-    // radio mic is the base modulator source; VAC/TCI still override it
-    // downstream in xcmaster().
+    // Called once per pump tick (P2 TX pump thread). Feeds the latest
+    // decoded mic block if fresh, otherwise the pump's zero block.
+    // parseMic (session thread) and this call share micFifoMutex_.
+    // VAC/TCI still override downstream in xcmaster().
     bool feedTxProducer(const double *pumpZeros, int n);
     // P2 TX control is intentionally split into two calls. The bridge
     // owns the transient operator interlock; MOX/PTT only supplies intent.
@@ -371,12 +372,8 @@ private:
     void startTxTransportRxState();
     void stopTxTransport();
     void latchTxFault(const QString &reason);
-    // A transport-cadence fault (writer pacing miss / FIFO underflow) is a
-    // real RF-safety event ONLY while keyed. While no transmit intent exists
-    // the P2 TX stream is RF-inert (transmit=0, PA=off, drive=0) and a
-    // transient host stall must recover in place, not latch and lock out the
-    // next key-up. Keyed -> latchTxFault; RX-idle -> deferred re-prime.
-    void onTxTransportCadenceFault(const QString &reason);
+    bool sendToRadio(const QByteArray &pkt, quint16 port);
+    bool sendToRadio(const char *data, int len, quint16 port);
     // skipGeneralWhileKeying: a new key whose PA-enable bit is already 1
     // must not rewrite that bit in the same burst as the rising MOX.
     // The radio latches PA off when the two change together.
@@ -386,6 +383,7 @@ private:
     QUdpSocket   sock_;
     QTimer       hpTimer_;
     QTimer       txPrimeTimer_;
+    P2NativeUdp  nativeUdp_;
     P2TxWriter   txWriter_;
     P2TxPump     txPump_;
     QHostAddress radioAddr_;
@@ -438,16 +436,12 @@ private:
     QElapsedTimer lastMicPkt_;
     bool         warnedNoMic_  = false;
     // S2b — the live mic drives the modulator through an elastic FIFO.
-    // parseMic (radio mic clock) pushes each decoded {I=mic, Q=0} block;
-    // feedTxProducer (PC pump clock) drains one block per tick. Both run on
-    // the session thread, so no lock is needed. The two clocks average the
-    // same 48 kHz but the socket delivers mic datagrams in bursts while the
-    // pump fires on its own timer, so their events are NOT interleaved 1:1
-    // on the event loop. A single-block hand-off dropped a mic block on
-    // every burst and zero-stuffed the following pump tick -> the modulator
-    // was fed mostly zeros and garbled the transmitted audio. The ring, with
-    // a small prime cushion, absorbs that batching jitter: underrun feeds
-    // zeros (and re-primes), overrun drops the oldest block.
+    // parseMic (session thread, radio mic clock) pushes each decoded
+    // {I=mic, Q=0} block; feedTxProducer (pump thread) drains one block
+    // per tick. Those threads share micFifoMutex_. The ring, with a
+    // small prime cushion, absorbs socket batching vs the 48 kHz pump:
+    // underrun feeds zeros (and re-primes), overrun drops the oldest
+    // block.
     // Capacity/prime as literals; feedTxProducer static_asserts the block
     // width against 2*kMicFrames (kMic* constants are declared below). The
     // ring DEPTH is taken from kMicFifoCap so the array can't desync from the
@@ -457,6 +451,7 @@ private:
     static_assert(kMicPrimeBlocks < kMicFifoCap,
                   "prime cushion must leave headroom in the ring");
     std::array<std::array<double, 2 * 64>, kMicFifoCap> micFifo_{};
+    std::mutex micFifoMutex_;
     int  micFifoHead_  = 0;     // index of the next block to drain
     int  micFifoCount_ = 0;     // blocks currently queued
     bool micPrimed_    = false; // false until the cushion first fills
@@ -516,13 +511,12 @@ private:
     static constexpr int     kIqFrameLen     = 1444;
     static constexpr int     kIqHeaderLen    = 16;    // seq4 + ts8 + bits2 + count2
     static constexpr int     kIqSamplesPerFrame = 238;
-    // Prime 30 ms of TX IQ before starting the 800 Hz writer. This
-    // absorbs normal Windows timer coalescing and session-thread UDP
-    // bursts while still leaving FIFO headroom. HP transmit/PA/drive
-    // remain gated off throughout this RX-state transport phase.
+    // Wait for ~30 ms of CMaster TX IQ before marking the DUC writer
+    // primed. HP transmit/PA/drive stay gated off. The writer itself
+    // is producer-paced; this poll is control-plane only.
     static constexpr std::size_t kTxPrimeSamples =
         24 * P2TxFifo::kPacketSamples;
-    static constexpr int     kTxPrimePollMs = 1;
+    static constexpr int     kTxPrimePollMs = 5;
     // HP cadence: Thetis-like periodic refresh.  Must stay well under
     // p2app's 1 s activity timeout; 100 ms gives 10x margin.
     static constexpr int     kHpPeriodMs     = 100;

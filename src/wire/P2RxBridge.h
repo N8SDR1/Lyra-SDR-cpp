@@ -33,11 +33,11 @@
 // (BrickSDR2, Brick3SDR, ANAN-10/10E, ANAN-100 line) key like HL2.
 // Saturn G2 stays fail-closed until Arm P2 TX.
 //
-// Threading: P2Session (QUdpSocket + timers) lives on thread_; every
-// session mutation is marshalled onto that thread via
-// QMetaObject::invokeMethod functors.  The IQ decode + xrouter
-// dispatch run ON the session thread (direct connection), making it
-// the single DSP feeder thread while a P2 radio is open.
+// Threading: P2Session (QUdpSocket + HP timers) lives on thread_;
+// session mutation is marshalled via QMetaObject::invokeMethod.
+// IQ decode + xrouter run on that thread. Port 1029 DUC-IQ and the
+// 48 kHz CMaster pump are native threads that sendto() the bound
+// session SOCKET — they must not use QUdpSocket.
 
 #pragma once
 

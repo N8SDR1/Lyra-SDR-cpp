@@ -22,6 +22,7 @@ bool feedP2TxCmasterInput(const double *iq, int samples);
 // bench distinguish a short DSP output (ALC/postgen) from a short drive
 // byte / radio-side limit.
 double p2TxCmasterLastPeak();
+void p2TxCmasterResetPeak();
 
 // Run/stop the shared WDSP TXA channel (chid(1,0)) that feeds the P2 DUC-IQ
 // producer.  create_xmtr opens that channel OPEN-but-NOT-STARTED (state=0);
@@ -36,6 +37,10 @@ double p2TxCmasterLastPeak();
 // edge-guarded and gated on the outbound seam being active so the channel's
 // ILV output routes to the P2 DUC FIFO, never the P1 EP2 path.
 void setP2TxCmasterChannelRunning(bool on);
+
+// Re-hook outbound + CFIR and force SetChannelState(1) without reallocating
+// the 192 kHz DUC path. Used on transport start/re-prime.
+void reassertP2TxCmasterProducer();
 
 // True while the P2 DUC producer owns the shared TX channel. The key
 // sequencer must not start/stop that channel on each key: it is already

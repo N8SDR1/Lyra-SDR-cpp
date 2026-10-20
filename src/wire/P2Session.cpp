@@ -270,15 +270,12 @@ const P2HardwareProfile *p2ProfileForModel(const QString &modelKey) {
 }
 
 P2Session::P2Session(QObject *parent)
-    // The socket + timer MUST be children of the session: P2RxBridge
-    // constructs this object on the main thread and then
-    // moveToThread()s it onto the session thread — only the QObject
-    // CHILD TREE moves.  As parentless value members they kept
-    // main-thread affinity while open()/onHpTick() ran on the session
-    // thread — cross-thread QUdpSocket/QTimer use, which crashed the
-    // app on the first P2 open (bench 2026-07-18, AV in lyra.exe).
-    : QObject(parent), sock_(this), hpTimer_(this), txPrimeTimer_(this),
-      txWriter_(this), txPump_(this) {
+    // The socket + HP/prime timers MUST be children of the session:
+    // P2RxBridge constructs this object on the main thread and then
+    // moveToThread()s it. Only the QObject child tree moves. TX I/Q
+    // is a native thread that sendto()s the bound SOCKET; it is not
+    // a QTimer child of this object.
+    : QObject(parent), sock_(this), hpTimer_(this), txPrimeTimer_(this) {
     // Bench-sane default: every DDC parked on 20 m until told otherwise
     // (the radio requires a plausible frequency word even for DDCs that
     // will never be enabled — zeros are legal but this keeps DDC0 useful
@@ -297,16 +294,7 @@ P2Session::P2Session(QObject *parent)
     // radio status and FIFO priming; RF fields remain independently gated.
     txWriter_.setInputFifo(&p2TxInputFifo());
     txWriter_.setPacketSink([this](const QByteArray &packet) {
-        if (open_)
-            sock_.writeDatagram(packet, radioAddr_, kPortDucIqToSdr);
-    });
-    txWriter_.setFaultSink([this]() {
-        onTxTransportCadenceFault(QStringLiteral(
-            "TX-IQ pacing deadline/FIFO fault"));
-    });
-    txPump_.setFaultSink([this]() {
-        onTxTransportCadenceFault(QStringLiteral(
-            "CMaster producer deadline/input fault"));
+        return open_ && sendToRadio(packet, kPortDucIqToSdr);
     });
 }
 
@@ -328,8 +316,7 @@ void P2Session::setDucFrequencyHz(quint32 hz) {
         return;
     const bool transmitting =
         P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit;
-    sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_,
-                        kPortHpToSdr);
+    sendToRadio(buildHighPriorityPacket(true), kPortHpToSdr);
     if (!transmitting)
         filterHpAge_.start();
 }
@@ -341,8 +328,7 @@ void P2Session::setDdcFrequencyHz(int ddc, quint32 hz) {
     // land before we wait another tick — firmware that keys DDC1/2/3 off
     // the HP word otherwise streams silence.
     if (open_ && ddc >= 1)
-        sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_,
-                            kPortHpToSdr);
+        sendToRadio(buildHighPriorityPacket(true), kPortHpToSdr);
 }
 
 bool P2Session::angeliaRxSlots() const {
@@ -380,8 +366,7 @@ void P2Session::setDiversityArmed(bool on) {
     if (!open_)
         return;
     sendDdcSpecificToRadio(true);
-    sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_,
-                        kPortHpToSdr);
+    sendToRadio(buildHighPriorityPacket(true), kPortHpToSdr);
     punchEnabledDdcIqFirewalls();
 }
 
@@ -456,8 +441,7 @@ void P2Session::armSubSecondaryDdcs(quint16 rateKhz, quint32 freqHz) {
         // general + receive_specific blast on every 1 kHz step does not
         // start the second stream and floods :1024/:1025.
         if (open_ && hpTimer_.isActive())
-            sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_,
-                                kPortHpToSdr);
+            sendToRadio(buildHighPriorityPacket(true), kPortHpToSdr);
         return;
     }
     warnedNoDdc1Iq_ = false;
@@ -474,8 +458,7 @@ void P2Session::armSubSecondaryDdcs(quint16 rateKhz, quint32 freqHz) {
                      .arg(rx2)
                      .arg(kPortDdcIq0 + rx2));
     sendDdcSpecificToRadio(true);
-    sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_,
-                        kPortHpToSdr);
+    sendToRadio(buildHighPriorityPacket(true), kPortHpToSdr);
     punchEnabledDdcIqFirewalls();
     scheduleDdc1FirewallPunch();
 }
@@ -519,8 +502,7 @@ bool P2Session::shouldFeedRx2(int ddc) {
 void P2Session::punchDdcIqFirewall(int ddc) {
     if (!open_ || ddc < 0 || ddc >= kNumDdc) return;
     const char b = 0;
-    sock_.writeDatagram(&b, 1, radioAddr_,
-                        static_cast<quint16>(kPortDdcIq0 + ddc));
+    sendToRadio(&b, 1, static_cast<quint16>(kPortDdcIq0 + ddc));
 }
 
 void P2Session::punchEnabledDdcIqFirewalls() {
@@ -709,7 +691,7 @@ void P2Session::sendDdcSpecificToRadio(bool logConfig) {
     QByteArray pkt = buildDdcSpecificPacket();
     const quint32 seq = ddcSpecificSeq_++;
     wrBeU32(pkt.data(), seq);
-    sock_.writeDatagram(pkt, radioAddr_, kPortDdcConfig);
+    sendToRadio(pkt, kPortDdcConfig);
     if (!logConfig) return;
     const quint16 mask =
         static_cast<quint8>(pkt[7]) |
@@ -1030,7 +1012,7 @@ QByteArray P2Session::buildDucSpecificPacket() const {
 void P2Session::sendDucSpecificIfOpen() {
     if (!open_)
         return;
-    sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_, kPortDucConfig);
+    sendToRadio(buildDucSpecificPacket(), kPortDucConfig);
 }
 
 void P2Session::diagnosticArmHealthyTx(bool transmit, bool pa, int drive) {
@@ -1172,8 +1154,7 @@ void P2Session::setTransmitIntent(bool on, bool paRequested, int drive) {
         txIntent_ = {};
         paHold_ = paRequested;
         if (open_)
-            sock_.writeDatagram(buildGeneralPacket(), radioAddr_,
-                                kPortCommand);
+            sendToRadio(buildGeneralPacket(), kPortCommand);
         emitTxState(QStringLiteral(
             "key refused, PA enable was not in receive"));
         return;
@@ -1204,7 +1185,7 @@ void P2Session::setPaHold(bool on) {
     if (!open_)
         return;
     // General only. An HP write here would move the MOX bit.
-    sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
+    sendToRadio(buildGeneralPacket(), kPortCommand);
 }
 
 void P2Session::applyTxControlNow(bool skipGeneralWhileKeying) {
@@ -1227,15 +1208,15 @@ void P2Session::applyTxControlNow(bool skipGeneralWhileKeying) {
     const QByteArray hp = buildHighPriorityPacket(true);
     if (transmitting) {
         if (!skipGeneralWhileKeying)
-            sock_.writeDatagram(general, radioAddr_, kPortCommand);
+            sendToRadio(general, kPortCommand);
         for (int i = 0; i < 3; ++i)
-            sock_.writeDatagram(hp, radioAddr_, kPortHpToSdr);
+            sendToRadio(hp, kPortHpToSdr);
     } else {
         for (int i = 0; i < 3; ++i)
-            sock_.writeDatagram(hp, radioAddr_, kPortHpToSdr);
-        sock_.writeDatagram(general, radioAddr_, kPortCommand);
+            sendToRadio(hp, kPortHpToSdr);
+        sendToRadio(general, kPortCommand);
     }
-    sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_, kPortDucConfig);
+    sendToRadio(buildDucSpecificPacket(), kPortDucConfig);
     sendDdcSpecificToRadio(psArmed_);
 }
 
@@ -1268,7 +1249,7 @@ void P2Session::sendSpeakerAudio(const qint16 *lr, int nframes) {
             QByteArray pkt(kSpkrPktLen, char{0});
             wrBeU32(pkt.data(), spkrSeq_++);
             memcpy(pkt.data() + 4, spkrStage_.constData(), stagedBytes);
-            sock_.writeDatagram(pkt, radioAddr_, kPortSpkrToSdr);
+            sendToRadio(pkt, kPortSpkrToSdr);
             spkrStage_.remove(0, stagedBytes);
         }
     }
@@ -1336,6 +1317,7 @@ void P2Session::open(const QString &ip) {
 
     radioAddr_     = target;
     radioIp_       = ip;
+    nativeUdp_.attach(sock_.socketDescriptor(), radioAddr_.toIPv4Address());
     open_          = true;
     running_       = false;
     lastStatusSeq_ = 0;
@@ -1386,9 +1368,8 @@ void P2Session::open(const QString &ip) {
     // Handshake: general (controller lease + reply address), then HP
     // run=0 to halt a stale stream. Receive/TX-specific and HP run=1
     // wait 100 ms so firmware can digest the lease before DDC config.
-    sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
-    sock_.writeDatagram(buildHighPriorityPacket(false), radioAddr_,
-                        kPortHpToSdr);
+    sendToRadio(buildGeneralPacket(), kPortCommand);
+    sendToRadio(buildHighPriorityPacket(false), kPortHpToSdr);
     const quint32 epoch = ++openEpoch_;
     QTimer::singleShot(100, this, [this, epoch]() {
         if (!open_ || epoch != openEpoch_) return;
@@ -1413,11 +1394,11 @@ double P2Session::iqSampleScale() const {
 }
 
 void P2Session::finishOpenHandshake() {
-    sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_, kPortDucConfig);
+    sendToRadio(buildDucSpecificPacket(), kPortDucConfig);
     sendDdcSpecificToRadio(true);
     punchEnabledDdcIqFirewalls();
     scheduleDdc1FirewallPunch();
-    sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_, kPortHpToSdr);
+    sendToRadio(buildHighPriorityPacket(true), kPortHpToSdr);
     hpTickCount_ = 0;
     hpTimer_.start();
 }
@@ -1437,7 +1418,7 @@ void P2Session::close() {
     // is the packet we most want to arrive.
     const QByteArray stop = buildHighPriorityPacket(false);
     for (int i = 0; i < 3; ++i)
-        sock_.writeDatagram(stop, radioAddr_, kPortHpToSdr);
+        sendToRadio(stop, kPortHpToSdr);
     // PA authorization lives in the General packet, not in HP Run. Send
     // an explicit safe General after HP Run=0 so a close cannot leave the
     // radio's PA-enable bit latched from the previous keyed state. This is
@@ -1445,7 +1426,8 @@ void P2Session::close() {
     // MOX-release signal reaches the session thread.
     const QByteArray safeGeneral = buildGeneralPacket();
     for (int i = 0; i < 3; ++i)
-        sock_.writeDatagram(safeGeneral, radioAddr_, kPortCommand);
+        sendToRadio(safeGeneral, kPortCommand);
+    nativeUdp_.detach();
     sock_.close();
     open_    = false;
     running_ = false;
@@ -1550,23 +1532,20 @@ void P2Session::onHpTick() {
     // the live transport-running input fresh so a stopped writer can't be
     // reinforced into an authorised-but-dead keyed state.
     txSafety_.transportRunning = txWriter_.isRunning();
-    sock_.writeDatagram(buildHighPriorityPacket(true),
-                        radioAddr_, kPortHpToSdr);
+    sendToRadio(buildHighPriorityPacket(true), kPortHpToSdr);
     const bool transmitting =
         P2TxSafetyGate::evaluate(txIntent_, txSafety_).transmit;
     if (transmitting)
-        sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_,
-                            kPortDucConfig);
+        sendToRadio(buildDucSpecificPacket(), kPortDucConfig);
     ++hpTickCount_;
     if (hpTickCount_ % kDdcRefreshTicks == 0) {
         sendDdcSpecificToRadio(false);
         punchEnabledDdcIqFirewalls();
         if (!transmitting)
-            sock_.writeDatagram(buildDucSpecificPacket(), radioAddr_,
-                                kPortDucConfig);
+            sendToRadio(buildDucSpecificPacket(), kPortDucConfig);
     }
     if (hpTickCount_ % kGeneralRefreshTicks == 0)
-        sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
+        sendToRadio(buildGeneralPacket(), kPortCommand);
 
     // Low-power-bench diagnostic (~1/s while keyed): the actual wire drive
     // byte (pkt[345], 0-255) + the live DUC-IQ peak (~1.0 = full-scale).
@@ -1685,22 +1664,12 @@ void P2Session::startTxTransportRxState() {
     fifo.reset();
     txSafety_.iqPrimed = false;
     emitTxState(QStringLiteral("TX transport stopped"));
-    // Arm the shared WDSP TXA channel BEFORE the pump feeds its first
-    // block.  P2TxPump::start() SYNCHRONOUSLY seeds block 0 (its input
-    // sink calls Inbound(inid(1,0),…), which releases stream 1's
-    // Sem_BuffReady and wakes the high-priority cm_main(1) pump →
-    // xcmaster(1) → fexchange0(chid(1,0),…)).  create_xmtr opens that
-    // channel OPEN-but-NOT-STARTED (state=0) with block=1 ("block until
-    // output available").  If the channel is still state=0 when that
-    // first fexchange0 fires, the block-until-output wait on a stopped
-    // channel never completes → the cm pump thread stalls → the producer
-    // FIFO never fills → priming below never completes → port 1029 never
-    // streams (the "DUC FIFO 0 samples" symptom, with no fault latched
-    // because the pump's single seed returned true).  Arm first so the
-    // channel's DSP worker is running before the seed lands.  RF stays
-    // gated by the wire MOX bit (buildHighPriorityPacket), so arming in
-    // RX state only streams zero-valued IQ — no on-air output.
-    setP2TxCmasterChannelRunning(true);
+    p2TxCmasterResetPeak();
+    // Arm TXA before the dedicated pump thread posts its first
+    // Inbound(inid(1,0)). create_xmtr opens the channel stopped;
+    // fexchange0 on a stopped channel never completes and the FIFO
+    // never fills. RF stays MOX-gated.
+    reassertP2TxCmasterProducer();
     txPump_.start();
     if (!txPump_.isRunning()) {
         setP2TxCmasterChannelRunning(false);   // undo the arm on a failed start
@@ -1718,10 +1687,10 @@ void P2Session::startTxTransportRxState() {
 
 void P2Session::stopTxTransport() {
     txPrimeTimer_.stop();
-    // Stop the pump (no more input) BEFORE stopping the TXA channel, so the
-    // non-blocking channel stop can't race the pump feeding a stopped chain.
+    // Pump then writer only. Leave the WDSP TXA channel running for the
+    // life of the P2 producer seam. RF is MOX-gated; an idle running
+    // channel only fills the DUC with baseband zeros.
     txPump_.stop();
-    setP2TxCmasterChannelRunning(false);
     txWriter_.stop();
     txSafety_.iqPrimed = false;
 }
@@ -1748,7 +1717,7 @@ void P2Session::restartTxTransportRxState() {
     // still clear so it can sit in receive before the bridge opens the
     // next key. A key in the same burst as this rising edge latches the
     // radio PA off for the rest of the session.
-    sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
+    sendToRadio(buildGeneralPacket(), kPortCommand);
     emit logLine(QStringLiteral(
         "P2 TX: re-priming port 1029 in receive"));
     startTxTransportRxState();
@@ -1770,32 +1739,6 @@ void P2Session::latchTxFault(const QString &reason) {
         .arg(reason));
 }
 
-void P2Session::onTxTransportCadenceFault(const QString &reason) {
-    // Keyed: a cadence/FIFO miss can produce a stuck or garbage carrier, so
-    // this is a hard safety event — stop, force RF safe, latch, unkey.
-    if (txIntent_.transmitRequested) {
-        latchTxFault(reason);
-        return;
-    }
-    // RX-idle: the P2 TX stream is RF-inert (transmit=0, PA=off, drive=0).
-    // A transient host stall here must recover in place, never latch and
-    // lock out the next key-up. The faulting writer/pump has already stopped
-    // itself; re-prime once this call stack unwinds (deferred so we don't
-    // restart timers from inside the faulting timer callback).
-    if (!open_ || !running_)
-        return;
-    // Tear the transport down NOW (clears iqPrimed) so the safety gate refuses
-    // any key-up that lands before the deferred re-prime runs; the re-prime is
-    // deferred only to avoid restarting timers from inside the faulting timer
-    // callback. Mirrors latchTxFault's synchronous stopTxTransport in the
-    // keyed branch (same fault-sink context, proven safe).
-    stopTxTransport();
-    emit logLine(QStringLiteral(
-        "P2 TX: %1 while RX-idle (RF-inert); re-priming transport")
-        .arg(reason));
-    QTimer::singleShot(0, this, [this]() { restartTxTransportRxState(); });
-}
-
 void P2Session::onTxPrimeTick() {
     if (!open_ || !running_ || txSafety_.faultLatched) {
         txPrimeTimer_.stop();
@@ -1803,11 +1746,9 @@ void P2Session::onTxPrimeTick() {
     }
 
     auto &fifo = p2TxInputFifo();
-    if (fifo.overflowed()) {
-        latchTxFault(QStringLiteral("producer FIFO overflow during priming"));
-        return;
-    }
-    if (fifo.size() < kTxPrimeSamples) {
+    // A producer overrun during prime is not a hard fault. Start the
+    // writer as soon as a packet is available so the ring can drain.
+    if (fifo.size() < kTxPrimeSamples && !fifo.overflowed()) {
         // Producer-side priming progress, surfaced ON-SCREEN (the file log
         // is dead — see reference_lyra_cpp_dead_logfile).  This is the real
         // Stage-1a signal: the "DUC FIFO N samples" number in the same line
@@ -1863,32 +1804,37 @@ void P2Session::onReadyRead() {
     }
 }
 
+bool P2Session::sendToRadio(const QByteArray &pkt, quint16 port) {
+    return sendToRadio(pkt.constData(), pkt.size(), port);
+}
+
+bool P2Session::sendToRadio(const char *data, int len, quint16 port) {
+    return nativeUdp_.send(data, len, port);
+}
+
 void P2Session::parseMic(const QByteArray &d) {
     const char *p = d.constData();
     const quint32 seq = rdBeU32(p);
-    // 64 big-endian signed 16-bit mono samples follow the 4-byte sequence.
     const auto *s = reinterpret_cast<const std::uint8_t *>(p + 4);
-    // Push this datagram's 64 samples onto the tail of the elastic FIFO.
-    // Overrun (a burst outran the pump) drops the oldest block so latency
-    // stays bounded; the pump drains from the head on its own cadence.
-    const int tail = (micFifoHead_ + micFifoCount_) % kMicFifoCap;
-    auto &block = micFifo_[static_cast<std::size_t>(tail)];
+    std::array<double, 2 * kMicFrames> decoded{};
     double peak = 0.0;
     for (int i = 0; i < kMicFrames; ++i) {
         const auto raw = static_cast<qint16>(
             (static_cast<quint16>(s[2 * i]) << 8) | s[2 * i + 1]);
         const double v = raw * (1.0 / 32768.0);
         peak = std::max(peak, std::abs(v));
-        // {I = mic, Q = 0} — the modulator's real-input convention.
-        block[static_cast<std::size_t>(2 * i)]     = v;
-        block[static_cast<std::size_t>(2 * i + 1)] = 0.0;
+        decoded[static_cast<std::size_t>(2 * i)]     = v;
+        decoded[static_cast<std::size_t>(2 * i + 1)] = 0.0;
     }
-    if (micFifoCount_ < kMicFifoCap) {
-        ++micFifoCount_;
-    } else {
-        // Full: the block we just wrote overwrote the oldest slot, so step
-        // the head past it too (drop-oldest, keeping the freshest audio).
-        micFifoHead_ = (micFifoHead_ + 1) % kMicFifoCap;
+    {
+        std::lock_guard<std::mutex> lock(micFifoMutex_);
+        const int tail = (micFifoHead_ + micFifoCount_) % kMicFifoCap;
+        micFifo_[static_cast<std::size_t>(tail)] = decoded;
+        if (micFifoCount_ < kMicFifoCap) {
+            ++micFifoCount_;
+        } else {
+            micFifoHead_ = (micFifoHead_ + 1) % kMicFifoCap;
+        }
     }
 
     if (micSeqStarted_ && seq != micSeqNext_)
@@ -1898,7 +1844,7 @@ void P2Session::parseMic(const QByteArray &d) {
 
     ++micPktCount_;
     micPeak_ = std::max(micPeak_, peak);
-    lastMicPkt_.restart();  // for the jack-less "no mic input" hint in onHpTick
+    lastMicPkt_.restart();
 
     if (!micRateTimer_.isValid())
         micRateTimer_.start();
@@ -1919,27 +1865,25 @@ bool P2Session::feedTxProducer(const double *pumpZeros, int n) {
                   "micFifo_ block literal size (2*64) must equal 2*kMicFrames");
     if (!txProducerTerminal_)
         return false;
-    // Live radio mic drives the modulator when a fresh block is available;
-    // otherwise the pump's zero block keeps the 48 kHz cadence (initial
-    // prime before the mic stream starts, and gap-fill if it slips). RF stays
-    // MOX-gated regardless — feeding mic in RX only shapes inert DUC-IQ.
-    //
-    // Prime once the cushion fills, then drain a block per tick. Underrun
-    // (the pump briefly outran the mic) feeds zeros and re-arms priming so
-    // the next drain waits for the cushion to rebuild rather than chattering
-    // one block ahead of the producer. Steady state sits near the cushion
-    // depth with only the small ppm drift between the two 48 kHz clocks.
-    if (!micPrimed_ && micFifoCount_ >= kMicPrimeBlocks) {
-        micPrimed_ = true;
+    double micBlock[2 * kMicFrames];
+    bool haveMic = false;
+    {
+        std::lock_guard<std::mutex> lock(micFifoMutex_);
+        if (!micPrimed_ && micFifoCount_ >= kMicPrimeBlocks)
+            micPrimed_ = true;
+        if (micPrimed_ && micFifoCount_ > 0) {
+            const double *block =
+                micFifo_[static_cast<std::size_t>(micFifoHead_)].data();
+            std::copy(block, block + 2 * kMicFrames, micBlock);
+            micFifoHead_ = (micFifoHead_ + 1) % kMicFifoCap;
+            --micFifoCount_;
+            haveMic = true;
+        } else {
+            micPrimed_ = false;
+        }
     }
-    if (micPrimed_ && micFifoCount_ > 0) {
-        const double *block = micFifo_[static_cast<std::size_t>(micFifoHead_)].data();
-        micFifoHead_ = (micFifoHead_ + 1) % kMicFifoCap;
-        --micFifoCount_;
-        return txProducerTerminal_(block, kMicFrames);
-    }
-    // Underrun (or not yet primed): keep the 48 kHz cadence with zeros.
-    micPrimed_ = false;
+    if (haveMic)
+        return txProducerTerminal_(micBlock, kMicFrames);
     return txProducerTerminal_(pumpZeros, n);
 }
 
@@ -2025,18 +1969,21 @@ void P2Session::parseStatus(const QByteArray &d) {
         // live. Re-send with a new sequence (deskHPSDR increments this
         // counter; general/HP stay seq 0).
         sendDdcSpecificToRadio(true);
-        sock_.writeDatagram(buildGeneralPacket(), radioAddr_, kPortCommand);
+        sendToRadio(buildGeneralPacket(), kPortCommand);
         punchEnabledDdcIqFirewalls();
         scheduleDdc1FirewallPunch();
-        sock_.writeDatagram(buildHighPriorityPacket(true), radioAddr_,
-                            kPortHpToSdr);
+        sendToRadio(buildHighPriorityPacket(true), kPortHpToSdr);
     }
 
-    // Saturn status bit 2 reports the TX DUC FIFO underflow. Once the
-    // writer is primed/running this is hardware confirmation that our
-    // stream failed to maintain cadence, so fail closed immediately.
-    if (txWriter_.isRunning() && (u[30] & 0x04u) != 0)
-        latchTxFault(QStringLiteral("radio reported DUC FIFO underflow"));
+    // Saturn status bit 2 reports the TX DUC FIFO underflow. Log it;
+    // do not unkey or stop TXA. A brief host stall is a hole, not a
+    // latched dead modulator.
+    if (txWriter_.isRunning() && (u[30] & 0x04u) != 0) {
+        static int ducUfLog = 0;
+        if ((ducUfLog++ % 50) == 0)
+            emit logLine(QStringLiteral(
+                "P2 TX: radio DUC FIFO underflow bit (stream kept running)"));
+    }
 
     emit statusReceived(seq,
                         u[4],                 // PTT / key bits
