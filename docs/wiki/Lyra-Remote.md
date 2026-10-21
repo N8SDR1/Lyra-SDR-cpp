@@ -16,4 +16,4 @@ On the computer where you sit, open the page. Leave the radio box at `ws://127.0
 
 The full steps are in the [Lyra Remote wiki](https://github.com/N8SDR1/Lyra-Remote/wiki) and in the [User Guide → Settings → Remote](User-Guide#settings--remote).
 
-A second Lyra on a laptop is a different path: [Lyra to Lyra](User-Guide#lyra-to-lyra). **0.25.23+** is a beta of that link. The shack stays on the radio. The laptop attaches and does not open its own radio. **v0.25.22** remains the return point.
+A second Lyra on a laptop is a different path: [Lyra to Lyra](User-Guide#lyra-to-lyra). **0.25.25** adds desk RX2 and CW on that link. The shack stays on the radio. The laptop attaches and does not open its own radio. **v0.25.24 Sheliak** is the previous public build. **v0.25.22** remains the return point.

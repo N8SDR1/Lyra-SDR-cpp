@@ -22,7 +22,22 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.24 Sheliak.** See [What's new in 0.25.24](#whats-new-in-02524).
+**v0.25.25 Sheliak.** See [What's new in 0.25.25](#whats-new-in-02525).
+
+## What's new in 0.25.25
+
+- **Lyra to Lyra: desk RX2 and CW**, on top of the v0.25.24 Sheliak
+  release. The desk shows the host second-receiver picture and plays
+  that audio when **SUB** is on and the radio has its own second
+  converter. A single-converter **SUB** sends the audio and no second
+  picture. CW from the desk follows the host pitch, and CW chip
+  **Send** on a Protocol 2 Brick puts a carrier on the air. While the
+  host is in CW, **Start voice**, the key, **MOX**, **Tune**, and
+  **2-tone** stay off at 150 ms or more. Outside CW, voice, **MOX**,
+  **Tune**, and **2-tone** stay off at 200 ms or more. The away
+  picture stays about **60 Hz**. See [Lyra to Lyra](#lyra-to-lyra).
+- **v0.25.24 Sheliak** remains the previous public build. If this beta
+  misbehaves, reinstall **v0.25.22**. Settings stay.
 
 ## What's new in 0.25.24
 
@@ -402,6 +417,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.25](#whats-new-in-02525)
 - [What's new in 0.25.24](#whats-new-in-02524)
 - [What's new in 0.25.23](#whats-new-in-02523)
 - [What's new in 0.25.22](#whats-new-in-02522)
@@ -5494,7 +5510,7 @@ copy of Lyra on the laptop. The
 
 ### Lyra to Lyra
 
-Both computers run this same version of Lyra. This 0.25.24 build is
+Both computers run this same version of Lyra. This 0.25.25 build is
 a beta of that link. The shack PC is the **host** and stays on the
 radio. The laptop is the **desk** and does not open a local radio.
 The host stays **Open**. HPSDR UDP stays on the shack LAN. The shack

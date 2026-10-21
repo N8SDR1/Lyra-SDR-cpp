@@ -4,15 +4,15 @@ Where Lyra is headed. This is a **direction, not a dated schedule** — items la
 when they're solid. Everything shipped today is on the [Feature Status](Feature-Status)
 page.
 
-**Now (v0.25.24 Sheliak):** HL2 / HL2+
+**Now (v0.25.25 Sheliak):** HL2 / HL2+
 P1, BrickSDR2 / Brick3SDR P2, SUB + SPLIT, PureSignal, TX rack. Brick3 /
 ANAN-100D get a second SUB panadapter. **Diversity** (two ADCs, same
 frequency) is in and confirmed on Brick3SDR. Protocol 1 **RF1 / Alt RX**
 on the Xvtr row. Protocol 2 DUC-IQ on its own TX pump.
-**Beta (v0.25.23+):** Lyra-to-Lyra. A second Lyra on the laptop operates
-the shack rig. The shack stays on the radio. Steps are in the user
-guide, [Lyra to Lyra](User-Guide#lyra-to-lyra). **v0.25.22** remains
-the return point.
+**Lyra to Lyra (v0.25.25):** desk RX2 picture and audio, CW from the
+desk, on top of v0.25.24 Sheliak. Steps are in the user guide,
+[Lyra to Lyra](User-Guide#lyra-to-lyra). **v0.25.24** is the previous
+public build. **v0.25.22** remains the return point.
 **Next:** graduate Orion MkII testers (ANAN-7000DLE / 8000DLE / Orion MkII /
 Anvelina-Pro3) off dummy-load TX, G2 on-air validation, then Linux.
 **macOS stays a separate branch** (`macos-port`);

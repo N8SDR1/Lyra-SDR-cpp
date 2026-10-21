@@ -6,7 +6,7 @@ for the Hermes Lite 2 / 2+ (Protocol 1) and **BrickSDR2 / Brick3SDR** (Protocol 
 expectations so you know what's a real bug versus a feature that simply
 hasn't landed yet. (Pin or link this in Discord.)
 
-Current tree: **v0.25.24 Sheliak**. Lyra-to-Lyra from 0.25.23 is still in the tree. v0.25.22 remains the return point. Always grab the latest from the
+Current tree: **v0.25.25 Sheliak**. Desk RX2 and CW are in Lyra-to-Lyra. v0.25.24 Sheliak is the previous public build. v0.25.22 remains the return point. Always grab the latest from the
 [Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases).
 
 > **What already works** (so you don't wonder): full RX DSP, and **transmit

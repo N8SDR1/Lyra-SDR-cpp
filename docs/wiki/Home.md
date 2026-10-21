@@ -92,7 +92,7 @@ gear — all native, all in front of the WDSP transmitter:
 
 ## Shipped highlights
 
-✅ **v0.25.24 Sheliak** · ✅ **HL2 RF1 / Alt RX** · ✅ **v0.25.22** (return point) · 🚧 **Lyra-to-Lyra beta** ([guide](User-Guide#lyra-to-lyra)) · ✅ **Helios / Sonar / Cluster** meters · ✅ **Lyra Remote** (separate browser desk) · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
+✅ **v0.25.25 Sheliak** · ✅ **Lyra-to-Lyra desk RX2 and CW** ([guide](User-Guide#lyra-to-lyra)) · ✅ **v0.25.24 Sheliak** (previous public build) · ✅ **v0.25.22** (return point) · ✅ **HL2 RF1 / Alt RX** · ✅ **Helios / Sonar / Cluster** meters · ✅ **Lyra Remote** (separate browser desk) · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
 Brick3 PS jack) · ✅ **VAC2** · ✅ **SUB / SPLIT** (second pan on Brick3 /
 100D; RX2 jack isolate on TX) · ✅ **Diversity** (Brick3 / 100D / 200D —
 RX2 jack / Ext1, not ANT2; not a second VFO) · ✅ **Band stack** (three
