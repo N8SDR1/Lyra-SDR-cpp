@@ -754,6 +754,12 @@ public:
         // 30787-30801) — replaces the retired legacy DC-injection that
         // died with the EP2 packer.  Empty = no-op (pre-registration).
         std::function<void(bool)> setTune;
+        // Brick CW-chip carrier. Same postgen tone as Tune (0 Hz in CW,
+        // because the TX NCO is already the carrier). 1 = element down,
+        // 0 = silence while the message PTT is still held (generator
+        // stays up so the microphone does not pass), -1 = message over.
+        // Does not arm Tune and does not change the Drive slider.
+        std::function<void(int)> setCwCarrier;
         // Continuous two-tone post-generator control. Empty before TX
         // channel registration.
         std::function<void(bool)> setTwoTone;
@@ -1491,6 +1497,14 @@ public slots:
     // keyer; on HL2 a serial key can't reach the gateware key jack, so the
     // host keys via cwx (the HL2 KEY jack stays the lower-jitter path).
     Q_INVOKABLE void requestCwKeyFromSerial(bool down);
+    // Desk key and macros call this before the radio exists. The host
+    // applies the same CWX bits a local key uses.
+    void setCwEdgeHook(std::function<void(bool key, bool ptt)> hook);
+    void applyRemoteCw(bool key, bool ptt);
+    // Protocol 2 is the open radio. CW-chip edges then key with MOX
+    // plus the postgen carrier. HL2 leaves this false and keeps cwx.
+    void setP2CwHost(bool on);
+    void setSuppressLocalTxBadge(bool on);
 
     // #175 bench (increment 2a) — render `callsign` as a waterfall-ID raster
     // (lyra::dsp::WaterfallId, 48 kHz to match the TXA in-rate), clear + push
@@ -2823,6 +2837,19 @@ private:
     // builds it on first use; close() aborts it before prn teardown.
     void   setCwxKey(bool down);   // → tx[0].cwx     (per-element key)
     void   setCwxPtt(bool on);     // → tx[0].cwx_ptt (message-level hold)
+    void   noteCwEdge();
+    // Stream thread. Protocol 2 only: MOX for cwx_ptt, carrier for cwx.
+    void   applyP2CwCarrier();
+    void   releaseP2CwCarrier();
+    void   queueP2CwCarrier();
+    std::function<void(bool, bool)> cwEdgeHook_;
+    std::mutex cwEdgeMtx_;
+    std::atomic<bool> cwxKeyDown_{false};
+    std::atomic<bool> cwxPttDown_{false};
+    std::atomic<bool> p2CwHost_{false};
+    int               p2CwTone_ = -1;       // stream thread: -1 off, 0 hold, 1 element
+    bool              p2CwRaisedMox_ = false;
+    std::atomic<bool> suppressLocalTxBadge_{false};
     // #105 — set the UI-facing CW keyed state (cwKeyingActive_) + emit the
     // change.  Call on this QObject's thread only (the CwKeyer onState hook
     // marshals via QueuedConnection).  Dedups; does NOT touch wire MOX.

@@ -9073,6 +9073,15 @@ QWidget *SettingsDialog::buildVoxTab() {
     return page;
 }
 
+void SettingsDialog::setRemoteDesk(bool on)
+{
+    if (!tabs_) return;
+    for (int i = 0; i < tabs_->count(); ++i) {
+        if (tabs_->tabText(i) == tr("Calibration"))
+            tabs_->setTabVisible(i, !on);
+    }
+}
+
 bool SettingsDialog::selectTopic(const QString &topic) {
     // Map a panel help topic -> the Settings tab that owns it.  ONLY topics
     // whose panel genuinely has a Settings home appear here; a panel whose

@@ -67,6 +67,8 @@ public:
     // Returns true if a tab owns this topic (and was raised); false if
     // the panel has no Settings home (caller falls back to the guide).
     bool selectTopic(const QString &topic);
+    // Away desk. Calibration is the local radio's, so that tab stays hidden.
+    void setRemoteDesk(bool on);
 
 signals:
     // Emitted when the operator Opens a radio from the Hardware list whose

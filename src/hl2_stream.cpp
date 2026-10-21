@@ -5214,22 +5214,132 @@ void HL2Stream::ensureCwKeyer() {
     });
 }
 
+void HL2Stream::setCwEdgeHook(std::function<void(bool, bool)> hook) {
+    std::lock_guard<std::mutex> lk(cwEdgeMtx_);
+    cwEdgeHook_ = std::move(hook);
+}
+
+void HL2Stream::noteCwEdge() {
+    std::function<void(bool, bool)> hook;
+    {
+        std::lock_guard<std::mutex> lk(cwEdgeMtx_);
+        hook = cwEdgeHook_;
+    }
+    if (hook)
+        hook(cwxKeyDown_.load(std::memory_order_relaxed),
+             cwxPttDown_.load(std::memory_order_relaxed));
+}
+
 void HL2Stream::setCwxKey(bool down) {
+    const bool prev = cwxKeyDown_.exchange(down, std::memory_order_relaxed);
+    if (prev != down) noteCwEdge();
+    queueP2CwCarrier();
     auto* p = lyra::wire::prn;
     if (!p) return;                         // radio gone / not created
     p->tx[0].cwx = down ? 1 : 0;
 }
 
 void HL2Stream::setCwxPtt(bool on) {
+    const bool prev = cwxPttDown_.exchange(on, std::memory_order_relaxed);
+    if (prev != on) noteCwEdge();
+    queueP2CwCarrier();
     auto* p = lyra::wire::prn;
     if (!p) return;
     p->tx[0].cwx_ptt = on ? 1 : 0;
+}
+
+void HL2Stream::queueP2CwCarrier() {
+    if (!p2CwHost_.load(std::memory_order_relaxed)) return;
+    QMetaObject::invokeMethod(this, [this]{ applyP2CwCarrier(); },
+                              Qt::QueuedConnection);
+}
+
+void HL2Stream::setP2CwHost(bool on) {
+    const bool prev = p2CwHost_.exchange(on, std::memory_order_relaxed);
+    if (prev == on) return;
+    if (!on) releaseP2CwCarrier();
+}
+
+void HL2Stream::releaseP2CwCarrier() {
+    if (p2CwTone_ != -1) {
+        const bool generatorBusy =
+            tuneEnabled_.load(std::memory_order_relaxed)
+            || twoToneEnabled_.load(std::memory_order_relaxed)
+            || noiseEnabled_.load(std::memory_order_relaxed);
+        if (!generatorBusy) {
+            std::function<void(int)> tone;
+            {
+                std::lock_guard<std::mutex> lk(txControlMtx_);
+                tone = txControl_.setCwCarrier;
+            }
+            if (tone) tone(-1);
+        }
+        p2CwTone_ = -1;
+    }
+    if (p2CwRaisedMox_) {
+        p2CwRaisedMox_ = false;
+        requestMox(false);
+    }
+}
+
+void HL2Stream::applyP2CwCarrier() {
+    if (!p2CwHost_.load(std::memory_order_relaxed)) {
+        releaseP2CwCarrier();
+        return;
+    }
+    const bool key = cwxKeyDown_.load(std::memory_order_relaxed);
+    const bool ptt = cwxPttDown_.load(std::memory_order_relaxed);
+    const bool hold = key || ptt;
+    const bool generatorBusy =
+        tuneEnabled_.load(std::memory_order_relaxed)
+        || twoToneEnabled_.load(std::memory_order_relaxed)
+        || noiseEnabled_.load(std::memory_order_relaxed);
+    if (!generatorBusy) {
+        std::function<void(int)> tone;
+        {
+            std::lock_guard<std::mutex> lk(txControlMtx_);
+            tone = txControl_.setCwCarrier;
+        }
+        if (tone) {
+            const int want = !hold ? -1 : (key ? 1 : 0);
+            if (want != p2CwTone_) {
+                tone(want);
+                p2CwTone_ = want;
+            }
+        }
+    }
+    if (hold) {
+        if (!p2CwRaisedMox_ && !requestedMox_) {
+            p2CwRaisedMox_ = true;
+            requestMox(true);
+            if (!requestedMox_)
+                p2CwRaisedMox_ = false;
+        }
+    } else if (p2CwRaisedMox_) {
+        p2CwRaisedMox_ = false;
+        requestMox(false);
+    }
+}
+
+void HL2Stream::applyRemoteCw(bool key, bool ptt) {
+    setCwxKey(key);
+    setCwxPtt(ptt);
+    if (suppressLocalTxBadge_.load(std::memory_order_relaxed))
+        return;
+    setCwKeyingActive(key || ptt);
+}
+
+void HL2Stream::setSuppressLocalTxBadge(bool on) {
+    suppressLocalTxBadge_.store(on, std::memory_order_relaxed);
+    if (on) setCwKeyingActive(false);
 }
 
 // #105 — UI-facing CW keyed state (drives the meter RX↔TX flip).  Dedups
 // and emits on this QObject's thread; never touches the wire MOX bit (QSK
 // keeps the host RX on the wire — the gateware keys the PA itself).
 void HL2Stream::setCwKeyingActive(bool on) {
+    if (on && suppressLocalTxBadge_.load(std::memory_order_relaxed))
+        on = false;
     if (cwKeyingActive_ == on) return;
     cwKeyingActive_ = on;
     emit cwKeyingActiveChanged(on);

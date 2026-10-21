@@ -104,7 +104,9 @@ DeskLink::DeskLink(QObject *parent) : QObject(parent)
     connect(pumpTimer_, &QTimer::timeout, this, &DeskLink::pump);
 
     hostRing_.assign(kRingCap, 0);
+    hostRingRx2_.assign(kRingCap, 0);
     playRing_.assign(kRingCap, 0);
+    playRingR_.assign(kRingCap, 0);
     audioTimer_ = new QTimer(this);
     audioTimer_->setInterval(20);
     connect(audioTimer_, &QTimer::timeout, this, &DeskLink::flushHostAudio);
@@ -127,6 +129,7 @@ DeskLink::~DeskLink()
     if (peer_) peer_->disconnect(this);
     stopDeskPlay();
     stopDeskMic();
+    stopSidetone();
 }
 
 QString DeskLink::nameProblem(const QString &name)
@@ -592,6 +595,7 @@ void DeskLink::noteLine(const QByteArray &line)
     if (line.startsWith("vdeny ")) {
         if (!weHost_) {
             voiceHeld_ = false;
+            setLocalSidetone(false);
             const QByteArray why = line.mid(6).trimmed();
             QString text = tr("The shack refused voice.");
             if (why == "no_password")
@@ -612,6 +616,7 @@ void DeskLink::noteLine(const QByteArray &line)
     if (line.startsWith("vlock ") || line.startsWith("vwait ")) {
         if (!weHost_) {
             voiceHeld_ = false;
+            setLocalSidetone(false);
             bool ok = false;
             const int sec = line.mid(6).toInt(&ok);
             emit statusMessage(line.startsWith("vlock ")
@@ -717,6 +722,13 @@ void DeskLink::noteLine(const QByteArray &line)
             noteLinkMode(mode);
             emit remoteMode(mode);
         }
+        return;
+    }
+    if (line.startsWith("pitch ")) {
+        bool ok = false;
+        const int hz = line.mid(6).trimmed().toInt(&ok);
+        if (ok && hz >= 200 && hz <= 1500)
+            emit remotePitch(hz);
         return;
     }
     if (line.startsWith("bw ")) {
@@ -916,7 +928,35 @@ void DeskLink::noteLine(const QByteArray &line)
     if (line.startsWith("sub ")) {
         bool ok = false;
         const int on = line.mid(4).toInt(&ok);
-        if (ok) emit remoteSub(on != 0);
+        if (ok) {
+            if (!weHost_) {
+                expectRx2Audio_ = on != 0;
+                if (!expectRx2Audio_ && audioHold_) {
+                    pushPlay(audioHeld_.data(), nullptr, audioHeldN_);
+                    audioHold_ = false;
+                }
+            }
+            emit remoteSub(on != 0);
+        }
+        return;
+    }
+    if (line.startsWith("adc ")) {
+        bool ok = false;
+        const int n = line.mid(4).trimmed().toInt(&ok);
+        if (ok && n >= 1 && n <= 4 && !weHost_) {
+            hostAdc_ = n;
+            emit remoteAdc(n);
+        }
+        return;
+    }
+    if (line.startsWith("cw ")) {
+        const QList<QByteArray> p = line.mid(3).split(' ');
+        if (p.size() >= 2) {
+            bool a = false, b = false;
+            const int key = p.at(0).toInt(&a);
+            const int ptt = p.at(1).toInt(&b);
+            if (a && b) emit remoteCwEdge(key != 0, ptt != 0);
+        }
         return;
     }
     if (line.startsWith("rx2 ")) {
@@ -1128,6 +1168,12 @@ void DeskLink::sendMode(const QString &mode)
     if (!peer_ || m.size() < 2 || m.size() > 5) return;
     sendLine("mode " + m.toLatin1());
     noteLinkMode(m);
+}
+
+void DeskLink::sendPitch(int hz)
+{
+    if (!peer_ || hz < 200 || hz > 1500) return;
+    sendLine("pitch " + QByteArray::number(hz));
 }
 
 void DeskLink::sendBandwidth(int hz)
@@ -1376,6 +1422,13 @@ void DeskLink::sendRig(int protocol, const QString &label)
              + (safe.isEmpty() ? QByteArray() : " " + safe.toUtf8()));
 }
 
+void DeskLink::sendAdcCount(int n)
+{
+    if (!peer_ || !weHost_) return;
+    n = n > 1 ? 2 : 1;
+    sendLine("adc " + QByteArray::number(n));
+}
+
 void DeskLink::sendFrontEnd(int value, bool autoOn, int adc)
 {
     if (!peer_) return;
@@ -1475,6 +1528,25 @@ void DeskLink::setSpectrumSource(
     specSrc_ = std::move(src);
 }
 
+void DeskLink::setRx2SpectrumSource(
+    std::function<int(float *, int, int *, int *)> src)
+{
+    specRx2Src_ = std::move(src);
+}
+
+void DeskLink::setSendRx2Audio(bool on)
+{
+    if (sendRx2Audio_.exchange(on) == on) return;
+    std::lock_guard<std::mutex> lk(hostMtx_);
+    hostRdRx2_ = 0;
+    hostCountRx2_ = 0;
+}
+
+void DeskLink::setSendRx2Spectrum(bool on)
+{
+    sendRx2Spec_.store(on);
+}
+
 void DeskLink::ensureDeskSpec()
 {
     if (weHost_ || !peer_) return;
@@ -1545,32 +1617,50 @@ void DeskLink::flushHostSpectrum()
     if (!sendSpec_.load(std::memory_order_relaxed) || !specPeer_ || !specSrc_
         || specPeer_->state() != QAbstractSocket::ConnectedState)
         return;
+    // One tick, about 60 Hz. The main picture always goes first. RX2
+    // rides the same tick only while SUB has its own spectrum, and only
+    // when the socket is not already holding a frame.
     if (specPeer_->bytesToWrite() > 24000)
         return;
-    float db[4096];
-    int center = 0;
-    int span = 0;
-    const int n = specSrc_(db, 4096, &center, &span);
-    if (n < 2 || n > 4096 || span <= 0) return;
-    QByteArray pkt(14 + n * 2, Qt::Uninitialized);
-    char *p = pkt.data();
-    p[0] = 'S'; p[1] = 'P'; p[2] = 'C'; p[3] = '1';
-    p[4] = char(n & 0xff);
-    p[5] = char((n >> 8) & 0xff);
     const auto put32 = [](char *d, quint32 v) {
         d[0] = char(v & 0xff);
         d[1] = char((v >> 8) & 0xff);
         d[2] = char((v >> 16) & 0xff);
         d[3] = char((v >> 24) & 0xff);
     };
-    put32(p + 6, quint32(std::max(0, center)));
-    put32(p + 10, quint32(span));
-    auto *s = reinterpret_cast<qint16 *>(p + 14);
-    for (int i = 0; i < n; ++i) {
-        const long t = std::lrint(double(db[i]) * 10.0);
-        s[i] = static_cast<qint16>(std::clamp(t, -32768L, 32767L));
-    }
-    specPeer_->write(pkt);
+    const auto sendFrame = [&](const char magic[4], const float *db, int n,
+                               int center, int span) {
+        if (!db || n < 2 || n > 4096 || span <= 0) return;
+        QByteArray pkt(14 + n * 2, Qt::Uninitialized);
+        char *p = pkt.data();
+        p[0] = magic[0]; p[1] = magic[1]; p[2] = magic[2]; p[3] = magic[3];
+        p[4] = char(n & 0xff);
+        p[5] = char((n >> 8) & 0xff);
+        put32(p + 6, quint32(std::max(0, center)));
+        put32(p + 10, quint32(span));
+        auto *s = reinterpret_cast<qint16 *>(p + 14);
+        for (int i = 0; i < n; ++i) {
+            const long t = std::lrint(double(db[i]) * 10.0);
+            s[i] = static_cast<qint16>(std::clamp(t, -32768L, 32767L));
+        }
+        specPeer_->write(pkt);
+    };
+    float db[4096];
+    int center = 0;
+    int span = 0;
+    const int n = specSrc_(db, 4096, &center, &span);
+    static const char kMain[] = {'S', 'P', 'C', '1'};
+    sendFrame(kMain, db, n, center, span);
+    if (!sendRx2Spec_.load(std::memory_order_relaxed) || !specRx2Src_)
+        return;
+    if (specPeer_->bytesToWrite() > 20000)
+        return;
+    float db2[4096];
+    int center2 = 0;
+    int span2 = 0;
+    const int n2 = specRx2Src_(db2, 4096, &center2, &span2);
+    static const char kRx2[] = {'S', 'R', 'X', '1'};
+    sendFrame(kRx2, db2, n2, center2, span2);
 }
 
 void DeskLink::onSpecRead()
@@ -1578,8 +1668,11 @@ void DeskLink::onSpecRead()
     if (!specPeer_) return;
     specRx_.append(specPeer_->readAll());
     while (specRx_.size() >= 14) {
-        if (!(specRx_[0] == 'S' && specRx_[1] == 'P'
-              && specRx_[2] == 'C' && specRx_[3] == '1')) {
+        const bool main = specRx_[0] == 'S' && specRx_[1] == 'P'
+                          && specRx_[2] == 'C' && specRx_[3] == '1';
+        const bool rx2 = specRx_[0] == 'S' && specRx_[1] == 'R'
+                         && specRx_[2] == 'X' && specRx_[3] == '1';
+        if (!main && !rx2) {
             specRx_.remove(0, 1);
             continue;
         }
@@ -1597,13 +1690,18 @@ void DeskLink::onSpecRead()
                  | (quint32(quint8(b[o + 3])) << 24);
         };
         const int span = int(u32(specRx_, 10));
-        specDb_.resize(static_cast<size_t>(n));
+        auto &dst = rx2 ? specRx2Db_ : specDb_;
+        dst.resize(static_cast<size_t>(n));
         const auto *s = reinterpret_cast<const qint16 *>(specRx_.constData() + 14);
         for (int i = 0; i < n; ++i)
-            specDb_[static_cast<size_t>(i)] = float(s[i]) / 10.0f;
-        specCount_ = n;
+            dst[static_cast<size_t>(i)] = float(s[i]) / 10.0f;
+        if (rx2) specRx2Count_ = n;
+        else specCount_ = n;
         specRx_.remove(0, need);
-        if (span > 0) emit spectrumFrame(span);
+        if (span > 0) {
+            if (rx2) emit spectrumRx2Frame(span);
+            else emit spectrumFrame(span);
+        }
     }
 }
 
@@ -1649,9 +1747,12 @@ void DeskLink::closePeer(const QString &why)
     linkMode_.clear();
     peerName_.clear();
     const bool hadRig = hostProto_ != 0 || !hostRig_.isEmpty();
+    const bool hadAdc = hostAdc_ != 0;
     hostProto_ = 0;
     hostRig_.clear();
+    hostAdc_ = 0;
     if (hadRig) emit remoteRig(0, {});
+    if (hadAdc) emit remoteAdc(0);
     rxBuf_.clear();
     lastRxMs_ = -1;
     pumpTimer_->stop();
@@ -1675,6 +1776,8 @@ void DeskLink::closePeer(const QString &why)
         std::lock_guard<std::mutex> lk(hostMtx_);
         hostRd_ = 0;
         hostCount_ = 0;
+        hostRdRx2_ = 0;
+        hostCountRx2_ = 0;
     }
     {
         std::lock_guard<std::mutex> lk(playMtx_);
@@ -1690,6 +1793,16 @@ void DeskLink::closePeer(const QString &why)
     }
     specRx_.clear();
     specCount_ = 0;
+    specRx2Count_ = 0;
+    specRx2Db_.clear();
+    sendRx2Audio_.store(false);
+    sendRx2Spec_.store(false);
+    expectRx2Audio_ = false;
+    audioHold_ = false;
+    cwKeySent_ = false;
+    cwPttSent_ = false;
+    cwRefuseNoted_ = false;
+    setLocalSidetone(false);
     if (specPeer_) {
         specPeer_->disconnect(this);
         specPeer_->abort();
@@ -1712,6 +1825,16 @@ void DeskLink::setPlayMuted(bool muted)
     playMuted_.store(muted, std::memory_order_relaxed);
 }
 
+void DeskLink::setPlayPosRx2(double pos)
+{
+    playGainRx2_.store(deskPosToGain(pos), std::memory_order_relaxed);
+}
+
+void DeskLink::setPlayMutedRx2(bool muted)
+{
+    playMutedRx2_.store(muted, std::memory_order_relaxed);
+}
+
 void DeskLink::offerRxAudio(const double *lr, int nframes)
 {
     if (!lr || nframes <= 0) return;
@@ -1722,16 +1845,29 @@ void DeskLink::offerRxAudio(const double *lr, int nframes)
     // If the network timer has the ring, the desk misses this block.
     std::unique_lock<std::mutex> lk(hostMtx_, std::try_to_lock);
     if (!lk.owns_lock()) return;
+    const bool rx2 = sendRx2Audio_.load(std::memory_order_relaxed);
+    const auto pack = [](double s) {
+        return static_cast<qint16>(
+            std::clamp(std::lrint(s * 32767.0), -32768L, 32767L));
+    };
     for (int i = 0; i < nframes; ++i) {
         if (hostCount_ >= kRingCap) {
             hostRd_ = (hostRd_ + 1) % kRingCap;
             --hostCount_;
         }
-        const double m = (lr[i * 2] + lr[i * 2 + 1]) * 0.5;
+        // Left is the main receiver. SUB off, both ears match before
+        // binaural, so this is the same mono the desk already played.
         const int wr = (hostRd_ + hostCount_) % kRingCap;
-        hostRing_[static_cast<size_t>(wr)] = static_cast<qint16>(
-            std::clamp(std::lrint(m * 32767.0), -32768L, 32767L));
+        hostRing_[static_cast<size_t>(wr)] = pack(lr[i * 2]);
         ++hostCount_;
+        if (!rx2) continue;
+        if (hostCountRx2_ >= kRingCap) {
+            hostRdRx2_ = (hostRdRx2_ + 1) % kRingCap;
+            --hostCountRx2_;
+        }
+        const int wr2 = (hostRdRx2_ + hostCountRx2_) % kRingCap;
+        hostRingRx2_[static_cast<size_t>(wr2)] = pack(lr[i * 2 + 1]);
+        ++hostCountRx2_;
     }
 }
 
@@ -1740,6 +1876,7 @@ void DeskLink::flushHostAudio()
     if (!weHost_) {
         ensureDeskAudio();
         feedDeskSpeaker();
+        feedSidetone();
     }
     if (!sendAudio_.load(std::memory_order_relaxed) || !audioPeer_
         || audioPeer_->state() != QAbstractSocket::ConnectedState)
@@ -1756,8 +1893,29 @@ void DeskLink::flushHostAudio()
             }
             hostCount_ -= n;
         }
-        if (n <= 0) return;
+        if (n <= 0) break;
         char hdr[6] = {'A', 'U', 'D', '1', char(n & 0xff), char((n >> 8) & 0xff)};
+        audioPeer_->write(hdr, 6);
+        audioPeer_->write(reinterpret_cast<const char *>(chunk), n * 2);
+    }
+    // Second receiver audio, same socket, only while SUB is on.
+    // Skipped when the socket is already holding the main audio.
+    if (!sendRx2Audio_.load(std::memory_order_relaxed)) return;
+    if (audioPeer_->bytesToWrite() > 48000) return;
+    for (int burst = 0; burst < 4; ++burst) {
+        qint16 chunk[960];
+        int n = 0;
+        {
+            std::lock_guard<std::mutex> lk(hostMtx_);
+            n = std::min(hostCountRx2_, 960);
+            for (int i = 0; i < n; ++i) {
+                chunk[i] = hostRingRx2_[static_cast<size_t>(hostRdRx2_)];
+                hostRdRx2_ = (hostRdRx2_ + 1) % kRingCap;
+            }
+            hostCountRx2_ -= n;
+        }
+        if (n <= 0) return;
+        char hdr[6] = {'A', 'U', 'D', '2', char(n & 0xff), char((n >> 8) & 0xff)};
         audioPeer_->write(hdr, 6);
         audioPeer_->write(reinterpret_cast<const char *>(chunk), n * 2);
     }
@@ -1803,8 +1961,11 @@ void DeskLink::onAudioRead()
     if (!audioPeer_) return;
     audioRx_.append(audioPeer_->readAll());
     while (audioRx_.size() >= 6) {
-        if (!(audioRx_[0] == 'A' && audioRx_[1] == 'U'
-              && audioRx_[2] == 'D' && audioRx_[3] == '1')) {
+        const bool aud1 = audioRx_[0] == 'A' && audioRx_[1] == 'U'
+                          && audioRx_[2] == 'D' && audioRx_[3] == '1';
+        const bool aud2 = audioRx_[0] == 'A' && audioRx_[1] == 'U'
+                          && audioRx_[2] == 'D' && audioRx_[3] == '2';
+        if (!aud1 && !aud2) {
             audioRx_.remove(0, 1);
             continue;
         }
@@ -1815,14 +1976,29 @@ void DeskLink::onAudioRead()
         }
         const int need = 6 + n * 2;
         if (audioRx_.size() < need) return;
-        pushPlay(reinterpret_cast<const qint16 *>(audioRx_.constData() + 6), n);
+        const auto *pcm = reinterpret_cast<const qint16 *>(audioRx_.constData() + 6);
+        if (aud1) {
+            if (expectRx2Audio_) {
+                if (audioHold_)
+                    pushPlay(audioHeld_.data(), nullptr, audioHeldN_);
+                audioHeld_.assign(pcm, pcm + n);
+                audioHeldN_ = n;
+                audioHold_ = true;
+            } else {
+                pushPlay(pcm, nullptr, n);
+            }
+        } else if (audioHold_ && audioHeldN_ == n) {
+            if (!expectRx2Audio_) expectRx2Audio_ = true;
+            pushPlay(audioHeld_.data(), pcm, n);
+            audioHold_ = false;
+        }
         audioRx_.remove(0, need);
     }
 }
 
-void DeskLink::pushPlay(const qint16 *mono, int nframes)
+void DeskLink::pushPlay(const qint16 *left, const qint16 *right, int nframes)
 {
-    if (weHost_) return;
+    if (weHost_ || !left || nframes <= 0) return;
     bool start = false;
     {
         std::lock_guard<std::mutex> lk(playMtx_);
@@ -1833,9 +2009,10 @@ void DeskLink::pushPlay(const qint16 *mono, int nframes)
                 --playCount_;
             }
             const int wr = (playRd_ + playCount_) % kRingCap;
-            playRing_[static_cast<size_t>(wr)] = mono[i];
+            playRing_[static_cast<size_t>(wr)] = left[i];
+            playRingR_[static_cast<size_t>(wr)] = right ? right[i] : 0;
             ++playCount_;
-            const int a = mono[i] < 0 ? -int(mono[i]) : int(mono[i]);
+            const int a = left[i] < 0 ? -int(left[i]) : int(left[i]);
             if (a > peak) peak = a;
         }
         lastPlayMs_.store(nowMs(), std::memory_order_relaxed);
@@ -1845,9 +2022,11 @@ void DeskLink::pushPlay(const qint16 *mono, int nframes)
             start = true;
         }
     }
-    // Before the laptop volume. Same mono the shack sent (pre-volume,
-    // pre-BIN on the host). The tap must not run under playMtx_.
-    if (rxTap_) rxTap_(mono, nframes);
+    // Before the laptop volume. Left is the main receiver. Right is RX2
+    // when SUB is on, otherwise the same as left. The taps must not run
+    // under playMtx_.
+    if (rxTap_) rxTap_(left, nframes);
+    if (cwTap_) cwTap_(left, right, nframes);
     if (start) startDeskPlay();
     feedDeskSpeaker();
 }
@@ -1873,21 +2052,21 @@ void DeskLink::feedDeskSpeaker()
         {
             std::lock_guard<std::mutex> lk(playMtx_);
             n = std::min(playCount_, std::min(freeFrames, 960));
+            const double gL = playMuted_.load(std::memory_order_relaxed)
+                ? 0.0 : playGain_.load(std::memory_order_relaxed);
+            const double gR = playMutedRx2_.load(std::memory_order_relaxed)
+                ? 0.0 : playGainRx2_.load(std::memory_order_relaxed);
             for (int i = 0; i < n; ++i) {
-                chunk[i] = playRing_[static_cast<size_t>(playRd_)];
+                const int rd = playRd_;
                 playRd_ = (playRd_ + 1) % kRingCap;
+                const double mix = playRing_[static_cast<size_t>(rd)] * gL
+                    + playRingR_[static_cast<size_t>(rd)] * gR;
+                chunk[i] = static_cast<qint16>(std::clamp(
+                    std::lrint(mix), -32768L, 32767L));
             }
             playCount_ -= n;
         }
         if (n <= 0) return;
-        const double g = playMuted_.load(std::memory_order_relaxed)
-            ? 0.0 : playGain_.load(std::memory_order_relaxed);
-        if (g != 1.0) {
-            for (int i = 0; i < n; ++i) {
-                chunk[i] = static_cast<qint16>(std::clamp(
-                    std::lrint(chunk[i] * g), -32768L, 32767L));
-            }
-        }
         playDev_->write(reinterpret_cast<const char *>(chunk), n * 2);
     }
 }
@@ -2282,6 +2461,124 @@ void DeskLink::sendMicChunk()
         audioPeer_->write(reinterpret_cast<const char *>(s + off), n * 2);
         off += n;
     }
+}
+
+void DeskLink::setCwAudioTap(
+    std::function<void(const qint16 *left, const qint16 *right, int nframes)> tap)
+{
+    cwTap_ = std::move(tap);
+}
+
+bool DeskLink::sendCwEdge(bool keyDown, bool pttHold)
+{
+    if (weHost_ || !peer_ || peer_->state() != QAbstractSocket::ConnectedState)
+        return false;
+    if (keyDown == cwKeySent_ && pttHold == cwPttSent_)
+        return cwKeySent_ || cwPttSent_;
+    const bool up = !keyDown && !pttHold;
+    if (up && !cwKeySent_ && !cwPttSent_)
+        return false;
+    const QString mode = linkMode_.trimmed().toUpper();
+    const bool cw = mode == QLatin1String("CW")
+                    || mode == QLatin1String("CWU")
+                    || mode == QLatin1String("CWL");
+    const int rtt = rttMs_;
+    if (!up) {
+        if (!voiceHeld_ || !cw || rtt < 0 || rtt >= 150) {
+            if (!cwRefuseNoted_) {
+                cwRefuseNoted_ = true;
+                if (!voiceHeld_)
+                    emit statusMessage(tr("Start voice before the key."));
+                else if (!cw)
+                    emit statusMessage(tr("The host is not in CW."));
+                else
+                    emit statusMessage(tr("The link is slower than 150 ms, so the key stays off."));
+            }
+            return false;
+        }
+    }
+    sendLine("cw " + QByteArray::number(keyDown ? 1 : 0)
+             + " " + QByteArray::number(pttHold ? 1 : 0));
+    cwKeySent_ = keyDown;
+    cwPttSent_ = pttHold;
+    if (up) cwRefuseNoted_ = false;
+    setLocalSidetone(keyDown);
+    return true;
+}
+
+void DeskLink::setSidetoneHz(int hz)
+{
+    toneHz_ = std::clamp(hz, 200, 1500);
+}
+
+void DeskLink::setLocalSidetone(bool down)
+{
+    if (down) {
+        toneRelease_ = 0;
+        toneDown_.store(true, std::memory_order_relaxed);
+        return;
+    }
+    if (!toneDown_.exchange(false, std::memory_order_relaxed))
+        return;
+    toneRelease_ = 480;
+}
+
+void DeskLink::startSidetone()
+{
+    if (toneSink_) return;
+    QAudioFormat fmt;
+    fmt.setSampleRate(48000);
+    fmt.setChannelCount(1);
+    fmt.setSampleFormat(QAudioFormat::Int16);
+    const QAudioDevice dev = QMediaDevices::defaultAudioOutput();
+    if (dev.isNull() || !dev.isFormatSupported(fmt)) return;
+    toneSink_ = new QAudioSink(dev, fmt, this);
+    toneSink_->setBufferSize(48000 * 2 / 5);
+    toneDev_ = toneSink_->start();
+}
+
+void DeskLink::stopSidetone()
+{
+    toneDown_.store(false, std::memory_order_relaxed);
+    toneRelease_ = 0;
+    tonePhase_ = 0.0;
+    toneDev_ = nullptr;
+    if (toneSink_) {
+        toneSink_->stop();
+        delete toneSink_;
+        toneSink_ = nullptr;
+    }
+}
+
+void DeskLink::feedSidetone()
+{
+    if (weHost_) return;
+    const bool down = toneDown_.load(std::memory_order_relaxed);
+    if (!down && toneRelease_ <= 0) {
+        if (toneSink_) stopSidetone();
+        return;
+    }
+    if (!toneDev_) startSidetone();
+    if (!toneDev_ || !toneSink_) return;
+    const int freeFrames = int(toneSink_->bytesFree() / 2);
+    if (freeFrames <= 0) return;
+    const int n = std::min(freeFrames, 960);
+    QByteArray pcm(n * 2, Qt::Uninitialized);
+    auto *s = reinterpret_cast<qint16 *>(pcm.data());
+    const double step = 2.0 * 3.14159265358979323846 * double(toneHz_) / 48000.0;
+    constexpr double kAmp = 0.15 * 32767.0;
+    for (int i = 0; i < n; ++i) {
+        double amp = down ? kAmp : 0.0;
+        if (!down && toneRelease_ > 0) {
+            amp = kAmp * (double(toneRelease_) / 480.0);
+            --toneRelease_;
+        }
+        s[i] = static_cast<qint16>(std::lrint(std::sin(tonePhase_) * amp));
+        tonePhase_ += step;
+        if (tonePhase_ > 6.28318530717958647692)
+            tonePhase_ -= 6.28318530717958647692;
+    }
+    toneDev_->write(pcm);
 }
 
 } // namespace lyra::ui

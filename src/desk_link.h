@@ -84,6 +84,9 @@ public:
     void setPlayMuted(bool muted);
     void sendTune(quint32 hz);
     void sendMode(const QString &mode);
+    // Host CW pitch (Hz). The freq line is the DDS. The desk adds this
+    // same pitch as its carrier offset, the way the host VFO does.
+    void sendPitch(int hz);
     void sendBandwidth(int hz);
     void sendRit(bool on, int offsetHz);
     void sendSplit(bool on);
@@ -162,8 +165,31 @@ public:
     // Host spectrum read. Fills dst with full-span dB, writes center and span.
     void setSpectrumSource(std::function<int(float *dst, int maxN,
                                               int *centerHz, int *spanHz)> src);
+    // Host. RX2 picture only while SUB is on and the radio has its own
+    // second spectrum. The timer stays the same ~60 Hz tick as the main
+    // picture. A late frame is skipped.
+    void setRx2SpectrumSource(std::function<int(float *dst, int maxN,
+                                                 int *centerHz, int *spanHz)> src);
+    void setSendRx2Audio(bool on);
+    void setSendRx2Spectrum(bool on);
     const float *spectrumDb() const { return specDb_.data(); }
     int spectrumCount() const { return specCount_; }
+    const float *spectrumRx2Db() const { return specRx2Db_.data(); }
+    int spectrumRx2Count() const { return specRx2Count_; }
+    int hostAdcCount() const { return hostAdc_; }
+    void sendAdcCount(int n);
+    // Desk speaker. Right-ear level for the host's second receiver.
+    void setPlayPosRx2(double pos);
+    void setPlayMutedRx2(bool muted);
+    // Desk key edge. False when voice, the 150 ms CW gate, or the mode
+    // keeps the key off. Sidetone is local and follows a sent key-down.
+    bool sendCwEdge(bool keyDown, bool pttHold);
+    void setLocalSidetone(bool down);
+    void setSidetoneHz(int hz);
+    // Pre-volume host audio the desk is playing. right is null when SUB
+    // is off. The CW decoder picks the focused receiver.
+    void setCwAudioTap(std::function<void(const qint16 *left, const qint16 *right,
+                                           int nframes)> tap);
 
 signals:
     void changed();
@@ -172,6 +198,7 @@ signals:
     void peerReady();
     void remoteFreq(quint32 hz);
     void remoteMode(const QString &mode);
+    void remotePitch(int hz);
     void remoteBandwidth(int hz);
     void remoteRit(bool on, int offsetHz);
     void remoteSplit(bool on);
@@ -217,6 +244,9 @@ signals:
     void forceUnkey();
     void metersTick();
     void spectrumFrame(int fullSpanHz);
+    void spectrumRx2Frame(int fullSpanHz);
+    void remoteAdc(int count);
+    void remoteCwEdge(bool keyDown, bool pttHold);
 
 private:
     void probe();
@@ -232,8 +262,11 @@ private:
     void ensureDeskSpec();
     void startDeskPlay();
     void stopDeskPlay();
-    void pushPlay(const qint16 *mono, int nframes);
+    void pushPlay(const qint16 *left, const qint16 *right, int nframes);
     void feedDeskSpeaker();
+    void feedSidetone();
+    void startSidetone();
+    void stopSidetone();
     void onSocketRead();
     void onSocketClosed();
     void pump();
@@ -318,7 +351,9 @@ private:
     std::atomic<qint64> lastPlayMs_{0};
     std::atomic<int> lastPeak_{0};
     std::atomic<double> playGain_{0.089};
+    std::atomic<double> playGainRx2_{0.089};
     std::atomic<bool> playMuted_{false};
+    std::atomic<bool> playMutedRx2_{false};
     qint64 audioRetryAt_ = 0;
     qint64 audioConnectAt_ = 0;
     QString playBlock_;
@@ -327,18 +362,42 @@ private:
     qint64 specRetryAt_ = 0;
     qint64 specConnectAt_ = 0;
     std::function<int(float *, int, int *, int *)> specSrc_;
+    std::function<int(float *, int, int *, int *)> specRx2Src_;
     std::vector<float> specDb_;
+    std::vector<float> specRx2Db_;
     int specCount_ = 0;
+    int specRx2Count_ = 0;
+    int hostAdc_ = 0;
+    std::atomic<bool> sendRx2Audio_{false};
+    std::atomic<bool> sendRx2Spec_{false};
+    bool expectRx2Audio_ = false;
     int meterDiv_ = 0;
 
     std::vector<qint16> hostRing_;
+    std::vector<qint16> hostRingRx2_;
     int hostRd_ = 0;
     int hostCount_ = 0;
+    int hostRdRx2_ = 0;
+    int hostCountRx2_ = 0;
     mutable std::mutex hostMtx_;
 
     std::vector<qint16> playRing_;
+    std::vector<qint16> playRingR_;
     int playRd_ = 0;
     int playCount_ = 0;
+    std::vector<qint16> audioHeld_;
+    int audioHeldN_ = 0;
+    bool audioHold_ = false;
+    std::function<void(const qint16 *, const qint16 *, int)> cwTap_;
+    bool cwKeySent_ = false;
+    bool cwPttSent_ = false;
+    bool cwRefuseNoted_ = false;
+    QAudioSink *toneSink_ = nullptr;
+    QIODevice  *toneDev_  = nullptr;
+    std::atomic<bool> toneDown_{false};
+    int toneHz_ = 600;
+    double tonePhase_ = 0.0;
+    int toneRelease_ = 0;
     int playPrime_ = 3840;
     bool playReady_ = false;
     std::mutex playMtx_;

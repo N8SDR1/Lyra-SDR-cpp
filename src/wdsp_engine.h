@@ -447,6 +447,12 @@ public:
     // Full converter rate (Hz). The second receiver's spectrum uses this
     // as its scale so the main panadapter's zoom does not shrink it.
     int iqRateHz() const {
+        const qint64 specMs = deskRx2Ms_.load(std::memory_order_relaxed);
+        const int specSpan = deskRx2Span_.load(std::memory_order_relaxed);
+        const qint64 specNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (specSpan > 0 && specMs > 0 && (specNow - specMs) < 500)
+            return specSpan;
         return inRateAtomic_.load(std::memory_order_relaxed);
     }
     // Task #44 Phase 2 — analyzer ownership accessor for TxDspWorker
@@ -502,9 +508,18 @@ public:
     // so the desk passband matches the shack, then back to the RX span
     // when the host leaves TX. The desk zooms inside that span itself.
     int  copyHostSpectrumForDesk(float *dst, int maxN, int *spanHz);
+    // Host RX2 cache only. No GetPixels. Span is this radio's converter
+    // rate. Returns 0 until the second panadapter has filled the cache.
+    int  copyRx2SpectrumCache(float *dst, int maxN, int *spanHz);
     // Desk paints these instead of the local analyzer. fullSpanHz is
     // the shack's whole IQ span; local zoom crops it.
     void postDeskSpectrum(const float *db, int n, int fullSpanHz);
+    void postDeskSpectrumRx2(const float *db, int n, int fullSpanHz);
+    void clearDeskSpectrumRx2();
+    // Desk CW decoder. 48 kHz mono int16 of the host receiver the laptop
+    // is already playing (pre volume). The local WDSP channel stays open
+    // with no radio, so this must not wait for that channel to stop.
+    void feedRemoteCwAudio(const qint16 *pcm, int nframes);
     // §15.29 C1 — waterfall-specific spectrum read.  During TX state,
     // the analyzer is configured with n_pixout=2 (configureAnalyzerForTx)
     // — pixout=0 = panadapter (30 ms tau IIR), pixout=1 = waterfall
@@ -1522,10 +1537,13 @@ private:
     // panadapter + waterfall reads are serialised).
     std::vector<float> specCache_;
     std::vector<float> deskSpec_;
+    std::vector<float> deskSpecRx2_;
     std::atomic<qint64> deskSpecMs_{0};
+    std::atomic<qint64> deskRx2Ms_{0};
     std::atomic<double> deskSmeter_{-200.0};
     std::atomic<qint64> deskMeterMs_{0};
     std::atomic<int> deskFullSpan_{0};
+    std::atomic<int> deskRx2Span_{0};
     mutable std::mutex deskSpecMtx_;
     std::vector<float> specCacheRx2_;
     std::atomic<double> rxDisplayCalibrationDb_{0.0};
@@ -1661,6 +1679,12 @@ private:
     std::atomic<bool>                    cwDecodeOn_{false};
     std::atomic<bool>                    cwModeActive_{false};
     std::vector<float>                   cwMonoBuf_;
+    // Desk host-audio feed. Steady-clock ms of the last block; while it
+    // is fresh the local tap stays quiet so a silent local channel cannot
+    // share the decoders. remoteCwMono_ is the GUI-thread copy (float,
+    // about -1..1), separate from the audio-thread cwMonoBuf_.
+    std::atomic<qint64>                  remoteCwAudioMs_{0};
+    std::vector<float>                   remoteCwMono_;
     bool                  vacMox_ = false;         // #158 DL-4 last MOX (re-applied on rebuild)
     bool                  vacEnvApplied_ = false;
     // Shared 2-input IVAC mixer silence for stream 2 (TX monitor) during

@@ -1971,6 +1971,36 @@ int main(int argc, char *argv[])
                             qInfo("[tx] TUN postgen: run=0 (stopped)");
                         }
                     },
+                    .setCwCarrier = [txch, txf](int state) {
+                        // Same single tone as TUN. In CW the frequency is
+                        // 0 Hz because the TX NCO is already the carrier.
+                        // state 0 keeps the generator up at zero magnitude
+                        // so a live microphone does not pass between
+                        // elements. state -1 returns the chain to the mic.
+                        if (!lyra::wire::SetTXAPostGenRun) return;
+                        if (state < 0) {
+                            lyra::wire::SetTXAPostGenRun(txch, 0);
+                            if (lyra::wire::SetTXAPostGenToneMag)
+                                lyra::wire::SetTXAPostGenToneMag(txch, 0.99999);
+                            return;
+                        }
+                        if (state > 0) {
+                            constexpr double kMaxToneMag = 0.99999;
+                            const double freq = static_cast<double>(
+                                lyra::ipc::HL2Stream::postGenTuneToneHz(txf->mode));
+                            if (lyra::wire::SetTXAPostGenMode)
+                                lyra::wire::SetTXAPostGenMode(txch, 0);
+                            if (lyra::wire::SetTXAPostGenToneFreq)
+                                lyra::wire::SetTXAPostGenToneFreq(txch, freq);
+                            if (lyra::wire::SetTXAPostGenToneMag)
+                                lyra::wire::SetTXAPostGenToneMag(txch, kMaxToneMag);
+                            lyra::wire::SetTXAPostGenRun(txch, 1);
+                            return;
+                        }
+                        if (lyra::wire::SetTXAPostGenToneMag)
+                            lyra::wire::SetTXAPostGenToneMag(txch, 0.0);
+                        lyra::wire::SetTXAPostGenRun(txch, 1);
+                    },
                     .setTwoTone = [txch, txf](bool on) {
                         if (on) {
                             // The two-tone must follow the selected sideband

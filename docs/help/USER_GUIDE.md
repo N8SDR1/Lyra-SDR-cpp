@@ -5564,11 +5564,38 @@ connect.
 
 Receiver audio is a mono tap taken before the shack volume and before
 binaural, so the shack **Vol** and **MUTE** leave the laptop level
-alone. The laptop's own volume sets the laptop level.
+alone. The laptop's own volume sets the laptop level. When the host
+has **SUB** on, the second receiver is its own mono tap, and the
+laptop mixes it with **Vol RX2**.
 
 The spectrum is the host picture, full span. The laptop zooms on its
-own screen. **60 Hz** is the supported picture. A 120 Hz picture and
-the RX2 spectrum come later.
+own screen. The away desk picture stays at about **60 Hz** so the
+connection can carry the receiver audio, the microphone, keying, and
+the controls. A faster panadapter on that link is not used.
+
+**Rig → Remote** is listed with the local radios. While this Lyra is
+attached as the desk, Remote is the checked entry. Calibration and
+the local **Start** button are hidden. The panels follow the host
+rig. This computer does not open a radio of its own, and the local
+transmit badges stay dark. Detach before choosing a radio on this
+computer.
+
+When the host has **SUB** on and that radio has its own second
+receiver, the host sends that picture on the same ~60 Hz tick as the
+main picture, and it sends the second receiver's audio. The main
+picture stays at 60 Hz. Neither rate goes up. When SUB is off, no
+second picture is sent. The desk's second panadapter shows the
+host's second receiver, not a copy of the main one. A
+single-converter SUB still sends the second receiver's audio and
+does not send a second picture.
+
+In CW, the decoder on the desk reads the host receiver audio this
+computer is already playing. Focus on the second receiver and it
+reads that receiver. A straight key, the serial key line, and the
+CW macros on the desk tell the host to key. The host transmits.
+Sidetone plays on the desk. The round trip must stay under 150 ms or
+the key stays off. Listening stays up. **Start voice** and the
+password are unchanged, and one desk is the transmit owner.
 
 S-meter, forward power, and SWR come from the host.
 

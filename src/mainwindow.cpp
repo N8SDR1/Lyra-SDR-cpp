@@ -1060,9 +1060,21 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
             if (!desk_ || !desk_->attached() || desk_->isHost()) return;
             desk_->setPlayPos(rx->volume());
             desk_->setPlayMuted(rx->muted());
+            desk_->setPlayPosRx2(rx->volumeRx2());
+            desk_->setPlayMutedRx2(rx->mutedRx2());
+            desk_->setSidetoneHz(rx->cwPitchHz());
         };
         connect(rx, &lyra::dsp::WdspEngine::volumeChanged, this, syncDeskLevel);
         connect(rx, &lyra::dsp::WdspEngine::mutedChanged, this, syncDeskLevel);
+        connect(rx, &lyra::dsp::WdspEngine::volumeRx2Changed, this, syncDeskLevel);
+        connect(rx, &lyra::dsp::WdspEngine::mutedRx2Changed, this, syncDeskLevel);
+        connect(rx, &lyra::dsp::WdspEngine::cwPitchChanged, this, syncDeskLevel);
+        connect(rx, &lyra::dsp::WdspEngine::cwPitchChanged, this, [this, rx]() {
+            // Host only. The desk applies this pitch; it does not send
+            // its own number back.
+            if (desk_ && desk_->attached() && desk_->isHost())
+                desk_->sendPitch(rx->cwPitchHz());
+        });
         connect(desk_, &DeskLink::changed, this, syncDeskLevel);
         desk_->setSpectrumSource([this](float *dst, int maxN, int *center, int *span) {
             auto *engine = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
@@ -1071,15 +1083,44 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
             *center = int(st->rx1FreqHz());
             return engine->copyHostSpectrumForDesk(dst, maxN, span);
         });
+        desk_->setRx2SpectrumSource([this](float *dst, int maxN, int *center, int *span) {
+            auto *engine = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+            auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+            if (!engine || !st || !center || !span) return 0;
+            *center = int(st->rx2FreqHz());
+            return engine->copyRx2SpectrumCache(dst, maxN, span);
+        });
         connect(desk_, &DeskLink::spectrumFrame, this, [this](int span) {
             if (auto *engine = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_))
                 engine->postDeskSpectrum(desk_->spectrumDb(),
                                          desk_->spectrumCount(), span);
         });
+        connect(desk_, &DeskLink::spectrumRx2Frame, this, [this](int span) {
+            if (auto *engine = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_))
+                engine->postDeskSpectrumRx2(desk_->spectrumRx2Db(),
+                                            desk_->spectrumRx2Count(), span);
+        });
+        desk_->setCwAudioTap([this](const qint16 *left, const qint16 *right, int n) {
+            auto *engine = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+            auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+            if (!engine || !left || n <= 0) return;
+            const qint16 *pcm = left;
+            if (right && st && st->subEnabled() && st->focusedRx() == 2)
+                pcm = right;
+            engine->feedRemoteCwAudio(pcm, n);
+        });
     }
     connect(desk_, &DeskLink::remoteFreq, this, [this](quint32 hz) {
         if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
             st->setRx1FreqHz(hz);
+    });
+    connect(desk_, &DeskLink::remotePitch, this, [this](int hz) {
+        // The freq line is the DDS. The host VFO shows DDS + this pitch
+        // in CWU/CWL. Apply it here so the desk LED and spectrum marker
+        // use the same offset. The host keeps its own pitch.
+        if (!desk_ || desk_->isHost()) return;
+        if (auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_))
+            rx->setCwPitchHz(hz);
     });
     connect(desk_, &DeskLink::remoteMode, this, [this](const QString &mode) {
         if (prefs_) prefs_->setMode(mode);
@@ -1318,8 +1359,14 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
             });
             return;
         }
-        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
             st->clearDeskPureSignal();
+            st->refreshDualAdcFromSettings();
+            st->setSuppressLocalTxBadge(false);
+        }
+        if (auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_))
+            rx->clearDeskSpectrumRx2();
+        if (desk_) desk_->setLocalSidetone(false);
     });
     connect(desk_, &DeskLink::remoteRig, this, [this](int protocol, const QString &) {
         if (frontEnd_) frontEnd_->setDeskProtocol(protocol);
@@ -1349,8 +1396,18 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         p2Bridge_->setRxInputForBand(band, rx);
     });
     connect(desk_, &DeskLink::remoteSub, this, [this](bool on) {
+        if (desk_ && !desk_->isHost() && !on) {
+            if (auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_))
+                rx->clearDeskSpectrumRx2();
+        }
         if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
             st->setSubEnabled(on);
+    });
+    connect(desk_, &DeskLink::remoteAdc, this, [this](int n) {
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (!st || !desk_ || desk_->isHost()) return;
+        if (n <= 0) st->refreshDualAdcFromSettings();
+        else st->setDualAdc(n > 1);
     });
     connect(desk_, &DeskLink::remoteRx2, this, [this](quint32 hz) {
         if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
@@ -1386,6 +1443,11 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
             desk_->setKeying(false);
         }
         if (tci_) tci_->releaseDeskDigitalInput();
+        if (deskCwLatched_) {
+            deskCwLatched_ = false;
+            if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+                st->applyRemoteCw(false, false);
+        }
         if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
             st->setTuneEnabled(false);
             st->setTwoToneEnabled(false);
@@ -1442,6 +1504,11 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         }
         if (tci_) tci_->setDeskOwnsVoice(false);
         if (tci_) tci_->releaseDeskDigitalInput();
+        if (deskCwLatched_) {
+            deskCwLatched_ = false;
+            if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+                st->applyRemoteCw(false, false);
+        }
         if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
             st->setTuneEnabled(false);
             st->setTwoToneEnabled(false);
@@ -1558,9 +1625,45 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         if (st->moxActive())
             desk_->sendDigitalState(true);
     });
+    connect(desk_, &DeskLink::remoteCwEdge, this, [this, deskTxRefuse](bool key, bool ptt) {
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (!st || !desk_ || !desk_->isHost()) return;
+        auto dropDeskCw = [this, st]() {
+            if (!deskCwLatched_) return;
+            deskCwLatched_ = false;
+            st->applyRemoteCw(false, false);
+        };
+        if (!key && !ptt) {
+            dropDeskCw();
+            return;
+        }
+        const QString mode = prefs_ ? prefs_->mode().toUpper() : QString();
+        const bool cw = mode == QLatin1String("CW")
+                        || mode == QLatin1String("CWU")
+                        || mode == QLatin1String("CWL");
+        if (!cw) {
+            dropDeskCw();
+            return;
+        }
+        const QString why = deskTxRefuse();
+        if (!why.isEmpty()) {
+            dropDeskCw();
+            if (why != QLatin1String("voice"))
+                desk_->sendVoiceDeny(why);
+            return;
+        }
+        st->applyRemoteCw(key, ptt);
+        deskCwLatched_ = key || ptt;
+    });
     connect(desk_, &DeskLink::changed, this, [this, deskTxLimit]() {
-        if (!desk_ || !desk_->isHost() || !desk_->keying()) return;
+        if (!desk_ || !desk_->isHost()) return;
         const int rtt = desk_->rttMs();
+        if (rtt >= deskTxLimit() && deskCwLatched_) {
+            deskCwLatched_ = false;
+            if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+                st->applyRemoteCw(false, false);
+        }
+        if (!desk_->keying()) return;
         if (rtt >= deskTxLimit()) {
             if (desk_->digitalWanted()) {
                 desk_->setDigitalWanted(false);
@@ -1648,6 +1751,9 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         if (!desk_ || !desk_->isHost()) return;
         auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
         auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+        // Pitch before the DDS, so the desk's first carrier paint
+        // already uses the host offset.
+        if (rx) desk_->sendPitch(rx->cwPitchHz());
         if (st) desk_->sendTune(st->rx1FreqHz());
         if (prefs_) {
             desk_->sendTuneDrive(prefs_->tuneDriveMode(),
@@ -1660,6 +1766,9 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
             desk_->sendRxLow(prefs_->filterLow());
         }
         if (st) {
+            desk_->sendAdcCount(st->dualAdc() ? 2 : 1);
+            desk_->setSendRx2Audio(st->subEnabled());
+            desk_->setSendRx2Spectrum(st->subEnabled() && st->dualAdc());
             desk_->sendRit(st->ritEnabled(), st->ritOffsetHz());
             desk_->sendSplit(st->splitEnabled());
             desk_->sendSub(st->subEnabled());
@@ -1850,9 +1959,38 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         }
     };
     if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+        st->setCwEdgeHook([this](bool key, bool ptt) {
+            QMetaObject::invokeMethod(this, [this, key, ptt]() {
+                if (!desk_ || !desk_->attached() || desk_->isHost()) return;
+                desk_->sendCwEdge(key, ptt);
+            }, Qt::QueuedConnection);
+        });
+        connect(st, &lyra::ipc::HL2Stream::txTimeoutFired, this, [this]() {
+            if (!desk_ || !desk_->isHost() || !deskCwLatched_) return;
+            deskCwLatched_ = false;
+            if (auto *s = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+                s->applyRemoteCw(false, false);
+        });
+        connect(st, &lyra::ipc::HL2Stream::txInhibitChanged, this, [this](bool on) {
+            if (!on || !desk_ || !desk_->isHost() || !deskCwLatched_) return;
+            deskCwLatched_ = false;
+            if (auto *s = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+                s->applyRemoteCw(false, false);
+        });
         connect(st, &lyra::ipc::HL2Stream::runningChanged, this, pushDeskRig);
         connect(st, &lyra::ipc::HL2Stream::subEnabledChanged, this, [this, st]() {
-            if (desk_ && desk_->attached()) desk_->sendSub(st->subEnabled());
+            if (!desk_ || !desk_->attached()) return;
+            if (desk_->isHost()) {
+                desk_->sendAdcCount(st->dualAdc() ? 2 : 1);
+                desk_->setSendRx2Audio(st->subEnabled());
+                desk_->setSendRx2Spectrum(st->subEnabled() && st->dualAdc());
+            }
+            desk_->sendSub(st->subEnabled());
+        });
+        connect(st, &lyra::ipc::HL2Stream::dualAdcChanged, this, [this, st]() {
+            if (!desk_ || !desk_->attached() || !desk_->isHost()) return;
+            desk_->sendAdcCount(st->dualAdc() ? 2 : 1);
+            desk_->setSendRx2Spectrum(st->subEnabled() && st->dualAdc());
         });
         connect(st, &lyra::ipc::HL2Stream::rx2FreqChanged, this, [this, st]() {
             if (desk_ && desk_->attached()) desk_->sendRx2(st->rx2FreqHz());
@@ -3648,6 +3786,7 @@ void MainWindow::pushDeskPlot()
 
 void MainWindow::rebuildRigMenu() {
     rigMenu_->clear();
+    const bool deskRole = desk_ && desk_->attached() && !desk_->isHost();
     const QString active = lyra::rig::registry::activeRigId();
     const auto rigs = lyra::rig::registry::rigs();
     if (rigs.isEmpty()) {
@@ -3676,10 +3815,28 @@ void MainWindow::rebuildRigMenu() {
         const QString label = r.label.isEmpty() ? r.rigId : r.label;
         QAction *a = rigMenu_->addAction(label);
         a->setCheckable(true);
-        a->setChecked(r.rigId == active);
+        a->setChecked(!deskRole && r.rigId == active);
         const QString id = r.rigId;
-        connect(a, &QAction::triggered, this, [this, id]() { switchRig(id); });
+        connect(a, &QAction::triggered, this, [this, id]() {
+            if (desk_ && desk_->attached() && !desk_->isHost()) {
+                statusBar()->showMessage(
+                    tr("Detach before using a radio on this computer."), 6000);
+                rebuildRigMenu();
+                return;
+            }
+            switchRig(id);
+        });
     }
+    QAction *remoteAct = rigMenu_->addAction(tr("Remote"));
+    remoteAct->setCheckable(true);
+    remoteAct->setChecked(deskRole);
+    connect(remoteAct, &QAction::triggered, this, [this]() {
+        if (desk_ && desk_->attached() && !desk_->isHost()) {
+            rebuildRigMenu();
+            return;
+        }
+        openSettingsTopic(QStringLiteral("remote"));
+    });
     rigMenu_->addSeparator();
     rigMenu_->addAction(tr("Add rig…"), this, &MainWindow::addRigInteractive);
     if (!active.isEmpty())
@@ -3694,6 +3851,12 @@ void MainWindow::rebuildRigMenu() {
 }
 
 void MainWindow::switchRig(const QString &rigId) {
+    if (desk_ && desk_->attached() && !desk_->isHost()) {
+        statusBar()->showMessage(
+            tr("Detach before using a radio on this computer."), 6000);
+        rebuildRigMenu();
+        return;
+    }
     if (rigId.isEmpty() || rigId == lyra::rig::registry::activeRigId())
         return;   // already active — nothing to do
 
@@ -4165,6 +4328,7 @@ void MainWindow::buildToolbar() {
         // dock's visibility directly.
         if (QDockWidget *d = docks_.value(QStringLiteral("freqcal"))) {
             auto *fc = new QToolButton(tb);
+            freqCalBtn_ = fc;
             fc->setText(tr("Freq Cal"));
             fc->setCheckable(true);
             fc->setChecked(d->isVisible());
@@ -4894,12 +5058,16 @@ void MainWindow::updateConnState() {
                                              : tr("▶  Start"));
     }
     const bool deskRole = desk_ && desk_->attached() && !desk_->isHost();
-    if (startStopAction_)
-        startStopAction_->setEnabled(!deskRole || anyRunning);
+    const bool hideLocalStart = deskRole && !anyRunning;
+    if (startStopAction_) {
+        startStopAction_->setEnabled(!hideLocalStart);
+        startStopAction_->setVisible(!hideLocalStart);
+    }
     if (startStopBtn_) {
         // Green when stopped (the button says "Start"); red when running
         // (it says "Stop") — the colour signals the ACTION the click does.
-        startStopBtn_->setEnabled(!deskRole || anyRunning);
+        startStopBtn_->setVisible(!hideLocalStart);
+        startStopBtn_->setEnabled(!hideLocalStart);
         startStopBtn_->setToolTip(deskRole
             ? tr("This desk uses the shack radio. Detach to start a radio here.")
             : QString());
@@ -4939,6 +5107,21 @@ void MainWindow::updateConnState() {
                 : deskRole
                     ? QStringLiteral("QLabel{color:#7ec8e3;font-weight:bold;}")
                     : QStringLiteral("QLabel{color:#e53935;font-weight:bold;}"));
+    }
+    if (freqCalBtn_)
+        freqCalBtn_->setVisible(!deskRole);
+    if (deskRole) {
+        if (QDockWidget *d = docks_.value(QStringLiteral("freqcal"))) {
+            if (d->isVisible()) d->hide();
+        }
+    }
+    if (st)
+        st->setSuppressLocalTxBadge(deskRole);
+    if (settingsDlg_)
+        settingsDlg_->setRemoteDesk(deskRole);
+    if (deskMenuShown_ != deskRole) {
+        deskMenuShown_ = deskRole;
+        rebuildRigMenu();
     }
 }
 

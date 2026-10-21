@@ -2945,6 +2945,23 @@ int WdspEngine::copyHostSpectrumForDesk(float *dst, int maxN, int *spanHz)
     return n;
 }
 
+int WdspEngine::copyRx2SpectrumCache(float *dst, int maxN, int *spanHz)
+{
+    if (!dst || !spanHz) return 0;
+    *spanHz = inRateAtomic_.load(std::memory_order_relaxed);
+    const int n = std::min(maxN, kAnPixels);
+    if (n <= 0 || *spanHz <= 0) return 0;
+    std::unique_lock<std::mutex> lk(analyzerMtx_, std::try_to_lock);
+    if (!lk.owns_lock() || static_cast<int>(specCacheRx2_.size()) < n)
+        return 0;
+    std::memcpy(dst, specCacheRx2_.data(), static_cast<size_t>(n) * sizeof(float));
+    const float cal = static_cast<float>(
+        rxDisplayCalibrationDb_.load(std::memory_order_relaxed));
+    if (cal != 0.0f)
+        for (int i = 0; i < n; ++i) dst[i] += cal;
+    return n;
+}
+
 int WdspEngine::copySpectrumCache(float *dst, int maxN)
 {
     if (!dst) return 0;
@@ -2975,6 +2992,66 @@ void WdspEngine::postDeskSpectrum(const float *db, int n, int fullSpanHz)
         std::chrono::steady_clock::now().time_since_epoch()).count(),
         std::memory_order_relaxed);
     if (prev != fullSpanHz) emit spanChanged();
+}
+
+void WdspEngine::postDeskSpectrumRx2(const float *db, int n, int fullSpanHz)
+{
+    if (!db || n < 2 || fullSpanHz <= 0) return;
+    {
+        std::lock_guard<std::mutex> lk(deskSpecMtx_);
+        deskSpecRx2_.assign(db, db + n);
+        if (static_cast<int>(deskSpecRx2_.size()) < kAnPixels)
+            deskSpecRx2_.resize(kAnPixels, -200.0f);
+    }
+    const int prev = deskRx2Span_.exchange(fullSpanHz, std::memory_order_relaxed);
+    deskRx2Ms_.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count(),
+        std::memory_order_relaxed);
+    if (prev != fullSpanHz) emit spanChanged();
+}
+
+void WdspEngine::clearDeskSpectrumRx2()
+{
+    {
+        std::lock_guard<std::mutex> lk(deskSpecMtx_);
+        deskSpecRx2_.clear();
+    }
+    const int prev = deskRx2Span_.exchange(0, std::memory_order_relaxed);
+    deskRx2Ms_.store(0, std::memory_order_relaxed);
+    if (prev != 0) emit spanChanged();
+}
+
+void WdspEngine::feedRemoteCwAudio(const qint16 *pcm, int nframes)
+{
+    // openRx1() sets running_ at startup even when this PC has no radio.
+    // Gating on that flag dropped every desk block, so Classic and DeepFast
+    // stayed on the local tap — which never receives IQ here — while the
+    // panel still showed Decoding. These samples are the host's post-demod
+    // receiver audio (the CW tone), the same mono the laptop speaker plays,
+    // taken before the desk volume slider. 48 kHz int16, matching the
+    // speaker and cfg_.outRate. The engines want float near -1..1.
+    if (!pcm || nframes <= 0) return;
+    remoteCwAudioMs_.store(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count(),
+        std::memory_order_relaxed);
+    if (!cwDecodeOn_.load(std::memory_order_relaxed)
+        || !cwModeActive_.load(std::memory_order_relaxed))
+        return;
+    if (static_cast<int>(remoteCwMono_.size()) != nframes)
+        remoteCwMono_.assign(static_cast<size_t>(nframes), 0.0f);
+    for (int i = 0; i < nframes; ++i)
+        remoteCwMono_[static_cast<size_t>(i)] =
+            static_cast<float>(pcm[i]) * (1.0f / 32768.0f);
+    const int eng = cwEngine_.load(std::memory_order_relaxed);
+    if (eng == 2) {
+        cwDecoder_.process(remoteCwMono_.data(), nframes);
+        neuralCw_.process(remoteCwMono_.data(), nframes);
+    } else if (eng == 1) {
+        neuralCw_.process(remoteCwMono_.data(), nframes);
+    } else {
+        cwDecoder_.process(remoteCwMono_.data(), nframes);
+    }
 }
 
 int WdspEngine::copySpectrum(float *dst, int maxN)
@@ -3059,13 +3136,23 @@ int WdspEngine::copySpectrum(float *dst, int maxN)
 
 int WdspEngine::copySpectrumRx2(float *dst, int maxN)
 {
-    // A desk session only has the host's main picture. Focusing the
-    // second receiver must not blank that panadapter.
+    // Desk: the second pane shows the host's RX2 picture only. A fresh
+    // main picture is not a stand-in for that receiver.
     const qint64 specNow = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
-    if (deskFullSpan_.load(std::memory_order_relaxed) > 0
-        && (specNow - deskSpecMs_.load(std::memory_order_relaxed)) < 500)
-        return copySpectrum(dst, maxN);
+    const bool deskMain = deskFullSpan_.load(std::memory_order_relaxed) > 0
+        && (specNow - deskSpecMs_.load(std::memory_order_relaxed)) < 500;
+    const bool deskRx2 = deskRx2Span_.load(std::memory_order_relaxed) > 0
+        && (specNow - deskRx2Ms_.load(std::memory_order_relaxed)) < 500;
+    if (deskMain || deskRx2) {
+        if (!dst || !deskRx2) return 0;
+        std::lock_guard<std::mutex> lk(deskSpecMtx_);
+        if (static_cast<int>(deskSpecRx2_.size()) < kAnPixels) return 0;
+        const int n = std::min(maxN, kAnPixels);
+        std::memcpy(dst, deskSpecRx2_.data(),
+                    static_cast<size_t>(n) * sizeof(float));
+        return n;
+    }
     // Full converter span. No zoom crop and no tune-carrier shift —
     // those belong to the first receiver's panadapter.
     if (!dst || !wdsp_)
@@ -5036,7 +5123,18 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
     // RX audio, taken BEFORE the RX-EQ block below repoints `audio` — so a
     // user's CW-mode EQ curve can't distort the decode.  Gated to CW mode +
     // operator enable; when off this is one relaxed bool read (zero impact).
-    if (cwDecodeOn_.load(std::memory_order_relaxed) &&
+    // A desk with no local radio still has this channel open. While host
+    // audio is arriving, that feed owns the decoders — this local block
+    // would otherwise be silence.
+    bool remoteCwLive = false;
+    if (const qint64 remoteCwMs =
+            remoteCwAudioMs_.load(std::memory_order_relaxed)) {
+        const qint64 nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        remoteCwLive = (nowMs - remoteCwMs) < 1000;
+    }
+    if (!remoteCwLive &&
+        cwDecodeOn_.load(std::memory_order_relaxed) &&
         cwModeActive_.load(std::memory_order_relaxed) && nframes > 0) {
         if (static_cast<int>(cwMonoBuf_.size()) != nframes)
             cwMonoBuf_.assign(static_cast<size_t>(nframes), 0.0f);

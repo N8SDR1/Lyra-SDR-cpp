@@ -374,6 +374,9 @@ private:
     bool                        layoutRestoring_ = false;    // guard our own restoreState
     QAction                    *startStopAction_ = nullptr;   // header Start/Stop
     QToolButton                *startStopBtn_ = nullptr;      // its backing button (green/red)
+    QToolButton                *freqCalBtn_ = nullptr;        // hidden while this Lyra is the desk
+    bool                        deskMenuShown_ = false;       // Rig menu rebuilt on role change
+    bool                        deskCwLatched_ = false;        // host is holding a desk CW edge
     QLabel                     *connStatus_ = nullptr;        // header conn status
     QLabel                     *tciStatus_  = nullptr;        // header TCI client indicator
     QLabel                     *spottedBadge_ = nullptr;      // "you've been spotted" header badge
