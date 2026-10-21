@@ -36,8 +36,16 @@ not programmers — if you can click a menu, you can use this.
   writer, not the radio session thread. Aimed at the occasional
   “keyed, relay clicks, no RF” stall after a long digital session.
   Dummy-load first key on Brick after install.
-- **Lyra to Lyra** from 0.25.23 is still in this build. Both PCs need
-  the same version. If that beta is not for you, reinstall **v0.25.22**.
+- **Lyra to Lyra.** The desk shows the host's second-receiver picture
+  and plays that audio when **SUB** is on and the radio has its own
+  second converter. A single-converter **SUB** sends the audio and no
+  second picture. CW from the desk follows the host pitch. On a
+  Protocol 2 Brick, **Send** holds transmit for the message and puts
+  a carrier on the air for each element. While the host is in CW,
+  **Start voice**, the key, **MOX**, **Tune**, and **2-tone** stay off
+  at 150 ms or more. Outside CW, voice, **MOX**, **Tune**, and
+  **2-tone** stay off at 200 ms or more. Both PCs need this version.
+  If that beta is not for you, reinstall **v0.25.22**.
 
 ## What's new in 0.25.23
 
@@ -5494,8 +5502,8 @@ panel stays live. Host unkey, TX inhibit, and TX timeout win. The
 host can **Drop desk**.
 
 On the laptop, the header reads **Host rig**, the MagicDNS name, and
-the rig label. Toolbar **Start** stays disabled while this computer
-is attached as the desk. The laptop leaves **Discover** and
+the rig label. Local **Start** is hidden while this computer is
+attached as the desk. The laptop leaves **Discover** and
 **Add-by-IP** alone, and it sends no UDP to the radio.
 
 #### Tailscale
@@ -5589,13 +5597,30 @@ host's second receiver, not a copy of the main one. A
 single-converter SUB still sends the second receiver's audio and
 does not send a second picture.
 
-In CW, the decoder on the desk reads the host receiver audio this
-computer is already playing. Focus on the second receiver and it
-reads that receiver. A straight key, the serial key line, and the
-CW macros on the desk tell the host to key. The host transmits.
-Sidetone plays on the desk. The round trip must stay under 150 ms or
-the key stays off. Listening stays up. **Start voice** and the
-password are unchanged, and one desk is the transmit owner.
+While attached, the desk follows the host mode. The key stays off
+unless the host is in CW. The host sends its CW pitch. The desk
+applies that pitch to the VFO, the marker, and the passband, so both
+show the same carrier.
+
+A straight key, the serial key line, CW chip **Send**, and the CW
+macros tell the host to key. **Start voice** is required first.
+Without it the desk says *Start voice before the key.* Sidetone
+plays on the desk. The password is unchanged, and one desk is the
+transmit owner.
+
+On a Protocol 2 Brick, **Send** holds transmit for the whole message
+and puts a carrier on the air for each element. Power is the
+**Drive** slider. The **Tune** button stays off.
+
+The decoder prints from the host audio the laptop is already playing.
+Focus on the second receiver and it reads that receiver.
+
+While the host is in CW, **Start voice**, the key, **MOX**, **Tune**,
+and **2-tone** stay off at 150 ms or more. Outside CW, voice,
+**MOX**, **Tune**, and **2-tone** stay off at 200 ms or more.
+Listening stays up. The **CW** lamp is under 150 ms. The **Voice**
+lamp is under 200 ms. A lit **Voice** lamp does not allow those
+controls while the host is in CW and the ping is 150 ms or more.
 
 S-meter, forward power, and SWR come from the host.
 
@@ -5661,11 +5686,14 @@ number that matters is the shack's **upload** and the laptop's
   trip under 100 ms. That holds the 60 Hz picture and the receiver
   audio.
 - **Under 25 Mbps** is not supported. A phone tether sits under
-  that floor. CW transmit wants a round trip under 150 ms. Other
-  transmit wants under 200 ms. Listening continues above that. A
+  that floor. While the host is in CW, **Start voice**, the key,
+  **MOX**, **Tune**, and **2-tone** stay off at 150 ms or more.
+  Outside CW, voice, **MOX**, **Tune**, and **2-tone** stay off at
+  200 ms or more. Listening continues above that. A
   silent link unkeys in about 300 ms. The desk shows a short
   peak-held ping and **RX**, **CW**, and **Voice** lamps for the
-  latest ping.
+  latest ping. The **CW** lamp is under 150 ms. The **Voice** lamp
+  is under 200 ms.
 
 Lyra watches the round trip and whether the picture is arriving
 whole.
