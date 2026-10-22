@@ -4,6 +4,12 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-22 — v0.25.26 Sheliak RELEASED
+
+Layouts (GitHub #20) + Snap VFO wheel to Step + laptop Tuning logo.
+Installer `dist/Lyra-Setup-0.25.26.exe`. Tag `v0.25.26`. Do not merge
+`main`.
+
 ## 2026-10-22 — Recall test1 left Profiles/Display open
 
 Qt restoreState does not hide docks that are already visible. Save

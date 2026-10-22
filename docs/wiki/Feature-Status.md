@@ -1,19 +1,21 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.25 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.26 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.25** adds desk RX2 and CW to Lyra-to-Lyra
-([User Guide → Lyra to Lyra](User-Guide#lyra-to-lyra)).
-**v0.25.24 Sheliak** is the previous public build.
+**v0.25.26** keeps factory and named layouts across a restart (GitHub #20)
+and adds **Snap VFO wheel to Step** (Settings → Hardware → Navigation,
+default off).
+**v0.25.25 Sheliak** is the previous public build.
 **v0.25.22** remains the return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.25)
+### Last several builds (0.25.16 → 0.25.26)
 
 | Build | What landed |
 |---|---|
+| **0.25.26** | **Layouts (GitHub #20).** Factory recall survives restart until you move a panel; named slots remember open docks. **Snap VFO wheel to Step** (Settings → Hardware → Navigation, default off). Laptop Tuning logo matches the VFO boxes. **v0.25.22** remains the return point |
 | **0.25.25** | **Lyra to Lyra: desk RX2 and CW.** Second-receiver picture and audio when the host SUB is on and the radio has a second converter. CW decoder, host pitch on the desk, and CW chip Send that makes RF on a Protocol 2 Brick. In CW, transmit stays off at 150 ms or more. Outside CW, voice, MOX, Tune, and 2-tone stay off at 200 ms or more. Away picture stays about 60 Hz. **v0.25.22** remains the return point |
 | **0.25.24** | HL2 **RF1 / Alt RX** per Xvtr (and ham) chip — I2C 0x1D register 11; GPA100 analog BYTE0–4 unchanged. Protocol 2 **DUC-IQ** on its own native pump (keyed / no-RF after a long session). Lyra-to-Lyra from 0.25.23 stays in the tree |
 | **0.25.23** | **Beta of Lyra-to-Lyra.** Second Lyra on the laptop; shack stays on the radio. [User Guide → Lyra to Lyra](User-Guide#lyra-to-lyra). **v0.25.22** remains the return point |

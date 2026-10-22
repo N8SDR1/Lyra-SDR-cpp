@@ -22,7 +22,26 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.25 Sheliak.** See [What's new in 0.25.25](#whats-new-in-02525).
+**v0.25.26 Sheliak.** See [What's new in 0.25.26](#whats-new-in-02526).
+
+## What's new in 0.25.26
+
+- **Layouts (GitHub #20).** Recalling **Lyra default (factory)** now
+  survives a restart until you move a panel. Named slots remember which
+  docks were open (Profiles / Display stay closed if you closed them).
+  Uninstall does **not** wipe layout: `%APPDATA%\N8SDR\Lyra-cpp` and
+  `HKCU\Software\N8SDR\Lyra-cpp`. After install: Recall factory, close,
+  reopen. `--safe` starts factory without touching the saved slot.
+  See [Getting around the window](#getting-around-the-window).
+- **Snap VFO wheel to Step** — **Settings → Hardware → Navigation**,
+  default **off**. First wheel notch lands on the step grid in that
+  direction. LED and USB encoder use Tuning **Step**; panadapter wheel
+  uses **Panafall** step. Digit-place wheel and click are unchanged.
+  See [Tuning](#tuning) and [Navigation](#navigation-usb-encoder--hid-wheel).
+- **Laptop Tuning row.** The Lyra logo matches the VFO boxes so SPLIT /
+  RIT sit fully on a short dock.
+- **v0.25.25 Sheliak** remains the previous public build. If this cut
+  misbehaves, reinstall **v0.25.22**. Settings stay.
 
 ## What's new in 0.25.25
 
@@ -417,6 +436,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.26](#whats-new-in-02526)
 - [What's new in 0.25.25](#whats-new-in-02525)
 - [What's new in 0.25.24](#whats-new-in-02524)
 - [What's new in 0.25.23](#whats-new-in-02523)
@@ -1175,13 +1195,21 @@ FM (repeaters); leave RPT alone if you are not on FM.
   12.5 kHz** (default **1 kHz**). The last step is remembered **per
   mode** (FM vs USB vs …) and separately for RX2. **6.25 / 8.33 / 12.5 kHz**
   are land-mobile and airband channel spacings.
-- **Snap VFO wheel to Step (sticky)** — **Settings → Hardware →
-  Navigation** (default off). Wheel on the LED (not over a digit), the
-  panadapter, or a USB encoder **snaps to the Step grid** in the wheel
-  direction, then steps. `14.228.200` at 500 Hz → `14.228.500` (up) or
-  `14.228.000` (down). Off = add the step from wherever you are
-  (`14.228.700`). Wheel over a **digit** always steps that place.
-  Panadapter **click** still uses **Exact / 100 Hz** on the Display panel.
+- **Snap VFO wheel to Step** — **Settings → Hardware → Navigation**,
+  default **off**. When on, the **first** wheel notch lands **on the
+  grid**, in the direction you rolled, then further notches step.
+  Example, Tuning **Step = 500 Hz**, dial `14.228.200`:
+  - wheel **up** → `14.228.500`
+  - wheel **down** → `14.228.000`
+  Off (today's habit) **adds** the step from wherever you are →
+  `14.228.700`.
+  - **VFO LED** (not over a digit) and a **USB encoder** use the Tuning
+    **Step**.
+  - **Panadapter wheel** uses the Display **Panafall** step (that is
+    already the pan wheel's step).
+  - Wheel **on a digit** still moves that place only.
+  - Panadapter **click** still uses **Exact / 100 Hz** on the Display
+    panel. SPLIT is radio state, not this checkbox.
 - **Mode** — under the VFO: **LSB, USB, CWL, CWU, DSB, AM, FM, DIGU,
   DIGL**. (Mode lives with the VFO it applies to — moved here from the
   old Mode + Filter panel.) **PureSignal** only runs in phone/AM-class
@@ -4128,10 +4156,14 @@ Windows only. For a USB knob that shows up as a **HID mouse** (the same
 class as Setup → Navigation Raw Input in other HPSDR apps). This is **not**
 MIDI — a MIDI surface uses a [sidecar](#midi-controllers-sidecar).
 
-- **Snap VFO wheel to Step (sticky)** — default off. LED / panadapter /
-  USB-encoder wheel snaps to the Tuning **Step** grid in the wheel
-  direction (`14.228.200` at 500 Hz → `14.228.500` or `14.228.000`).
-  Digit-place wheel on the LED is unchanged.
+- **Snap VFO wheel to Step** — default **off**. First notch lands on the
+  grid in that direction, then steps. `14.228.200` at 500 Hz →
+  `14.228.500` (up) or `14.228.000` (down). Off = add the step
+  (`14.228.700`).
+  - **LED** (blank of a digit) and **USB encoder** → Tuning **Step**.
+  - **Panadapter wheel** → **Panafall** step.
+  - Wheel over a **digit** always steps that place. Click still uses
+    Exact / 100 Hz.
 - **USB encoder / HID mouse wheel tunes the VFO** — master enable (off
   until you pick a device).
 - Device list — every attached HID mouse. Pick the knob, not your

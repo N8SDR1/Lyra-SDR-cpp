@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.25 Sheliak** — Lyra to Lyra desk RX2 and CW, on top of v0.25.24 Sheliak (HL2 **RF1 / Alt RX** and the Protocol 2 TX clock split). v0.25.22 remains the return point. WDSP 2.10 from 0.25.8.
+**v0.25.26 Sheliak** — factory and named layouts stick (GitHub #20); optional Snap VFO wheel to Step. On top of v0.25.25 (Lyra to Lyra desk RX2 and CW). v0.25.22 remains the return point. WDSP 2.10 from 0.25.8.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
 
