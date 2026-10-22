@@ -600,7 +600,8 @@ Item {
                 }
                 onWheel: (wheel) => {
                     var dir = wheel.angleDelta.y > 0 ? 1 : -1
-                    root.setCarrierHz(root.carrierHz + dir * Prefs.panScrollStepHz)
+                    root.setCarrierHz(root.snapCarrier(Prefs.nextWheelHz(
+                        Math.round(root.carrierHz), Prefs.panScrollStepHz, dir)))
                     wheel.accepted = true
                 }
             }
@@ -691,7 +692,8 @@ Item {
                 }
                 onWheel: (wheel) => {
                     var dir = wheel.angleDelta.y > 0 ? 1 : -1
-                    root.setCarrierHz(root.carrierHz + dir * Prefs.panScrollStepHz)
+                    root.setCarrierHz(root.snapCarrier(Prefs.nextWheelHz(
+                        Math.round(root.carrierHz), Prefs.panScrollStepHz, dir)))
                     wheel.accepted = true
                 }
             }

@@ -321,8 +321,8 @@ Rectangle {
         anchors.leftMargin: 12
         anchors.rightMargin: 12
         anchors.topMargin: 6
-        anchors.bottomMargin: 10
-        spacing: 14
+        anchors.bottomMargin: 6
+        spacing: 8
 
         // ── VFO row: [VFO-A cluster + its Step/Mode]  [big logo]  [VFO-B] ──
         // Per-VFO Step+Mode sit DIRECTLY under each VFO (old-Lyra idiom);
@@ -427,6 +427,7 @@ Rectangle {
                             // VFO (carrier) = DDS + CW marker offset.
                             freqHz: root.centerHz + WdspEngine.markerOffsetHz
                             externalStepHz: stepCombo.stepVals[stepCombo.currentIndex]
+                            stickyWheel: Prefs.vfoStickyWheel
                             // Tune: convert carrier back to the DDS wire freq.
                             onFreqEdited: (hz) =>
                                 Stream.setRx1FreqHz(hz - WdspEngine.markerOffsetHz)
@@ -630,15 +631,18 @@ Rectangle {
                 // It only disappears entirely when the panel is too narrow for
                 // it to mean anything.
                 visible: root.width >= 760
-                Layout.preferredWidth: visible ? 132 : 0
-                Layout.preferredHeight: 132
+                // Match the 108px VFO boxes.  At 132 the logo was the
+                // row's height floor and the SPLIT/RIT row clipped on a
+                // laptop-height Tuning dock.
+                Layout.preferredWidth: visible ? 108 : 0
+                Layout.preferredHeight: 108
                 Layout.minimumWidth: 0
-                Layout.maximumWidth: visible ? 140 : 0
-                Layout.maximumHeight: 140
+                Layout.maximumWidth: visible ? 108 : 0
+                Layout.maximumHeight: 108
                 Layout.alignment: Qt.AlignVCenter
                 fillMode: Image.PreserveAspectFit
-                sourceSize.width: 140
-                sourceSize.height: 140
+                sourceSize.width: 108
+                sourceSize.height: 108
                 smooth: true
                 mipmap: true
             }
@@ -746,6 +750,7 @@ Rectangle {
                                 // applied at push), so show/tune it directly.
                                 freqHz: root.displayBHz
                                 externalStepHz: stepComboB.stepVals[stepComboB.currentIndex]
+                                stickyWheel: Prefs.vfoStickyWheel
                                 onFreqEdited: (hz) => root.commitBCarrier(hz)
                                 onEditRequested: {
                                     editFieldB.text = (ledB.freqHz / 1.0e6).toFixed(6)
@@ -833,6 +838,7 @@ Rectangle {
         // feature (RIT, repeaters), never as a dead widget.
         RowLayout {
             Layout.fillWidth: true
+            Layout.minimumHeight: 26
             spacing: 8
 
             Item { Layout.fillWidth: true }   // centre the action controls

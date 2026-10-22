@@ -120,6 +120,7 @@
 #include <QStatusBar>
 #include <QToolButton>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QDesktopServices>
 #include <QPushButton>
@@ -250,6 +251,44 @@ inline bool isChipSummonedPanel(const QString &objectName) {
         || objectName == QLatin1String("ps")
         || objectName == QLatin1String("ampview")
         || objectName == QLatin1String("diversity");
+}
+
+// Qt restoreState() will not *hide* a dock that is already visible
+// (QTBUG-44935). Named-slot recall from factory therefore left
+// Profiles / Display open even though the saved slot had closed them.
+QVariantMap captureMainDockVis(
+        const QHash<QString, QDockWidget *> &docks) {
+    QVariantMap m;
+    for (auto it = docks.cbegin(); it != docks.cend(); ++it) {
+        QDockWidget *d = it.value();
+        if (!d || isChipSummonedPanel(it.key()))
+            continue;
+        m.insert(it.key(), d->isVisible());
+    }
+    return m;
+}
+
+void hideMainDocksForRestore(const QHash<QString, QDockWidget *> &docks) {
+    for (auto it = docks.cbegin(); it != docks.cend(); ++it) {
+        QDockWidget *d = it.value();
+        if (!d || isChipSummonedPanel(it.key()))
+            continue;
+        d->hide();
+    }
+}
+
+void applyMainDockVis(const QHash<QString, QDockWidget *> &docks,
+                      const QVariantMap &vis) {
+    if (vis.isEmpty())
+        return;
+    for (auto it = vis.cbegin(); it != vis.cend(); ++it) {
+        if (isChipSummonedPanel(it.key()))
+            continue;
+        QDockWidget *d = docks.value(it.key());
+        if (!d)
+            continue;
+        d->setVisible(it.value().toBool());
+    }
 }
 
 // Diagnostic: LYRA_TEST_SIZE=WxH opens the window at exactly that LOGICAL size.
@@ -2254,6 +2293,23 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     buildToolbar();
     qInfo("[startup] restoring layout");
     restoreLayout();   // geometry + dock state + lock state
+    // QML min-heights land after show.  Keep restore/factory quiet until
+    // then so 0.25.20 float-memory and layout-undo do not treat load as
+    // an operator drag (GitHub #20).
+    connect(this, &MainWindow::docksReady, this, [this]() {
+        QTimer::singleShot(500, this, [this]() {
+            if (layoutUseFactory_)
+                layoutCurrent_ = saveState();
+            layoutRestoring_ = false;
+        });
+    });
+    QTimer::singleShot(4000, this, [this]() {
+        if (!layoutRestoring_)
+            return;
+        if (layoutUseFactory_)
+            layoutCurrent_ = saveState();
+        layoutRestoring_ = false;
+    });
     if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
         connect(st, &lyra::ipc::HL2Stream::subEnabledChanged,
                 this, &MainWindow::syncRx2Pan);
@@ -2585,16 +2641,23 @@ void MainWindow::showEvent(QShowEvent *event) {
     QMainWindow::showEvent(event);
     if (quickSourcesPending_)
         QTimer::singleShot(0, this, &MainWindow::loadDeferredQuickSources);
-    // 1 Hz GUI-thread heartbeat in lyra-log.txt.  If the UI freezes,
-    // copy the log while it is stuck: last `[hb] gui` is when the
-    // event loop last ran; later lines from other threads still flush.
+    // 1 Hz GUI-thread heartbeat.  Healthy ticks stay silent so the
+    // operator log is not a WARN every second.  If a tick is late,
+    // `[hb] gui stall N ms` is the gap; copy the log while frozen —
+    // later lines from other threads still flush.
     static bool hbArmed = false;
     if (!hbArmed) {
         hbArmed = true;
         auto *hb = new QTimer(this);
         hb->setInterval(1000);
-        connect(hb, &QTimer::timeout, this, [] {
-            qWarning("[hb] gui");
+        connect(hb, &QTimer::timeout, this, [last = QElapsedTimer()]() mutable {
+            if (!last.isValid()) {
+                last.start();
+                return;
+            }
+            const qint64 ms = last.restart();
+            if (ms >= 1500)
+                qWarning("[hb] gui stall %lld ms", static_cast<long long>(ms));
         });
         hb->start();
     }
@@ -5275,6 +5338,17 @@ void MainWindow::fitWindowToScreen() {
           avail.width(), avail.height());
 }
 
+void MainWindow::setLayoutUseFactory(bool on) {
+    if (testWindowSize().isValid() || safeBootLayout())
+        return;
+    layoutUseFactory_ = on;
+    QSettings s;
+    const QString p = layoutSlotPrefix();
+    s.setValue(p + QStringLiteral("useFactory"), on);
+    if (on)
+        s.remove(p + QStringLiteral("windowState"));
+}
+
 void MainWindow::saveLayout() {
     if (testWindowSize().isValid()) return;   // diagnostic run — see testWindowSize()
     if (safeBootLayout()) return;             // safe boot is READ-ONLY — see safeBootLayout()
@@ -5289,9 +5363,20 @@ void MainWindow::saveLayout() {
     // window, so main-window saveState() naturally omits them; each rack
     // persists its own geometry/state separately.
     s.setValue(p + QStringLiteral("geometry"), saveGeometry());
-    s.setValue(p + QStringLiteral("windowState"), saveState());
     if (prefs_)
         s.setValue(p + QStringLiteral("panadapterSplit"), prefs_->panadapterSplit());
+    // Factory is rebuilt on launch, not photographed.  Writing saveState()
+    // here was GitHub #20: Recall factory looked fine, close saved a bad
+    // blob, restart restored the corruption.
+    if (layoutUseFactory_) {
+        s.setValue(p + QStringLiteral("useFactory"), true);
+        s.remove(p + QStringLiteral("windowState"));
+        s.remove(p + QStringLiteral("dockVis"));
+    } else {
+        s.setValue(p + QStringLiteral("useFactory"), false);
+        s.setValue(p + QStringLiteral("windowState"), saveState());
+        s.setValue(p + QStringLiteral("dockVis"), captureMainDockVis(docks_));
+    }
     saveLayoutUndoStack();
 }
 
@@ -5362,6 +5447,7 @@ void MainWindow::restoreLayout() {
               qUtf8Printable(layoutSlotKey()));
     }
 
+    layoutRestoring_ = true;
     const QByteArray geo = s.value(p + QStringLiteral("geometry")).toByteArray();
     if (!geo.isEmpty()) {
         restoreGeometry(geo);   // includes the maximized/normal flag
@@ -5372,17 +5458,23 @@ void MainWindow::restoreLayout() {
         // maximize and close, saveGeometry() persists it for THIS setup.
         setWindowState(windowState() | Qt::WindowMaximized);
     }
+    const bool wantFactory =
+        s.value(p + QStringLiteral("useFactory"), false).toBool();
     const QByteArray st = s.value(p + QStringLiteral("windowState")).toByteArray();
-    if (!st.isEmpty()) {
-        restoreState(st);
-        layoutSource_ = QStringLiteral("restored slot '%1'").arg(layoutSlotKey());
-    } else {
-        // No session for this display setup: come up in the factory layout
-        // rather than the raw dock-creation order.  Built, not restored from a
-        // snapshot — see applyDefaultLayout().
+    if (wantFactory || st.isEmpty()) {
+        // Rebuild factory (GitHub #20).  Do not restoreState a photograph
+        // of factory — that blob is what scrambled laptops after restart.
         applyDefaultLayout();
-        layoutSource_ = QStringLiteral("FACTORY (slot '%1' was empty)")
-                            .arg(layoutSlotKey());
+        layoutSource_ = wantFactory
+            ? QStringLiteral("FACTORY (sticky, slot '%1')").arg(layoutSlotKey())
+            : QStringLiteral("FACTORY (slot '%1' was empty)").arg(layoutSlotKey());
+    } else {
+        hideMainDocksForRestore(docks_);
+        restoreState(st);
+        applyMainDockVis(docks_,
+                         s.value(p + QStringLiteral("dockVis")).toMap());
+        layoutUseFactory_ = false;
+        layoutSource_ = QStringLiteral("restored slot '%1'").arg(layoutSlotKey());
     }
     qInfo("[layout] %s", qUtf8Printable(layoutSource_));
     // The panadapter/waterfall divider lives inside the panadapter dock's QML,
@@ -5411,6 +5503,7 @@ void MainWindow::saveUserLayout() {
     QSettings s;
     s.setValue(QStringLiteral("ui/userGeometry"), saveGeometry());
     s.setValue(QStringLiteral("ui/userWindowState"), saveState());
+    s.setValue(QStringLiteral("ui/userDockVis"), captureMainDockVis(docks_));
     // The panadapter/waterfall divider isn't part of saveState() — it's
     // a QML SplitView inside the dock — so snapshot it alongside.
     if (prefs_) {
@@ -5437,25 +5530,8 @@ void MainWindow::restoreUserLayout() {
                "default\"."));
         return;
     }
-    const QByteArray geo =
-        s.value(QStringLiteral("ui/userGeometry")).toByteArray();
-    if (!geo.isEmpty()) {
-        restoreGeometry(geo);
-        fitWindowToScreen();   // saved on a bigger screen? don't go off-desktop
-    }
-    restoreState(st);
-    // Trust restoreState() for each dock's saved visibility — do NOT force-show
-    // (that re-opened panels the operator had closed when saving this layout;
-    // see #189).
-    // Re-apply the saved divider position (QML re-applies on the
-    // panadapterSplit change).
-    if (prefs_) {
-        const QVariant sp =
-            s.value(QStringLiteral("ui/userPanadapterSplit"));
-        if (sp.isValid()) {
-            prefs_->setPanadapterSplit(sp);
-        }
-    }
+    applyLiveDockState(st, s.value(QStringLiteral("ui/userPanadapterSplit")),
+                       s.value(QStringLiteral("ui/userDockVis")).toMap());
 }
 
 // The machine-specific-key filter + the export/restore engine now live in
@@ -5609,21 +5685,11 @@ void MainWindow::importLayoutFromFile() {
         != QMessageBox::Yes)
         return;
 
-    if (!restoreState(st)) {
-        QMessageBox::warning(this, tr("Import failed"),
-            tr("Lyra couldn't apply that layout (it may be from a much "
-               "newer or older version)."));
-        return;
-    }
-    if (prefs_) {
-        const QJsonValue sp = o.value(QStringLiteral("panadapterSplit"));
-        if (!sp.isUndefined() && !sp.isNull())
-            prefs_->setPanadapterSplit(sp.toVariant());
-    }
-    // Re-apply the current lock state to the restored arrangement + persist,
-    // exactly as recallNamedLayout() does.
-    applyPanelLock(
-        QSettings().value(QStringLiteral("ui/panelsLocked"), false).toBool());
+    QVariant split;
+    const QJsonValue spv = o.value(QStringLiteral("panadapterSplit"));
+    if (!spv.isUndefined() && !spv.isNull())
+        split = spv.toVariant();
+    applyLiveDockState(st, split);
     flushLayoutToSettings();
     QMessageBox::information(this, tr("Layout applied"),
         tr("Now using the layout \"%1\".\n\nTo keep it in a slot for quick "
@@ -5657,20 +5723,44 @@ void MainWindow::refreshLayoutMenus() {
     refreshLayoutUndoAction();
 }
 
-void MainWindow::applyDockLayout(const QByteArray &geo, const QByteArray &st,
-                                const QVariant &split, bool persistSession) {
+void MainWindow::applyLiveDockState(const QByteArray &st, const QVariant &split,
+                                   const QVariantMap &dockVis) {
     layoutRestoring_ = true;
-    if (!geo.isEmpty()) {
-        restoreGeometry(geo);
-        fitWindowToScreen();
-    }
-    if (!st.isEmpty())
-        restoreState(st);
+    if (layoutSnapTimer_)
+        layoutSnapTimer_->stop();
+    // restoreGeometry() on a visible window crushes docks. restoreState()
+    // will not hide a dock that is already open (QTBUG-44935) — that is
+    // why Recall test1 left Profiles/Display up after factory. Hide the
+    // main docks first, restore the blob, then apply the saved vis map.
+    hideMainDocksForRestore(docks_);
+    if (!restoreState(st))
+        qWarning("[layout] restoreState rejected the saved dock blob");
+    applyMainDockVis(docks_, dockVis);
     if (prefs_ && split.isValid())
         prefs_->setPanadapterSplit(split);
     applyPanelLock(
         QSettings().value(QStringLiteral("ui/panelsLocked"), false).toBool());
-    QTimer::singleShot(0, this, [this, persistSession]() {
+    setLayoutUseFactory(false);
+    layoutCurrent_ = saveState();
+    QTimer::singleShot(600, this, [this]() { layoutRestoring_ = false; });
+}
+
+void MainWindow::applyDockLayout(const QByteArray &geo, const QByteArray &st,
+                                const QVariant &split, bool persistSession) {
+    layoutRestoring_ = true;
+    if (!geo.isEmpty() && !isVisible()) {
+        restoreGeometry(geo);
+        fitWindowToScreen();
+    }
+    if (!st.isEmpty()) {
+        hideMainDocksForRestore(docks_);
+        restoreState(st);
+    }
+    if (prefs_ && split.isValid())
+        prefs_->setPanadapterSplit(split);
+    applyPanelLock(
+        QSettings().value(QStringLiteral("ui/panelsLocked"), false).toBool());
+    QTimer::singleShot(600, this, [this, persistSession]() {
         layoutRestoring_ = false;
         if (persistSession)
             saveLayout();
@@ -5823,6 +5913,12 @@ void MainWindow::hideRx2ReturningHeight(QDockWidget *rx2) {
 
 void MainWindow::saveNamedLayout(int slot) {
     if (testWindowSize().isValid() || safeBootLayout()) return refuseLayoutWrite();
+    // Photograph BEFORE the name dialog. Closing that dialog must not
+    // be what we save.
+    const QByteArray geo = saveGeometry();
+    const QByteArray st = saveState();
+    const QVariantMap vis = captureMainDockVis(docks_);
+    const QVariant split = prefs_ ? prefs_->panadapterSplit() : QVariant();
     QSettings s;
     const QString base = QStringLiteral("layouts/%1/").arg(slot);
     QString cur = s.value(base + QStringLiteral("name")).toString();
@@ -5834,13 +5930,12 @@ void MainWindow::saveNamedLayout(int slot) {
     if (!ok) return;
     if (name.isEmpty()) name = tr("Layout %1").arg(slot);
     s.setValue(base + QStringLiteral("name"), name);
-    s.setValue(base + QStringLiteral("geometry"), saveGeometry());
-    s.setValue(base + QStringLiteral("windowState"), saveState());
-    // The panadapter/waterfall divider is a QML SplitView inside the dock —
-    // not part of saveState() — so snapshot it alongside.
-    if (prefs_)
-        s.setValue(base + QStringLiteral("panadapterSplit"),
-                   prefs_->panadapterSplit());
+    s.setValue(base + QStringLiteral("geometry"), geo);
+    s.setValue(base + QStringLiteral("windowState"), st);
+    s.setValue(base + QStringLiteral("dockVis"), vis);
+    if (split.isValid())
+        s.setValue(base + QStringLiteral("panadapterSplit"), split);
+    setLayoutUseFactory(false);
     statusBar()->showMessage(
         tr("Saved layout \"%1\" to slot %2.").arg(name).arg(slot), 4000);
 }
@@ -5858,30 +5953,13 @@ void MainWindow::recallNamedLayout(int slot) {
                 .arg(slot));
         return;
     }
-    const QByteArray geo =
-        s.value(base + QStringLiteral("geometry")).toByteArray();
-    if (!geo.isEmpty()) {
-        restoreGeometry(geo);
-        fitWindowToScreen();   // saved on a bigger screen? don't go off-desktop
-    }
-    restoreState(st);
-    // Trust restoreState() for each dock's saved open/closed state.  An earlier
-    // force-show of every non-chip panel here re-opened ANY panel the operator
-    // had closed when saving this slot — the Solar panel was the visible victim
-    // (#189), but it hit meter/audio/tx/band equally.  A faithful recall must
-    // reproduce exactly what was saved, so no force-show.
-    if (prefs_) {
-        const QVariant sp = s.value(base + QStringLiteral("panadapterSplit"));
-        if (sp.isValid()) prefs_->setPanadapterSplit(sp);
-    }
-    // Re-apply the current lock state to the freshly-restored arrangement
-    // (restoreState resets dock features the same way restoreLayout handles).
-    applyPanelLock(
-        QSettings().value(QStringLiteral("ui/panelsLocked"), false).toBool());
+    applyLiveDockState(st, s.value(base + QStringLiteral("panadapterSplit")),
+                       s.value(base + QStringLiteral("dockVis")).toMap());
     statusBar()->showMessage(tr("Recalled layout slot %1.").arg(slot), 4000);
 }
 
 void MainWindow::applyDefaultLayout() {
+    layoutRestoring_ = true;
     // The factory arrangement — BUILT, not restored from a captured blob.
     //
     // It used to be a QMainWindow::saveState() snapshot embedded in the source.
@@ -5968,6 +6046,16 @@ void MainWindow::applyDefaultLayout() {
     // would remove the persisted ui/panadapterSplit key, so skip it (the operator's
     // real slot keeps its own split, restored on the next normal launch).
     if (prefs_ && !safeBootLayout()) prefs_->setPanadapterSplit(QVariant());
+    setLayoutUseFactory(true);
+    layoutCurrent_ = saveState();
+    // Menu recall: docks are already live.  Startup waits for docksReady.
+    if (docksReadyEmitted_) {
+        QTimer::singleShot(800, this, [this]() {
+            if (layoutUseFactory_)
+                layoutCurrent_ = saveState();
+            layoutRestoring_ = false;
+        });
+    }
 }
 
 // ── Layout undo (randol request) ─────────────────────────────────────────
@@ -6036,6 +6124,7 @@ void MainWindow::commitLayoutSnapshot() {
     while (layoutUndoStack_.size() > kLayoutUndoMax)
         layoutUndoStack_.removeFirst();            // drop the oldest
     layoutCurrent_ = now;
+    setLayoutUseFactory(false);                    // operator moved a dock
     saveLayoutUndoStack();                         // survives a restart
     refreshLayoutUndoAction();
 }
@@ -6051,6 +6140,7 @@ void MainWindow::undoLayoutChange() {
     const QByteArray prev = layoutUndoStack_.takeLast();
     restoreState(prev);
     layoutCurrent_ = prev;
+    setLayoutUseFactory(false);
     // restoreState resets each dock's features — re-apply the lock state, as
     // recallNamedLayout does.
     applyPanelLock(

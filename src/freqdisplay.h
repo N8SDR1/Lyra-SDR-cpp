@@ -32,6 +32,9 @@ class FreqDisplay : public QQuickPaintedItem {
     // digit — driven by the panel's Step combo.  0 = per-digit only.
     Q_PROPERTY(int externalStepHz READ externalStepHz WRITE setExternalStepHz
                NOTIFY externalStepHzChanged)
+    // Wheel on the LED (not over a digit) snaps to the Step grid first.
+    Q_PROPERTY(bool stickyWheel READ stickyWheel WRITE setStickyWheel
+               NOTIFY stickyWheelChanged)
 
 public:
     explicit FreqDisplay(QQuickItem *parent = nullptr);
@@ -40,6 +43,8 @@ public:
     void setFreqHz(int hz);              // external set (no freqEdited)
     int  externalStepHz() const { return externalStepHz_; }
     void setExternalStepHz(int hz);
+    bool stickyWheel() const { return stickyWheel_; }
+    void setStickyWheel(bool on);
 
     // Parse a free-form frequency entry (MHz decimal / Hz with
     // separators / bare) into Hz, or -1 if invalid.  Mirrors old Lyra's
@@ -51,6 +56,7 @@ public:
 signals:
     void freqHzChanged();
     void externalStepHzChanged();
+    void stickyWheelChanged();
     void freqEdited(int hz);     // user tuned (wheel / keys) — wire to Stream
     void editRequested();        // double-click — host shows a typed-entry field
 
@@ -72,6 +78,7 @@ private:
     int  freqHz_         = 7'074'000;
     int  selected_       = 3;            // default = 1 kHz place
     int  externalStepHz_ = 0;
+    bool stickyWheel_    = false;
     // (placeValue, on-screen rect) per painted digit, for hit-testing.
     std::vector<std::pair<int, QRectF>> digitRects_;
 };

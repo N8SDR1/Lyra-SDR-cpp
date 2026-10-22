@@ -3475,6 +3475,24 @@ QWidget *SettingsDialog::buildHardwareTab() {
     {
         auto *grp = new QGroupBox(tr("Navigation"), page);
         auto *v = new QVBoxLayout(grp);
+        auto *sticky = new QCheckBox(
+            tr("Snap VFO wheel to Step (sticky)"), grp);
+        sticky->setChecked(prefs_->vfoStickyWheel());
+        sticky->setToolTip(tr(
+            "Wheel on the VFO LED, panadapter, or USB encoder snaps to "
+            "the Tuning Step grid in that direction, then steps. "
+            "14.228.200 Hz at 500 Hz goes to 14.228.500 or 14.228.000, "
+            "not 14.228.700. Wheel over a digit still steps that place. "
+            "Off = add the step from wherever you are."));
+        connect(sticky, &QCheckBox::toggled, grp,
+                [this](bool on) { prefs_->setVfoStickyWheel(on); });
+        connect(prefs_, &Prefs::vfoStickyWheelChanged, sticky,
+                [this, sticky]() {
+            if (sticky->isChecked() != prefs_->vfoStickyWheel())
+                sticky->setChecked(prefs_->vfoStickyWheel());
+        });
+        v->addWidget(sticky);
+
         auto *en = new QCheckBox(
             tr("USB encoder / HID mouse wheel tunes the VFO"), grp);
         en->setChecked(prefs_->hidVfoWheelEnabled());

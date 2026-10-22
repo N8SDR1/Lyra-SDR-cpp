@@ -121,8 +121,10 @@ Rectangle {
         // ── Row 1 (left group): Panafall scroll step + Exact/100 Hz ──
         // Panafall step = how far each mouse-wheel tick tunes over the
         // panadapter/waterfall (coarse band skim — distinct from the fine
-        // VFO step on the Tuning panel).  Exact/100 Hz quantizes the
-        // result of click/drag/wheel tuning to the 100 Hz grid when on.
+        // VFO step on the Tuning panel).  Settings → Hardware →
+        // Navigation "Snap VFO wheel to Step" lands the first wheel
+        // notch on that grid.  Exact/100 Hz quantizes click/drag
+        // (and 100 Hz overrides the Panafall grid).
         Label {
             Layout.row: 1; Layout.column: 0
             text: qsTr("Panafall"); color: "#cccccc"; font.bold: true

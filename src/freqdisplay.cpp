@@ -2,6 +2,7 @@
 // Lyra's led_freq.py (FrequencyDisplay) — same look + interactions.
 
 #include "freqdisplay.h"
+#include "vfo_snap.h"
 
 #include <QColor>
 #include <QFont>
@@ -53,6 +54,13 @@ void FreqDisplay::setExternalStepHz(int hz) {
     }
     externalStepHz_ = hz;
     emit externalStepHzChanged();
+}
+
+void FreqDisplay::setStickyWheel(bool on) {
+    if (on == stickyWheel_)
+        return;
+    stickyWheel_ = on;
+    emit stickyWheelChanged();
 }
 
 void FreqDisplay::changeFreq(int deltaHz) {
@@ -229,12 +237,21 @@ void FreqDisplay::wheelEvent(QWheelEvent *e) {
         if (rect.contains(e->position())) { hover = idx; selected_ = idx; break; }
     }
     int step;
-    if (hover >= 0)              step = placeStep(hover);
-    else if (externalStepHz_ > 0) step = externalStepHz_;
-    else if (selected_ >= 0)      step = placeStep(selected_);
-    else { e->ignore(); return; }
+    bool sticky = false;
+    if (hover >= 0) {
+        step = placeStep(hover);          // digit place stays additive
+    } else if (externalStepHz_ > 0) {
+        step = externalStepHz_;
+        sticky = stickyWheel_;
+    } else if (selected_ >= 0) {
+        step = placeStep(selected_);
+    } else {
+        e->ignore();
+        return;
+    }
 
-    changeFreq(units * step);
+    const int next = nextWheelHz(freqHz_, step, units, sticky);
+    changeFreq(next - freqHz_);
     e->accept();
 }
 

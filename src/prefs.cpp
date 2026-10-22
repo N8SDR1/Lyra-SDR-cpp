@@ -2,6 +2,7 @@
 
 #include "prefs.h"
 #include "desk_session.h"
+#include "vfo_snap.h"
 
 #include "palettes.h"
 #include "grid.h"
@@ -138,6 +139,7 @@ constexpr auto kSplitShift = "tx/splitShiftHz/";   // + MODE
 constexpr auto kVfoStep    = "tune/vfoStepHz/";    // + MODE
 constexpr auto kVfoStepRx2 = "tune/vfoStepHzRx2/"; // + MODE
 constexpr auto kPanRound   = "panadapter/round_100hz";
+constexpr auto kVfoSticky  = "tune/vfoStickyWheel";
 constexpr auto kDebugLog   = "debug/logging";
 // Task #36 — Hardware PTT input opt-in (default OFF per §10 Q#1).
 constexpr auto kHwPttEnabled = "tx/hw_ptt_enabled";
@@ -447,6 +449,7 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
             vfoStepHzRx2_.insert(m, st2.toInt());
     }
     panRound100_ = s.value(kPanRound, false).toBool();
+    vfoStickyWheel_ = s.value(kVfoSticky, false).toBool();
     debugLogging_ = s.value(kDebugLog, false).toBool();
     // Task #36 — HW PTT opt-in.  Default false (operator must explicitly
     // enable AFTER bench-verifying ptt_in is clean at RX rest on their
@@ -1786,6 +1789,18 @@ void Prefs::setPanRound100(bool v) {
         QSettings().setValue(kPanRound, v);
         emit panRound100Changed();
     }
+}
+
+void Prefs::setVfoStickyWheel(bool on) {
+    if (on != vfoStickyWheel_) {
+        vfoStickyWheel_ = on;
+        QSettings().setValue(kVfoSticky, on);
+        emit vfoStickyWheelChanged();
+    }
+}
+
+int Prefs::nextWheelHz(int freqHz, int stepHz, int ticks) const {
+    return lyra::ui::nextWheelHz(freqHz, stepHz, ticks, vfoStickyWheel_);
 }
 
 void Prefs::setDebugLogging(bool on) {

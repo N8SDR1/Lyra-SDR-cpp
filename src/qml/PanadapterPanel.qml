@@ -1211,8 +1211,9 @@ Item {
                     } else {
                         var dir = wheel.angleDelta.y > 0 ? 1 : -1
                         var rx = root.panTuneRx
-                        tuneCarrier(currentCarrierHz(rx)
-                                    + dir * Prefs.panScrollStepHz, rx)
+                        tuneCarrier(Prefs.nextWheelHz(
+                            Math.round(currentCarrierHz(rx)),
+                            Prefs.panScrollStepHz, dir), rx)
                     }
                     wheel.accepted = true
                 }
@@ -2253,9 +2254,9 @@ Item {
                     } else {
                         var dir = wheel.angleDelta.y > 0 ? 1 : -1
                         var rx = root.panTuneRx
-                        specMouse.tuneCarrier(
-                            specMouse.currentCarrierHz(rx)
-                            + dir * Prefs.panScrollStepHz, rx)
+                        specMouse.tuneCarrier(Prefs.nextWheelHz(
+                            Math.round(specMouse.currentCarrierHz(rx)),
+                            Prefs.panScrollStepHz, dir), rx)
                     }
                     wheel.accepted = true
                 }

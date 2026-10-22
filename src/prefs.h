@@ -352,6 +352,9 @@ class Prefs : public QObject {
     // resulting (operator-facing) frequency to the nearest 100 Hz.
     Q_PROPERTY(bool panRound100 READ panRound100
                WRITE setPanRound100 NOTIFY panRound100Changed)
+    // VFO / panadapter / HID wheel snaps to the step grid (Volker sticky).
+    Q_PROPERTY(bool vfoStickyWheel READ vfoStickyWheel
+               WRITE setVfoStickyWheel NOTIFY vfoStickyWheelChanged)
     // Verbose diagnostic logging (Settings → Hardware → Diagnostics).
     // OFF (default) keeps only warnings/errors in the log; ON also
     // captures Debug/Info for when we need the full picture.
@@ -725,6 +728,9 @@ public:
     void setPanScrollStepHz(int hz);
     bool panRound100() const { return panRound100_; }
     void setPanRound100(bool v);
+    bool vfoStickyWheel() const { return vfoStickyWheel_; }
+    void setVfoStickyWheel(bool on);
+    Q_INVOKABLE int nextWheelHz(int freqHz, int stepHz, int ticks) const;
     // Per-mode-kind band-plan segment colour (override of the defaults).
     // kind = "CW"/"DIG"/"SSB"/"FM"/"MIX"/"BC".  Always returns a colour.
     QString bandPlanColor(const QString &kind) const;
@@ -883,6 +889,7 @@ signals:
     void memoryOnTuningChanged();
     void panScrollStepHzChanged();
     void panRound100Changed();
+    void vfoStickyWheelChanged();
     void debugLoggingChanged();
     void hwPttEnabledChanged();
     void spaceBarPttEnabledChanged();
@@ -1036,6 +1043,7 @@ private:
     bool    memoryOnTuning_ = false;
     int     panScrollStepHz_ = 1000;
     bool    panRound100_ = false;
+    bool    vfoStickyWheel_ = false;
     bool    debugLogging_ = false;
     // Task #36 — HW PTT opt-in.  Default false; gated forwarder in
     // HL2Stream's RX loop reads the mirrored atomic.

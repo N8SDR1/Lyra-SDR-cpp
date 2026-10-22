@@ -1,4 +1,5 @@
 #include "hid_vfo_wheel.h"
+#include "vfo_snap.h"
 
 #include "hl2_stream.h"
 #include "prefs.h"
@@ -295,8 +296,11 @@ void HidVfoWheel::applyTicks(int ticks)
         dds = stream_->rx2FreqHz();
     else if (vfoB)
         dds = stream_->vfoBHz();
-    qint64 next = qint64(dds) + qint64(off) + qint64(ticks) * qint64(step)
-                  - qint64(off);
+    const int carrier = static_cast<int>(
+        qBound(0LL, qint64(dds) + qint64(off), 2147483647LL));
+    const int nextCarrier = nextWheelHz(
+        carrier, step, ticks, prefs_->vfoStickyWheel());
+    qint64 next = qint64(nextCarrier) - qint64(off);
     if (next < 0)
         next = 0;
     if (next > 2147483647LL)

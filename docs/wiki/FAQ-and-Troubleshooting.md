@@ -164,6 +164,14 @@ is on, switch to **DIGU / DIGL**; USB turns that auto path off.
 
 ## Transmit
 
+**USB headset / PC mic: I hear RX, MOX, no RF (MIC stays 0).**
+That is **Path B** — not a virtual cable. **Out** = headset **speakers**.
+**Mic source = PC Soundcard (VAC1)**. VAC1 **Enable** on,
+**Auto-enable for digital** **off** (USB/LSB otherwise kills VAC),
+**Input** = headset **mic**, **Output** = `(none)`. Watch **MIC**, not
+watts. Windows Sound → Input must move when you speak. Step list:
+**[First Voice Setup → Path B](First-Voice-Setup)**.
+
 **I key up but there's no/low power.**
 - Make sure **TX drive** is above 0 and, if your build requires it,
   **Enable PA** is ticked (Settings → TX → Advanced). With the PA off the
@@ -269,6 +277,15 @@ split / tab / float). Drag the cyan separators to resize. **View → Layouts**
 has four save‑able slots plus the factory default. **View → Lock panels**
 (Ctrl+L) freezes move *and* resize. See
 **[User Guide → Getting around the window](User-Guide#getting-around-the-window)**.
+
+**Factory layout looks fine, then restart is scrambled (GitHub #20).**
+Uninstall does **not** wipe the layout. It lives in
+`%APPDATA%\N8SDR\Lyra-cpp` and the registry
+`HKCU\Software\N8SDR\Lyra-cpp`. **View → Layouts → Recall → Lyra default
+(factory)** then close: the next start rebuilds factory (it no longer
+saves a broken photograph of it). **Settings → Backup & Restore → Reset
+to factory defaults** clears everything. **`--safe`** starts factory
+without touching the saved slot.
 
 **Back up or move my settings to another PC.**
 Settings export/import writes a single profile file you can copy. See

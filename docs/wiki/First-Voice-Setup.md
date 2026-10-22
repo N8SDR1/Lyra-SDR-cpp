@@ -63,11 +63,19 @@ Works on any HL2 / HL2+ / BrickSDR2 / Brick3SDR.
    app or a hardware volume/mute — check it. Speak and confirm the Windows input
    bar moves.
 4. Point Lyra at it — **Settings → TX → Mic source = "PC Soundcard (VAC1)"**,
-   then **Settings → Audio → VAC1** and set the **Input device** to that same
-   Windows microphone.
-5. Pick your mode and frequency (as in Path A step 5), hold **MOX** (or your
-   PTT), and talk — watch Lyra's **MIC** meter move. No movement → go back to
-   step 3 (Windows).
+   then **Settings → Audio → VAC1**:
+   - tick **Enable VAC1**
+   - **Auto-enable for digital** **off** (on USB/LSB that switch **stops** VAC)
+   - **Input device** = that same Windows microphone (headset **mic**, not speakers)
+   - **Output device** = **`(none)`** for a USB headset used as a mic
+     (RX already uses **Out**; do not pick the headset twice)
+   - **Combine input (mono)** if the headset is stereo
+5. Dummy load. PA / Drive on. USB or LSB. **MOX** and talk — watch the
+   **MIC** meter move (not watts). **MON TX** on, raise **Monitor**, hear
+   yourself in the headset.
+
+**USB headset, no virtual cable.** **Out** = headset speakers, VAC1
+**Input** = headset mic, VAC1 **Output** = `(none)`. VB-CABLE is not required.
 
 ---
 

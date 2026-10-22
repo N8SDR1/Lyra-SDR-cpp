@@ -1006,7 +1006,9 @@ one click:
   like.
 - **Recall a slot** — snaps the window back to that arrangement.
 - **Lyra default** — returns to the built-in factory arrangement. (Use
-  this if a layout ever gets scrambled.)
+  this if a layout ever gets scrambled.) That choice **survives a
+  restart** until you move a panel; closing used to photograph a bad
+  Qt snapshot and come back corrupted (laptop / GitHub #20).
 
 Recalling a layout restores only your main panels — it won't pop open the
 TX/RX DSP-rack or CW tool windows you reach from the header chips.
@@ -1063,7 +1065,10 @@ second receiver while **SUB** is on and that VFO is focused.
   exact), in **100 Hz** it rounds to the nearest 100 Hz.
 - **Click + drag** left/right to pan across the band.
 - **Mouse wheel** steps the frequency by the **Panafall step** (set on the
-  Display panel). **Ctrl + wheel** zooms instead.
+  Display panel). With **Snap VFO wheel to Step** on (**Settings →
+  Hardware → Navigation**), the first notch lands on that grid —
+  `14.228.200` at 500 Hz goes to `14.228.500` or `14.228.000`, not
+  `14.228.700`. **Ctrl + wheel** zooms instead.
 - **Middle-click** — while SPLIT or SUB is on: from **TUNE A**, parks VFO B
   (or SUB) on the click and focuses it (**TUNE B**); from **TUNE B**,
   returns focus to VFO A. Left/right/wheel stay for tuning, notches, and
@@ -1170,6 +1175,13 @@ FM (repeaters); leave RPT alone if you are not on FM.
   12.5 kHz** (default **1 kHz**). The last step is remembered **per
   mode** (FM vs USB vs …) and separately for RX2. **6.25 / 8.33 / 12.5 kHz**
   are land-mobile and airband channel spacings.
+- **Snap VFO wheel to Step (sticky)** — **Settings → Hardware →
+  Navigation** (default off). Wheel on the LED (not over a digit), the
+  panadapter, or a USB encoder **snaps to the Step grid** in the wheel
+  direction, then steps. `14.228.200` at 500 Hz → `14.228.500` (up) or
+  `14.228.000` (down). Off = add the step from wherever you are
+  (`14.228.700`). Wheel over a **digit** always steps that place.
+  Panadapter **click** still uses **Exact / 100 Hz** on the Display panel.
 - **Mode** — under the VFO: **LSB, USB, CWL, CWU, DSB, AM, FM, DIGU,
   DIGL**. (Mode lives with the VFO it applies to — moved here from the
   old Mode + Filter panel.) **PureSignal** only runs in phone/AM-class
@@ -2289,11 +2301,24 @@ Works on any HL2 or HL2+.
    manufacturer app or a hardware volume/mute — check it. Speak and confirm
    the Windows input bar moves.
 4. Point Lyra at it — **Settings → TX → Mic source = "PC Soundcard (VAC1)"**,
-   then **Settings → Audio → VAC1** and set the **Input device** to that same
-   Windows microphone.
-5. Pick your mode and frequency (as in Path A step 5), hold **MOX** (or your
-   PTT), and talk — watch Lyra's **MIC** meter move. No movement → go back to
-   step 3 (Windows).
+   then **Settings → Audio → VAC1**:
+   - tick **Enable VAC1**
+   - **Auto-enable for digital** **off** (if that is on, USB/LSB **stops**
+     VAC and you get no PC mic)
+   - **Input device** = that same Windows microphone (the headset **mic**,
+     not the speakers, not `(none)`)
+   - **Output device** = **`(none)`** for a USB headset used as a mic
+     (RX already goes through **Out**; do not pick the headset twice)
+   - tick **Combine input (mono)** if the headset is stereo
+5. Dummy load. **Enable PA** / Drive above 0. USB or LSB. Click **MOX**
+   and talk — watch the **MIC** meter (not watts) move. No movement →
+   Windows mic (step 3) or the VAC Input device. **MON TX** on, raise
+   **Monitor**; you should hear yourself in the headset.
+
+**USB headset, no virtual cable (VB-CABLE not required).** One device for
+listen and talk: **Out** = headset speakers, VAC1 **Input** = headset
+mic, VAC1 **Output** = `(none)`. You do **not** need a virtual cable
+for this.
 
 ---
 
@@ -2311,7 +2336,9 @@ is laid out in old Lyra's three-row arrangement:
 - **Panafall** — the step the mouse wheel tunes by when you scroll over
   the panadapter/waterfall (**1 Hz … 100 kHz**). This is your coarse
   band-skim step, separate from the fine VFO step on the Tuning panel.
-- **Exact / 100 Hz** — how a panadapter **click/drag/wheel** tune lands:
+  **Snap VFO wheel to Step** (**Settings → Hardware → Navigation**,
+  default off) lands the first wheel notch on this grid.
+- **Exact / 100 Hz** — how a panadapter **click/drag** lands:
   - **Exact** — go to where you clicked, snapped to the **Panafall step**
     above. With Panafall = 1 Hz that's truly exact; set it to 10/50 Hz
     (or higher) and clicks snap to that grid. The RX1 readout shows the
@@ -4101,6 +4128,10 @@ Windows only. For a USB knob that shows up as a **HID mouse** (the same
 class as Setup → Navigation Raw Input in other HPSDR apps). This is **not**
 MIDI — a MIDI surface uses a [sidecar](#midi-controllers-sidecar).
 
+- **Snap VFO wheel to Step (sticky)** — default off. LED / panadapter /
+  USB-encoder wheel snaps to the Tuning **Step** grid in the wheel
+  direction (`14.228.200` at 500 Hz → `14.228.500` or `14.228.000`).
+  Digit-place wheel on the LED is unchanged.
 - **USB encoder / HID mouse wheel tunes the VFO** — master enable (off
   until you pick a device).
 - Device list — every attached HID mouse. Pick the knob, not your
