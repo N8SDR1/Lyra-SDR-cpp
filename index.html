@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lyra — Modern SDR transceiver for HPSDR (Hermes Lite 2 / 2+ · BrickSDR2 · Brick3SDR)</title>
-<meta name="description" content="Lyra — a modern, GPU-accelerated SDR transceiver for HPSDR radios: Hermes Lite 2 / 2+ (Protocol 1), BrickSDR2 / Brick3SDR, and ANAN-class Protocol 2 (ANAN-10–200D on-air; G2 dummy-load arm; 7000 / 8000 / Orion MkII / Anvelina-Pro3 in tester hands). Full RX/TX SSB, CW, AM/SAM and FM, a Vulkan panadapter, a studio TX chain, CW decoder, DX spots and an SDRLogger+ link.">
+<title>Lyra — GPU SDR transceiver for HPSDR Protocol 1 and Protocol 2</title>
+<meta name="description" content="Lyra is a GPU-accelerated HPSDR transceiver: Protocol 1 and Protocol 2. Hermes Lite 2 / 2+, BrickSDR2 / Brick3SDR, ANAN-10–200D on-air, G2 dummy-load arm, Orion-class (7000 / 8000 / MkII / Anvelina-Pro3) in tester hands. Public installer is Windows 10 / 11; macOS is a separate tester branch; Linux is planned. SSB, CW, AM/SAM, FM, studio TX chain, PureSignal, TCI.">
 <link rel="icon" type="image/png" href="logo.png">
 <style>
   :root {
@@ -162,7 +162,7 @@
     <header>
       <img class="logo" src="logo.png" alt="Lyra logo">
       <div class="wordmark">LYRA<span class="accent"> SDR</span></div>
-      <p class="tagline">A modern, GPU-accelerated SDR transceiver for HPSDR radios — the Hermes&nbsp;Lite&nbsp;2 / 2+, BrickSDR2 / Brick3SDR, and ANAN-10–200D.</p>
+      <p class="tagline">A GPU-accelerated HPSDR transceiver — Protocol&nbsp;1 and Protocol&nbsp;2. Hermes&nbsp;Lite&nbsp;2 / 2+, BrickSDR2 / Brick3SDR, and ANAN-class radios.</p>
       <div><span class="badge">v0.25.26 Sheliak · layouts · Lyra to Lyra beta · GPL v3</span></div>
       <div class="cta">
         <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest">⬇ Download</a>
@@ -170,8 +170,8 @@
         <a class="btn btn-ghost" href="https://discord.gg/BwjsQvjcSc">💬 Join the Discord</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp">★ GitHub</a>
       </div>
-      <p class="platforms">Windows 10 / 11 · Hermes Lite 2 / 2+ (Protocol 1) · BrickSDR2 / Brick3SDR / ANAN-10–200D (Protocol 2) · 1600 × 900 display or larger</p>
-      <p class="platforms" style="margin-top:8px;">Protocol 1 is Hermes Lite 2 / 2+ only. Brick and ANAN are Protocol 2 only — Lyra does not open those radios on Protocol 1. G2 is dummy-load arm. ANAN-7000DLE / 8000DLE / Orion&nbsp;MkII / Anvelina-Pro3 are in tester hands (TX dummy-load until RF is confirmed).</p>
+      <p class="platforms">HPSDR Protocol 1 + Protocol 2 · Public installer: Windows 10 / 11 · 1600 × 900 display or larger · macOS tester branch · Linux planned</p>
+      <p class="platforms" style="margin-top:8px;">Protocol 1: Hermes Lite 2 / 2+ only. Protocol 2: BrickSDR2, Brick3SDR, ANAN-10 / 10E / 100-series / 200D — pick the marketed model in Settings → Hardware. P1 Brick / ANAN rows Discover but will not Open (flash P2). G2 / G2-1K is dummy-load arm. ANAN-7000DLE / 8000DLE / Orion&nbsp;MkII / Anvelina-Pro3 are in tester hands (TX dummy-load until RF is confirmed).</p>
     </header>
 
     <section class="showcase">
@@ -258,7 +258,7 @@
     <section>
       <h2>What it does</h2>
       <div class="grid">
-        <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on the Hermes&nbsp;Lite&nbsp;2 / 2+ (Protocol 1) and BrickSDR2 / Brick3SDR / ANAN-10–200D (Protocol 2). Brick3 is beta testing. G2 is dummy-load arm. ANAN-7000DLE / 8000DLE / Orion&nbsp;MkII / Anvelina-Pro3 are in tester hands. Protocol 1 is HL2-only. See <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Supported-Radios">Supported Radios</a>.</p></div>
+        <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on HPSDR Protocol&nbsp;1 and Protocol&nbsp;2. Protocol&nbsp;1 is the Hermes Lite 2 family. Protocol&nbsp;2 is BrickSDR2 / Brick3SDR and ANAN-class (10–200D on-air). Brick3 is beta. G2 is dummy-load arm. 7000 / 8000 / Orion&nbsp;MkII / Anvelina-Pro3 are in tester hands. Pick the marketed model after Discover. See <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Supported-Radios">Supported Radios</a>.</p></div>
         <div class="card"><h3><span class="ico">📊</span> GPU panadapter</h3><p>A Vulkan-accelerated spectrum and waterfall with click-to-tune, centre-tune (CTUN), RIT / XIT, peak hold and eight colour palettes.</p></div>
         <div class="card"><h3><span class="ico">✨</span> PureSignal</h3><p>Adaptive TX predistortion on coupler-mod HL2 / HL2+, BrickSDR2, and Brick3SDR, with a compact dock and an Amp View plot (Snap / Hold). <a href="#puresignal">See it up close</a>.</p></div>
         <div class="card"><h3><span class="ico">🎚️</span> Studio TX chain</h3><p>8-band parametric EQ, a multiband combinator, tube-plate reverb, speech processing, a voice keyer and VOX — shape your audio like a broadcast desk, saved as recallable profiles.</p></div>
