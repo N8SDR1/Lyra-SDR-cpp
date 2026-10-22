@@ -8,6 +8,14 @@ Quick answers to common questions and fixes. For full detail see the
 
 ## General
 
+**Where do I get help?**
+**[Discord](https://discord.gg/BwjsQvjcSc)** for live debug and logs.
+The **[Facebook group](https://www.facebook.com/groups/1994335921523916)**
+for screenshots, on-air reports, and “will this radio Open.” Bugs that
+need a paper trail: a
+**[GitHub issue](https://github.com/N8SDR1/Lyra-SDR-cpp/issues)**.
+
+
 **What hardware does Lyra support?**
 Hermes Lite 2 and 2+ over HPSDR Protocol 1, and **BrickSDR2 / Brick3SDR over Protocol 2
 only**. **SUB / RX2** and **SPLIT** on all of them. One-converter radios

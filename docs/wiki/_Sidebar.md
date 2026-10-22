@@ -25,6 +25,8 @@
 ---
 
 - ⬇️ [Download (latest)](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest)
+- 💬 [Discord](https://discord.gg/BwjsQvjcSc)
+- [Facebook group](https://www.facebook.com/groups/1994335921523916)
 - 🐞 [Report a bug](https://github.com/N8SDR1/Lyra-SDR-cpp/issues)
 - 📦 [Source / README](https://github.com/N8SDR1/Lyra-SDR-cpp)
 - 🙏 [Credits](Credits) — DeskHPSDR, Heiko, Anton, testers

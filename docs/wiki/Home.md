@@ -161,6 +161,8 @@ linHPSDR, HL2 gateware), WDSP / Thetis / fldigi:
 ## Links
 
 - **[Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases)** — installers + release notes
+- **[Discord](https://discord.gg/BwjsQvjcSc)** — live help, logs, testers
+- **[Facebook group](https://www.facebook.com/groups/1994335921523916)** — screenshots, on-air reports, “will it Open”
 - **[Report a bug / request a feature](https://github.com/N8SDR1/Lyra-SDR-cpp/issues)**
 - **[README](https://github.com/N8SDR1/Lyra-SDR-cpp/blob/main/README.md)** — features + build from source
 - **License:** GPL-3.0-or-later (WDSP-compatible) — see [NOTICE](https://github.com/N8SDR1/Lyra-SDR-cpp/blob/main/NOTICE.md)

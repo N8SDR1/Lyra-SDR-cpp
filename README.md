@@ -2,7 +2,7 @@
 
 **v0.25.26 Sheliak** — factory and named layouts stick (GitHub #20); optional Snap VFO wheel to Step. On top of v0.25.25 (Lyra to Lyra desk RX2 and CW). v0.25.22 remains the return point. WDSP 2.10 from 0.25.8.
 
-**🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
+**🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc) · [Facebook](https://www.facebook.com/groups/1994335921523916)
 
 Native rebuild of [Lyra](../lyra) (the Python+Qt6 desktop SDR transceiver
 for the Hermes Lite 2 / 2+).  The Python tree is preserved in `../lyra/`
@@ -289,8 +289,9 @@ Lyra is in active development — testers and bug reports are welcome.
 See **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** first for current rough edges and
 what hasn't been built yet (so you don't report a planned feature as a bug).
 
-* **Discord:** <https://discord.gg/BwjsQvjcSc> — questions, feature ideas,
-  and quick help.
+* **Discord:** <https://discord.gg/BwjsQvjcSc> — live debug, logs, testers.
+* **Facebook:** <https://www.facebook.com/groups/1994335921523916> —
+  screenshots, on-air reports, and “will it Open.”
 * **Bug reports:** open a
   **[GitHub issue](https://github.com/N8SDR1/Lyra-SDR-cpp/issues)** (or post
   in Discord). To make a report actionable, please include:
