@@ -1022,6 +1022,25 @@ Item {
                 //                      1k… land on that grid).
                 // Then offset by the CW pitch so the DDS lands the signal in
                 // the filter.  rx 1 = VFO A / RX1; rx 2 = VFO B / RX2.
+                function applyWheelCarrier(carrierHz, rx) {
+                    // Wheel already used nextWheelHz on this surface's step.
+                    // Do not run click snapCarrier (nearest 100 Hz / Panafall)
+                    // — that is not directional and undoes sticky snap.
+                    if (rx === undefined)
+                        rx = root.panTuneRx
+                    var c = Math.round(carrierHz)
+                    if (rx === 2) {
+                        if (root.splitOn)
+                            Stream.setVfoBHz(c)
+                        else
+                            Stream.setRx2FreqHz(Math.round(
+                                c - WdspEngine.markerOffsetHzRx2))
+                        return
+                    }
+                    var ritOff = Stream.ritEnabled ? Stream.ritOffsetHz : 0
+                    Stream.setRx1FreqHz(Math.round(
+                        c - WdspEngine.markerOffsetHz - ritOff))
+                }
                 function tuneCarrier(carrierHz, rx) {
                     if (rx === undefined)
                         rx = root.panTuneRx
@@ -1211,7 +1230,7 @@ Item {
                     } else {
                         var dir = wheel.angleDelta.y > 0 ? 1 : -1
                         var rx = root.panTuneRx
-                        tuneCarrier(Prefs.nextWheelHz(
+                        applyWheelCarrier(Prefs.nextWheelHz(
                             Math.round(currentCarrierHz(rx)),
                             Prefs.panScrollStepHz, dir), rx)
                     }
@@ -2254,7 +2273,7 @@ Item {
                     } else {
                         var dir = wheel.angleDelta.y > 0 ? 1 : -1
                         var rx = root.panTuneRx
-                        specMouse.tuneCarrier(Prefs.nextWheelHz(
+                        specMouse.applyWheelCarrier(Prefs.nextWheelHz(
                             Math.round(specMouse.currentCarrierHz(rx)),
                             Prefs.panScrollStepHz, dir), rx)
                     }
