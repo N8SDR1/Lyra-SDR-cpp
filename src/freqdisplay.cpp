@@ -2,11 +2,11 @@
 // Lyra's led_freq.py (FrequencyDisplay) — same look + interactions.
 
 #include "freqdisplay.h"
-#include "vfo_snap.h"
 
 #include <QColor>
 #include <QFont>
 #include <QFontMetricsF>
+#include <QHoverEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -29,12 +29,34 @@ int placeStep(int idx) {   // 10^idx, idx in [0, 9]
     for (int i = 0; i < idx; ++i) s *= 10;
     return s;
 }
+
+int wheelTicks(int angleDeltaY, int pixelDeltaY) {
+    if (angleDeltaY <= -120 || angleDeltaY >= 120)
+        return angleDeltaY / 120;
+    if (angleDeltaY != 0)
+        return angleDeltaY > 0 ? 1 : -1;
+    if (pixelDeltaY != 0)
+        return pixelDeltaY > 0 ? 1 : -1;
+    return 0;
+}
+
+FreqDisplay *g_ledUnderMouse = nullptr;
 } // namespace
+
+FreqDisplay *FreqDisplay::ledUnderMouse() {
+    return g_ledUnderMouse;
+}
 
 FreqDisplay::FreqDisplay(QQuickItem *parent) : QQuickPaintedItem(parent) {
     setAcceptedMouseButtons(Qt::LeftButton);
+    setAcceptHoverEvents(true);
     setFlag(ItemAcceptsInputMethod, false);
     setAntialiasing(true);
+}
+
+FreqDisplay::~FreqDisplay() {
+    if (g_ledUnderMouse == this)
+        g_ledUnderMouse = nullptr;
 }
 
 void FreqDisplay::setFreqHz(int hz) {
@@ -142,8 +164,11 @@ void FreqDisplay::paint(QPainter *p) {
     for (int i = 0; i < kNDigits; ++i) {
         const QChar ch = freqStr[i];
         const int placeIdx = kNDigits - 1 - i;   // leftmost char = highest place
+        // Include the cyan underline and a little slop so wheel/click on
+        // the mark still counts as that digit.
         digitRects_.emplace_back(
-            placeIdx, QRectF(x, baseY - fm.ascent(), digitW, fm.height()));
+            placeIdx,
+            QRectF(x - 1, baseY - fm.ascent() - 2, digitW + 2, fm.height() + 8));
 
         // Ghost "8" behind the digit.
         p->setPen(QPen(kAmberDim, 1));
@@ -204,6 +229,7 @@ void FreqDisplay::mousePressEvent(QMouseEvent *e) {
         e->ignore();
         return;
     }
+    g_ledUnderMouse = this;
     for (const auto &[idx, rect] : digitRects_) {
         if (rect.contains(e->position())) {
             selected_ = idx;
@@ -226,33 +252,55 @@ void FreqDisplay::mouseDoubleClickEvent(QMouseEvent *e) {
     e->ignore();
 }
 
+void FreqDisplay::hoverEnterEvent(QHoverEvent *e) {
+    g_ledUnderMouse = this;
+    QQuickPaintedItem::hoverEnterEvent(e);
+}
+
+void FreqDisplay::hoverLeaveEvent(QHoverEvent *e) {
+    if (g_ledUnderMouse == this)
+        g_ledUnderMouse = nullptr;
+    QQuickPaintedItem::hoverLeaveEvent(e);
+}
+
+void FreqDisplay::handleWheel(int angleDeltaY, int pixelDeltaY, qreal x, qreal y) {
+    g_ledUnderMouse = this;
+    const int ticks = wheelTicks(angleDeltaY, pixelDeltaY);
+    if (ticks == 0)
+        return;
+    applyWheelAt(ticks, QPointF(x, y));
+}
+
+void FreqDisplay::nudgeByTicks(int ticks) {
+    if (ticks == 0)
+        return;
+    applyWheelAt(ticks, QPointF(-1, -1));
+}
+
 void FreqDisplay::wheelEvent(QWheelEvent *e) {
-    const int units = e->angleDelta().y() / 120;
-    if (units == 0) {
+    g_ledUnderMouse = this;
+    const int ticks = wheelTicks(e->angleDelta().y(), e->pixelDelta().y());
+    if (ticks == 0) {
         e->ignore();
         return;
     }
+    applyWheelAt(ticks, e->position());
+    e->accept();
+}
+
+void FreqDisplay::applyWheelAt(int ticks, QPointF pos) {
     int hover = -1;
     for (const auto &[idx, rect] : digitRects_) {
-        if (rect.contains(e->position())) { hover = idx; selected_ = idx; break; }
+        if (rect.contains(pos)) {
+            hover = idx;
+            selected_ = idx;
+            update();
+            break;
+        }
     }
-    int step;
-    bool sticky = false;
-    if (hover >= 0) {
-        step = placeStep(hover);          // digit place stays additive
-    } else if (externalStepHz_ > 0) {
-        step = externalStepHz_;
-        sticky = stickyWheel_;
-    } else if (selected_ >= 0) {
-        step = placeStep(selected_);
-    } else {
-        e->ignore();
-        return;
-    }
-
-    const int next = nextWheelHz(freqHz_, step, units, sticky);
-    changeFreq(next - freqHz_);
-    e->accept();
+    const int place = hover >= 0 ? hover : std::max(0, selected_);
+    const int step = placeStep(place);
+    changeFreq(ticks * step);
 }
 
 void FreqDisplay::keyPressEvent(QKeyEvent *e) {

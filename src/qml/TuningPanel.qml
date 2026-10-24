@@ -438,6 +438,14 @@ Rectangle {
                                 editField.forceActiveFocus()
                             }
                         }
+                        WheelHandler {
+                            enabled: !editField.visible
+                            onWheel: (ev) => {
+                                led.handleWheel(ev.angleDelta.y, ev.pixelDelta.y,
+                                                ev.position.x, ev.position.y)
+                                ev.accepted = true
+                            }
+                        }
                         TextField {
                             id: editField
                             anchors.fill: parent
@@ -757,6 +765,14 @@ Rectangle {
                                     editFieldB.visible = true
                                     editFieldB.selectAll()
                                     editFieldB.forceActiveFocus()
+                                }
+                            }
+                            WheelHandler {
+                                enabled: !editFieldB.visible
+                                onWheel: (ev) => {
+                                    ledB.handleWheel(ev.angleDelta.y, ev.pixelDelta.y,
+                                                     ev.position.x, ev.position.y)
+                                    ev.accepted = true
                                 }
                             }
                             TextField {

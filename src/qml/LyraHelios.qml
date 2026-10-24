@@ -380,6 +380,29 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
             }
             Text {
+                visible: face.tx
+                text: {
+                    var s = Meter.liveSwr
+                    if (s < 0)
+                        return "SWR  —"
+                    return "SWR  " + s.toFixed(s >= 10 ? 1 : 2) + ":1"
+                }
+                color: {
+                    var s = Meter.liveSwr
+                    if (s < 0)
+                        return face.cMute
+                    if (s >= 2.0)
+                        return face.cHot
+                    if (s >= 1.5)
+                        return face.cGold
+                    return face.cOk
+                }
+                font.family: "Consolas"
+                font.bold: true
+                font.pixelSize: 13
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
                 text: face.frontier()
                 color: face.frontier() === "WORMHOLE" ? "#c9a6ff"
                      : (face.tx ? face.cGold : face.cCyan)

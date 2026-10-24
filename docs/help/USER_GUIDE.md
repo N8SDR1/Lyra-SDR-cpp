@@ -1168,13 +1168,11 @@ Sets the **RX1 receive frequency** on a big amber **LED-style readout**
 (megahertz · kilohertz · hertz), the way old Lyra showed it.
 
 - **Click a digit** to select it (a cyan underline marks it), then **roll
-  the mouse wheel** over the display to tune that digit's place up/down;
-  with the LED focused, the **arrow keys** also step that place (Left /
-  Right pick the digit, Up / Down change it).
+  the mouse wheel** over that LED to tune **that digit's place** — not
+  the Tuning **Step**. With the LED focused, the **arrow keys** also step
+  that place (Left / Right pick the digit, Up / Down change it).
 - **Arrow keys anywhere else** (not typing, not in a dialog): **Left /
   Right = 1 kHz**, **Up / Down = 10 Hz** on the focused receiver.
-- **Roll the wheel** anywhere on the display to tune by the current
-  **Step** (see below).
 - **Double-click** the display to type an exact frequency.
 The frequency, **Step**, and **Mode** form one bordered **VFO cluster**.
 The border is **green while receiving** and turns **red on transmit**
@@ -1203,11 +1201,11 @@ FM (repeaters); leave RPT alone if you are not on FM.
   - wheel **down** → `14.228.000`
   Off (today's habit) **adds** the step from wherever you are →
   `14.228.700`.
-  - **VFO LED** (not over a digit) and a **USB encoder** use the Tuning
-    **Step**.
+  - **VFO LED** always steps the underlined / hovered digit. Snap does
+    not apply there.
+  - **USB encoder** uses the Tuning **Step**.
   - **Panadapter wheel** uses the Display **Panafall** step (that is
     already the pan wheel's step).
-  - Wheel **on a digit** still moves that place only.
   - Panadapter **click** still uses **Exact / 100 Hz** on the Display
     panel. SPLIT is radio state, not this checkbox.
 - **Mode** — under the VFO: **LSB, USB, CWL, CWU, DSB, AM, FM, DIGU,

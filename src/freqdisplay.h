@@ -5,9 +5,10 @@
 // transverter RF; signed-int ceiling ~2.147 GHz), with a ghost "8"
 // behind each digit (unlit-segment look) and MHz/kHz/Hz group labels.
 // Click a digit to select its place (cyan underline); mouse-wheel over
-// a digit tunes THAT place (10^place), or — away from a digit — by the
-// Step combo's value (externalStepHz); arrow keys nudge the selected
-// place / move the selection.  Double-click requests direct typed entry
+// this LED always steps that place (10^place).  Tuning Step / Snap VFO
+// apply to the panadapter and USB encoder, not this readout.  Arrow keys
+// nudge the selected place / move the selection.  Double-click requests
+// direct typed entry
 // (the host QML pops a field and calls setFreqHz with the parsed value).
 //
 // freqHz mirrors the operator's tuned frequency (set externally from
@@ -28,16 +29,15 @@ namespace lyra::ui {
 class FreqDisplay : public QQuickPaintedItem {
     Q_OBJECT
     Q_PROPERTY(int freqHz READ freqHz WRITE setFreqHz NOTIFY freqHzChanged)
-    // Mouse-wheel step (Hz) used when the cursor isn't over a specific
-    // digit — driven by the panel's Step combo.  0 = per-digit only.
+    // Kept for QML bindings; LED wheel does not use Step / Snap.
     Q_PROPERTY(int externalStepHz READ externalStepHz WRITE setExternalStepHz
                NOTIFY externalStepHzChanged)
-    // Wheel on the LED (not over a digit) snaps to the Step grid first.
     Q_PROPERTY(bool stickyWheel READ stickyWheel WRITE setStickyWheel
                NOTIFY stickyWheelChanged)
 
 public:
     explicit FreqDisplay(QQuickItem *parent = nullptr);
+    ~FreqDisplay() override;
 
     int  freqHz() const { return freqHz_; }
     void setFreqHz(int hz);              // external set (no freqEdited)
@@ -50,6 +50,11 @@ public:
     // separators / bare) into Hz, or -1 if invalid.  Mirrors old Lyra's
     // parse_freq_input.  Q_INVOKABLE so the QML typed-entry field uses it.
     Q_INVOKABLE int parseFreqInput(const QString &text) const;
+    // QML WheelHandler (Qt Quick often never calls wheelEvent on this item).
+    Q_INVOKABLE void handleWheel(int angleDeltaY, int pixelDeltaY, qreal x, qreal y);
+    void nudgeByTicks(int ticks);
+
+    static FreqDisplay *ledUnderMouse();
 
     void paint(QPainter *p) override;
 
@@ -63,11 +68,14 @@ signals:
 protected:
     void mousePressEvent(QMouseEvent *e) override;
     void mouseDoubleClickEvent(QMouseEvent *e) override;
+    void hoverEnterEvent(QHoverEvent *e) override;
+    void hoverLeaveEvent(QHoverEvent *e) override;
     void wheelEvent(QWheelEvent *e) override;
     void keyPressEvent(QKeyEvent *e) override;
 
 private:
     void changeFreq(int deltaHz);        // tune + emit freqEdited
+    void applyWheelAt(int ticks, QPointF pos);
 
     static constexpr int kNDigits = 10;
     // Display/RF ceiling (VFO LED + wheel).  HF native is ~55 MHz; Xvtr

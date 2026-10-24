@@ -1,5 +1,6 @@
 #include "hid_vfo_wheel.h"
 #include "vfo_snap.h"
+#include "freqdisplay.h"
 
 #include "hl2_stream.h"
 #include "prefs.h"
@@ -255,8 +256,13 @@ bool HidVfoWheel::nativeEventFilter(const QByteArray &eventType, void *message,
         return false;
     lastMatch_.restart();
     emit wheelHeard();
-    if (prefs_ && prefs_->hidVfoWheelEnabled())
+    if (prefs_ && prefs_->hidVfoWheelEnabled()) {
+        if (auto *led = FreqDisplay::ledUnderMouse()) {
+            led->nudgeByTicks(ticks);
+            return false;
+        }
         applyTicks(ticks);
+    }
 #else
     Q_UNUSED(eventType);
     Q_UNUSED(message);
