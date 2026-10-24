@@ -1167,10 +1167,12 @@ node).
 Sets the **RX1 receive frequency** on a big amber **LED-style readout**
 (megahertz · kilohertz · hertz), the way old Lyra showed it.
 
-- **Click a digit** to select it (a cyan underline marks it), then **roll
-  the mouse wheel** over that LED to tune **that digit's place** — not
-  the Tuning **Step**. With the LED focused, the **arrow keys** also step
-  that place (Left / Right pick the digit, Up / Down change it).
+- **Click a digit** to select it (a cyan underline marks it). **Roll the
+  mouse wheel on that digit** to tune **that place** (not the Tuning
+  **Step**). **Wheel on the LED but not on a digit** uses that VFO's
+  **Step** (VFO A and VFO B each have their own). With the LED focused,
+  the **arrow keys** also step the underlined place (Left / Right pick
+  the digit, Up / Down change it).
 - **Arrow keys anywhere else** (not typing, not in a dialog): **Left /
   Right = 1 kHz**, **Up / Down = 10 Hz** on the focused receiver.
 - **Double-click** the display to type an exact frequency.
@@ -1201,8 +1203,8 @@ FM (repeaters); leave RPT alone if you are not on FM.
   - wheel **down** → `14.228.000`
   Off (today's habit) **adds** the step from wherever you are →
   `14.228.700`.
-  - **VFO LED** always steps the underlined / hovered digit. Snap does
-    not apply there.
+  - **VFO LED, not on a digit** uses that VFO's Tuning **Step** (Snap
+    applies here). **Wheel on a digit** still moves that place only.
   - **USB encoder** uses the Tuning **Step**.
   - **Panadapter wheel** uses the Display **Panafall** step (that is
     already the pan wheel's step).

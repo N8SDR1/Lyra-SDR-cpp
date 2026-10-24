@@ -3479,11 +3479,11 @@ QWidget *SettingsDialog::buildHardwareTab() {
             tr("Snap VFO wheel to Step (sticky)"), grp);
         sticky->setChecked(prefs_->vfoStickyWheel());
         sticky->setToolTip(tr(
-            "When on, wheel on the panadapter or USB encoder snaps to "
-            "that surface's step grid, then steps. 14.228.200 Hz at "
-            "500 Hz goes to 14.228.500 or 14.228.000, not 14.228.700. "
-            "The VFO LED always steps the underlined digit. Off = "
-            "panadapter / encoder add their step from wherever you are."));
+            "When on, wheel on the VFO LED (not on a digit), panadapter, "
+            "or USB encoder snaps to that surface's step grid, then steps. "
+            "14.228.200 Hz at 500 Hz goes to 14.228.500 or 14.228.000, "
+            "not 14.228.700. Wheel over a digit still steps that place. "
+            "Off = add the step from wherever you are."));
         connect(sticky, &QCheckBox::toggled, grp,
                 [this](bool on) { prefs_->setVfoStickyWheel(on); });
         connect(prefs_, &Prefs::vfoStickyWheelChanged, sticky,

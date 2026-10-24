@@ -2,8 +2,10 @@
 // Lyra's led_freq.py (FrequencyDisplay) — same look + interactions.
 
 #include "freqdisplay.h"
+#include "vfo_snap.h"
 
 #include <QColor>
+#include <QCursor>
 #include <QFont>
 #include <QFontMetricsF>
 #include <QHoverEvent>
@@ -274,7 +276,7 @@ void FreqDisplay::handleWheel(int angleDeltaY, int pixelDeltaY, qreal x, qreal y
 void FreqDisplay::nudgeByTicks(int ticks) {
     if (ticks == 0)
         return;
-    applyWheelAt(ticks, QPointF(-1, -1));
+    applyWheelAt(ticks, mapFromGlobal(QCursor::pos()));
 }
 
 void FreqDisplay::wheelEvent(QWheelEvent *e) {
@@ -298,9 +300,15 @@ void FreqDisplay::applyWheelAt(int ticks, QPointF pos) {
             break;
         }
     }
-    const int place = hover >= 0 ? hover : std::max(0, selected_);
-    const int step = placeStep(place);
-    changeFreq(ticks * step);
+    if (hover >= 0) {
+        changeFreq(ticks * placeStep(hover));
+        return;
+    }
+    if (externalStepHz_ <= 0)
+        return;
+    const int next = nextWheelHz(
+        freqHz_, externalStepHz_, ticks, stickyWheel_);
+    changeFreq(next - freqHz_);
 }
 
 void FreqDisplay::keyPressEvent(QKeyEvent *e) {

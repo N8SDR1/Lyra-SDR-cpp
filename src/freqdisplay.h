@@ -5,10 +5,10 @@
 // transverter RF; signed-int ceiling ~2.147 GHz), with a ghost "8"
 // behind each digit (unlit-segment look) and MHz/kHz/Hz group labels.
 // Click a digit to select its place (cyan underline); mouse-wheel over
-// this LED always steps that place (10^place).  Tuning Step / Snap VFO
-// apply to the panadapter and USB encoder, not this readout.  Arrow keys
-// nudge the selected place / move the selection.  Double-click requests
-// direct typed entry
+// a digit steps that place (10^place).  Wheel on the LED but not on a
+// digit uses that VFO's Tuning Step; Snap VFO (stickyWheel) applies
+// only on that empty-LED path.  Arrow keys nudge the selected place /
+// move the selection.  Double-click requests direct typed entry
 // (the host QML pops a field and calls setFreqHz with the parsed value).
 //
 // freqHz mirrors the operator's tuned frequency (set externally from
@@ -29,7 +29,7 @@ namespace lyra::ui {
 class FreqDisplay : public QQuickPaintedItem {
     Q_OBJECT
     Q_PROPERTY(int freqHz READ freqHz WRITE setFreqHz NOTIFY freqHzChanged)
-    // Kept for QML bindings; LED wheel does not use Step / Snap.
+    // Wheel off a digit: this VFO's Tuning Step (QML binds the combo).
     Q_PROPERTY(int externalStepHz READ externalStepHz WRITE setExternalStepHz
                NOTIFY externalStepHzChanged)
     Q_PROPERTY(bool stickyWheel READ stickyWheel WRITE setStickyWheel
