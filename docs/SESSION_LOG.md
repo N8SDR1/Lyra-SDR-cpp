@@ -4,6 +4,12 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-24 — LED Step + Helios SWR
+
+Digit wheel on the VFO LED. Empty LED uses that VFO's Step; Snap only
+there (panadapter Panafall / Exact·100 Hz untouched). Helios TX SWR
+after watts, before planet name. Docs + wiki.
+
 ## 2026-10-22 — v0.25.26 Sheliak RELEASED
 
 Layouts (GitHub #20) + Snap VFO wheel to Step + laptop Tuning logo.

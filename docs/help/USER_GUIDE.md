@@ -35,9 +35,11 @@ not programmers — if you can click a menu, you can use this.
   See [Getting around the window](#getting-around-the-window).
 - **Snap VFO wheel to Step** — **Settings → Hardware → Navigation**,
   default **off**. First wheel notch lands on the step grid in that
-  direction. LED and USB encoder use Tuning **Step**; panadapter wheel
-  uses **Panafall** step. Digit-place wheel and click are unchanged.
-  See [Tuning](#tuning) and [Navigation](#navigation-usb-encoder--hid-wheel).
+  direction. Wheel **on a VFO digit** always moves that place. Wheel on
+  the LED **but not on a digit**, and the USB encoder, use that VFO's
+  Tuning **Step** (Snap applies there). Panadapter wheel uses Display
+  **Panafall**; panadapter click uses **Exact / 100 Hz**. See
+  [Tuning](#tuning) and [Navigation](#navigation-usb-encoder--hid-wheel).
 - **Laptop Tuning row.** The Lyra logo matches the VFO boxes so SPLIT /
   RIT sit fully on a short dock.
 - **v0.25.25 Sheliak** remains the previous public build. If this cut
@@ -93,8 +95,8 @@ not programmers — if you can click a menu, you can use this.
 ## What's new in 0.25.22
 
 - **Meter faces.** Header **Arc | Bar | Ladder | Sonar | Sol | Clus**.
-  **Helios** is the sun-and-planets look (S9 = Jupiter; TX watts plus
-  MIC / ALC / GAIN). **Sonar** is the PPI with a compass ring (replaces
+  **Helios** is the sun-and-planets look (S9 = Jupiter; TX watts, then
+  SWR, then the planet name, plus MIC / ALC / GAIN chips). **Sonar** is the PPI with a compass ring (replaces
   Radar). **Cluster** is the cockpit arc plus segmented bars. Same
   calibration as Arc. See [The meter](#the-meter).
 - **Band change while transmitting.** A jump that would leave the
@@ -2423,8 +2425,10 @@ A GPU-drawn **RX / TX meter** with four looks — pick with the small
   Earth holds S5–S7, Jupiter is S9+, Saturn +15, Uranus +30, Pluto a
   tickle at +45, wormhole at +50. On TX the planets follow the watts
   scale (rated max in Settings → Meter); a small **MIC · ALC · GAIN**
-  line (cyan / green / red, no bars) sits under the poster. The big
-  S / watts number stays.
+  line (cyan / green / red, no bars) sits under the poster. The bottom
+  readout is **TX PWR**, watts, **SWR** (`1.12:1`, or `—` below usable
+  power), then the planet name (e.g. WORMHOLE). SWR is green under 1.5,
+  gold from 1.5, red at 2.0 and up. The big S / watts number stays.
 - **Cluster** — cockpit arc of lamps plus segmented bars for the Ladder
   stack (S / NF / SNR on RX; PWR and the TX rows on TX). Theme cyan.
 
@@ -4160,10 +4164,11 @@ MIDI — a MIDI surface uses a [sidecar](#midi-controllers-sidecar).
   grid in that direction, then steps. `14.228.200` at 500 Hz →
   `14.228.500` (up) or `14.228.000` (down). Off = add the step
   (`14.228.700`).
-  - **LED** (blank of a digit) and **USB encoder** → Tuning **Step**.
-  - **Panadapter wheel** → **Panafall** step.
-  - Wheel over a **digit** always steps that place. Click still uses
-    Exact / 100 Hz.
+  - **VFO LED, not on a digit**, and **USB encoder** → that VFO's Tuning
+    **Step** (VFO A and VFO B each have their own).
+  - **Panadapter wheel** → Display **Panafall** step.
+  - Wheel **on a digit** always steps that place. Panadapter **click**
+    still uses Display **Exact / 100 Hz**.
 - **USB encoder / HID mouse wheel tunes the VFO** — master enable (off
   until you pick a device).
 - Device list — every attached HID mouse. Pick the knob, not your

@@ -92,7 +92,7 @@ gear — all native, all in front of the WDSP transmitter:
 
 ## Shipped highlights
 
-✅ **v0.25.26 Sheliak** · ✅ **Layouts stick (GitHub #20)** · ✅ **Snap VFO wheel to Step** · ✅ **v0.25.25 Sheliak** (previous public build) · ✅ **v0.25.22** (return point) · ✅ **HL2 RF1 / Alt RX** · ✅ **Helios / Sonar / Cluster** meters · ✅ **Lyra Remote** (separate browser desk) · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
+✅ **v0.25.26 Sheliak** · ✅ **Layouts stick (GitHub #20)** · ✅ **Snap VFO wheel to Step** (digit place vs empty-LED Step; panadapter stays Panafall / Exact·100 Hz) · ✅ **Helios TX SWR** · ✅ **v0.25.25 Sheliak** (previous public build) · ✅ **v0.25.22** (return point) · ✅ **HL2 RF1 / Alt RX** · ✅ **Helios / Sonar / Cluster** meters · ✅ **Lyra Remote** (separate browser desk) · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
 Brick3 PS jack) · ✅ **VAC2** · ✅ **SUB / SPLIT** (second pan on Brick3 /
 100D; RX2 jack isolate on TX) · ✅ **Diversity** (Brick3 / 100D / 200D —
 RX2 jack / Ext1, not ANT2; not a second VFO) · ✅ **Band stack** (three

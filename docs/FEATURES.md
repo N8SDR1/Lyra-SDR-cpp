@@ -374,6 +374,9 @@ All operator-adjustable in Settings → TX.
    (post-CW-pitch offset, matches every other major HF SDR).
 🟢 Two TX indicators per VFO LED (red active, gray inactive).
    SPLIT auto-moves red → VFO B; click gray to manually swap.
+🟢 Wheel on a digit = that place. Wheel on the LED but not on a digit =
+   that VFO's Tuning Step; Snap VFO applies only on that empty-LED path.
+   Panadapter wheel stays Display Panafall; click stays Exact / 100 Hz.
 
 ### 5.4 Mode + Filter panel
 🟢 Single panel acts on focused RX.
