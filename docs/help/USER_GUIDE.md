@@ -22,7 +22,22 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.27 Sheliak.** See [What's new in 0.25.27](#whats-new-in-02527).
+**v0.25.28 Sheliak.** See [What's new in 0.25.28](#whats-new-in-02528).
+
+## What's new in 0.25.28
+
+- **HL2 IO-board RX fcodes (GitHub #23).** Same one-byte codes deskHPSDR
+  writes to Pico registers **13 / 14**, from the **dial** (not the 10 m
+  IF). Analog BYTE0–4 (GPA100 / J4 PWM) and RF1/Alt (register 11 = 0 or
+  2) are unchanged. If a Pico GPIO decoder is wrong, set environment
+  **`LYRA_NO_IOBOARD_FCODE=1`** (13/14 off, analog stays) or reinstall
+  **v0.25.27**.
+- **PureSignal dock ON.** One switch, like Thetis / DeskHPSDR. First ON
+  records the coupler checkbox. Drive / watts cap / ATT-on-TX are not
+  on that path. DIG/CW/FM still force the calibrator off.
+- **v0.25.27 Sheliak** is the previous public build. If this cut
+  misbehaves on J4 band volts or RF1/Alt, reinstall **v0.25.27**.
+  **v0.25.22** remains the long return point. Settings stay.
 
 ## What's new in 0.25.27
 
@@ -453,6 +468,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.28](#whats-new-in-02528)
 - [What's new in 0.25.27](#whats-new-in-02527)
 - [What's new in 0.25.26](#whats-new-in-02526)
 - [What's new in 0.25.25](#whats-new-in-02525)
@@ -2713,7 +2729,7 @@ PC dies.
 
 | Surface | What it is |
 |---|---|
-| **Settings → TX** | **Attestation** checkbox (default **off**). Tick only if **this** radio has the coupler. Until then Arm stays inert. |
+| **Settings → TX** | **Coupler installed** (default **off**). First **ON** on the PureSignal dock sets this for you, same as Thetis. Uncheck to disable PS on a radio with no tap. Drive / watts cap / ATT-on-TX stay separate. |
 | Header **Options → PureSignal** | Opens the compact **PURESIGNAL** dock |
 | Header **Options → Amp View** | Opens the **AMP VIEW** plot (last two chips on the Options row) |
 | PureSignal dock **2-tone** | Two equal tones that **key MOX**. Same generator as the TX dock. Average power reads about half of TUN. |
@@ -2721,12 +2737,12 @@ PC dies.
 
 ### Modes that force PureSignal off
 
-The **ON / Arm** chip follows the **focused** Mode combo (the VFO you
+The **ON** chip follows the **focused** Mode combo (the VFO you
 last clicked), not only RX1. SUB on RX2 in DIGU with RX1 still USB
 still turns PS off.
 
-Your **Arm** tick is remembered. Lyra just **holds the calibrator off**
-in the modes below; leave those modes and Arm comes back if it was on.
+Your **ON** state is remembered. Lyra just **holds the calibrator off**
+in the modes below; leave those modes and ON comes back if it was on.
 
 | Mode | PureSignal |
 |---|---|
@@ -2742,10 +2758,12 @@ still uses the mic rack, but PureSignal stays off.
 
 ### Compact PureSignal dock
 
-- **ON / Arm** — arms the calibrator. The coupler path is live only
-  while **MOX is also on** and the focused mode is **not** on the
-  lock-out list above. The chip goes **off** in those modes even if
-  Arm is still ticked in Settings.
+- **ON** — arms the calibrator (Thetis / DeskHPSDR one-switch). First
+  ON also records **Settings → TX** coupler installed. The coupler
+  path is live only while **MOX is also on** and the focused mode is
+  **not** on the lock-out list above. The chip goes **off** in those
+  modes even if ON is still remembered. Uncheck the coupler box to
+  fully disable PS.
 - **2-tone** — two equal tones into the transmit chain, and it keys
   MOX. Peak power matches TUN; the wattmeter reads **average**, so
   expect about half the TUN reading (18–20 W TUN is often 8–11 W of
@@ -2812,20 +2830,20 @@ plot (live `GetPSDisp` curve).
 
 ### Typical dummy-load session
 
-1. Settings → TX → tick attestation for **this** radio.
-2. Dummy load, PA on, drive low, then raise until the wattmeter is in
+1. Dummy load, PA on, drive low, then raise until the wattmeter is in
    the **5–8 W** class on a bare HL2 (Brick often wants similar or a
    bit more until ADC0 auto-att settles).
-3. Stay in **USB / LSB / AM / SAM / DSB**. Open **PureSignal**, Arm **ON**.
-   (FM, CW, and DIG force Arm off — you will not see a live coupler.)
-4. Key **Voice** or **2-tone** (or TUN / MOX + speech). **Voice**
+2. Stay in **USB / LSB / AM / SAM / DSB**. Open **PureSignal**, press **ON**.
+   (First ON records the coupler. FM, CW, and DIG force ON off — you
+   will not see a live coupler.)
+3. Key **Voice** or **2-tone** (or TUN / MOX + speech). **Voice**
    fills the voice band and is the easier stimulus when 2-tone is
    light on the coupler. Watch **FB** go teal → green. **ATT** may
    step a few times, then hold.
-5. Open **Amp View** if you want the curve. Snap / Hold as needed.
-6. Unkey — FB goes idle/muted; **ATT stays** at the last pad.
-7. Next keyup should land **near** the previous FB, not a full hunt.
-8. Kill-test once, then antenna when you are ready.
+4. Open **Amp View** if you want the curve. Snap / Hold as needed.
+5. Unkey — FB goes idle/muted; **ATT stays** at the last pad.
+6. Next keyup should land **near** the previous FB, not a full hunt.
+7. Kill-test once, then antenna when you are ready.
 
 > **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** are in tester
 > hands. TX is not on-air validated (dummy-load arm + drive ceiling). Do
@@ -5745,7 +5763,7 @@ is the laptop microphone level. PureSignal math stays on the shack.
 The laptop **PureSignal** and **Amp View** panels show the shack
 correction. From the desk, **PureSignal ON** and **2-tone** ask the
 host. Start voice before **2-tone**. Voice-cal noise and the coupler
-attestation stay on the shack (**Settings → TX**).
+coupler-disable checkbox stay on the shack (**Settings → TX**).
 
 During transmit, the laptop panadapter is that host transmit picture,
 after the rack and before the **Drive** slider. The **Drive** slider

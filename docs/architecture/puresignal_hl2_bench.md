@@ -7,20 +7,21 @@ Authoritative mux: `docs/architecture/puresignal_hl2.md` (Thetis `cntrl1=4`,
 DDC0+DDC1). If coupler energy is missing after that mux, capture **Thetis**
 C&C on the same HL2+ — do not silently switch DeskHPSDR `nrx=4` RX3/RX4.
 
-## Gate 0 — attestation off (no RF required)
+## Gate 0 — dock OFF (no RF required)
 
-1. Fresh settings: `tx/psAttestation` unset/false.
-2. Arm checkbox disabled; ON in the PureSignal dock disabled.
+1. Fresh settings: `tx/psAttestation` unset/false, `tx/psArmed` false.
+2. PureSignal dock **ON** is enabled (Thetis-style). It is **not**
+   live until clicked. Settings no longer has a second Arm checkbox.
 3. Frames 11/16 C2 bit 6 stay 0 (`puresignal_run`).
 4. Frame 4 `P1_adc_cntrl` stays 0 (not 4).
 5. Key TUN: no `pscc` feed, SUB still follows the operator SUB button.
 
 ## Gate 1 — arm on RX, mux still off
 
-1. Check attestation (Settings → TX).
-2. Arm PS (dock ON or Settings).
-3. RX: `puresignal_run=1`; `P1_adc_cntrl` still 0.
-4. Captured-profile apply still runs (bypass is MOX+PS only).
+1. Dock **ON** (first click also sets `tx/psAttestation`). Uncheck
+   Settings → TX coupler to fully disable.
+2. RX: `puresignal_run=1`; `P1_adc_cntrl` still 0.
+3. Captured-profile apply still runs (bypass is MOX+PS only).
 
 ## Gate 2 — TUN + PS on dummy (coupler present)
 

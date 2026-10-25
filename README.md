@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.27 Sheliak** — VFO LED digit vs Step (GitHub #22); Helios TX SWR; View → Freq Cal (GitHub #21). On top of v0.25.26 (layouts + Snap). v0.25.22 remains the return point. WDSP 2.10 from 0.25.8.
+**v0.25.28 Sheliak** — Pico RX fcodes for Xvtr band-decode (GitHub #23); PureSignal dock ON like Thetis. On top of v0.25.27. **v0.25.27** is the return installer if J4 / RF1-Alt misbehaves. v0.25.22 remains the long return point. WDSP 2.10 from 0.25.8.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc) · [Facebook](https://www.facebook.com/groups/1994335921523916)
 

@@ -1,20 +1,21 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.27 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.28 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.27** restores VFO LED digit vs empty-LED **Step** (GitHub #22),
-puts **SWR** on Helios TX after watts, and opens **View → Freq Cal**
-as a float (GitHub #21).
-**v0.25.26 Sheliak** is the previous public build.
-**v0.25.22** remains the return point.
+**v0.25.28** writes Pico **RX fcodes** 13/14 (GitHub #23) and makes
+PureSignal dock **ON** a single Thetis-style switch.
+**v0.25.27 Sheliak** is the previous public build and the IO-board
+return installer.
+**v0.25.22** remains the long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.27)
+### Last several builds (0.25.16 → 0.25.28)
 
 | Build | What landed |
 |---|---|
+| **0.25.28** | Pico **RX fcodes** 13/14 from the dial (GitHub #23). PureSignal dock **ON** like Thetis. Analog BYTE0–4 and RF1/Alt unchanged. **`LYRA_NO_IOBOARD_FCODE=1`** skips 13/14. **v0.25.27** is the return installer |
 | **0.25.27** | **VFO LED** digit place vs empty-LED **Step** (GitHub #22). **Helios TX SWR** after watts. **View → Freq Cal** float (GitHub #21). **v0.25.26** remains the previous public build. **v0.25.22** remains the return point |
 | **0.25.26** | **Layouts (GitHub #20).** Factory recall survives restart until you move a panel; named slots remember open docks. **Snap VFO wheel to Step** (Settings → Hardware → Navigation, default off). Laptop Tuning logo matches the VFO boxes. **v0.25.22** remains the return point |
 | **0.25.25** | **Lyra to Lyra: desk RX2 and CW.** Second-receiver picture and audio when the host SUB is on and the radio has a second converter. CW decoder, host pitch on the desk, and CW chip Send that makes RF on a Protocol 2 Brick. In CW, transmit stays off at 150 ms or more. Outside CW, voice, MOX, Tune, and 2-tone stay off at 200 ms or more. Away picture stays about 60 Hz. **v0.25.22** remains the return point |

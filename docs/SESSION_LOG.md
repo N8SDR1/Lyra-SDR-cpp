@@ -4,6 +4,13 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-25 — v0.25.28 Sheliak RELEASED
+
+Pico RX fcodes 13/14 (GitHub #23, deskHPSDR-shaped). PureSignal dock ON
+like Thetis. Analog BYTE0–4 and REG 11 0/2 unchanged. Kill switch
+`LYRA_NO_IOBOARD_FCODE=1`. Return installer v0.25.27. Tag `v0.25.28`.
+Do not merge `main`.
+
 ## 2026-10-24 — v0.25.27 Sheliak RELEASED
 
 VFO LED digit vs Step (#22), Helios TX SWR, View → Freq Cal float (#21).

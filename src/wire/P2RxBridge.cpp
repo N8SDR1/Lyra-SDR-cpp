@@ -475,8 +475,7 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                     auto *s = session_;
                     const bool subOn =
                         stream_ && stream_->subEnabled();
-                    const bool psOn = stream_ && stream_->psArmed()
-                        && stream_->psAttestation();
+                    const bool psOn = stream_ && stream_->psLiveArmed();
                     const quint32 hz = static_cast<quint32>(
                         stream_ ? corrected_freq(stream_->ddsHzForRf(
                                       stream_->rx2FreqHz()))

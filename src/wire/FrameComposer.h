@@ -42,6 +42,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 
 namespace lyra::wire {
@@ -117,6 +118,23 @@ inline void pack_hl2_ioboard_tx_freq_bytes(std::uint64_t hz,
     out[4] = static_cast<unsigned char>( hz        & 0xFFu);
 }
 
+// Ahlstrom / deskHPSDR one-byte RX frequency code for Pico registers
+// 13 and 14 (REG_FCODE_RX1 / RX2).  Same C cast as old_protocol.c:
+// (int)(0.5 + 15.47 * ln(Hz / 18748.1)).  Dial RF, not the IF NCO.
+// Does not touch analog BYTE0–4 (GPA100 J4 PWM).
+inline unsigned char hl2_ioboard_rx_fcode(std::uint64_t hz) noexcept
+{
+    if (hz == 0)
+        return 0;
+    const int code = static_cast<int>(0.5 + 15.47 * std::log(
+        static_cast<double>(hz) / 18748.1));
+    if (code < 0)
+        return 0;
+    if (code > 255)
+        return 255;
+    return static_cast<unsigned char>(code);
+}
+
 // Host I2C write overlay (C0 0x3c / 0x3d).  Same ring as the EP2 I2C
 // steal in write_main_loop_hl2.  Returns false if prn is null or the
 // 32-slot ring is full.  Address is 7-bit.
@@ -138,6 +156,11 @@ bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz);
 // value 0 = RF1 (PA / N2ADR antenna), 2 = Alt RX.  One I2C2 write to
 // 0x1D register 11.  Does not touch registers 0..4 (analog TX-Hz).
 bool enqueue_hl2_ioboard_rf_input(unsigned char value);
+
+// Pico REG_FCODE_RX1 (13) and RX2 (14).  Separate from analog 0..4
+// and from REG_RF_INPUTS (11).  deskHPSDR writes these so a decoder
+// that follows rx_band in receive (K7MDL / issue #23) sees VHF.
+bool enqueue_hl2_ioboard_rx_fcodes(unsigned char rx1, unsigned char rx2);
 
 // Latest TX RF Hz the EP2 writer should push to 0x1D on I2C2.
 // Writer retries until register 4 (BYTE0) is actually overlaid —

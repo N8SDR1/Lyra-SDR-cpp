@@ -1375,7 +1375,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         if (on) {
             const bool radioUp = st->isRunning()
                 || (p2Bridge_ && p2Bridge_->isRunning());
-            if (!st->psAttestation() || st->txInhibit() || !radioUp
+            if (st->txInhibit() || !radioUp
                 || st->psDigitalLockout()) {
                 deskPsMs_ = 0;
                 pushDeskPs();

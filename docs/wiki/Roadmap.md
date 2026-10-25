@@ -4,7 +4,7 @@ Where Lyra is headed. This is a **direction, not a dated schedule** — items la
 when they're solid. Everything shipped today is on the [Feature Status](Feature-Status)
 page.
 
-**Now (v0.25.27 Sheliak):** HL2 / HL2+
+**Now (v0.25.28 Sheliak):** HL2 / HL2+
 P1, BrickSDR2 / Brick3SDR P2, SUB + SPLIT, PureSignal, TX rack. Brick3 /
 ANAN-100D get a second SUB panadapter. **Diversity** (two ADCs, same
 frequency) is in and confirmed on Brick3SDR. Protocol 1 **RF1 / Alt RX**

@@ -1,6 +1,6 @@
 // Lyra — PureSignal dock (P5).
-// ON / 2-tone / live GetPSInfo / Reset. Attestation default OFF.
-// Dummy load first. Stream context is set in MainWindow.
+// ON / 2-tone / live GetPSInfo / Reset. Dock ON is the daily
+// switch (first ON records coupler attestation). Dummy load first.
 
 import QtQuick
 import QtQuick.Controls
@@ -71,9 +71,7 @@ Rectangle {
             text: root.liveOn ? qsTr("ON") : qsTr("OFF")
             font.bold: true
             font.pixelSize: 12
-            enabled: DeskLink.deskSide
-                     ? (root.liveOn || !root.digitalLock)
-                     : (Stream.psAttestation && !root.digitalLock)
+            enabled: !root.digitalLock
             onClicked: {
                 if (DeskLink.deskSide)
                     DeskLink.requestRemotePsArm(!root.liveOn)
@@ -94,10 +92,8 @@ Rectangle {
                 font: onBtn.font
             }
             ToolTip.text: root.digitalLock
-                ? qsTr("PureSignal is off in DIGU / DIGL / DRM / CWL / CWU / FM. Arm restores when you leave those modes.")
-                : (Stream.psAttestation
-                ? qsTr("Arm PureSignal. HL2: coupler mux while MOX. Brick: DDC0/DDC1 at TX + Alex PS bit; keyed PS uses one combined IQ stream.")
-                : qsTr("Check Settings → TX: I have the PureSignal hardware coupler."))
+                ? qsTr("PureSignal is off in DIGU / DIGL / DRM / CWL / CWU / FM. ON restores when you leave those modes.")
+                : qsTr("PureSignal ON — same as Thetis. First ON records the coupler. HL2 muxes the coupler while MOX. Brick uses DDC0/DDC1 at TX. Uncheck Settings → TX coupler to disable PS on a radio with no tap.")
             ToolTip.delay: 800
             ToolTip.visible: hovered && Prefs.tooltipsEnabled
         }
@@ -112,7 +108,7 @@ Rectangle {
             font.pixelSize: 12
             enabled: DeskLink.deskSide
                      ? (root.liveOn && !(DeskLink.tuneLit && !DeskLink.twoToneLit))
-                     : (Stream.psAttestation && root.liveOn
+                     : (root.liveOn
                         && (!Stream.tuneEnabled || Stream.twoToneEnabled))
             onClicked: {
                 if (DeskLink.deskSide) {
@@ -151,7 +147,7 @@ Rectangle {
             text: qsTr("Voice")
             font.bold: true
             font.pixelSize: 12
-            enabled: !DeskLink.deskSide && Stream.psAttestation && root.liveOn
+            enabled: !DeskLink.deskSide && root.liveOn
                      && (!Stream.tuneEnabled || Stream.noiseEnabled)
             onClicked: {
                 if (!Stream.noiseEnabled) {
@@ -188,7 +184,7 @@ Rectangle {
             editable: true
             value: Stream.psNoiseLevelDb
             implicitWidth: 72
-            enabled: !DeskLink.deskSide && Stream.psAttestation && root.liveOn
+            enabled: !DeskLink.deskSide && root.liveOn
             onValueModified: Stream.psNoiseLevelDb = value
             ToolTip.text: qsTr("Voice-noise level, dB. −12 is quiet. +3 is the top. Shaped like a male voice. The TX filter still sets the width, so the wattmeter stays under a full tune carrier.")
             ToolTip.delay: 800
@@ -246,7 +242,7 @@ Rectangle {
             implicitHeight: 26
             text: qsTr("Reset")
             font.pixelSize: 12
-            enabled: root.liveOn && (DeskLink.deskSide || Stream.psAttestation)
+            enabled: root.liveOn
             onClicked: {
                 if (DeskLink.deskSide)
                     DeskLink.requestRemotePsReset()

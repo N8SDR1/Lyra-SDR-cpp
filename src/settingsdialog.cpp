@@ -4925,9 +4925,10 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 tr("I have the PureSignal hardware coupler installed"), grp);
             psAtt->setChecked(stream_->psAttestation());
             psAtt->setToolTip(tr(
-                "Default OFF. Check only if this radio has the PureSignal "
-                "mod. Until then the PS arm switch and cntrl1=4 mux stay "
-                "off. First RF is dummy-load only."));
+                "Set automatically the first time you press ON on the "
+                "PureSignal dock (same as Thetis / DeskHPSDR). Uncheck "
+                "to fully disable PS on a radio with no coupler. Drive, "
+                "watts cap, and ATT-on-TX are separate."));
             connect(psAtt, &QCheckBox::toggled, stream_,
                     &lyra::ipc::HL2Stream::setPsAttestation);
             connect(stream_, &lyra::ipc::HL2Stream::psAttestationChanged, psAtt,
@@ -4936,42 +4937,16 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     });
             g->addWidget(psAtt, 6, 0, 1, 2);
 
-            auto *psArm = new QCheckBox(tr("Arm PureSignal"), grp);
-            psArm->setChecked(stream_->psArmed());
-            psArm->setEnabled(stream_->psAttestation()
-                              && !stream_->psDigitalLockout());
-            psArm->setToolTip(tr(
-                "Sets puresignal_run (frames 11/16 C2 bit 6). HL2 mux "
-                "cntrl1=4 only while MOX is also on. Requires attestation. "
-                "Forced off in DIGU/DIGL/DRM/CWL/CWU/FM; Arm restores when "
-                "you leave those modes."));
-            connect(psArm, &QCheckBox::toggled, stream_,
-                    &lyra::ipc::HL2Stream::setPsArmed);
-            connect(stream_, &lyra::ipc::HL2Stream::psArmedChanged, psArm,
-                    [psArm](bool on) {
-                        if (psArm->isChecked() != on) psArm->setChecked(on);
-                    });
-            connect(stream_, &lyra::ipc::HL2Stream::psAttestationChanged, psArm,
-                    [this, psArm](bool att) {
-                        psArm->setEnabled(att && stream_
-                                          && !stream_->psDigitalLockout());
-                    });
-            connect(stream_, &lyra::ipc::HL2Stream::psLiveArmedChanged, psArm,
-                    [this, psArm](bool) {
-                        psArm->setEnabled(stream_
-                            && stream_->psAttestation()
-                            && !stream_->psDigitalLockout());
-                    });
-            g->addWidget(psArm, 7, 0, 1, 2);
-
             auto *psHelp = new QLabel(grp);
             psHelp->setText(tr(
-                "PureSignal: dummy load first. See the PureSignal dock "
-                "(ON / 2-tone / feedback / Reset). Live gates: "
+                "PureSignal: dummy load first. Daily switch is the "
+                "PureSignal dock ON (not a second Settings Arm). "
+                "DIGU/DIGL/DRM/CWL/CWU/FM still force the calibrator "
+                "off. Live gates: "
                 "docs/architecture/puresignal_hl2_bench.md."));
             psHelp->setWordWrap(true);
             psHelp->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
-            g->addWidget(psHelp, 8, 0, 1, 2);
+            g->addWidget(psHelp, 7, 0, 1, 2);
         }
 
         // --- Auto-mute RX while transmitting (task #26) ---

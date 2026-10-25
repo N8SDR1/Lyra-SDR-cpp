@@ -6,7 +6,7 @@ for the Hermes Lite 2 / 2+ (Protocol 1) and **BrickSDR2 / Brick3SDR** (Protocol 
 expectations so you know what's a real bug versus a feature that simply
 hasn't landed yet. (Pin or link this in Discord.)
 
-Current tree: **v0.25.27 Sheliak**. VFO LED digit vs Step (GitHub #22). Helios TX SWR. View → Freq Cal (GitHub #21). v0.25.26 Sheliak is the previous public build. v0.25.22 remains the return point. Always grab the latest from the
+Current tree: **v0.25.28 Sheliak**. Pico RX fcodes (GitHub #23). PureSignal dock ON. v0.25.27 Sheliak is the previous public build and the IO-board return installer. v0.25.22 remains the long return point. Always grab the latest from the
 [Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases).
 
 > **What already works** (so you don't wonder): full RX DSP, and **transmit

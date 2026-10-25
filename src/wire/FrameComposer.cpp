@@ -129,6 +129,12 @@ std::atomic<std::uint64_t> g_ioboard_sent{~std::uint64_t{0}};
 std::atomic<unsigned char> g_rf_input_want{0};
 std::atomic<unsigned char> g_rf_input_queued{0xFF};
 std::atomic<unsigned char> g_rf_input_sent{0xFF};
+std::atomic<unsigned char> g_rx_fcode1_want{0};
+std::atomic<unsigned char> g_rx_fcode1_queued{0xFF};
+std::atomic<unsigned char> g_rx_fcode1_sent{0xFF};
+std::atomic<unsigned char> g_rx_fcode2_want{0};
+std::atomic<unsigned char> g_rx_fcode2_queued{0xFF};
+std::atomic<unsigned char> g_rx_fcode2_sent{0xFF};
 
 // HL2 I2C2 (C0 command 0x3d).  Filter chip 0x20 and analog slave 0x1D
 // share this bus — I2C1 (0x3c) never reaches the IO board.
@@ -137,6 +143,8 @@ constexpr unsigned char kIoboardSlave  = 0x1D;
 // Pico n2adr_basic / Thetis IoBoardHl2.cs: BYTE4..BYTE0 = 0..4,
 // REG_RF_INPUTS = 11.  Analog coalesce must never match register 11.
 constexpr unsigned char kIoboardRegRfInputs = 11;
+constexpr unsigned char kIoboardRegFcodeRx1 = 13;
+constexpr unsigned char kIoboardRegFcodeRx2 = 14;
 
 bool is_ioboard_analog_entry(const I2cState::I2cQueueEntry& e)
 {
@@ -148,6 +156,13 @@ bool is_ioboard_rf_input_entry(const I2cState::I2cQueueEntry& e)
 {
     return e.bus == kI2cBusIoboard && e.address == kIoboardSlave
         && e.control == kIoboardRegRfInputs;
+}
+
+bool is_ioboard_rx_fcode_entry(const I2cState::I2cQueueEntry& e,
+                               unsigned char reg)
+{
+    return e.bus == kI2cBusIoboard && e.address == kIoboardSlave
+        && e.control == reg;
 }
 
 bool enqueue_i2c_write_unlocked(unsigned char bus, unsigned char address,
@@ -183,7 +198,8 @@ int i2c_free_unlocked()
 // The Pico latches PWM on register 4 (BYTE0).  Two TX-Hz bursts in the
 // ring (80 m then 20 m) can mix registers so BYTE0 never matches the
 // frequency the operator just clicked — pin 8 stays on the previous band.
-// Register 11 (Alt RX) is not analog and must stay in the ring.
+// Register 11 (Alt RX) and 13/14 (RX fcodes) are not analog and
+// must stay in the ring.
 void drop_pending_ioboard_unlocked()
 {
     if (prn == nullptr)
@@ -267,6 +283,47 @@ bool enqueue_hl2_ioboard_rf_input_unlocked(unsigned char value)
     return true;
 }
 
+void drop_pending_rx_fcode_unlocked(unsigned char reg)
+{
+    if (prn == nullptr)
+        return;
+    I2cState::I2cQueueEntry keep[kMaxI2cQueue];
+    int n = 0;
+    unsigned char idx = prn->i2c.out_index;
+    while (idx != prn->i2c.in_index) {
+        const unsigned char next =
+            static_cast<unsigned char>((idx + 1) % kMaxI2cQueue);
+        const auto& e = prn->i2c.i2c_queue[next];
+        if (!is_ioboard_rx_fcode_entry(e, reg))
+            keep[n++] = e;
+        idx = next;
+    }
+    idx = prn->i2c.out_index;
+    for (int i = 0; i < n; ++i) {
+        idx = static_cast<unsigned char>((idx + 1) % kMaxI2cQueue);
+        prn->i2c.i2c_queue[idx] = keep[i];
+    }
+    prn->i2c.in_index = idx;
+}
+
+bool enqueue_hl2_ioboard_rx_fcode_unlocked(unsigned char reg,
+                                           unsigned char code)
+{
+    if (prn == nullptr)
+        return false;
+    drop_pending_rx_fcode_unlocked(reg);
+    if (i2c_free_unlocked() < 1)
+        return false;
+    if (!enqueue_i2c_write_unlocked(kI2cBusIoboard, kIoboardSlave,
+                                    reg, code))
+        return false;
+    if (reg == kIoboardRegFcodeRx1)
+        g_rx_fcode1_queued.store(code, std::memory_order_relaxed);
+    else
+        g_rx_fcode2_queued.store(code, std::memory_order_relaxed);
+    return true;
+}
+
 void flush_ioboard_want_unlocked()
 {
     const std::uint64_t want = g_ioboard_want.load(std::memory_order_relaxed);
@@ -288,6 +345,24 @@ void flush_ioboard_want_unlocked()
         g_rf_input_sent.load(std::memory_order_relaxed);
     if (rfWant != rfQueued && rfWant != rfSent)
         enqueue_hl2_ioboard_rf_input_unlocked(rfWant);
+
+    // After analog and REG 11.  Registers 13/14 are not analog.
+    const unsigned char c1Want =
+        g_rx_fcode1_want.load(std::memory_order_relaxed);
+    const unsigned char c1Queued =
+        g_rx_fcode1_queued.load(std::memory_order_relaxed);
+    const unsigned char c1Sent =
+        g_rx_fcode1_sent.load(std::memory_order_relaxed);
+    if (c1Want != c1Queued && c1Want != c1Sent)
+        enqueue_hl2_ioboard_rx_fcode_unlocked(kIoboardRegFcodeRx1, c1Want);
+    const unsigned char c2Want =
+        g_rx_fcode2_want.load(std::memory_order_relaxed);
+    const unsigned char c2Queued =
+        g_rx_fcode2_queued.load(std::memory_order_relaxed);
+    const unsigned char c2Sent =
+        g_rx_fcode2_sent.load(std::memory_order_relaxed);
+    if (c2Want != c2Queued && c2Want != c2Sent)
+        enqueue_hl2_ioboard_rx_fcode_unlocked(kIoboardRegFcodeRx2, c2Want);
 }
 
 }  // namespace
@@ -312,6 +387,28 @@ bool enqueue_hl2_ioboard_rf_input(unsigned char value)
     const unsigned char v = (value == 2) ? 2 : 0;
     g_rf_input_want.store(v, std::memory_order_relaxed);
     return enqueue_hl2_ioboard_rf_input_unlocked(v);
+}
+
+bool enqueue_hl2_ioboard_rx_fcodes(unsigned char rx1, unsigned char rx2)
+{
+    std::lock_guard<std::recursive_mutex> lk(g_i2c_mu);
+    g_rx_fcode1_want.store(rx1, std::memory_order_relaxed);
+    g_rx_fcode2_want.store(rx2, std::memory_order_relaxed);
+    bool a = true;
+    bool b = true;
+    const unsigned char q1 =
+        g_rx_fcode1_queued.load(std::memory_order_relaxed);
+    const unsigned char s1 =
+        g_rx_fcode1_sent.load(std::memory_order_relaxed);
+    if (rx1 != q1 && rx1 != s1)
+        a = enqueue_hl2_ioboard_rx_fcode_unlocked(kIoboardRegFcodeRx1, rx1);
+    const unsigned char q2 =
+        g_rx_fcode2_queued.load(std::memory_order_relaxed);
+    const unsigned char s2 =
+        g_rx_fcode2_sent.load(std::memory_order_relaxed);
+    if (rx2 != q2 && rx2 != s2)
+        b = enqueue_hl2_ioboard_rx_fcode_unlocked(kIoboardRegFcodeRx2, rx2);
+    return a && b;
 }
 
 void request_hl2_ioboard_tx_freq(std::uint64_t hz)
@@ -1185,6 +1282,14 @@ void write_main_loop_hl2(const char* out_bufp) {
                     prn->i2c.delay = 5;
                     g_rf_input_sent.store(ov.write_data,
                                           std::memory_order_relaxed);
+                } else if (is_ioboard_rx_fcode_entry(ov, kIoboardRegFcodeRx1)) {
+                    prn->i2c.delay = 5;
+                    g_rx_fcode1_sent.store(ov.write_data,
+                                           std::memory_order_relaxed);
+                } else if (is_ioboard_rx_fcode_entry(ov, kIoboardRegFcodeRx2)) {
+                    prn->i2c.delay = 5;
+                    g_rx_fcode2_sent.store(ov.write_data,
+                                           std::memory_order_relaxed);
                 }
 
                 // NB: I2C-overlay frames do NOT advance g_out_control_idx.

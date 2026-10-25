@@ -50,6 +50,7 @@
 #include <QByteArray>
 #include <QDateTime>
 #include <QDebug>           // qInfo / qCritical for safety-event mirror
+#include <QtGlobal>         // qEnvironmentVariableIntValue
 #include <QMetaObject>
 #include <QSettings>
 #include <Qt>
@@ -1406,6 +1407,7 @@ void HL2Stream::open(const QString &ip) {
             ddsHzForRf(static_cast<quint32>(txRfTune < 0 ? 0 : txRfTune)));
         pushIoboardTxFreq(true);
         pushHl2RxPort();
+        pushIoboardRxFcodes();
         lyra::wire::set_rx_step_attn_db(    // LNA gain (case 11 !XmitBit)
             std::clamp(lnaGainDb_.load(std::memory_order_relaxed),
                        kLnaMinDb, kLnaMaxDb) + 12, 0);   // HPSDR P1 +12 bias
@@ -2044,6 +2046,7 @@ void HL2Stream::setRx1FreqHz(quint32 hz) {
     }
     rx1FreqHz_.store(hz, std::memory_order_relaxed);
     QSettings().setValue(QStringLiteral("rx/freqHz"), hz);
+    pushIoboardRxFcodes();
     // NCOs first, then notify.  Protocol 2 mirrors DUC from txFreqHz_
     // on rx1FreqChanged — if that fires before pushEffectiveTxFreq,
     // TX stays on the previous dial (start is correct; any later VFO
@@ -2346,6 +2349,7 @@ void HL2Stream::setSplitEnabled(bool on) {
         }
         pushEffectiveRxFreq();
     }
+    pushIoboardRxFcodes();
 }
 
 void HL2Stream::setVfoBHz(quint32 hz) {
@@ -2370,6 +2374,7 @@ void HL2Stream::setVfoBHz(quint32 hz) {
         }
         pushEffectiveRxFreq();
     }
+    pushIoboardRxFcodes();
 }
 
 void HL2Stream::setSubEnabled(bool on) {
@@ -2398,6 +2403,7 @@ void HL2Stream::setSubEnabled(bool on) {
     emit logLine(QStringLiteral("SUB %1")
                      .arg(on ? QStringLiteral("on") : QStringLiteral("off")));
     pushEffectiveRxFreq();
+    pushIoboardRxFcodes();
 }
 
 void HL2Stream::setDiversityCapable(bool on) {
@@ -2418,6 +2424,7 @@ void HL2Stream::setDiversityArmed(bool on) {
         QSettings().setValue(QStringLiteral("rx/subEnabled"), false);
         emit subEnabledChanged();
         emit logLine(QStringLiteral("SUB off — diversity is on"));
+        pushIoboardRxFcodes();
     }
     diversityArmed_.store(on, std::memory_order_relaxed);
     QSettings().setValue(QStringLiteral("diversity/enabled"), on);
@@ -2528,6 +2535,7 @@ void HL2Stream::setRx2FreqHz(quint32 hz) {
     }
     if (subEnabled_.load(std::memory_order_relaxed))
         pushEffectiveRxFreq();
+    pushIoboardRxFcodes();
 }
 
 void HL2Stream::setFocusedRx(int rx) {
@@ -2915,6 +2923,7 @@ void HL2Stream::setP2DrivePath(bool on) {
     if (was && !on) {
         pushIoboardTxFreq(true);
         pushHl2RxPort();
+        pushIoboardRxFcodes();
     }
 }
 
@@ -3015,6 +3024,17 @@ void HL2Stream::onIoboardSettle() {
     const int epoch = ioboardEpoch_;
     lyra::wire::request_hl2_ioboard_tx_freq(hz);
     lyra::wire::enqueue_hl2_ioboard_tx_freq(hz);
+    // Band hops only.  0.25.27 had no analog line, so Mike's log looked
+    // like BYTE0–4 never went out (issue #23).  In-band 1 Hz ticks stay quiet.
+    {
+        const unsigned char fc = lyra::wire::hl2_ioboard_rx_fcode(hz);
+        static unsigned char lastFc = 0xFF;
+        if (fc != lastFc) {
+            lastFc = fc;
+            qInfo("HL2 TX Hz: I2C2 0x1D BYTE0-4 = %llu Hz (dial RF, fcode %u)",
+                  static_cast<unsigned long long>(hz), unsigned(fc));
+        }
+    }
     // Second copy.  BYTE0 on the wire is not a Pico latch.  One missed
     // burst used to stick the previous band until a different frequency
     // was written.  A newer band click bumps ioboardEpoch_ and this
@@ -3051,6 +3071,32 @@ void HL2Stream::pushHl2RxPort() {
     lyra::wire::enqueue_hl2_ioboard_rf_input(v);
     qInfo("HL2 RX port: I2C2 0x1D register 11 = %u (%s) — analog BYTE0–4 not written",
           unsigned(v), v == 2 ? "Alt RX" : "RF1");
+}
+
+void HL2Stream::pushIoboardRxFcodes() {
+    // deskHPSDR REG_FCODE_RX1/RX2.  K7MDL Pico GPIO follows rx_band
+    // in receive.  Analog BYTE0–4 and REG 11 are not on this path.
+    // Kill switch: LYRA_NO_IOBOARD_FCODE=1 skips 13/14 only (GPA100
+    // J4 analog and RF1/Alt stay).  Full return: reinstall v0.25.27.
+    if (qEnvironmentVariableIntValue("LYRA_NO_IOBOARD_FCODE") != 0)
+        return;
+    if (p2DrivePath_.load(std::memory_order_relaxed))
+        return;
+    const quint32 rx1 = rx1FreqHz_.load(std::memory_order_relaxed);
+    const unsigned char c1 = lyra::wire::hl2_ioboard_rx_fcode(rx1);
+    unsigned char c2 = c1;
+    if (subEnabled_.load(std::memory_order_relaxed))
+        c2 = lyra::wire::hl2_ioboard_rx_fcode(
+            rx2FreqHz_.load(std::memory_order_relaxed));
+    lyra::wire::enqueue_hl2_ioboard_rx_fcodes(c1, c2);
+    static unsigned char lastC1 = 0xFF;
+    static unsigned char lastC2 = 0xFF;
+    if (c1 != lastC1 || c2 != lastC2) {
+        lastC1 = c1;
+        lastC2 = c2;
+        qInfo("HL2 RX fcode: I2C2 0x1D register 13=%u 14=%u (RX1 dial %u Hz) — analog BYTE0-4 not written",
+              unsigned(c1), unsigned(c2), unsigned(rx1));
+    }
 }
 
 double HL2Stream::paGainForBand(int idx) const {
@@ -3606,6 +3652,15 @@ void HL2Stream::setPsAttestation(bool on) {
 }
 
 void HL2Stream::setPsArmed(bool on) {
+    // Dock ON is the Thetis/DeskHPSDR gesture: one switch. First ON
+    // records the coupler fact so Arm is not a second buried checkbox.
+    // Unchecking Settings → TX coupler still disarms (stock HL2).
+    // Drive / watts cap / PA Gain / ATT-on-TX are not on this path.
+    if (on && !psAttestation_) {
+        psAttestation_ = true;
+        QSettings().setValue(QStringLiteral("tx/psAttestation"), true);
+        emit psAttestationChanged(true);
+    }
     if (!psAttestation_)
         on = false;
     if (psArmed_ == on) return;

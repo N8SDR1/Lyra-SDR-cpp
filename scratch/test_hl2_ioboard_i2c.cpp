@@ -7,6 +7,7 @@
 // cmake --build build --target test_hl2_ioboard_i2c
 // build\test_hl2_ioboard_i2c.exe
 
+#include <math.h>
 #include <stdio.h>
 
 static void pack_hl2_ioboard_tx_freq_bytes(unsigned long long hz,
@@ -17,6 +18,18 @@ static void pack_hl2_ioboard_tx_freq_bytes(unsigned long long hz,
     out[2] = static_cast<unsigned char>((hz >> 16) & 0xFFu);
     out[3] = static_cast<unsigned char>((hz >>  8) & 0xFFu);
     out[4] = static_cast<unsigned char>( hz        & 0xFFu);
+}
+
+static unsigned char hl2_ioboard_rx_fcode(unsigned long long hz)
+{
+    if (hz == 0)
+        return 0;
+    const int code = (int)(0.5 + 15.47 * log((double)hz / 18748.1));
+    if (code < 0)
+        return 0;
+    if (code > 255)
+        return 255;
+    return (unsigned char)code;
 }
 
 static int g_fail = 0;
@@ -47,6 +60,13 @@ int main() {
 
     pack_hl2_ioboard_tx_freq_bytes(0, b);
     CHECK(b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 0 && b[4] == 0);
+
+    CHECK(hl2_ioboard_rx_fcode(0) == 0);
+    CHECK(hl2_ioboard_rx_fcode(7074000ull) == 92);
+    CHECK(hl2_ioboard_rx_fcode(14074000ull) == 102);
+    CHECK(hl2_ioboard_rx_fcode(50000000ull) == 122);
+    CHECK(hl2_ioboard_rx_fcode(144200000ull) == 138);
+    CHECK(hl2_ioboard_rx_fcode(144302000ull) == 138);
 
     if (g_fail) {
         fprintf(stderr, "%d check(s) failed\n", g_fail);

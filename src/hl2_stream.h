@@ -1378,6 +1378,8 @@ public slots:
     // Re-applied live while the noise stimulus is running.
     void setPsNoiseLevelDb(int db);
     void setPsAttestation(bool on);
+    // Operator PS ON (dock / desk). First ON also sets attestation.
+    // Unchecking the Settings coupler box still forces this off.
     void setPsArmed(bool on);
     Q_INVOKABLE void resetPureSignal();
     // Desk display of the shack's PureSignal readout. Does not arm
@@ -2028,6 +2030,10 @@ private:
     // I2C2 0x1D register 11 (RF1 vs Alt RX).  Independent of analog
     // BYTE0–4.  Skipped on Protocol 2.
     void pushHl2RxPort();
+    // Pico REG_FCODE_RX1/RX2 (13/14).  Dial RF, not IF.  Independent of
+    // analog BYTE0–4 and register 11.  Skipped on Protocol 2.
+    // LYRA_NO_IOBOARD_FCODE=1 skips 13/14 only.
+    void pushIoboardRxFcodes();
     bool refuseTxBandJump(quint32 fromHz, quint32 toHz);
     // Writes the RX DDC NCOs from rx1FreqHz_ + (ritEnabled ? ritOffsetHz : 0)
     // — the single RX-NCO writer, mirror of pushEffectiveTxFreq.  Called by
