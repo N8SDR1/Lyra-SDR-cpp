@@ -3091,6 +3091,11 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("freqcal"))) {
         d->setFloating(true);
         d->hide();
+        // Same as Tuner: hide/show drops the float, so remember the frame.
+        // View → Freq Cal uses toggleViewAction and would otherwise re-dock
+        // into the bottom strip (or bounce closed via the chip).
+        new FloatingDockMemory(d, QStringLiteral("ui/freqcalDock"),
+                               &layoutRestoring_, d);
     }
     // #201 Session recorder — opt-in floating tool window (View → Recorder),
     // hidden by default so it never clutters the front panel.  REC/⏹ + timer
@@ -3203,6 +3208,29 @@ void MainWindow::buildMenus() {
         if (it.key() == QLatin1String("ampview")
             || it.key() == QLatin1String("diversity"))
             continue;
+        // Freq Cal is a float-only chip. toggleViewAction re-docks it and
+        // re-enters visibilityChanged; that path crashed (GitHub #21).
+        if (it.key() == QLatin1String("freqcal")) {
+            QDockWidget *d = it.value();
+            QAction *act = viewMenu->addAction(tr("Freq Cal"));
+            act->setCheckable(true);
+            act->setChecked(d->isVisible());
+            connect(act, &QAction::toggled, this, [d](bool on) {
+                if (on) {
+                    d->setFloating(true);
+                    d->show();
+                    d->raise();
+                    d->activateWindow();
+                } else {
+                    d->hide();
+                }
+            });
+            connect(d, &QDockWidget::visibilityChanged, act, [act](bool vis) {
+                const QSignalBlocker block(act);
+                act->setChecked(vis);
+            });
+            continue;
+        }
         viewMenu->addAction(it.value()->toggleViewAction());
     }
     viewMenu->addSeparator();
@@ -4411,9 +4439,13 @@ void MainWindow::buildToolbar() {
                     d->hide();
                 }
             });
+            // Do not emit toggled(false) on a visibility flicker: View →
+            // Freq Cal (toggleViewAction) reparents the dock, Qt fires
+            // visibilityChanged(false) then (true), and setChecked(false)
+            // would hide it again — "aborts every time" on that menu path.
             connect(d, &QDockWidget::visibilityChanged, fc, [fc](bool vis) {
-                if (fc->isChecked() != vis)
-                    fc->setChecked(vis);
+                const QSignalBlocker block(fc);
+                fc->setChecked(vis);
             });
             attachChipHelp(fc, QStringLiteral("freqcal"));  // right-click → guide
         }

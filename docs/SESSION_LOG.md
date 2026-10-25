@@ -4,6 +4,12 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-24 — v0.25.27 Sheliak RELEASED
+
+VFO LED digit vs Step (#22), Helios TX SWR, View → Freq Cal float (#21).
+Installer `dist/Lyra-Setup-0.25.27.exe`. Tag `v0.25.27`. Do not merge
+`main`.
+
 ## 2026-10-24 — LED Step + Helios SWR
 
 Digit wheel on the VFO LED. Empty LED uses that VFO's Step; Snap only

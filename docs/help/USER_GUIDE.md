@@ -22,7 +22,22 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.26 Sheliak.** See [What's new in 0.25.26](#whats-new-in-02526).
+**v0.25.27 Sheliak.** See [What's new in 0.25.27](#whats-new-in-02527).
+
+## What's new in 0.25.27
+
+- **VFO LED wheel (GitHub #22).** Wheel **on a digit** moves that place.
+  Wheel **on the LED but not on a digit** uses that VFO's Tuning **Step**
+  (A and B each have their own). **Snap VFO wheel to Step** (Settings →
+  Hardware → Navigation) applies only on that empty-LED path, plus the
+  USB encoder and panadapter wheel. Panadapter wheel stays Display
+  **Panafall**; click stays **Exact / 100 Hz**.
+- **Helios TX SWR.** On transmit the SOL readout is watts, then **SWR**,
+  then the planet name. MIC / ALC / GAIN chips are unchanged.
+- **View → Freq Cal (GitHub #21).** Opens the same floating panel as the
+  Freq Cal chip (no re-dock crash). Settings → Calibration is unchanged.
+- **v0.25.26 Sheliak** remains the previous public build. If this cut
+  misbehaves, reinstall **v0.25.22**. Settings stay.
 
 ## What's new in 0.25.26
 
@@ -438,6 +453,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.27](#whats-new-in-02527)
 - [What's new in 0.25.26](#whats-new-in-02526)
 - [What's new in 0.25.25](#whats-new-in-02525)
 - [What's new in 0.25.24](#whats-new-in-02524)
