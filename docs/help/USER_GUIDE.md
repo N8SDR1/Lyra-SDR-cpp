@@ -22,7 +22,28 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.28 Sheliak.** See [What's new in 0.25.28](#whats-new-in-02528).
+**v0.25.28 Sheliak** is the last tagged installer. This tree also has
+the parked Help balloon and Protocol 1 **6 m** hide — see
+[What's new after 0.25.28](#whats-new-after-02528).
+
+## What's new after 0.25.28
+
+- **Parked Help balloon.** Hover a control and help appears in **one**
+  glass speech bubble you can **drag** onto the spectrum or the
+  lower-left of the waterfall (it remembers the spot). It fades a couple
+  of seconds after you leave the control. Drive, TUN, MOX and the band
+  chips no longer pop a tip on top of the thing you are clicking.
+  **Settings → Visuals → Show tooltips** still hides it.
+  [Tooltips](#tooltips).
+- **Solar / Propagation chips** keep the **old** tip: hover a heat-map
+  chip (or SFI / A / K) and the HamQSL rating pops **just under that
+  chip**, not in the parked balloon.
+- **Ham 6 m on Protocol 1.** Hermes Lite 2 / 2+ has no native 6 m, so
+  that Ham chip is hidden. Use an **Xvtr** slot. BrickSDR2 / ANAN on
+  Protocol 2 still show **6 m**.
+- **Display** and **Profiles** hover help uses the parked balloon
+  (Zoom, Panafall, Exact / 100 Hz, Spec, Peak Hold, WF, profile picker,
+  Save).
 
 ## What's new in 0.25.28
 
@@ -468,6 +489,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new after 0.25.28](#whats-new-after-02528)
 - [What's new in 0.25.28](#whats-new-in-02528)
 - [What's new in 0.25.27](#whats-new-in-02527)
 - [What's new in 0.25.26](#whats-new-in-02526)
@@ -1609,8 +1631,12 @@ apart.
 
 Quick band switching, in four rows:
 
-- **Ham** — the HF/6m amateur bands (**160m … 6m**). Click one and Lyra
-  returns the **focused** receiver to a stored frequency on that band
+- **Ham** — the HF amateur bands (**160m … 10m**, plus **6 m** on
+  Protocol 2). On a **Hermes Lite 2 / 2+** (Protocol 1) the stock **6 m**
+  chip is hidden — the radio has no native 6 m; put 6 m on an **Xvtr**
+  slot. **BrickSDR2 / ANAN** on Protocol 2 keep the Ham **6 m** button.
+  Click a chip and Lyra returns the **focused** receiver to a stored
+  frequency on that band
   (the band's default the first time). Each chip keeps **three**
   frequencies. A small **1**, **2**, or **3** in the corner is the slot
   you are on. The first click, arriving from another band, lands on the
@@ -1629,7 +1655,7 @@ Quick band switching, in four rows:
   one chip can carry both stories (red + green treatment). Full map:
   [Second receiver](#second-receiver-sub--rx2--how-it-works).
   An optional **11m** button (the **Citizens Band**, 26.965–27.405 MHz AM)
-  appears at the end of this row, right after 6m, when you enable it in
+  appears at the end of this row, right after the last Ham chip, when you enable it in
   **Settings → Hardware → Band panel**. When you're tuned on it, the
   panadapter marks all **40 CB channels** (Ch1…Ch40) across the top —
   **click a channel marker to jump to it**. Click-tune **mode follows
@@ -2422,6 +2448,10 @@ is laid out in old Lyra's three-row arrangement:
 - **Decay** — how fast held peaks fade once their hold time is up:
   **Fast / Med / Slow** (only matters in the timed modes).
 - **Clear** — wipe the held peaks and start fresh (handy in **Hold** mode).
+
+Hover any of these controls (or the row name) and the
+[parked Help balloon](#tooltips) shows a short note. It does not cover
+the slider or combo.
 
 The look-and-feel settings — palettes, smoothing, glow, gridline, peak
 style/color, noise floor — live in **Settings → Visuals**. Those apply
@@ -3536,7 +3566,9 @@ VAC/digital setup as a unit — see
 ### The Profiles dock (front panel — quick recall)
 
 A small dockable bar (show/hide it from the window's dock menu, like the
-TX or Display panels). It has just three things:
+TX or Display panels). Hover the name, picker, modified dot, or Save and
+the [parked Help balloon](#tooltips) explains that control. It has just
+three things:
 
 - **Profile dropdown** — pick a saved profile to recall it instantly.
 - **● modified dot** — lights **orange** when your live chain differs from
@@ -3695,12 +3727,14 @@ A compact strip showing current **HF propagation** conditions from
 
 - **SFI** (Solar Flux Index), **A** (A-index), **K** (K-index) — each
   colour-coded green / amber / red so you can read conditions at a glance
-  (higher SFI is better; lower A and K are better). Hover the **SFI** box
-  for the full picture — sunspot number, X-ray level, solar wind, and when
-  HamQSL last updated.
+  (higher SFI is better; lower A and K are better). Hover the **SFI**,
+  **A**, or **K** box for the full picture — sunspot number, X-ray level,
+  solar wind, and when HamQSL last updated. That tip pops **just under
+  the box**, not in the parked Help balloon.
 - **A 10-band heat-map** — `160` through `6` m, each tinted **green
   (Good)**, **amber (Fair)**, **red (Poor)**, or **gray (no prediction)**.
-  Hover a band for its rating. **Click a chip** to tune **VFO A** to
+  Hover a band and the rating pops **just under that chip** (Good / Fair /
+  Poor, day or night). **Click a chip** to tune **VFO A** to
   that band's current stored frequency (the slot the Band panel would
   land on). It does not step the 1 / 2 / 3 stack.
 
@@ -6145,10 +6179,29 @@ look. **0 % = Off**; **20 %** is the default. Raise for a stronger sheen.
 
 ### Tooltips
 
-**Show tooltips** (default on) toggles the hover-help bubbles on controls
-across the **whole app** — the front panels *and* the Settings dialog. Turn
-it off for a quieter, no-popup UI once you know your way around. It's a
-single global switch (Settings → Visuals → Tooltips).
+**Show tooltips** (default on) is the global hover-help switch
+(**Settings → Visuals**). On the operating docks it does **not** glue a
+bubble to the chip you are about to click (that covered Drive, TUN, MOX,
+and the neighbor Ham chips). Instead:
+
+1. Hover a control (Drive, a band chip, SPLIT, Zoom, a profile, …).
+2. After a short pause a **glass speech balloon** appears — title plus
+   wrapped text.
+3. **Drag** that balloon anywhere on the main window. Typical parks: the
+   **left of the spectrum**, or the **lower-left of the waterfall**. Lyra
+   remembers the spot.
+4. Leave the control and the balloon **clears after about two seconds**.
+   Hover again to bring it back.
+
+The balloon is translucent with white text so the waterfall still shows
+through. Packed lamps (TUN / MOX / VOX / ATT / PROT, Ham chips, SPLIT /
+SUB) all feed **this** balloon, so a tip never sits on the button.
+
+**Solar / Propagation** is the exception: SFI / A / K and the heat-map
+chips still use a small tip **right under the chip**, as they always
+did. Settings dialogs still use ordinary widget tips.
+
+Turn **Show tooltips** off for a quieter UI once you know the panels.
 
 ### Gridline brightness
 
