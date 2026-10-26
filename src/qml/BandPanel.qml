@@ -120,10 +120,17 @@ Rectangle {
         property color activeFill:   "#260808"
         property color activeBorder: "#ff3344"
         property color activeText:   "#ffcc88"
+        property string helpText: root.bandTip
+        LyraHoverHelp {
+            title: cb.text
+            text: cb.helpText
+            hovered: cb.hovered && cb.helpText.length > 0
+        }
         Layout.preferredWidth: 44
         Layout.preferredHeight: 22
         padding: 0
         focusPolicy: Qt.NoFocus
+        ToolTip.visible: false
         background: Rectangle {
             radius: 4
             color: cb.chipActive ? cb.activeFill
@@ -167,12 +174,12 @@ Rectangle {
         font.bold: true
         Layout.preferredWidth: 34
         Layout.alignment: Qt.AlignVCenter
-        // Help on the row name — a ToolTip on a chip covers its neighbor
-        // (GitHub #24, same as TUN over MOX).
         HoverHandler { id: rowTipHov }
-        ToolTip.visible: tip.length > 0 && rowTipHov.hovered && Prefs.tooltipsEnabled
-        ToolTip.delay: 600
-        ToolTip.text: tip
+        LyraHoverHelp {
+            title: text
+            text: tip
+            hovered: tip.length > 0 && rowTipHov.hovered
+        }
     }
 
     ColumnLayout {

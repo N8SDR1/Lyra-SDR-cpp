@@ -10044,8 +10044,8 @@ QWidget *SettingsDialog::buildVisualsTab() {
     // --- Tooltips on/off (global) ---
     auto *tips = new QCheckBox(tr("Show tooltips"), page);
     tips->setChecked(prefs_->tooltipsEnabled());
-    tips->setToolTip(tr("Show the hover help bubbles on controls across the "
-                        "whole app. Turn off for a quieter, no-popup UI."));
+    tips->setToolTip(tr("Show the parked Help card (hover a control; drag the "
+                        "card onto the spectrum or waterfall). Turn off to hide it."));
     connect(tips, &QCheckBox::toggled, prefs_, &Prefs::setTooltipsEnabled);
     connect(prefs_, &Prefs::tooltipsEnabledChanged, page, [this, tips]() {
         if (tips->isChecked() != prefs_->tooltipsEnabled())

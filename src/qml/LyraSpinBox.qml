@@ -17,6 +17,16 @@ SpinBox {
     id: control
     editable: true
     implicitHeight: 24
+
+    property string helpTitle: ""
+    property string helpText: ""
+    ToolTip.visible: false
+    HoverHandler { id: helpHov }
+    LyraHoverHelp {
+        title: control.helpTitle
+        text: control.helpText
+        hovered: helpHov.hovered && control.helpText.length > 0
+    }
     font.pixelSize: 13
     // Reserve the right-hand column for the stacked chevrons.
     rightPadding: 18

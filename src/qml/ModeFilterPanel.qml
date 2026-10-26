@@ -143,9 +143,17 @@ Rectangle {
         Label {
             Layout.row: 0; Layout.column: 0
             text: qsTr("Rate"); color: "#cccccc"; font.bold: true
+            HoverHandler { id: rateLblHov }
+            LyraHoverHelp {
+                title: qsTr("Rate")
+                text: rateCombo.helpText
+                hovered: rateLblHov.hovered
+            }
         }
         LyraComboBox {
             id: rateCombo
+            helpTitle: qsTr("Rate")
+            helpText: qsTr("IQ sample rate for the panadapter and DSP. All DDCs share this wire rate on Protocol 1.")
             Layout.row: 0; Layout.column: 1
             Layout.preferredWidth: 64
             font.pixelSize: 12
@@ -169,14 +177,18 @@ Rectangle {
             text: root.rx2Focus ? qsTr("RX2 BW") : qsTr("RX BW")
             color: "#cccccc"; font.bold: true
             HoverHandler { id: rxBwLblHov }
-            ToolTip.visible: rxBwLblHov.hovered && Prefs.tooltipsEnabled
-            ToolTip.delay: 600
-            ToolTip.text: root.isFm
-                ? qsTr("N/A in FM — TX bandwidth is set from deviation. 🔗 lock is off.")
-                : qsTr("🔗 lock (between the combos) ties TX BW and low edges to RX, both directions.")
+            LyraHoverHelp {
+                title: root.rx2Focus ? qsTr("RX2 BW") : qsTr("RX BW")
+                text: bwCombo.helpText
+                hovered: rxBwLblHov.hovered
+            }
         }
         LyraComboBox {
             id: bwCombo
+            helpTitle: root.rx2Focus ? qsTr("RX2 BW") : qsTr("RX BW")
+            helpText: root.isFm
+                ? qsTr("N/A in FM — TX bandwidth is set from deviation. 🔗 lock is off.")
+                : qsTr("🔗 lock (between the combos) ties TX BW and low edges to RX, both directions.")
             Layout.row: 0; Layout.column: 4
             Layout.preferredWidth: 92
             font.pixelSize: 12
@@ -209,15 +221,31 @@ Rectangle {
             enabled: !root.isFm           // no TX-BW to lock to in FM
             text: "🔗"
             onToggled: Prefs.bwLocked = checked
+            HoverHandler { id: bwLockHov }
+            LyraHoverHelp {
+                title: qsTr("BW lock")
+                text: qsTr("Ties TX BW and low edges to RX, both directions. Off in FM.")
+                hovered: bwLockHov.hovered
+            }
         }
 
         Label {
             Layout.row: 0; Layout.column: 6
             text: qsTr("TX BW"); font.bold: true
             color: root.isFm ? "#666666" : "#cccccc"
+            HoverHandler { id: txBwLblHov }
+            LyraHoverHelp {
+                title: qsTr("TX BW")
+                text: txBwCombo.helpText
+                hovered: txBwLblHov.hovered
+            }
         }
         LyraComboBox {
             id: txBwCombo
+            helpTitle: qsTr("TX BW")
+            helpText: root.isFm
+                ? qsTr("FM occupies ±(deviation + 3 kHz audio); set it with Dev on Tuning.")
+                : qsTr("Transmit IF width. 🔗 lock ties this to RX BW.")
             Layout.row: 0; Layout.column: 7
             Layout.preferredWidth: 92
             font.pixelSize: 12
@@ -234,8 +262,6 @@ Rectangle {
                 : root.bwCurrentIndex(Prefs.mode, Prefs.txBandwidth)
             onActivated: if (!root.isFm) Prefs.txBandwidth =
                 root.bwValueAt(Prefs.mode, Prefs.txBandwidth, currentIndex)
-            ToolTip.visible: (root.isFm && hovered) && Prefs.tooltipsEnabled
-            ToolTip.text: qsTr("FM occupies ±(deviation + 3 kHz audio); set it with the Dev control")
         }
 
         Item { Layout.row: 0; Layout.column: 8; Layout.rowSpan: 2; Layout.fillWidth: true }
@@ -243,9 +269,17 @@ Rectangle {
         Label {
             Layout.row: 1; Layout.column: 3
             text: qsTr("RX lo"); color: "#cccccc"; font.bold: true
+            HoverHandler { id: rxLoLblHov }
+            LyraHoverHelp {
+                title: qsTr("RX lo")
+                text: qsTr("Receive low cutoff, 0–500 Hz. SSB and digital only.")
+                hovered: rxLoLblHov.hovered
+            }
         }
         LyraSpinBox {
             id: rxLoSpin
+            helpTitle: qsTr("RX lo")
+            helpText: qsTr("Receive low cutoff, 0–500 Hz. SSB and digital only.")
             Layout.row: 1; Layout.column: 4
             Layout.preferredWidth: 92
             from: 0; to: 500; stepSize: 10
@@ -260,16 +294,22 @@ Rectangle {
                         rxLoSpin.value = Prefs.filterLow
                 }
             }
-            ToolTip.visible: hovered && Prefs.tooltipsEnabled
-            ToolTip.text: qsTr("Receive low cutoff, 0–500 Hz.  SSB and digital only.")
         }
         Label {
             Layout.row: 1; Layout.column: 6
             text: qsTr("TX lo"); font.bold: true
             color: root.isFm ? "#666666" : "#cccccc"
+            HoverHandler { id: txLoLblHov }
+            LyraHoverHelp {
+                title: qsTr("TX lo")
+                text: qsTr("Transmit low cutoff, 0–500 Hz. With the lock on, this follows the receive low.")
+                hovered: txLoLblHov.hovered
+            }
         }
         LyraSpinBox {
             id: txLoSpin
+            helpTitle: qsTr("TX lo")
+            helpText: qsTr("Transmit low cutoff, 0–500 Hz. With the lock on, this follows the receive low.")
             Layout.row: 1; Layout.column: 7
             Layout.preferredWidth: 92
             enabled: !root.isFm
@@ -285,8 +325,6 @@ Rectangle {
                         txLoSpin.value = Prefs.txFilterLow
                 }
             }
-            ToolTip.visible: hovered && Prefs.tooltipsEnabled
-            ToolTip.text: qsTr("Transmit low cutoff, 0–500 Hz.  With the lock on, this follows the receive low.")
         }
     }
 }

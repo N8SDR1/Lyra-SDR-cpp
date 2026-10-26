@@ -385,11 +385,6 @@ Rectangle {
                         anchors.fill: parent
                         hoverEnabled: true
                         onClicked: root.assignTx(false)
-                        ToolTip.visible: containsMouse && Prefs.tooltipsEnabled
-                        ToolTip.delay: 400
-                        ToolTip.text: !Stream.splitEnabled
-                            ? qsTr("Transmit on VFO A")
-                            : qsTr("Click to transmit on VFO A (leave SPLIT)")
                     }
                 }
 
@@ -479,12 +474,15 @@ Rectangle {
                     // centred (balanced spacers each side).
                     RowLayout {
                         Layout.fillWidth: true
+                        z: 4
                         spacing: 6
 
                         Item { Layout.fillWidth: true }
                         Label { text: qsTr("Step"); color: "#cccccc"; font.bold: true }
                         LyraComboBox {
                             id: stepCombo
+                            helpTitle: qsTr("Step")
+                            helpText: qsTr("Click/wheel VFO step for this mode. Remembered per mode.")
                             Layout.preferredWidth: 92
                             property var stepVals: root.vfoStepHzList
                             model: root.vfoStepLabels
@@ -494,6 +492,8 @@ Rectangle {
                         Label { text: qsTr("Mode"); color: "#cccccc"; font.bold: true }
                         LyraComboBox {
                             id: modeCombo
+                            helpTitle: qsTr("Mode")
+                            helpText: qsTr("Demod mode for VFO A. Filter bandwidths are remembered per mode.")
                             Layout.preferredWidth: 78
                             model: root.modeList
                             currentIndex: Math.max(0, root.modeList.indexOf(Prefs.mode))
@@ -505,7 +505,8 @@ Rectangle {
 
                 MouseArea {
                     anchors.fill: parent
-                    z: 3
+                    z: 1
+                    hoverEnabled: false
                     acceptedButtons: Qt.LeftButton
                     onPressed: (mouse) => {
                         Stream.setFocusedRx(1)
@@ -730,11 +731,6 @@ Rectangle {
                             anchors.fill: parent
                             hoverEnabled: true
                             onClicked: root.assignTx(true)
-                            ToolTip.visible: containsMouse && Prefs.tooltipsEnabled
-                            ToolTip.delay: 400
-                            ToolTip.text: Stream.splitEnabled
-                                ? qsTr("Transmit on VFO B")
-                                : qsTr("Click to transmit on VFO B (enter SPLIT)")
                         }
                     }
 
@@ -806,11 +802,14 @@ Rectangle {
                         // VFO B's Step (mode is shared with VFO A).
                         RowLayout {
                             Layout.fillWidth: true
+                            z: 4
                             spacing: 6
                             Item { Layout.fillWidth: true }
                             Label { text: qsTr("Step"); color: "#cccccc"; font.bold: true }
                             LyraComboBox {
                                 id: stepComboB
+                                helpTitle: qsTr("Step B")
+                                helpText: qsTr("Click/wheel VFO B step for this mode.")
                                 Layout.preferredWidth: 92
                                 property var stepVals: root.vfoStepHzList
                                 model: root.vfoStepLabels
@@ -825,6 +824,8 @@ Rectangle {
                             }
                             LyraComboBox {
                                 id: modeComboB
+                                helpTitle: qsTr("Mode B")
+                                helpText: qsTr("Demod mode for VFO B. Filter bandwidths are remembered per mode.")
                                 visible: Stream.subEnabled
                                 Layout.preferredWidth: 78
                                 model: root.modeList
@@ -837,7 +838,8 @@ Rectangle {
 
                     MouseArea {
                         anchors.fill: parent
-                        z: 3
+                        z: 1
+                        hoverEnabled: false
                         acceptedButtons: Qt.LeftButton
                         onPressed: (mouse) => {
                             Stream.setFocusedRx(2)
@@ -864,12 +866,11 @@ Rectangle {
                 color: "#8fa6ba"
                 font.bold: true
                 HoverHandler { id: vfoOpsHov }
-                // Packed lamps (SPLIT / SUB / Mem / copy / RIT / XIT / RPT)
-                // must not carry their own bubbles — they cover the next
-                // chip (GitHub #24). Hover this name instead.
-                ToolTip.visible: vfoOpsHov.hovered && Prefs.tooltipsEnabled
-                ToolTip.delay: 600
-                ToolTip.text: qsTr("SPLIT: RX A, TX B (right-click pile-up shift). SUB: second receiver. Mem: recall/save. 1→2 / 2→1 / ⇄ copy or swap. RIT RX offset, XIT TX offset. FM uses RPT / Dev / CTCSS here instead of SPLIT.")
+                LyraHoverHelp {
+                    title: qsTr("VFO")
+                    text: qsTr("SPLIT: RX A, TX B (right-click pile-up shift). SUB: second receiver. Mem: recall/save. 1→2 / 2→1 / ⇄ copy or swap. RIT RX offset, XIT TX offset. Gray TX pip assigns transmit.")
+                    hovered: vfoOpsHov.hovered
+                }
             }
 
             // SPLIT — TX on VFO B, RX on VFO A.  Lit cyan when on.  Hidden
@@ -904,6 +905,12 @@ Rectangle {
                     font: splitBtn.font
                     elide: Text.ElideRight
                     clip: true
+                }
+                HoverHandler { id: splitHov }
+                LyraHoverHelp {
+                    title: qsTr("SPLIT")
+                    text: qsTr("RX on VFO A, TX on VFO B. Right-click for pile-up shift. Hidden in FM — use RPT instead.")
+                    hovered: splitHov.hovered
                 }
 
                 TapHandler {
@@ -971,6 +978,12 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
+                HoverHandler { id: subHov }
+                LyraHoverHelp {
+                    title: qsTr("SUB")
+                    text: qsTr("Second receiver on DDC1. Green when on. Panadapter follows the focused RX.")
+                    hovered: subHov.hovered
+                }
             }
 
             Button {
@@ -995,6 +1008,12 @@ Rectangle {
                     font: memBtn.font
                     elide: Text.ElideRight
                     clip: true
+                }
+                HoverHandler { id: memHov }
+                LyraHoverHelp {
+                    title: qsTr("Mem")
+                    text: qsTr("Recall a saved frequency. Right-click to save current or manage presets.")
+                    hovered: memHov.hovered
                 }
                 onClicked: memRecallPopup.open()
                 MemoryRecallPopup {
@@ -1052,19 +1071,40 @@ Rectangle {
 
             // VFO copy / swap.  1→2 = A→B, 2→1 = B→A, ⇄ = swap.
             Button {
+                id: copyAtoBBtn
                 implicitHeight: 26; implicitWidth: 40; font.pixelSize: 12
                 text: qsTr("1→2")
                 onClicked: root.copyAtoB()
+                HoverHandler { id: copyAtoBHov }
+                LyraHoverHelp {
+                    title: qsTr("1→2")
+                    text: qsTr("Copy VFO A into VFO B.")
+                    hovered: copyAtoBHov.hovered
+                }
             }
             Button {
+                id: copyBtoABtn
                 implicitHeight: 26; implicitWidth: 40; font.pixelSize: 12
                 text: qsTr("2→1")
                 onClicked: root.copyBtoA()
+                HoverHandler { id: copyBtoAHov }
+                LyraHoverHelp {
+                    title: qsTr("2→1")
+                    text: qsTr("Copy VFO B into VFO A.")
+                    hovered: copyBtoAHov.hovered
+                }
             }
             Button {
+                id: swapAbBtn
                 implicitHeight: 26; implicitWidth: 36; font.pixelSize: 14
                 text: qsTr("⇄")
                 onClicked: root.swapAB()
+                HoverHandler { id: swapHov }
+                LyraHoverHelp {
+                    title: qsTr("Swap")
+                    text: qsTr("Swap VFO A and VFO B.")
+                    hovered: swapHov.hovered
+                }
             }
 
             // ── RIT / XIT — RX / TX incremental tuning offsets ──────────────
@@ -1096,9 +1136,17 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
+                HoverHandler { id: ritHov }
+                LyraHoverHelp {
+                    title: qsTr("RIT")
+                    text: qsTr("Receiver incremental tuning. Offsets RX only. Arrows 1 Hz, wheel 10 Hz (Shift 100 Hz). 0 clears.")
+                    hovered: ritHov.hovered
+                }
             }
             LyraSpinBox {
                 id: ritSpin
+                helpTitle: qsTr("RIT")
+                helpText: qsTr("RX offset in Hz. Arrows 1 Hz, wheel 10 Hz (Shift 100 Hz).")
                 wheelStepping: false   // has its own WheelHandler (10 Hz)
                 visible: ritBtn.checked
                 Layout.preferredWidth: 104
@@ -1125,9 +1173,6 @@ Rectangle {
                         Stream.setRitOffsetHz(Math.max(-9999, Math.min(9999, nv)))
                     }
                 }
-                ToolTip.text: qsTr("RX offset, ±9.99 kHz.  Arrows = 1 Hz, "
-                    + "wheel = 10 Hz (Shift = 100 Hz).  '0' clears it.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 800
             }
             // Quick-zero — a reliable button (double-click on the spin fought
             // the SpinBox's own input handling and killed the arrows).
@@ -1161,9 +1206,17 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
+                HoverHandler { id: xitHov }
+                LyraHoverHelp {
+                    title: qsTr("XIT")
+                    text: qsTr("Transmit incremental tuning. Offsets TX only. Arrows 1 Hz, wheel 10 Hz (Shift 100 Hz). 0 clears.")
+                    hovered: xitHov.hovered
+                }
             }
             LyraSpinBox {
                 id: xitSpin
+                helpTitle: qsTr("XIT")
+                helpText: qsTr("TX offset in Hz. Arrows 1 Hz, wheel 10 Hz (Shift 100 Hz).")
                 wheelStepping: false   // has its own WheelHandler (10 Hz)
                 visible: xitBtn.checked
                 Layout.preferredWidth: 104
@@ -1187,9 +1240,6 @@ Rectangle {
                         Stream.setXitOffsetHz(Math.max(-9999, Math.min(9999, nv)))
                     }
                 }
-                ToolTip.text: qsTr("TX offset, ±9.99 kHz.  Arrows = 1 Hz, "
-                    + "wheel = 10 Hz (Shift = 100 Hz).  '0' clears it.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 800
             }
             Button {
                 visible: xitBtn.checked
@@ -1205,6 +1255,8 @@ Rectangle {
             }
             LyraSpinBox {
                 id: pitchSpin
+                helpTitle: qsTr("CW Pitch")
+                helpText: qsTr("CW sidetone pitch (200–1500 Hz). The VFO LED shows carrier; the offset is applied on the wire.")
                 visible: root.cwMode
                 Layout.preferredWidth: 110
                 from: 200; to: 1500; stepSize: 10
@@ -1216,12 +1268,16 @@ Rectangle {
                 text: qsTr("Dev"); color: "#cccccc"; font.bold: true
                 visible: root.fmMode
                 HoverHandler { id: devLblHov }
-                ToolTip.visible: devLblHov.hovered && Prefs.tooltipsEnabled
-                ToolTip.delay: 600
-                ToolTip.text: qsTr("FM peak deviation — 5.0 k = Wide (US), 2.5 k = Narrow. Sets RX bandwidth to match.")
+                LyraHoverHelp {
+                    title: qsTr("Dev")
+                    text: qsTr("FM peak deviation — 5.0 k = Wide (US), 2.5 k = Narrow. Sets RX bandwidth to match.")
+                    hovered: devLblHov.hovered
+                }
             }
             LyraSpinBox {
                 id: devSpin
+                helpTitle: qsTr("Dev")
+                helpText: qsTr("FM peak deviation — 5.0 k = Wide (US), 2.5 k = Narrow. Sets RX bandwidth to match.")
                 visible: root.fmMode
                 Layout.preferredWidth: 58
                 font.pixelSize: 12
@@ -1241,12 +1297,16 @@ Rectangle {
                 text: qsTr("Emph"); color: "#cccccc"; font.bold: true
                 visible: root.fmMode
                 HoverHandler { id: emphLblHov }
-                ToolTip.visible: emphLblHov.hovered && Prefs.tooltipsEnabled
-                ToolTip.delay: 600
-                ToolTip.text: qsTr("FM pre-emphasis — Comm = 6 dB/oct voice, Off = flat (data / warmer HF).")
+                LyraHoverHelp {
+                    title: qsTr("Emph")
+                    text: qsTr("FM pre-emphasis — Comm = 6 dB/oct voice, Off = flat (data / warmer HF).")
+                    hovered: emphLblHov.hovered
+                }
             }
             LyraComboBox {
                 id: emphCombo
+                helpTitle: qsTr("Emph")
+                helpText: qsTr("FM pre-emphasis — Comm = 6 dB/oct voice, Off = flat (data / warmer HF).")
                 visible: root.fmMode
                 Layout.preferredWidth: 70
                 font.pixelSize: 12
@@ -1290,14 +1350,22 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
+                HoverHandler { id: rptHov }
+                LyraHoverHelp {
+                    title: qsTr("RPT")
+                    text: qsTr("Repeater split. Turns SPLIT on with the band default offset. Offset / ± / CTCSS appear when on.")
+                    hovered: rptHov.hovered
+                }
             }
             Label {
                 text: qsTr("Offset"); color: "#cccccc"; font.bold: true
                 visible: root.fmMode && Stream.splitEnabled
                 HoverHandler { id: offsetLblHov }
-                ToolTip.visible: offsetLblHov.hovered && Prefs.tooltipsEnabled
-                ToolTip.delay: 600
-                ToolTip.text: qsTr("Repeater offset — preset or type kHz. − / + sets the shift.")
+                LyraHoverHelp {
+                    title: qsTr("Offset")
+                    text: qsTr("Repeater offset — preset or type kHz. − / + sets the shift.")
+                    hovered: offsetLblHov.hovered
+                }
             }
             Button {
                 visible: root.fmMode && Stream.splitEnabled
@@ -1388,12 +1456,16 @@ Rectangle {
                 text: qsTr("UL"); color: "#cccccc"; font.bold: true
                 visible: root.fmMode && ctcssBtn.checked
                 HoverHandler { id: ulLblHov }
-                ToolTip.visible: ulLblHov.hovered && Prefs.tooltipsEnabled
-                ToolTip.delay: 600
-                ToolTip.text: qsTr("Uplink CTCSS (TX encode). — = no encode.")
+                LyraHoverHelp {
+                    title: qsTr("UL")
+                    text: qsTr("Uplink CTCSS (TX encode). — = no encode.")
+                    hovered: ulLblHov.hovered
+                }
             }
             LyraComboBox {
                 id: ctcssToneCombo
+                helpTitle: qsTr("UL")
+                helpText: qsTr("Uplink CTCSS (TX encode). — = no encode.")
                 visible: root.fmMode && ctcssBtn.checked
                 Layout.preferredWidth: 62
                 font.pixelSize: 12
@@ -1407,12 +1479,16 @@ Rectangle {
                 text: qsTr("DL"); color: "#cccccc"; font.bold: true
                 visible: root.fmDlCtcssShown
                 HoverHandler { id: dlLblHov }
-                ToolTip.visible: dlLblHov.hovered && Prefs.tooltipsEnabled
-                ToolTip.delay: 600
-                ToolTip.text: qsTr("Downlink CTCSS (RX recipe). — = none. Decode not wired yet.")
+                LyraHoverHelp {
+                    title: qsTr("DL")
+                    text: qsTr("Downlink CTCSS (RX recipe). — = none. Decode not wired yet.")
+                    hovered: dlLblHov.hovered
+                }
             }
             LyraComboBox {
                 id: ctcssDlCombo
+                helpTitle: qsTr("DL")
+                helpText: qsTr("Downlink CTCSS (RX recipe). — = none. Decode not wired yet.")
                 visible: root.fmDlCtcssShown
                 Layout.preferredWidth: 62
                 font.pixelSize: 12

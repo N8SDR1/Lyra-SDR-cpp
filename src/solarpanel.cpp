@@ -10,11 +10,13 @@
 #include "ncdxffollow.h"
 
 #include <QActionGroup>
+#include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
 #include <QToolButton>
+#include <QToolTip>
 #include <QVBoxLayout>
 
 namespace lyra::ui {
@@ -51,14 +53,20 @@ SolarPanel::SolarPanel(SolarService *svc, NcdxfFollow *follow,
     // ensures a plain QWidget subclass actually paints that background.
     setObjectName(QStringLiteral("solarPanel"));
     setAttribute(Qt::WA_StyledBackground, true);
+    setAttribute(Qt::WA_AlwaysShowToolTips, true);
     auto *row = new QHBoxLayout(this);
     row->setContentsMargins(10, 6, 10, 6);
     row->setSpacing(10);
 
     sfiBox_ = makeValueBox(tr("SFI"), &sfiVal_);
+    sfiBox_->installEventFilter(this);
     row->addWidget(sfiBox_);
-    row->addWidget(makeValueBox(tr("A"), &aVal_));
-    row->addWidget(makeValueBox(tr("K"), &kVal_));
+    auto *aBox = makeValueBox(tr("A"), &aVal_);
+    aBox->installEventFilter(this);
+    row->addWidget(aBox);
+    auto *kBox = makeValueBox(tr("K"), &kVal_);
+    kBox->installEventFilter(this);
+    row->addWidget(kBox);
     row->addWidget(vdivider(this));
 
     // 10-band heat-map. Each chip tunes VFO A to that band.
@@ -73,6 +81,7 @@ SolarPanel::SolarPanel(SolarService *svc, NcdxfFollow *follow,
         connect(cell, &QToolButton::clicked, this, [this, band]() {
             tuneVfoA(band);
         });
+        cell->installEventFilter(this);
         bandCells_.insert(b, cell);
         row->addWidget(cell);
     }
@@ -141,6 +150,24 @@ void SolarPanel::buildFollowButton() {
                 [this, call]() { if (follow_) follow_->setStation(call); });
     }
     followBtn_->setMenu(menu);
+    followBtn_->installEventFilter(this);
+}
+
+void SolarPanel::tipBelow(QWidget *w) {
+    if (!w || w->toolTip().isEmpty())
+        return;
+    const QPoint below = w->mapToGlobal(QPoint(0, w->height() + 3));
+    QToolTip::showText(below, w->toolTip(), w, w->rect(), 8000);
+}
+
+bool SolarPanel::eventFilter(QObject *watched, QEvent *event) {
+    if (event->type() == QEvent::ToolTip) {
+        if (auto *w = qobject_cast<QWidget *>(watched)) {
+            tipBelow(w);
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void SolarPanel::refreshFollowLabel() {
@@ -210,6 +237,10 @@ void SolarPanel::refresh() {
         tip += QStringLiteral("<br><span style='color:#e05c5c'>Last fetch: "
                               "%1</span>").arg(d.error);
     sfiBox_->setToolTip(tip);
+    if (aVal_ && aVal_->parentWidget())
+        aVal_->parentWidget()->setToolTip(tip);
+    if (kVal_ && kVal_->parentWidget())
+        kVal_->parentWidget()->setToolTip(tip);
 
     // Band heat-map.
     for (auto it = bandCells_.cbegin(); it != bandCells_.cend(); ++it) {

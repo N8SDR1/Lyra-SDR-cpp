@@ -501,6 +501,10 @@ qt_add_executable(lyra
     src/usb_bcd.cpp
     src/help.h
     src/help.cpp
+    src/helphint.h
+    src/helphint.cpp
+    src/helpcard.h
+    src/helpcard.cpp
     src/helpdialog.h
     src/helpdialog.cpp
     src/logbuffer.h
@@ -532,6 +536,7 @@ qt_add_qml_module(lyra
         src/qml/LyraSlider.qml
         src/qml/LyraSpinBox.qml
         src/qml/LyraComboBox.qml
+        src/qml/LyraHoverHelp.qml
         src/qml/PanadapterPanel.qml
         src/qml/Rx2PanadapterPanel.qml
         src/qml/TuningPanel.qml

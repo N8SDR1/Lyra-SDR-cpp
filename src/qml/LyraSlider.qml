@@ -17,6 +17,17 @@ Slider {
     // Extra height below the groove when integer tick labels are shown.
     implicitHeight: showTickNumbers ? 32 : 20
 
+    // Parked Help card — never a Qt ToolTip on the thumb (GitHub #24).
+    property string helpTitle: ""
+    property string helpText: ""
+    ToolTip.visible: false
+    HoverHandler { id: helpHov }
+    LyraHoverHelp {
+        title: control.helpTitle
+        text: control.helpText
+        hovered: helpHov.hovered && control.helpText.length > 0
+    }
+
     // Optional step tick marks below the groove (e.g. for a stepped slider).
     property bool showTicks: false
     readonly property int tickCount:

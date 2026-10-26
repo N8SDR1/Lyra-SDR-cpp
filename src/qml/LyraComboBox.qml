@@ -15,6 +15,17 @@ ComboBox {
     id: control
     implicitHeight: 24
     font.pixelSize: 13
+
+    property string helpTitle: ""
+    property string helpText: ""
+    ToolTip.visible: false
+    HoverHandler { id: helpHov }
+    LyraHoverHelp {
+        title: control.helpTitle
+        text: control.helpText
+        hovered: helpHov.hovered && control.helpText.length > 0
+                 && !control.popup.visible
+    }
     wheelEnabled: true      // mouse-wheel cycles the selection
     // Tuning FM can tighten these; other call sites keep the roomy default.
     property int textLeftPad: 8

@@ -53,6 +53,8 @@ class TunerMemory;
 class Prefs;
 class SettingsDialog;
 class Help;
+class HelpHint;
+class HelpCard;
 class HelpDialog;
 class LogDialog;
 class Bands;
@@ -429,6 +431,8 @@ private:
 
     SettingsDialog             *settingsDlg_ = nullptr;
     Help                       *help_    = nullptr;   // QML→C++ help bridge
+    HelpHint                   *helpHint_ = nullptr;  // parked hover-help card feed
+    HelpCard                   *helpCard_ = nullptr;
     HelpDialog                 *helpDlg_ = nullptr;   // in-app User Guide
     LogDialog                  *logDlg_  = nullptr;   // in-app diagnostic log
     Bands                      *bands_   = nullptr;   // amateur band table (QML)

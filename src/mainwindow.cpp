@@ -38,6 +38,8 @@
 #include "profileui.h"                // native Save-Profile dialog (front panel)
 #include "wdsp_engine.h"
 #include "help.h"
+#include "helphint.h"
+#include "helpcard.h"
 #include "helpdialog.h"
 #include "logdialog.h"
 #include "hl2_discovery.h"
@@ -2286,8 +2288,11 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     connect(dragController_, &DockDragController::layoutChanged,
             this, &MainWindow::saveLayout);
 
+    helpHint_ = new HelpHint(prefs_, this);
+
     qWarning("[startup] building dock shells (QML deferred until window shown)");
     buildDocks();      // populate docks_ (so the View menu can list them)
+    helpCard_ = new HelpCard(this, helpHint_, prefs_, &docks_);
     qWarning("[startup] dock shells ready");
     buildMenus();      // File / View (dock toggles + Lock) / Help
     buildToolbar();
@@ -2455,6 +2460,8 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
         QStringLiteral("Prefs"), prefs_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("Help"), help_);
+    qw->rootContext()->setContextProperty(
+        QStringLiteral("HelpHint"), helpHint_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("Bands"), bands_);
     qw->rootContext()->setContextProperty(
