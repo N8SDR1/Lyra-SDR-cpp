@@ -1253,6 +1253,15 @@ public slots:
     // not gated here — Thetis/Quisk send it whenever streaming.  Default
     // ON.  Persisted as hw/filterBoard.  J3 Band Volts is a separate box.
     void setFilterBoardEnabled(bool on);
+    // Off = emit 0. N2adr = stamp HF N2ADR map (Xvtr rows stay 0).
+    // Custom = emit the grid as edited (Thetis / DeskHPSDR). A tick while
+    // N2adr promotes to Custom.
+    lyra::oc::OcAccessory ocAccessory() const { return ocAccessory_; }
+    void setOcAccessory(lyra::oc::OcAccessory mode);
+    void noteOcGridEdited();   // checkbox on the OC grid
+    // Optional helper: fill pins 1–4 with a Yaesu A–D example and switch
+    // to Custom. Does not auto-follow; operator must verify vs the amp.
+    void stampOcYaesuExample();
 
     // HL2 IO-board RX jack.  0 = RF1, 2 = Alt RX.  Other values → RF1.
     // I2C2 0x1D register 11 only — never registers 0..4 (GPA100 analog).
@@ -1350,10 +1359,8 @@ public slots:
     int ddsHzForRf(quint32 rfHz) const;
     // Enabled Xvtr slot index containing displayed RF, or -1.
     int xvtrMatchingSlot(qint64 rfHz) const;
-    // N2ADR / OC amateur-band index for filter-board relays. On an Xvtr
-    // slot, freeze to the IF of the slot RF-low (one LPF for the whole
-    // window) so a 2 m QSY that crosses the 10 m IF edge (29.7 MHz) does
-    // not chatter the board. Identity of live IF when no slot matches.
+    // Amateur-band index for HF J16. Returns -1 on an Xvtr chip (those
+    // use OcControl xvtr masks, DeskHPSDR-style — not the IF/10 m row).
     int ocBandIndexForRf(quint32 rfHz) const;
     void applyPaWire();
     void setMicBoost(bool on);
@@ -1755,6 +1762,7 @@ signals:
     void hl2RxPortChanged();
     void adcOverloadChanged();
     void filterBoardChanged(bool on);
+    void ocAccessoryChanged();
     void ocBitsChanged(int pattern);
     void logLine(QString line);
     void txBandChangeBlocked();
@@ -2099,8 +2107,12 @@ private:
     // + the N2ADR preset seeder for the editable OcControl table.
     void setOcOutput(quint8 bits);
     void seedOcN2adr();
-    void loadOcSettings();        // override the N2ADR seed from oc/* if present
-    void saveOcSettings() const;  // persist the editable OC table to oc/*
+    void seedOcYaesuExample();
+    void seedOcEmpty();
+    bool loadOcSettings();        // true if this rig has a saved table
+    void saveOcSettings() const;
+    void reloadOcFromDisk();      // family default, then per-rig oc/*
+    QString ocGroupKey() const;   // same rig bucket as PA cal (txCalKey_)
     // Apply an LNA gain to the live wire value WITHOUT persisting it —
     // used by Auto-LNA so its transient adjustments never overwrite the
     // operator's manual set point in QSettings.  Emits lnaGainChanged
@@ -2535,6 +2547,7 @@ private:
     // Owned by this QObject (parent = this), runs on this thread.
     QTimer              *txSafetyTimer_    = nullptr;
     bool                 filterBoardEnabled_ = true;
+    lyra::oc::OcAccessory ocAccessory_ = lyra::oc::OcAccessory::N2adr;
     int                  ocPattern_ = 0;   // live 7-bit J16 pattern
     // #199 — the editable OC table + emit choke (Stage 1 core).  Stage 2
     // routes updateOcPattern() through it; seeded with the N2ADR preset so

@@ -1,20 +1,20 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.28 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.29 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.28** writes Pico **RX fcodes** 13/14 (GitHub #23) and makes
-PureSignal dock **ON** a single Thetis-style switch.
-**v0.25.27 Sheliak** is the previous public build and the IO-board
-return installer.
+**v0.25.29** sends OC on P2 `[1401]`, keeps USB-BCD as the FTDI path,
+and parks Help in a draggable balloon.
+**v0.25.28 Sheliak** is the previous public build.
 **v0.25.22** remains the long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.28)
+### Last several builds (0.25.16 → 0.25.29)
 
 | Build | What landed |
 |---|---|
+| **0.25.29** | **OC on P2 `[1401]`**, per-rig Off/N2ADR/Custom, empty Xvtr OC rows. No auto Yaesu on the radio DB9. USB-BCD FTDI unchanged. Parked Help balloon. P1 6 m hide. PS/Amp View float size. **v0.25.28** is the previous public build |
 | **0.25.28** | Pico **RX fcodes** 13/14 from the dial (GitHub #23). PureSignal dock **ON** like Thetis. Analog BYTE0–4 and RF1/Alt unchanged. **`LYRA_NO_IOBOARD_FCODE=1`** skips 13/14. **v0.25.27** is the return installer |
 | **0.25.27** | **VFO LED** digit place vs empty-LED **Step** (GitHub #22). **Helios TX SWR** after watts. **View → Freq Cal** float (GitHub #21). **v0.25.26** remains the previous public build. **v0.25.22** remains the return point |
 | **0.25.26** | **Layouts (GitHub #20).** Factory recall survives restart until you move a panel; named slots remember open docks. **Snap VFO wheel to Step** (Settings → Hardware → Navigation, default off). Laptop Tuning logo matches the VFO boxes. **v0.25.22** remains the return point |
@@ -48,7 +48,7 @@ return installer.
 - ✅ **MSAA** picker **Off / 2× / 4× / 8×** (Settings → Visuals; default 4×; restart)
 - ✅ **Xvtr** band chips — RF dial (ten-digit LED, ~2.147 GHz), IF NCO, Disable PA default on; Shift+click SUB hop; right-click slot editor. Per-chip LNA (HL2) / ATT (P2) / last mode. Protocol 1 **RF1 vs Alt RX** per chip (I2C 0x1D register 11; analog BYTE0–4 unchanged for GPA100). Band-plan **region does not rewrite** slot MHz — set RF low/high/LO for your allocation. Station table: [User Guide → Which Hermes Lite station is mine?](User-Guide#which-hermes-lite-station-is-mine).
 - ✅ HL2 **N2ADR / IO board** — OC LPF (I2C **0x20**) is the **Enable N2ADR / IO board** checkbox. Filter-board follow is always Protocol 1 TX frequency on I2C **0x1D**, not gated on that box. **v0.25.20 / #17:** a return to a band already on the dial is written again. Leave **Band Volts on J3** off unless the amp is on the fan header.
-- ✅ **OC Control** — Settings → **Filters / BCD**: per-band J16 RX/TX pins, N2ADR preset, USB-BCD, J3 fan vs analog. Do not add a second tab.
+- ✅ **OC Control** — Settings → **Filters / BCD**: HF J16 RX/TX pins (Thetis/DeskHPSDR: emit the ticks you set; no auto Yaesu on the radio DB9), named Xvtr rows (empty = pins off), optional USB-BCD FTDI, J3 fan vs analog. Analog BYTE0–4 / REG 11 untouched. Do not add a second tab.
 
 ## Receive (RX)
 

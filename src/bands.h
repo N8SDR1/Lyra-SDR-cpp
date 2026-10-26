@@ -77,6 +77,14 @@ QString ocPatternText(int pattern);
 // out-of-range / no-amp-band.
 int bcdForBand(int bandIndex, bool sixtyAsForty);
 
+// Yaesu/Elecraft 4-bit band code for a frequency (amateur table, then
+// 11 m → 10 m when elevenAsTen). 0 = no code (amp bypass).
+int yaesuBcdCodeForFreq(int hz, bool sixtyAsForty, bool elevenAsTen);
+
+// OC pins 1–4 = that nibble (A=pin1 … D=pin4). invert = XOR 0x0F for
+// ANAN-style active-low OC into a TTL amp. Pins 5–7 stay 0.
+quint8 yaesuOcPattern(int code, bool invert);
+
 namespace ui {
 
 class Bands : public QObject {

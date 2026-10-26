@@ -45,11 +45,16 @@ enum class TxPinAction : int {
 // VFO-B-TX picks; the generic branch does not.
 enum class Family { HermesLite, GenericP1 };
 
+// Operator-facing accessory (Settings Filters / BCD). Not the DeskHPSDR
+// Alex/Apollo/Charly list — Alex is the P2 hardware profile, not J16.
+enum class OcAccessory { Off = 0, N2adr = 1, Custom = 2 };
+
 class OcControl : public QObject {
     Q_OBJECT
 public:
-    static constexpr int kPins   = 7;   // J16 open-collector pins 1..7
-    static constexpr int kGroups = 3;   // 0=HF (live v1), 1=VHF, 2=SWL (reserved)
+    static constexpr int kPins      = 7;   // J16 open-collector pins 1..7
+    static constexpr int kGroups    = 3;   // 0=HF (live v1), 1=VHF, 2=SWL (reserved)
+    static constexpr int kXvtrSlots = 4;   // matches XvtrSlots::kCount — DeskHPSDR appends named xvtr rows
 
     explicit OcControl(QObject *parent = nullptr);
 
@@ -63,6 +68,14 @@ public:
     quint8 txMaskA(int band) const;
     quint8 rxMaskB(int band) const;
     quint8 txMaskB(int band) const;
+
+    // Named Xvtr chips (DeskHPSDR / piHPSDR). Default 0. N2ADR preset does
+    // not fill these. Empty = J16 idle while that chip is selected so an
+    // HF amp on J16 does not follow the 10 m IF.
+    void   setRxMaskXvtr(int slot, quint8 mask);
+    void   setTxMaskXvtr(int slot, quint8 mask);
+    quint8 rxMaskXvtr(int slot) const;
+    quint8 txMaskXvtr(int slot) const;
 
     // ---- per-(group,pin) transmit action + external-PA gating ----
     // group 0..2 (v1: only 0=HF is reached; 1/2 reserved).  pin1 is 1-based
@@ -97,6 +110,11 @@ public:
     quint8 compute(int bandA, int bandB, bool tx, bool tune,
                    bool twoTone, bool pa) const;
 
+    // J16 bits for an Xvtr chip. Uses that chip's RX/TX masks (default 0)
+    // and the HF (group 0) pin-action / xPA gates. No analog / REG 11.
+    quint8 computeXvtr(int slot, bool tx, bool tune, bool twoTone,
+                       bool pa) const;
+
     // The gated target: enabled ? compute(...) : 0  (Thetis ExtCtrlEnable).
     quint8 targetBits(int bandA, int bandB, bool tx, bool tune,
                       bool twoTone, bool pa) const {
@@ -129,6 +147,7 @@ private:
 
     int             nBands_;
     QVector<quint8> rxA_, txA_, rxB_, txB_;
+    QVector<quint8> rxXvtr_, txXvtr_;
     TxPinAction     txPinAction_[kGroups][kPins];
     bool            txPinPa_[kGroups][kPins];
     bool            rxPinPa_[kGroups][kPins];

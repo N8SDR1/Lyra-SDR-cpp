@@ -211,6 +211,11 @@ public:
     // nullptr is an explicit no/unverified-front-end state.
     void setProfile(const P2HardwareProfile *p) { profile_ = p; }
     void setTrxAntenna(int ant);
+    // J16 OC (DeskHPSDR HP [1401] = bits<<1). Same OcControl table as P1 C2.
+    void setOcOutput(quint8 bits) {
+        ocOutput_.store(static_cast<quint8>(bits & 0x7F),
+                        std::memory_order_relaxed);
+    }
     void setRxInput(P2RxInput input) { rxInput_ = input; }
     void setHpfBypass(bool on) { hpfBypass_ = on; }
     void setAdcAttenuation(int adc, int db);
@@ -459,6 +464,7 @@ private:
     P2TxPump::InputSink txProducerTerminal_;
     const P2HardwareProfile *profile_ = nullptr;
     int          trxAntenna_   = 1;               // ANT1..3
+    std::atomic<quint8> ocOutput_{0};             // J16 7-bit; HP [1401]
     P2RxInput    rxInput_      = P2RxInput::Trx;
     bool         hpfBypass_    = false;
     std::array<quint8, 2> adcAttenuation_{};

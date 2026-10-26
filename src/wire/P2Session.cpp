@@ -758,7 +758,10 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     wrBeU32(pkt.data() + 329, phaseWord(ducFreqHz_));  // DUC (TX) phase word
     pkt[345] = static_cast<char>(analogDriveByte_(tx));
     // [1396..99] client control word + CAT port 0.
-    // [1400..03] xvtr/mute/OC/user outputs 0.
+    // [1400] xvtr/mute/tune 0. [1401] OC<<1 (same table as P1 C2).
+    // [1402] user outputs — Brick TX overlay may set 0x04 below.
+    pkt[1401] = static_cast<char>(
+        (ocOutput_.load(std::memory_order_relaxed) << 1) & 0xFE);
     // [1428..31] Alex1 TX/RX. Classic-Alex copies Alex0 TX here (Thetis
     // bit-inherit). BrickSDR overlay below replaces these on key.
     // [1432..35] Alex0 TX + RX halfwords from the hardware profile —

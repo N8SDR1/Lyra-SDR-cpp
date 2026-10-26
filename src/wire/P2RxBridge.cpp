@@ -331,6 +331,13 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
     // header); the DDC mirrors the RIT-adjusted effective RX
     // frequency exactly as the P1 path's pushEffectiveRxFreq does.
     if (stream_) {
+        connect(stream_, &lyra::ipc::HL2Stream::ocBitsChanged, this,
+                [this](int bits) {
+                    if (!session_) return;
+                    QMetaObject::invokeMethod(session_, [s = session_, bits]() {
+                        s->setOcOutput(static_cast<quint8>(bits & 0x7F));
+                    });
+                });
         connect(stream_, &lyra::ipc::HL2Stream::rx1FreqChanged, this,
                 [this]() { pushDialToSession(); });
         connect(stream_, &lyra::ipc::HL2Stream::ritChanged, this,
@@ -1419,11 +1426,13 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     const bool subOn = st && st->subEnabled() && !divOn;
     const bool psOn = st && st->psLiveArmed();
     const quint32 rx2Hz = st ? st->rx2FreqHz() : 0;
+    const quint8 ocBits = st
+        ? static_cast<quint8>(st->ocBits() & 0x7F) : quint8(0);
     QMetaObject::invokeMethod(s, [s, ip, correctedHz, correctedTx, rate,
                                   bandAnt, p2hw,
                                   att, adc, input, bypass,
                                   attOnTxEn, attOnTxDb, rx2Gnd, st,
-                                  divOn, subOn, psOn, rx2Hz]() {
+                                  divOn, subOn, psOn, rx2Hz, ocBits]() {
         s->setTxProducerSink([](const double *iq, int samples) {
             return feedP2TxCmasterInput(iq, samples);
         });
@@ -1443,6 +1452,7 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
         }
         s->setRxInput(static_cast<P2RxInput>(input));
         s->setHpfBypass(bypass);
+        s->setOcOutput(ocBits);
         s->setDdcFrequencyHz(0, correctedHz);
         // Start the DUC on the effective TX carrier, not the RX dial.
         // This matters immediately for split/VFO-B profiles; the normal

@@ -79,6 +79,7 @@
 #include <QVector>
 #include <QFrame>
 #include "oc/OcControl.h"   // #199 — editable OC table (Filters / BCD tab)
+#include "xvtrslots.h"      // named Xvtr rows on the OC grid (DeskHPSDR / #24)
 #include <QHash>
 #include <QHBoxLayout>
 #include <QSettings>
@@ -5186,7 +5187,7 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
     // or full-width (BCD-only, no stream).
     QGroupBox *bcdBox = nullptr;
     if (bcd_) {
-        bcdBox = section(tr("USB-BCD amp band output"));
+        bcdBox = section(tr("PC FTDI cable (optional)"));
         auto *bf = new QFormLayout(bcdBox);
         if (!bcd_->available()) {
             auto *na = new QLabel(tr("FTDI driver (ftd2xx.dll) not found — "
@@ -5197,10 +5198,10 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         } else {
             auto *en = new QCheckBox(tr("Enable USB-BCD amp band output"));
             en->setChecked(bcd_->enabled());
-            en->setToolTip(tr("Outputs the Yaesu BCD band code on an FTDI cable "
-                              "so a linear amp follows the band.\n⚠ Verify "
-                              "wiring + low-power test per band before keying "
-                              "at full power."));
+            en->setToolTip(tr(
+                "PC FTDI cable only (same as Thetis USB/BCD Cable). "
+                "The radio DB9 is the OC grid — tick pins yourself.\n"
+                "⚠ Verify wiring + low-power test per band before full power."));
             connect(en, &QCheckBox::toggled, bcd_, &UsbBcd::setEnabled);
             connect(bcd_, &UsbBcd::enabledChanged, en, [en](bool on) {
                 if (en->isChecked() != on) en->setChecked(on);
@@ -5262,31 +5263,56 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         auto *ocv = new QVBoxLayout(ocBox);
         ocv->setSpacing(10);
 
-        // --- master enable + live hardware pin-state strip ---
+        // --- accessory Off / N2ADR / Custom + live pin strip ---
         auto *topRow = new QHBoxLayout;
-        auto *fb = new QCheckBox(
-            tr("Enable N2ADR filter board (OC / LPF relays, not analog)"));
-        fb->setChecked(stream_->filterBoardEnabled());
-        fb->setToolTip(tr(
-            "HL2 / HL2+ only. Turns J16 open-collectors / N2ADR LPF relays "
-            "(gateware I2C 0x20). Off = OC idle.\n\n"
-            "Pico analog on J4 pin 8 is separate: Protocol 1 always sends "
-            "TX Hz on I2C2 (C0 0x3d) slave 0x1D, five bytes BYTE4..BYTE0, "
-            "same as Thetis IOBoard.setFrequency and Quisk IOBoard HeartBeat. "
-            "No extra setting. Protocol 2 (Brick / ANAN) does not send it.\n\n"
-            "J3 fan-PWM analog is the Band Volts checkbox below."));
-        connect(fb, &QCheckBox::toggled, stream_,
-                &lyra::ipc::HL2Stream::setFilterBoardEnabled);
-        connect(stream_, &lyra::ipc::HL2Stream::filterBoardChanged, fb,
-                [fb](bool on) { if (fb->isChecked() != on) fb->setChecked(on); });
-        topRow->addWidget(fb);
+        topRow->addWidget(new QLabel(tr("OC accessory")));
+        auto *acc = new QComboBox;
+        acc->addItem(tr("Off"), int(lyra::oc::OcAccessory::Off));
+        acc->addItem(tr("N2ADR"), int(lyra::oc::OcAccessory::N2adr));
+        acc->addItem(tr("Custom"), int(lyra::oc::OcAccessory::Custom));
+        {
+            const int i = acc->findData(int(stream_->ocAccessory()));
+            acc->setCurrentIndex(i >= 0 ? i : 0);
+        }
+        acc->setToolTip(tr(
+            "J16 / P2 [1401] open-collectors — same model as Thetis Ext Control "
+            "and DeskHPSDR OC: the host emits the ticks you set. It does not "
+            "auto-choose Yaesu BCD for a radio DB9.\n\n"
+            "Off — emit 0. Table is kept.\n"
+            "N2ADR — stamp the stock HF LPF map. Xvtr rows stay empty.\n"
+            "Custom — emit the grid as ticked. Editing N2ADR ticks promotes "
+            "to Custom.\n\n"
+            "P1 HL2: I2C 0x20. P2: HP [1401]. Analog J4 / REG 11 are not "
+            "this control."));
+        connect(acc, &QComboBox::currentIndexChanged, page, [this, acc](int) {
+            stream_->setOcAccessory(static_cast<lyra::oc::OcAccessory>(
+                acc->currentData().toInt()));
+        });
+        connect(stream_, &lyra::ipc::HL2Stream::ocAccessoryChanged, page,
+                [this, acc]() {
+                    const int i = acc->findData(int(stream_->ocAccessory()));
+                    if (i >= 0 && acc->currentIndex() != i) {
+                        QSignalBlocker b(acc);
+                        acc->setCurrentIndex(i);
+                    }
+                });
+        topRow->addWidget(acc);
         topRow->addStretch(1);
         topRow->addWidget(new QLabel(tr("Live pins:")));
+        const QStringList n2PinTip = {
+            tr("N2ADR pin 1 — 160 m LPF"),
+            tr("N2ADR pin 2 — 80 m LPF"),
+            tr("N2ADR pin 3 — 60 m / 40 m LPF"),
+            tr("N2ADR pin 4 — 30 m / 20 m LPF"),
+            tr("N2ADR pin 5 — 17 m / 15 m LPF"),
+            tr("N2ADR pin 6 — 12 m / 10 m LPF"),
+            tr("N2ADR pin 7 — 3 MHz HPF (RX on 80–10 m; off on TX and 160 m)")};
         QVector<QLabel *> pinCells;
         for (int p = 1; p <= 7; ++p) {
             auto *cell = new QLabel(QString::number(p));
             cell->setAlignment(Qt::AlignCenter);
             cell->setFixedSize(22, 22);
+            cell->setToolTip(n2PinTip[p - 1]);
             pinCells.append(cell);
             topRow->addWidget(cell);
         }
@@ -5304,9 +5330,33 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         connect(stream_, &lyra::ipc::HL2Stream::ocBitsChanged, page, refreshPins);
         ocv->addLayout(topRow);
 
-        // --- per-band editable grid (HF group v1) ---
+        auto *pinHelp = new QLabel(tr(
+            "<b>N2ADR example (stock board)</b> — column 1–7 mean this on that "
+            "board; Custom can be any mapping.<br>"
+            "Pin 1 = 160 m &nbsp; 2 = 80 m &nbsp; 3 = 60/40 m &nbsp; "
+            "4 = 30/20 m &nbsp; 5 = 17/15 m &nbsp; 6 = 12/10 m &nbsp; "
+            "7 = 3 MHz HPF (RX only on 80–10 m). "
+            "6 m = all off (no LPF on that board).<br>"
+            "<b>Radio DB9 / ACC:</b> Thetis and DeskHPSDR do not auto-map "
+            "Yaesu BCD onto these pins — you tick the cells that match "
+            "<i>your</i> cable (ANAN OC is often inverted). "
+            "<b>Example Yaesu A–D</b> only stamps a starting grid.<br>"
+            "<b>Xvtr:</b> leave empty so J16 idles (an HF amp on J16 will not "
+            "follow 10 m). Copy 10 m ticks (RX pins 6+7, TX pin 6) if the HL2 "
+            "LPF must stay on the IF."));
+        pinHelp->setWordWrap(true);
+        pinHelp->setTextFormat(Qt::RichText);
+        pinHelp->setStyleSheet(QStringLiteral(
+            "QLabel{color:#8fa6ba;font-size:12px;padding:4px 0;}"));
+        ocv->addWidget(pinHelp);
+
+        // --- per-band editable grid (HF + named Xvtr, DeskHPSDR / #24) ---
         const auto &bands = lyra::amateurBands();
         const int nB = int(bands.size());
+        const int nXv = lyra::oc::OcControl::kXvtrSlots;
+        const int xvHdrRow = 2 + nB;
+        const int xvFirstRow = xvHdrRow + 1;
+        const int gridRows = xvFirstRow + nXv;
         auto *grid = new QGridLayout;
         grid->setHorizontalSpacing(4);
         grid->setVerticalSpacing(3);
@@ -5317,22 +5367,26 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         grid->addWidget(colHdr(tr("J16 Transmit pins"), QStringLiteral("#e08a8a")),
                         0, 9, 1, 7, Qt::AlignCenter);
         for (int p = 1; p <= 7; ++p) {
-            grid->addWidget(colHdr(QString::number(p), QStringLiteral("#7fd4a0")),
-                            1, p);
-            grid->addWidget(colHdr(QString::number(p), QStringLiteral("#e08a8a")),
-                            1, 8 + p);
+            auto *rxH = colHdr(QString::number(p), QStringLiteral("#7fd4a0"));
+            auto *txH = colHdr(QString::number(p), QStringLiteral("#e08a8a"));
+            rxH->setToolTip(n2PinTip[p - 1]);
+            txH->setToolTip(n2PinTip[p - 1]);
+            grid->addWidget(rxH, 1, p);
+            grid->addWidget(txH, 1, 8 + p);
         }
         // Bring the RX and TX halves closer + a thin divider between them.
         grid->setColumnMinimumWidth(8, 9);
         auto *gdiv = new QFrame;
         gdiv->setFrameShape(QFrame::VLine);
         gdiv->setStyleSheet(QStringLiteral("QFrame{color:#5a7c94;}"));
-        grid->addWidget(gdiv, 0, 8, 2 + nB, 1);
+        grid->addWidget(gdiv, 0, 8, gridRows, 1);
 
+        QVector<QLabel *> hfLabels(nB);
         QVector<QVector<QCheckBox *>> rxCb(nB), txCb(nB);
         for (int b = 0; b < nB; ++b) {
             auto *bl = new QLabel(QString::fromLatin1(bands[b].name));
             bl->setStyleSheet(QStringLiteral("QLabel{color:#cdd9e5;}"));
+            hfLabels[b] = bl;
             grid->addWidget(bl, 2 + b, 0);
             for (int p = 1; p <= 7; ++p) {
                 auto *rx = new QCheckBox;
@@ -5347,18 +5401,113 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
                             quint8 m = oc->rxMaskA(b);
                             if (on) m |= bit; else m &= ~bit;
                             oc->setRxMaskA(b, m);
-                            stream_->applyOcEdit();
+                            stream_->noteOcGridEdited();
                         });
                 connect(tx, &QCheckBox::toggled, page,
                         [this, oc, b, bit](bool on) {
                             quint8 m = oc->txMaskA(b);
                             if (on) m |= bit; else m &= ~bit;
                             oc->setTxMaskA(b, m);
-                            stream_->applyOcEdit();
+                            stream_->noteOcGridEdited();
                         });
             }
         }
-        auto loadGrid = [oc, rxCb, txCb, nB]() {
+
+        auto *xvHdr = new QLabel(tr("Xvtr chips (empty = pins off)"));
+        xvHdr->setStyleSheet(QStringLiteral(
+            "QLabel{color:#4fc3f7;font-weight:bold;padding-top:8px;}"));
+        grid->addWidget(xvHdr, xvHdrRow, 0, 1, 16);
+
+        QVector<QLabel *> xvLabels(nXv);
+        QVector<QVector<QCheckBox *>> xvRxCb(nXv), xvTxCb(nXv);
+        for (int i = 0; i < nXv; ++i) {
+            auto *bl = new QLabel;
+            xvLabels[i] = bl;
+            grid->addWidget(bl, xvFirstRow + i, 0);
+            for (int p = 1; p <= 7; ++p) {
+                auto *rx = new QCheckBox;
+                auto *tx = new QCheckBox;
+                xvRxCb[i].append(rx);
+                xvTxCb[i].append(tx);
+                grid->addWidget(rx, xvFirstRow + i, p, Qt::AlignCenter);
+                grid->addWidget(tx, xvFirstRow + i, 8 + p, Qt::AlignCenter);
+                const int bit = 1 << (p - 1);
+                connect(rx, &QCheckBox::toggled, page,
+                        [this, oc, i, bit](bool on) {
+                            quint8 m = oc->rxMaskXvtr(i);
+                            if (on) m |= bit; else m &= ~bit;
+                            oc->setRxMaskXvtr(i, m);
+                            stream_->noteOcGridEdited();
+                        });
+                connect(tx, &QCheckBox::toggled, page,
+                        [this, oc, i, bit](bool on) {
+                            quint8 m = oc->txMaskXvtr(i);
+                            if (on) m |= bit; else m &= ~bit;
+                            oc->setTxMaskXvtr(i, m);
+                            stream_->noteOcGridEdited();
+                        });
+            }
+        }
+
+        auto *liveCap = new QLabel;
+        liveCap->setWordWrap(true);
+        liveCap->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+
+        const QString liveOn = QStringLiteral(
+            "QLabel{color:#0b1116;background:#7fd4a0;border-radius:3px;"
+            "padding:1px 4px;font-weight:bold;}");
+        const QString liveOff = QStringLiteral("QLabel{color:#cdd9e5;background:transparent;}");
+        const QString xvOff = QStringLiteral("QLabel{color:#5b6b78;background:transparent;}");
+
+        auto refreshXvtrLabels = [this, xvLabels, nXv, xvOff]() {
+            auto *xv = stream_ ? stream_->xvtrSlots() : nullptr;
+            for (int i = 0; i < nXv; ++i) {
+                QString name = xv ? xv->slotName(i) : QString();
+                if (name.trimmed().isEmpty())
+                    name = tr("Xvtr %1").arg(i + 1);
+                const bool on = xv && xv->slotEnabled(i);
+                xvLabels[i]->setText(on ? name : tr("%1 (off)").arg(name));
+                if (!on)
+                    xvLabels[i]->setStyleSheet(xvOff);
+            }
+        };
+
+        auto paintLive = [this, hfLabels, xvLabels, nB, nXv, liveCap, liveOn, liveOff,
+                          xvOff, refreshXvtrLabels]() {
+            refreshXvtrLabels();
+            int liveHf = -1;
+            int liveXv = -1;
+            if (stream_) {
+                const quint32 rf = stream_->rx1FreqHz();
+                liveXv = stream_->xvtrMatchingSlot(static_cast<qint64>(rf));
+                if (liveXv < 0)
+                    liveHf = stream_->ocBandIndexForRf(rf);
+            }
+            for (int b = 0; b < nB; ++b)
+                hfLabels[b]->setStyleSheet(b == liveHf ? liveOn : liveOff);
+            auto *xv = stream_ ? stream_->xvtrSlots() : nullptr;
+            for (int i = 0; i < nXv; ++i) {
+                if (i == liveXv)
+                    xvLabels[i]->setStyleSheet(liveOn);
+                else if (!(xv && xv->slotEnabled(i)))
+                    xvLabels[i]->setStyleSheet(xvOff);
+                else
+                    xvLabels[i]->setStyleSheet(liveOff);
+            }
+            if (liveXv >= 0) {
+                const QString nm = xvLabels[liveXv]->text();
+                liveCap->setText(tr("Live J16: %1 — empty ticks = pins off "
+                                    "(HF amp on J16 will not follow 10 m IF).")
+                                     .arg(nm));
+            } else if (liveHf >= 0 && liveHf < nB) {
+                liveCap->setText(tr("Live J16: %1")
+                    .arg(QString::fromLatin1(lyra::amateurBands()[size_t(liveHf)].name)));
+            } else {
+                liveCap->setText(tr("Live J16: none (GEN / out of table)"));
+            }
+        };
+
+        auto loadGrid = [oc, rxCb, txCb, xvRxCb, xvTxCb, nB, nXv, paintLive]() {
             for (int b = 0; b < nB; ++b)
                 for (int p = 0; p < 7; ++p) {
                     const int bit = 1 << p;
@@ -5367,22 +5516,46 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
                     rxCb[b][p]->setChecked(oc->rxMaskA(b) & bit);
                     txCb[b][p]->setChecked(oc->txMaskA(b) & bit);
                 }
+            for (int i = 0; i < nXv; ++i)
+                for (int p = 0; p < 7; ++p) {
+                    const int bit = 1 << p;
+                    QSignalBlocker br(xvRxCb[i][p]);
+                    QSignalBlocker bt(xvTxCb[i][p]);
+                    xvRxCb[i][p]->setChecked(oc->rxMaskXvtr(i) & bit);
+                    xvTxCb[i][p]->setChecked(oc->txMaskXvtr(i) & bit);
+                }
+            paintLive();
         };
         loadGrid();
         ocv->addLayout(grid);
+        ocv->addWidget(liveCap);
+        if (stream_) {
+            connect(stream_, &lyra::ipc::HL2Stream::rx1FreqChanged,
+                    page, paintLive);
+            connect(stream_, &lyra::ipc::HL2Stream::ocAccessoryChanged,
+                    page, loadGrid);
+            if (auto *xv = stream_->xvtrSlots())
+                connect(xv, &lyra::ui::XvtrSlots::slotsChanged, page, paintLive);
+        }
 
         // --- preset buttons + hot-switch ---
         auto *btnRow = new QHBoxLayout;
-        auto *n2 = new QPushButton(tr("N2ADR preset"));
-        n2->setToolTip(tr("Load the standard N2ADR filter-board pin map."));
-        connect(n2, &QPushButton::clicked, page, [this, oc, loadGrid]() {
-            const int n = oc->nBands();
-            for (int b = 0; b < n; ++b) {
-                oc->setRxMaskA(b, quint8(lyra::n2adrOcPattern(b, false)));
-                oc->setTxMaskA(b, quint8(lyra::n2adrOcPattern(b, true)));
-            }
+        auto *n2 = new QPushButton(tr("Reload N2ADR HF"));
+        n2->setToolTip(tr(
+            "Same as picking N2ADR in the accessory combo: stamp the stock "
+            "HF map. Xvtr rows stay as they are."));
+        connect(n2, &QPushButton::clicked, page, [this, loadGrid]() {
+            stream_->setOcAccessory(lyra::oc::OcAccessory::N2adr);
             loadGrid();
-            stream_->applyOcEdit();
+        });
+        auto *yae = new QPushButton(tr("Example Yaesu A–D"));
+        yae->setToolTip(tr(
+            "Optional starting grid only (not how Thetis auto-drives a DB9). "
+            "Pins 1–4 = A/B/C/D, 160 m=1 … 10 m=9, 6 m=10. Switches to Custom "
+            "so you can edit. Verify vs the amp at low power. Xvtr stays empty."));
+        connect(yae, &QPushButton::clicked, page, [this, loadGrid]() {
+            stream_->stampOcYaesuExample();
+            loadGrid();
         });
         auto *clr = new QPushButton(tr("Clear all"));
         connect(clr, &QPushButton::clicked, page, [this, oc, loadGrid]() {
@@ -5391,10 +5564,16 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
                 oc->setRxMaskA(b, 0);
                 oc->setTxMaskA(b, 0);
             }
+            for (int i = 0; i < lyra::oc::OcControl::kXvtrSlots; ++i) {
+                oc->setRxMaskXvtr(i, 0);
+                oc->setTxMaskXvtr(i, 0);
+            }
             loadGrid();
+            stream_->setOcAccessory(lyra::oc::OcAccessory::Custom);
             stream_->applyOcEdit();
         });
         btnRow->addWidget(n2);
+        btnRow->addWidget(yae);
         btnRow->addWidget(clr);
         btnRow->addStretch(1);
         auto *hot = new QCheckBox(tr("Allow hot switching"));
@@ -5407,6 +5586,24 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         });
         btnRow->addWidget(hot);
         ocv->addLayout(btnRow);
+
+        auto setGridOn = [this, rxCb, txCb, xvRxCb, xvTxCb, nB, nXv]() {
+            const bool on =
+                stream_->ocAccessory() != lyra::oc::OcAccessory::Off;
+            for (int b = 0; b < nB; ++b)
+                for (int p = 0; p < 7; ++p) {
+                    rxCb[b][p]->setEnabled(on);
+                    txCb[b][p]->setEnabled(on);
+                }
+            for (int i = 0; i < nXv; ++i)
+                for (int p = 0; p < 7; ++p) {
+                    xvRxCb[i][p]->setEnabled(on);
+                    xvTxCb[i][p]->setEnabled(on);
+                }
+        };
+        setGridOn();
+        connect(stream_, &lyra::ipc::HL2Stream::ocAccessoryChanged,
+                page, setGridOn);
 
         // ocBox (enable + live pins + grid + preset buttons) is complete.
         root->addWidget(ocBox);

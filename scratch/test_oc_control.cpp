@@ -9,6 +9,7 @@
 //               ./build/test_oc_control    (exit 0 = all pass)
 
 #include "oc/OcControl.h"
+#include "bands.h"
 
 #include <cstdio>
 
@@ -161,6 +162,59 @@ int main() {
         oc.setRx2Enabled(true);
         // generic branch uses bandA only -> 0x08, NOT the HL 0x20.
         CHECK_EQ(oc.compute(B40, B20, false, false, false, false), 0x08);
+    }
+
+    // ---- 11. Xvtr rows default 0; N2ADR HF fill does not touch them ------
+    {
+        OcControl oc;
+        oc.setEnabled(true);
+        oc.setTxMaskA(B10, 0x60);
+        oc.setRxMaskA(B10, 0x60);
+        CHECK_EQ(oc.rxMaskXvtr(0), 0);
+        CHECK_EQ(oc.txMaskXvtr(0), 0);
+        CHECK_EQ(oc.computeXvtr(0, true,  false, false, false), 0);
+        CHECK_EQ(oc.computeXvtr(0, false, false, false, false), 0);
+        CHECK_EQ(oc.compute(B10, B10, true, false, false, false), 0x60);
+    }
+
+    // ---- 12. Xvtr ticks emit; out-of-range slot is 0 ----------------------
+    {
+        OcControl oc;
+        oc.setEnabled(true);
+        oc.setRxMaskXvtr(0, 0x02);   // 2 m chip, pin 2
+        oc.setTxMaskXvtr(0, 0x04);   // pin 3
+        CHECK_EQ(oc.computeXvtr(0, false, false, false, false), 0x02);
+        CHECK_EQ(oc.computeXvtr(0, true,  false, false, false), 0x04);
+        CHECK_EQ(oc.computeXvtr(-1, true, false, false, false), 0);
+        CHECK_EQ(oc.computeXvtr(99, true, false, false, false), 0);
+        // Other chips stay empty
+        CHECK_EQ(oc.computeXvtr(1, true, false, false, false), 0);
+    }
+
+    // ---- 13. Xvtr TX pin-action uses HF group 0 gates --------------------
+    {
+        OcControl oc;
+        oc.setEnabled(true);
+        oc.setTxMaskXvtr(1, 0x01);
+        oc.setTxPinAction(0, 1, TxPinAction::Tune);
+        CHECK_EQ(oc.computeXvtr(1, true, /*tune*/ false, false, false), 0x00);
+        CHECK_EQ(oc.computeXvtr(1, true, /*tune*/ true,  false, false), 0x01);
+    }
+
+    // ---- 14. Yaesu BCD nibble on OC pins 1–4 ------------------------------
+    {
+        CHECK_EQ(lyra::bcdForBand(B160, false), 1);
+        CHECK_EQ(lyra::bcdForBand(B40, false), 3);
+        CHECK_EQ(lyra::bcdForBand(B10, false), 9);
+        CHECK_EQ(lyra::bcdForBand(B6, false), 10);
+        CHECK_EQ(lyra::yaesuOcPattern(1, false), 0x01);
+        CHECK_EQ(lyra::yaesuOcPattern(3, false), 0x03);
+        CHECK_EQ(lyra::yaesuOcPattern(9, false), 0x09);
+        CHECK_EQ(lyra::yaesuOcPattern(10, false), 0x0A);
+        CHECK_EQ(lyra::yaesuOcPattern(1, true), 0x0E);   // ANAN invert
+        CHECK_EQ(lyra::yaesuOcPattern(0, true), 0x0F);   // bypass → all nibble
+        CHECK_EQ(lyra::yaesuBcdCodeForFreq(7050000, false, true), 3);
+        CHECK_EQ(lyra::yaesuBcdCodeForFreq(144200000, false, true), 0);
     }
 
     if (g_fail == 0) {

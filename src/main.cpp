@@ -381,7 +381,8 @@ int main(int argc, char *argv[])
             qInfo("[rig] migrated %d legacy radio profile(s) into the registry", n);
         lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("cal/"));
         lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("band_mem/"));
-        lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("oc/"));
+        // oc/ is HL2 N2ADR / J16. Same gate as pa_gain: do not dump the
+        // HL2 table onto a Brick / ANAN that happens to be active.
         lyra::rig::migrate::migrateKeyToActiveRig(QStringLiteral("meter/pwrRatedMaxW"));
         lyra::rig::migrate::migrateKeyToActiveRig(QStringLiteral("meter/calDb"));
         // S4d — panadapter dB-scale defaults (RX+TX spectrum & waterfall
@@ -407,6 +408,7 @@ int main(int argc, char *argv[])
         // rig is active — e.g. a Brick.
         if (lyra::rig::registry::rig(lyra::rig::registry::activeRigId()).family
                 == lyra::rig::RadioFamily::Hl2) {
+            lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("oc/"));
             lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("pa_gain/"));
             lyra::rig::migrate::migrateGroupToActiveRig(QStringLiteral("meter/pwrTrim/"));
         }

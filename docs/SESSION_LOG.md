@@ -4,6 +4,14 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-26 — v0.25.29 Sheliak RELEASED
+
+OC Control: P2 HP `[1401]`, per-rig Off/N2ADR/Custom (Brick/ANAN
+default Off; HL2 N2ADR), named Xvtr rows empty by default. No auto
+Yaesu BCD on the radio DB9 (Thetis/DeskHPSDR tick-the-pins). USB-BCD
+FTDI unchanged (HL2 / B2 / B3 + VK amp). Parked Help balloon, P1 6 m
+hide, PS/Amp View float size. Tag `v0.25.29`. Do not merge `main`.
+
 ## 2026-10-25 — v0.25.28 Sheliak RELEASED
 
 Pico RX fcodes 13/14 (GitHub #23, deskHPSDR-shaped). PureSignal dock ON

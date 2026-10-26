@@ -22,12 +22,21 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.28 Sheliak** is the last tagged installer. This tree also has
-the parked Help balloon and Protocol 1 **6 m** hide — see
-[What's new after 0.25.28](#whats-new-after-02528).
+**v0.25.29 Sheliak** — OC on Protocol 2, per-rig accessory, Xvtr OC
+rows, parked Help balloon. **v0.25.28** is the previous public build.
+See [What's new in 0.25.29](#whats-new-in-02529).
 
-## What's new after 0.25.28
+## What's new in 0.25.29
 
+- **OC Control (Thetis / DeskHPSDR model).** Settings → **Filters / BCD**
+  emits the pin ticks you set. Protocol 2 now sends them on HP **`[1401]`**
+  (was 0). Accessory **Off / N2ADR / Custom** is **per rig** — HL2
+  defaults N2ADR; Brick / ANAN default Off. Named **Xvtr** rows start
+  empty. Lyra does **not** auto-write Yaesu BCD on a radio DB9 (Brick 2
+  vs 3 pinouts differ). **Example Yaesu A–D** is an optional starting
+  grid you then edit. [Filters / BCD](#settings--filters--bcd).
+- **USB-BCD (FTDI)** unchanged — PC cable, Yaesu codes, 60 m / 11 m
+  options. Confirmed on HL2, Brick 2, and Brick 3 RX with a VK Yaesu amp.
 - **Parked Help balloon.** Hover a control and help appears in **one**
   glass speech bubble you can **drag** onto the spectrum or the
   lower-left of the waterfall (it remembers the spot). It fades a couple
@@ -41,9 +50,8 @@ the parked Help balloon and Protocol 1 **6 m** hide — see
 - **Ham 6 m on Protocol 1.** Hermes Lite 2 / 2+ has no native 6 m, so
   that Ham chip is hidden. Use an **Xvtr** slot. BrickSDR2 / ANAN on
   Protocol 2 still show **6 m**.
-- **Display** and **Profiles** hover help uses the parked balloon
-  (Zoom, Panafall, Exact / 100 Hz, Spec, Peak Hold, WF, profile picker,
-  Save).
+- **PureSignal / Amp View** remember their floating size. P2 collect
+  no longer sticks when FB stays 0.
 
 ## What's new in 0.25.28
 
@@ -489,7 +497,7 @@ Dummy load first.
 
 ## Contents
 
-- [What's new after 0.25.28](#whats-new-after-02528)
+- [What's new in 0.25.29](#whats-new-in-02529)
 - [What's new in 0.25.28](#whats-new-in-02528)
 - [What's new in 0.25.27](#whats-new-in-02527)
 - [What's new in 0.25.26](#whats-new-in-02526)
@@ -1723,10 +1731,12 @@ not one switch for the whole radio. Xvtr chips default Auto **off**, so a
 20 m Auto-on hop onto **2m** keeps the stored 2 m LNA instead of walking
 it. Turn Auto on on 2 m if you want it there. First visit to a slot keeps
 the live mode until you change it; LNA stays live until you move the slider. PA-gain and USB-BCD follow **displayed RF**. The N2ADR / OC
-filter map uses the **IF of that slot’s RF-low** (not the live IF as
-you QSY). Otherwise a 2 m hop such as 145.675 ↔ 145.775 with a 116 MHz
-LO would cross the 10 m amateur edge at **29.7 MHz IF** and chatter the
-HL2 filter-board relays. USB-BCD does not do that (it keys on RF).
+table has **named Xvtr rows**: each chip has its
+own J16 RX/TX ticks. They start **empty (pins off)**. The N2ADR preset
+does **not** fill them. Copy the 10 m ticks onto a chip if the HL2 LPF
+must stay on the IF; leave them empty so an HF amp on J16 does not
+follow 10 m while a Mini is selected. USB-BCD still keys on RF.
+Analog BYTE0–4 / J4 is unchanged.
 
 **HL2 + transverter with a 30 dB pad** (for example UR3LMZ TR2020 Mini and
 an automatic TX/RX switch). The split RX/TX ports are **on that box**, not
@@ -4370,7 +4380,7 @@ transverter). This tab is the pin-level detail.
 |------|-----|----------------------|---------|
 | Gateware Band Volts | **J3** (fan PWM / GPIO04_Fan) | **HL2 Band Volts on J3** checkbox | DeskHPSDR RX → *HL2 Band Volts / Dither Bit*; MI0BOT Thetis *HL2 Band Volts* |
 | Pico analog (stock `n2adr_basic`) | **J4 pin 8** | Always on Protocol 1 — Lyra writes TX Hz over I2C **0x1D** (I2C2) | Thetis / Quisk / SparkSDR (same Pico TX-freq writes; OC is filters only) |
-| N2ADR LPF relays | J16 → I2C **0x20** | **Enable N2ADR / IO board** | DeskHPSDR `filter_board = N2ADR` |
+| N2ADR LPF / J16 OC | P1: J16 → I2C **0x20**. P2: HP **[1401]** (`OC<<1`) | **Enable N2ADR / IO board** | DeskHPSDR `filter_board` / `high_priority[1401]` |
 
 USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no filter board (analog still follows).
 
@@ -4391,20 +4401,40 @@ nearby AM broadcaster, say). Gateware relays those bits over I2C
 on **J4 pin 8** follows **TX frequency** written over I2C **0x1D** — not
 the OC bits. Analog on **J3** is the separate Band Volts checkbox.
 
-- **Enable N2ADR / IO board (OC / LPF relays, not analog)** —
-  turns OC band-switching on (HL2 / HL2+ only; default on). Off = OC
-  idle. Pico TX-Hz analog still runs on Protocol 1. Harmless with no
-  board. **J3** analog is Band Volts, further down.
+- **OC accessory** (Off / N2ADR / Custom) — what J16 is for, **per
+  rig**. Same idea as Thetis **Ext Control** / DeskHPSDR **OC**: the
+  host emits the pin ticks **you** set. It does **not** auto-choose
+  Yaesu BCD for a Brick or ANAN DB9. Hermes Lite defaults to N2ADR;
+  Brick / ANAN default **Off** (onboard filters are Alex).
+  - **Off** — emit 0. Table is kept.
+  - **N2ADR** — stamp the stock HF LPF map. Xvtr rows stay empty.
+    Editing a tick promotes to **Custom**.
+  - **Custom** — emit the grid as you ticked it.
+  **Example Yaesu A–D** is only a starting grid (pins 1–4 = A/B/C/D).
+  Verify against *your* amp and cable (ANAN OC is often inverted;
+  Brick 2 vs Brick 3 DB9 pin order differs). Then edit.
+  Protocol 1 (HL2) sends J16 via I2C **0x20**. Protocol 2 sends the
+  same 7 bits on high-priority **[1401]**. Pico analog is Protocol 1
+  only. **J3** analog is Band Volts, further down.
+- **N2ADR pin example** (on the tab, and as column tips): pin 1 = 160 m,
+  2 = 80 m, 3 = 60/40 m, 4 = 30/20 m, 5 = 17/15 m, 6 = 12/10 m,
+  7 = 3 MHz HPF (RX on 80–10 m). 6 m = all off. Xvtr empty = J16 idle;
+  copy 10 m (RX 6+7, TX 6) if the HL2 LPF must stay on the IF.
 - **Live pins** (top-right) — the seven cells light to show which J16
   pins are being driven **right now**, on the wire. They follow the band
   as you tune and flip to the transmit pattern while you're keyed.
-- **The per-band grid** — one row per band, with a **J16 Receive pins**
-  block (green) and a **J16 Transmit pins** block (red), pins 1–7 each.
-  Tick a pin to drive it on that band for RX and/or TX. Edits apply and
-  save immediately. This is the heart of it: the grid is what tells the
-  board which filter to select on each band.
-- **N2ADR preset** — loads the standard N2ADR filter-board pin map (the
-  default). **Clear all** — blanks every band (start from scratch).
+- **The per-band grid** — one row per amateur band (160 m–6 m), then
+  **named Xvtr chips** under that.
+  Each row has **J16 Receive pins** (green) and **J16 Transmit pins**
+  (red), pins 1–7. Tick a pin to drive it on that band or chip. The live
+  row is highlighted. Edits apply and save immediately.
+- **Xvtr rows default empty (all pins off).** Selecting a Mini / 2 m
+  chip then idles J16 so an **XPA125 on HF** does not stay on the 10 m
+  IF pattern. If the **N2ADR LPF** must follow the radio’s IF, copy the
+  10 m ticks onto that Xvtr row.
+- **Reload N2ADR HF** — same as picking N2ADR in the combo (HF only).
+  **Example Yaesu A–D** — optional starting ticks only; then edit.
+  **Clear all** — blanks HF and Xvtr and switches to Custom.
 - **Allow hot switching** — lets transmit-pin edits take effect while
   you're transmitting. Off (default) is safer — edits apply on the next
   key.
@@ -4428,12 +4458,15 @@ engages, and whether it also gates an external PA:
 **Split pins (per-VFO)** is reserved — it activates with the second
 receiver (RX2).
 
-### USB-BCD (linear-amp band switching)
+### USB-BCD (PC FTDI cable — same as Thetis)
 
-Drives a Yaesu-style **BCD band code** out an FTDI cable so an external
-linear amp's auto-bandswitch follows Lyra's band. Tick **Enable
-USB-BCD**, choose your **BCD cable**, and the **BCD output** readout shows
-the current code. Two bands have no standard BCD code of their own, with an
+Thetis **USB/BCD Cable** is the only place those programs auto-write
+Yaesu band codes, and it is an **FTDI dongle on the PC**, not the radio
+DB9. Lyra matches that. Tick **Enable USB-BCD**, choose the cable, and
+the readout shows the code. For a Brick/ANAN accessory jack, use the
+**OC grid** (tick pins), not this cable.
+
+Two bands have no standard BCD code of their own, with an
 option to borrow the adjacent band's filter:
 
 - **60 m uses the 40 m filter (BCD 3)** — sends the 40 m code on 60 m

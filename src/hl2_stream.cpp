@@ -367,18 +367,8 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     // This checkbox is OC / LPF relays only.  Pico analog (I2C2 0x1D
     // TX-Hz) always follows on Protocol 1 — same as Thetis IOBoard
     // setFrequency / Quisk IOBoard HeartBeat.
-    filterBoardEnabled_ =
-        QSettings().value(QStringLiteral("hw/filterBoard"), true).toBool();
-    // #199 Stage 2 — seed the editable OC table with the N2ADR preset (so an
-    // enabled board reproduces today's per-band pattern byte-for-byte) + set
-    // the family + sync the master gate to the restored enable state, THEN
-    // seed the OC pattern for the restored band.  (Stage 3 replaces the
-    // preset seed with the persisted oc/* table.)
     oc_.setFamily(lyra::oc::Family::HermesLite);
-    seedOcN2adr();
-    loadOcSettings();   // override the N2ADR seed if the operator edited the table
-    oc_.setEnabled(filterBoardEnabled_);
-    updateOcPattern();
+    reloadOcFromDisk();
     // RX1 LNA gain (AD9866 PGA) — restore the operator's last setting.
     lnaGainDb_.store(
         // Fallback = the reference's fresh-install gain, +19 dB (its
@@ -2938,6 +2928,8 @@ void HL2Stream::setTxCalRigId(const QString &rigId) {
         return;
     txCalRigId_ = rigId;
     loadTxPowerCal_();
+    reloadOcFromDisk();
+    emit ocAccessoryChanged();
 }
 
 void HL2Stream::loadTxPowerCal_() {
@@ -3341,19 +3333,8 @@ int HL2Stream::xvtrMatchingSlot(qint64 rfHz) const {
 }
 
 int HL2Stream::ocBandIndexForRf(quint32 rfHz) const {
-    if (xvtr_) {
-        const int s = xvtr_->matchingSlot(static_cast<qint64>(rfHz));
-        if (s >= 0) {
-            const qint64 loRf =
-                static_cast<qint64>(xvtr_->slotRfLoHz(s));
-            int bi = lyra::bandIndexForFreq(xvtr_->ddsHz(loRf));
-            if (bi < 0)
-                bi = lyra::bandIndexForFreq(ddsHzForRf(rfHz));
-            if (bi < 0)
-                bi = lyra::bandIndexForFreq(28400000);  // 10 m N2ADR LPF
-            return bi;
-        }
-    }
+    if (xvtrMatchingSlot(static_cast<qint64>(rfHz)) >= 0)
+        return -1;
     return lyra::bandIndexForFreq(ddsHzForRf(rfHz));
 }
 
@@ -3365,6 +3346,7 @@ void HL2Stream::setXvtrSlots(lyra::ui::XvtrSlots *xvtrSlots) {
         applyPaWire();
         pushEffectiveRxFreq();
         pushEffectiveTxFreq();
+        updateOcPattern();   // J16 only — xvtr row vs HF; analog not on this hop
     });
 }
 
@@ -6172,6 +6154,50 @@ void HL2Stream::setFilterBoardEnabled(bool on) {
                  .arg(on ? QStringLiteral("ENABLED") : QStringLiteral("off")));
 }
 
+void HL2Stream::setOcAccessory(lyra::oc::OcAccessory mode) {
+    const bool restampN2adr = (mode == lyra::oc::OcAccessory::N2adr);
+    if (mode == ocAccessory_ && !restampN2adr)
+        return;
+    ocAccessory_ = mode;
+    if (mode == lyra::oc::OcAccessory::Off) {
+        setFilterBoardEnabled(false);
+    } else {
+        if (mode == lyra::oc::OcAccessory::N2adr)
+            seedOcN2adr();
+        setFilterBoardEnabled(true);
+    }
+    saveOcSettings();
+    updateOcPattern();
+    emit ocAccessoryChanged();
+    emit logLine(mode == lyra::oc::OcAccessory::Off
+                     ? QStringLiteral("OC accessory off")
+                     : mode == lyra::oc::OcAccessory::N2adr
+                           ? QStringLiteral("OC accessory N2ADR (HF preset)")
+                           : QStringLiteral("OC accessory custom"));
+}
+
+void HL2Stream::stampOcYaesuExample() {
+    seedOcYaesuExample();
+    ocAccessory_ = lyra::oc::OcAccessory::Custom;
+    setFilterBoardEnabled(true);
+    saveOcSettings();
+    oc_.resetChangeGate();
+    updateOcPattern();
+    emit ocAccessoryChanged();
+    emit logLine(QStringLiteral(
+        "OC example: Yaesu A–D on pins 1–4 (verify vs amp, then edit)"));
+}
+
+void HL2Stream::noteOcGridEdited() {
+    if (ocAccessory_ == lyra::oc::OcAccessory::N2adr) {
+        ocAccessory_ = lyra::oc::OcAccessory::Custom;
+        emit ocAccessoryChanged();
+    }
+    if (ocAccessory_ == lyra::oc::OcAccessory::Off)
+        setOcAccessory(lyra::oc::OcAccessory::Custom);
+    applyOcEdit();
+}
+
 
 void HL2Stream::updateOcPattern(bool transmitting) {
     // OC pattern for the current band when the board is enabled, else 0.
@@ -6192,13 +6218,17 @@ void HL2Stream::updateOcPattern(bool transmitting) {
         const quint32 rf = transmitting
             ? txFreqHz_.load(std::memory_order_relaxed)
             : rx1FreqHz_.load(std::memory_order_relaxed);
-        const int bi = ocBandIndexForRf(rf);
-        // One analog filter (N2ADR): OC follows RX1.  SUB is a second DDC
-        // on the same ADC; cross-band SUB stays behind RX1's LPF/BPF.
-        // TX OC band is RX1 today; SPLIT TX still uses this until TX-band
-        // OC is a separate pass.  pa=false: no external-PA-override yet.
-        bits = oc_.compute(bi, bi, transmitting, /*tune*/ false,
-                           /*twoTone*/ false, /*pa*/ false);
+        const int xv = xvtrMatchingSlot(static_cast<qint64>(rf));
+        if (xv >= 0) {
+            // DeskHPSDR / piHPSDR: named Xvtr rows own J16. Empty = 0 so an
+            // HF amp on J16 does not see the 10 m IF while a Mini is selected.
+            bits = oc_.computeXvtr(xv, transmitting, /*tune*/ false,
+                                   /*twoTone*/ false, /*pa*/ false);
+        } else {
+            const int bi = ocBandIndexForRf(rf);
+            bits = oc_.compute(bi, bi, transmitting, /*tune*/ false,
+                               /*twoTone*/ false, /*pa*/ false);
+        }
     }
     // Change gate (Thetis m_nOldBits, −1-seeded so the first emit after an
     // enable/open is never swallowed — §7.5.1).  Push only on a real change.
@@ -6225,11 +6255,69 @@ void HL2Stream::setOcOutput(quint8 bits) {
     emit ocBitsChanged(ocPattern_);
 }
 
+QString HL2Stream::ocGroupKey() const {
+    return txCalKey_(QStringLiteral("oc"));
+}
+
+void HL2Stream::seedOcEmpty() {
+    const int n = oc_.nBands();
+    for (int bi = 0; bi < n; ++bi) {
+        oc_.setRxMaskA(bi, 0);
+        oc_.setTxMaskA(bi, 0);
+        oc_.setRxMaskB(bi, 0);
+        oc_.setTxMaskB(bi, 0);
+    }
+    for (int i = 0; i < lyra::oc::OcControl::kXvtrSlots; ++i) {
+        oc_.setRxMaskXvtr(i, 0);
+        oc_.setTxMaskXvtr(i, 0);
+    }
+}
+
+void HL2Stream::reloadOcFromDisk() {
+    seedOcEmpty();
+    const bool present = loadOcSettings();
+    const auto fam = lyra::rig::registry::rig(
+        txCalRigId_.isEmpty() ? lyra::rig::scope::activeRigId()
+                              : txCalRigId_).family;
+    const bool hl2 = (fam == lyra::rig::RadioFamily::Hl2);
+    if (!present) {
+        if (hl2) {
+            seedOcN2adr();
+            ocAccessory_ = lyra::oc::OcAccessory::N2adr;
+        } else {
+            ocAccessory_ = lyra::oc::OcAccessory::Off;
+        }
+    }
+    filterBoardEnabled_ = (ocAccessory_ != lyra::oc::OcAccessory::Off);
+    oc_.setEnabled(filterBoardEnabled_);
+    QSettings().setValue(QStringLiteral("hw/filterBoard"), filterBoardEnabled_);
+    oc_.resetChangeGate();
+    updateOcPattern();
+}
+
+void HL2Stream::seedOcYaesuExample() {
+    const int n = oc_.nBands();
+    const bool sixty = QSettings().value(QStringLiteral("hw/bcd60as40"), true)
+                           .toBool();
+    for (int bi = 0; bi < n; ++bi) {
+        const quint8 m = lyra::yaesuOcPattern(lyra::bcdForBand(bi, sixty),
+                                              /*invert*/ false);
+        oc_.setRxMaskA(bi, m);
+        oc_.setTxMaskA(bi, m);
+        oc_.setRxMaskB(bi, 0);
+        oc_.setTxMaskB(bi, 0);
+    }
+    for (int i = 0; i < lyra::oc::OcControl::kXvtrSlots; ++i) {
+        oc_.setRxMaskXvtr(i, 0);
+        oc_.setTxMaskXvtr(i, 0);
+    }
+}
+
 void HL2Stream::seedOcN2adr() {
     // Seed OcControl's per-band RX/TX masks from the N2ADR filter-board
     // preset (bands.cpp n2adrOcPattern) so an enabled board reproduces the
-    // shipped behaviour exactly.  The Stage-4 "N2ADR Filter" preset button
-    // re-seeds through this same helper.
+    // shipped behaviour exactly.  Xvtr rows stay 0 (DeskHPSDR).  The
+    // Stage-4 "N2ADR Filter" preset button re-seeds through this same helper.
     const int n = static_cast<int>(lyra::amateurBands().size());
     for (int bi = 0; bi < n; ++bi) {
         oc_.setRxMaskA(bi,
@@ -6250,7 +6338,7 @@ void HL2Stream::applyOcEdit() {
 
 void HL2Stream::saveOcSettings() const {
     QSettings s;
-    s.beginGroup(lyra::rig::scope::rigKey(QStringLiteral("oc")));
+    s.beginGroup(ocGroupKey());
     s.setValue(QStringLiteral("present"), true);
     const int n = oc_.nBands();
     for (int b = 0; b < n; ++b) {
@@ -6272,15 +6360,25 @@ void HL2Stream::saveOcSettings() const {
     s.setValue(QStringLiteral("splitPins"), oc_.splitPins());
     s.setValue(QStringLiteral("rxABitMask"), oc_.rxABitMask());
     s.setValue(QStringLiteral("allowHotSwitch"), oc_.allowHotSwitch());
+    const char *acc = "n2adr";
+    if (ocAccessory_ == lyra::oc::OcAccessory::Off)
+        acc = "off";
+    else if (ocAccessory_ == lyra::oc::OcAccessory::Custom)
+        acc = "custom";
+    s.setValue(QStringLiteral("accessory"), QLatin1String(acc));
+    for (int i = 0; i < lyra::oc::OcControl::kXvtrSlots; ++i) {
+        s.setValue(QStringLiteral("xvtrRx/%1").arg(i), int(oc_.rxMaskXvtr(i)));
+        s.setValue(QStringLiteral("xvtrTx/%1").arg(i), int(oc_.txMaskXvtr(i)));
+    }
     s.endGroup();
 }
 
-void HL2Stream::loadOcSettings() {
+bool HL2Stream::loadOcSettings() {
     QSettings s;
-    s.beginGroup(lyra::rig::scope::rigKey(QStringLiteral("oc")));
+    s.beginGroup(ocGroupKey());
     if (!s.value(QStringLiteral("present"), false).toBool()) {
         s.endGroup();
-        return;   // never edited -> keep the N2ADR seed (byte-identical)
+        return false;
     }
     const int n = oc_.nBands();
     for (int b = 0; b < n; ++b) {
@@ -6306,7 +6404,21 @@ void HL2Stream::loadOcSettings() {
     oc_.setSplitPins(s.value(QStringLiteral("splitPins"), false).toBool());
     oc_.setRxABitMask(s.value(QStringLiteral("rxABitMask"), 0x0f).toInt());
     oc_.setAllowHotSwitch(s.value(QStringLiteral("allowHotSwitch"), false).toBool());
+    {
+        const QString acc = s.value(QStringLiteral("accessory")).toString();
+        if (acc == QLatin1String("off"))
+            ocAccessory_ = lyra::oc::OcAccessory::Off;
+        else if (acc == QLatin1String("n2adr"))
+            ocAccessory_ = lyra::oc::OcAccessory::N2adr;
+        else
+            ocAccessory_ = lyra::oc::OcAccessory::Custom;
+    }
+    for (int i = 0; i < lyra::oc::OcControl::kXvtrSlots; ++i) {
+        oc_.setRxMaskXvtr(i, quint8(s.value(QStringLiteral("xvtrRx/%1").arg(i), 0).toInt()));
+        oc_.setTxMaskXvtr(i, quint8(s.value(QStringLiteral("xvtrTx/%1").arg(i), 0).toInt()));
+    }
     s.endGroup();
+    return true;
 }
 
 

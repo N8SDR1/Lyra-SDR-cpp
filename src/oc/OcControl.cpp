@@ -17,6 +17,8 @@ OcControl::OcControl(QObject *parent)
     txA_.fill(0, nBands_);
     rxB_.fill(0, nBands_);
     txB_.fill(0, nBands_);
+    rxXvtr_.fill(0, kXvtrSlots);
+    txXvtr_.fill(0, kXvtrSlots);
     // Thetis defaults (Penny ctor): every pin action = MOX_TUNE_TWOTONE,
     // every xPA gate off.
     for (int g = 0; g < kGroups; ++g) {
@@ -53,6 +55,21 @@ quint8 OcControl::rxMaskB(int band) const {
 }
 quint8 OcControl::txMaskB(int band) const {
     return (band >= 0 && band < nBands_) ? txB_[band] : quint8(0);
+}
+
+void OcControl::setRxMaskXvtr(int slot, quint8 mask) {
+    if (slot >= 0 && slot < kXvtrSlots)
+        rxXvtr_[slot] = static_cast<quint8>(mask & 0x7F);
+}
+void OcControl::setTxMaskXvtr(int slot, quint8 mask) {
+    if (slot >= 0 && slot < kXvtrSlots)
+        txXvtr_[slot] = static_cast<quint8>(mask & 0x7F);
+}
+quint8 OcControl::rxMaskXvtr(int slot) const {
+    return (slot >= 0 && slot < kXvtrSlots) ? rxXvtr_[slot] : quint8(0);
+}
+quint8 OcControl::txMaskXvtr(int slot) const {
+    return (slot >= 0 && slot < kXvtrSlots) ? txXvtr_[slot] : quint8(0);
 }
 
 // ---- pin-action / xPA (pin1 is 1-based, matching Thetis) -------------------
@@ -136,6 +153,18 @@ quint8 OcControl::compute(int idx, int idxb, bool tx, bool tune,
 
     bits = tx ? adjustForTxAction(idx, idxb, bits, tx, tune, twoTone, pa)
               : adjustForRx(idx, idxb, bits, pa);
+    return static_cast<quint8>(bits & 0x7F);
+}
+
+quint8 OcControl::computeXvtr(int slot, bool tx, bool tune, bool twoTone,
+                              bool pa) const {
+    if (slot < 0 || slot >= kXvtrSlots)
+        return 0;
+    quint8 bits = tx ? txXvtr_[slot] : rxXvtr_[slot];
+    // Pin-action / xPA gates are the HF (group 0) row — same as DeskHPSDR's
+    // single OC byte. Band index 0 is only used to pick group 0.
+    bits = tx ? adjustForTxAction(0, 0, bits, tx, tune, twoTone, pa)
+              : adjustForRx(0, 0, bits, pa);
     return static_cast<quint8>(bits & 0x7F);
 }
 

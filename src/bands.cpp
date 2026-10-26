@@ -180,6 +180,20 @@ int bcdForBand(int bandIndex, bool sixtyAsForty) {
     return kBcd[bandIndex];
 }
 
+int yaesuBcdCodeForFreq(int hz, bool sixtyAsForty, bool elevenAsTen) {
+    int bi = bandIndexForFreq(hz);
+    if (bi < 0 && elevenAsTen && cbBandIndexForFreq(hz) >= 0)
+        bi = bandIndexForFreq(28400000);   // 10 m → BCD 9
+    return bcdForBand(bi, sixtyAsForty);
+}
+
+quint8 yaesuOcPattern(int code, bool invert) {
+    quint8 n = static_cast<quint8>(code & 0x0F);
+    if (invert)
+        n = static_cast<quint8>(n ^ 0x0F);
+    return n;
+}
+
 QString ocPatternText(int pattern) {
     QStringList pins;
     for (int i = 0; i < 7; ++i) {

@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.28 Sheliak** — Pico RX fcodes for Xvtr band-decode (GitHub #23); PureSignal dock ON like Thetis. On top of v0.25.27. **v0.25.27** is the return installer if J4 / RF1-Alt misbehaves. v0.25.22 remains the long return point. WDSP 2.10 from 0.25.8.
+**v0.25.29 Sheliak** — OC Control on P2 `[1401]`, per-rig Off/N2ADR/Custom, Xvtr OC rows, parked Help balloon, P1 6 m hide. USB-BCD (FTDI) unchanged. On top of v0.25.28. **v0.25.28** is the previous public build. v0.25.22 remains the long return point. WDSP 2.10 from 0.25.8.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc) · [Facebook](https://www.facebook.com/groups/1994335921523916)
 
