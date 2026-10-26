@@ -939,6 +939,10 @@ void P2Session::ingestPsccIq(int ddc, const double *iq, int nComplex) {
     const std::size_t n = std::min(psccRx_.size(), psccTx_.size()) / 2;
     if (n == 0)
         return;
+    // Ingest is already gated on isPureSignalLive(). Do not let
+    // refreshPsWire's XmitBit snapshot starve pscc (peaks without
+    // FB) — that still is Greg's Amp View: D0 hot, cal 0, FB 0.
+    lyra::ps::PsCalcThread::instance().setRun(true);
     lyra::ps::PsCalcThread::instance().feed(
         static_cast<int>(n), psccRx_.data(), psccTx_.data());
     const auto used = static_cast<std::ptrdiff_t>(n * 2);

@@ -163,6 +163,14 @@ void PsFsm::pushArm() {
     using namespace lyra::wire;
     if (SetPSHWPeak) SetPSHWPeak(kTxa, hwPeak_);
     if (SetPSMoxDelay) SetPSMoxDelay(kTxa, 0.2);
+    // DeskHPSDR transmitter.c: SetPSTXDelay(id, 1e-9 * ps_ampdelay)
+    // with default 150 ns. Lyra never bound this — WDSP then uses 0.
+    if (SetPSTXDelay) SetPSTXDelay(kTxa, 150e-9);
+    if (SetPSLoopDelay) SetPSLoopDelay(kTxa, 0.0);
+    // Desk sets 0.02 in tolerance mode 2. Engine default is 0.06,
+    // which aborts LCOLLECT when the TX replica does not fill the
+    // top bucket (Greg's still: D1 ~−18 dB vs SetPk 0.29).
+    if (SetPSDeadlockMinFrac) SetPSDeadlockMinFrac(kTxa, 0.02);
     if (SetPSFeedbackRate) SetPSFeedbackRate(kTxa, feedbackRateHz_);
     if (SetPSControl)
         SetPSControl(kTxa, 1, 0, 0, 0);
@@ -197,6 +205,9 @@ void PsFsm::pushDisarm() {
     waitingNewCal_ = false;
     wipeTicksLeft_ = 0;
     calBaseline_ = 0;
+    lastSeenFb_ = -1;
+    staleFbTicks_ = 0;
+    attSettleTicks_ = 0;
     emit telemetryChanged();
 }
 
@@ -232,8 +243,9 @@ void PsFsm::onTick() {
         info_[4] = feedbackLevel_;
         calCount_ = 0;
         correcting_ = false;
-        fsmState_ = 0;
+        fsmState_ = info[15];
         emit telemetryChanged();
+        maybeStepAutoAtt(feedbackLevel_);
         return;
     }
 
@@ -245,16 +257,59 @@ void PsFsm::onTick() {
     fsmState_ = info[15];
     pollAmpPlot();
     emit telemetryChanged();
+    maybeStepAutoAtt(feedbackLevel_);
+}
 
-    if (!mox_ || !attnWriter_ || waitingNewCal_) return;
-    // Thetis only steps auto-att when info[5] (cal attempts) changes — not
-    // on every 250 ms FB sample. SSB voice otherwise walks ATT with the
-    // envelope (300 on peaks, ~0 in pauses).
-    if (calCount_ == prevCalCount_) return;
-    prevCalCount_ = calCount_;
-    const int fb = feedbackLevel_;
+void PsFsm::applyAttDb(int next) {
+    if (next < attMinDb_) next = attMinDb_;
+    if (next > attMaxDb_) next = attMaxDb_;
+    if (next == lastAttDb_) return;
+    lastAttDb_ = next;
+    attSettleTicks_ = 4;
+    if (attnWriter_)
+        attnWriter_(next);
+    if (lyra::wire::SetPSControl) {
+        lyra::wire::SetPSControl(kTxa, 1, 0, 0, 0);
+        lyra::wire::SetPSControl(kTxa, 0, 0, 1, 0);
+    }
+    emit telemetryChanged();
+}
+
+void PsFsm::maybeStepAutoAtt(int fb) {
+    if (!mox_ || !attnWriter_) return;
+    if (attSettleTicks_ > 0) {
+        --attSettleTicks_;
+        return;
+    }
+
+    const bool calEdge = (calCount_ != prevCalCount_);
+    if (calEdge)
+        prevCalCount_ = calCount_;
+
+    if (fb == lastSeenFb_)
+        ++staleFbTicks_;
+    else {
+        lastSeenFb_ = fb;
+        staleFbTicks_ = 0;
+    }
+    // DeskHPSDR ps_menu.c 2-tone timer: treat FB as fresh if it
+    // changed *or* sat unchanged for >10 × 100 ms. WDSP 2.10 only
+    // copies info[4] after a completed calc, so first-attempt FB
+    // stays 0 and a calCount-only gate never moves the pad.
+    const bool stale = staleFbTicks_ >= 4;
+
+    // Coupler clip (Amp View D0). FB=0 during LCOLLECT is not a
+    // "too weak" reading — do not hunt ATT downward from it.
+    if (ddc0Dbfs_ >= -8 && lastAttDb_ < attMaxDb_) {
+        const int step = (attMaxDb_ >= 31 && attMinDb_ >= 0) ? 6 : 10;
+        applyAttDb(lastAttDb_ + step);
+        return;
+    }
+
+    if (!calEdge && !stale) return;
+    if (ddc0Dbfs_ >= -8) return;
     const bool need =
-        fb > 181 || (fb <= 128 && lastAttDb_ > attMinDb_);
+        fb > 181 || (fb <= 128 && fb > 0 && lastAttDb_ > attMinDb_);
     if (!need) return;
     int delta = 0;
     if (fb > 256) {
@@ -263,17 +318,7 @@ void PsFsm::onTick() {
         delta = static_cast<int>(
             std::lround(20.0 * std::log10(static_cast<double>(fb) / 152.293)));
     }
-    int next = lastAttDb_ + delta;
-    if (next < attMinDb_) next = attMinDb_;
-    if (next > attMaxDb_) next = attMaxDb_;
-    if (next == lastAttDb_) return;
-    lastAttDb_ = next;
-    attnWriter_(next);
-    if (lyra::wire::SetPSControl) {
-        lyra::wire::SetPSControl(kTxa, 1, 0, 0, 0);
-        lyra::wire::SetPSControl(kTxa, 0, 0, 1, 0);
-    }
-    emit telemetryChanged();
+    applyAttDb(lastAttDb_ + delta);
 }
 
 void PsFsm::pollAmpPlot() {

@@ -269,6 +269,8 @@ extern void (*SetPSControl)(int channel, int reset, int mancal,
                             int automode, int turnon);
 extern void (*SetPSLoopDelay)(int channel, double delay);
 extern void (*SetPSMoxDelay)(int channel, double delay);
+extern double (*SetPSTXDelay)(int channel, double delay);
+extern void (*SetPSDeadlockMinFrac)(int channel, double frac);
 extern void (*SetPSHWPeak)(int channel, double peak);
 extern void (*GetPSHWPeak)(int channel, double* peak);
 extern void (*GetPSMaxTX)(int channel, double* maxtx);

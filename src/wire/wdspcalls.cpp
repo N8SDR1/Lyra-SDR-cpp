@@ -101,6 +101,8 @@ void (*SetPSTurnon)(int, int) = nullptr;
 void (*SetPSControl)(int, int, int, int, int) = nullptr;
 void (*SetPSLoopDelay)(int, double) = nullptr;
 void (*SetPSMoxDelay)(int, double) = nullptr;
+double (*SetPSTXDelay)(int, double) = nullptr;
+void (*SetPSDeadlockMinFrac)(int, double) = nullptr;
 void (*SetPSHWPeak)(int, double) = nullptr;
 void (*GetPSHWPeak)(int, double*) = nullptr;
 void (*GetPSMaxTX)(int, double*) = nullptr;
@@ -190,6 +192,8 @@ void (*SetPSFeedbackRate)(int, int) = nullptr;
     X(SetPSControl)         \
     X(SetPSLoopDelay)       \
     X(SetPSMoxDelay)        \
+    X(SetPSTXDelay)         \
+    X(SetPSDeadlockMinFrac) \
     X(SetPSHWPeak)          \
     X(GetPSHWPeak)          \
     X(GetPSMaxTX)           \
