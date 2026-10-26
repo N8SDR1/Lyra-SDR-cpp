@@ -61,6 +61,14 @@ Rectangle {
             color: root.cOn
             font.bold: true
             font.pixelSize: 13
+            HoverHandler { id: psLblHov }
+            // Help on the name — ON / 2-tone / Voice / Reset bubbles
+            // cover the next lamp (same GitHub #24 pattern as TUN/MOX).
+            ToolTip.visible: psLblHov.hovered && Prefs.tooltipsEnabled
+            ToolTip.delay: 600
+            ToolTip.text: root.digitalLock
+                ? qsTr("PureSignal stays off in DIGU / DIGL / DRM / CWL / CWU / FM. ON comes back when you leave those modes. Dummy load first.")
+                : qsTr("ON arms PureSignal (first ON records the coupler). 2-tone and Voice key a dummy-load test. Reset restarts cal without changing ATT. Hover ATT / FB for the live numbers.")
         }
 
         Button {
@@ -91,11 +99,6 @@ Rectangle {
                 color: root.liveOn ? root.cOn : root.cText
                 font: onBtn.font
             }
-            ToolTip.text: root.digitalLock
-                ? qsTr("PureSignal is off in DIGU / DIGL / DRM / CWL / CWU / FM. ON restores when you leave those modes.")
-                : qsTr("PureSignal ON — same as Thetis. First ON records the coupler. HL2 muxes the coupler while MOX. Brick uses DDC0/DDC1 at TX. Uncheck Settings → TX coupler to disable PS on a radio with no tap.")
-            ToolTip.delay: 800
-            ToolTip.visible: hovered && Prefs.tooltipsEnabled
         }
 
         Button {
@@ -134,9 +137,6 @@ Rectangle {
                 color: (DeskLink.deskSide ? DeskLink.twoToneLit : Stream.twoToneEnabled) ? "#d68cff" : root.cText
                 font: twoToneBtn.font
             }
-            ToolTip.text: qsTr("Two-tone into the TX chain (same as TX dock). Dummy load.")
-            ToolTip.delay: 800
-            ToolTip.visible: hovered && Prefs.tooltipsEnabled
         }
 
         Button {
@@ -171,9 +171,6 @@ Rectangle {
                 color: Stream.noiseEnabled ? "#2ec4d4" : root.cText
                 font: noiseBtn.font
             }
-            ToolTip.text: qsTr("Male-voice shaped noise for PureSignal. Most energy about 300 Hz to 1 kHz, consonants through 3 kHz. Dummy load. Short tests.")
-            ToolTip.delay: 800
-            ToolTip.visible: hovered && Prefs.tooltipsEnabled
         }
 
         LyraSpinBox {
@@ -186,9 +183,6 @@ Rectangle {
             implicitWidth: 72
             enabled: !DeskLink.deskSide && root.liveOn
             onValueModified: Stream.psNoiseLevelDb = value
-            ToolTip.text: qsTr("Voice-noise level, dB. −12 is quiet. +3 is the top. Shaped like a male voice. The TX filter still sets the width, so the wattmeter stays under a full tune carrier.")
-            ToolTip.delay: 800
-            ToolTip.visible: hovered && Prefs.tooltipsEnabled
         }
 
         Rectangle {
@@ -262,9 +256,6 @@ Rectangle {
                 color: root.cText
                 font: resetBtn.font
             }
-            ToolTip.text: qsTr("Restart the calibrator. Works in RX and in TX. Amp View clears until a new collection. The ATT pad is left as-is. FB is a live coupler reading — ~0 in RX, back if you are still keyed.")
-            ToolTip.delay: 800
-            ToolTip.visible: hovered && Prefs.tooltipsEnabled
         }
     }
 }

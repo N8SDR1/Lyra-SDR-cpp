@@ -108,6 +108,18 @@ Rectangle {
             color: root.cAccent
             font.bold: true
             font.pixelSize: 14
+            HoverHandler { id: txLblHov }
+            // Help for the packed action lamps lives here — not on TUN /
+            // MOX / VOX / ATT / PROT.  A ToolTip on those buttons covers
+            // the neighbor and eats the click (GitHub #24).  Drive / Mic /
+            // Tune keep their own label tips.  Settings → Visuals still
+            // gates every bubble.
+            ToolTip.visible: txLblHov.hovered && Prefs.tooltipsEnabled
+            ToolTip.delay: 600
+            ToolTip.text: qsTr("TUN — dummy-load carrier at Drive %% (or the Tune slider if that mode is on).\n"
+                             + "MOX — key. Space-bar uses the same path.\n"
+                             + "VOX / ATT / PROT — lamps; knobs in Settings → TX.\n"
+                             + "Hover Drive, Mic, or Tune for those sliders.")
         }
 
         Rectangle {
@@ -337,13 +349,6 @@ Rectangle {
                 elide: Text.ElideRight
                 clip: true
             }
-            ToolTip.text: qsTr("ATT-on-TX — forces the HL2 step attenuator (RX LNA "
-                + "to minimum) while transmitting so TX coupling can't blind the "
-                + "RX ADC.  Orange = armed, red = engaged (keyed).  Click to "
-                + "toggle (also in Settings → TX); value set there too.  "
-                + "Disabling removes RX-ADC protection on TX.")
-            ToolTip.delay: 1000
-            ToolTip.visible: (hovered && !pressed) && Prefs.tooltipsEnabled
         }
 
         // ── SWR-protection lamp (#169) ──────────────────────────────
@@ -395,19 +400,6 @@ Rectangle {
                      : root.cText
                 font: protBtn.font
             }
-            ToolTip.text: protBtn.tripped
-                ? qsTr("TX protection acted: %1 (limit %2:1).  Re-key "
-                       + "(MOX/TUN) to reset once the antenna/feedline is "
-                       + "fixed — it won't recover on its own.")
-                      .arg(Stream.swrProtectReason)
-                      .arg(Stream.swrProtectLimit.toFixed(1))
-                : qsTr("SWR protection — on sustained reflected power "
-                       + "above %1:1 it cuts (or folds back) TX.  Limit, "
-                       + "action + enable in Settings → TX.  Green = "
-                       + "armed, red = acted.  Click to toggle.")
-                      .arg(Stream.swrProtectLimit.toFixed(1))
-            ToolTip.delay: 1000
-            ToolTip.visible: (hovered && !pressed) && Prefs.tooltipsEnabled
         }
 
         // ── Amp-cap (Max Output) indicator ──────────────────────────
@@ -568,13 +560,6 @@ Rectangle {
                 elide: Text.ElideRight
                 clip: true
             }
-            ToolTip.text: qsTr("VOX — voice-operated transmit.  Green = armed "
-                + "(listening to your mic); red = keying now.  Keys TX when you "
-                + "speak and drops after the hang time.  Voice modes only; never "
-                + "overrides a manual / foot-switch key.  Threshold, hang time + "
-                + "anti-VOX live in Settings → TX.  Click to arm / disarm.")
-            ToolTip.delay: 1000
-            ToolTip.visible: (hovered && !pressed) && Prefs.tooltipsEnabled
         }
 
         // ── TUN — armed-tune button (carrier @ TX freq + 1 kHz) ─────
@@ -641,15 +626,6 @@ Rectangle {
                 elide: Text.ElideRight
                 clip: true
             }
-            ToolTip.text: qsTr("Tune carrier — emits a 1 kHz complex tone in the "
-                + "TX I/Q stream and keys MOX.  Carrier power = TX Drive %.  "
-                + "Auto-disarms when MOX clears for any reason (release, "
-                + "safety timer, etc.).  Set Drive low for first session.")
-            // Tooltip was intercepting clicks on the most-pressed button on
-            // the panel — long delay + hide-on-press so a fast tune-arm
-            // gesture isn't fighting a popup that's already up.
-            ToolTip.delay: 1500
-            ToolTip.visible: (hovered && !pressed) && Prefs.tooltipsEnabled
         }
 
         // ── MOX — the keying button, big + lit red on wire truth ────
@@ -754,16 +730,6 @@ Rectangle {
                 elide: Text.ElideRight
                 clip: true
             }
-            ToolTip.text: qsTr("Key the radio (MOX).  Goes red the instant the "
-                + "wire-MOX bit settles after the TR-delay.  Space-bar momentary "
-                + "(when no text widget has focus) routes through the same FSM.")
-            // Operator-reported 2026-05-29: a tooltip that pops the instant
-            // the cursor lands on MOX intercepts the click — you end up
-            // hunting for the bottom edge of the button to dodge it.  Long
-            // delay + hide-on-press means hover-with-intent still gets the
-            // hint, but key-the-radio gestures are instant.
-            ToolTip.delay: 1500
-            ToolTip.visible: (hovered && !pressed) && Prefs.tooltipsEnabled
         }
     }
 }

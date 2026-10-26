@@ -60,9 +60,6 @@ Rectangle {
         implicitHeight: 24
         checkable: true
         font.pixelSize: 12
-        ToolTip.text: note
-        ToolTip.visible: (hovered && note.length > 0) && Prefs.tooltipsEnabled
-        ToolTip.delay: 400
         background: Rectangle {
             radius: 3
             color: btn.checked ? "#3a2a14" : "#161e28"
@@ -106,7 +103,16 @@ Rectangle {
             spacing: 8
             Layout.fillWidth: true
 
-            Label { text: FrontEnd.label; color: root.cMuted }
+            Label {
+                text: FrontEnd.label
+                color: root.cMuted
+                HoverHandler { id: lnaLblHov }
+                ToolTip.visible: lnaLblHov.hovered && Prefs.tooltipsEnabled
+                ToolTip.delay: 600
+                ToolTip.text: FrontEnd.p2Active
+                    ? qsTr("ATT — Protocol 2 ADC pad 0…31 dB, per band. Step walks it on overload. Higher = more pad.")
+                    : qsTr("LNA — HL2 AD9866 −12…+48 dB. Auto backs off on ADC overload. Hover the name, not Auto/Step — that chip must stay clickable.")
+            }
             LyraSlider {
                 id: lnaSlider
                 // 120 -> 100: the A-ATT state cue is wider than the 10 px
@@ -118,14 +124,6 @@ Rectangle {
                 stepSize: 1; snapMode: Slider.SnapAlways
                 value: FrontEnd.value
                 onMoved: FrontEnd.setValue(value)
-                ToolTip.text: FrontEnd.p2Active
-                    ? qsTr("ATT — Protocol 2 ADC step attenuation, 0…31 dB, remembered per band.\n"
-                        + "Higher = more pad (less ADC gain). Enable Auto Step to walk this pad.\n"
-                        + "The S-meter adds ATT so the reading stays true-to-source as the pad moves.")
-                    : qsTr("LNA — RF input gain on the HL2's AD9866 PGA, −12…+48 dB.\n"
-                        + "Higher = more sensitivity; back off on strong bands to avoid ADC overload.\n"
-                        + "The S-meter compensates automatically, so changing LNA won't shift the reading.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
                 WheelHandler {
                     onWheel: (ev) => FrontEnd.setValue(
                         FrontEnd.value + (ev.angleDelta.y > 0 ? 1 : -1))
@@ -160,15 +158,6 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: FrontEnd.p2Active
-                    ? qsTr("Auto Step — walks the 0…31 dB ADC pad on overload "
-                        + "(+3 dB after ~400 ms of clipping, −1 dB toward 0 when the band clears).\n"
-                        + "Frozen while transmitting. Turning Auto off leaves the pad where it settled.\n"
-                        + "Not Auto-LNA (that is Hermes Lite 2 only).")
-                    : qsTr("Auto-LNA — backs the LNA off on ADC overload and "
-                        + "creeps it back when the band clears (rides the overload edge).\n"
-                        + "Turning Auto off leaves the LNA where it settled.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
             LyraComboBox {
                 id: adcCombo
@@ -241,16 +230,20 @@ Rectangle {
 
             Item { width: 12 }
 
-            Label { text: qsTr("AF"); color: root.cMuted }
+            Label {
+                text: qsTr("AF")
+                color: root.cMuted
+                HoverHandler { id: afLblHov }
+                ToolTip.visible: afLblHov.hovered && Prefs.tooltipsEnabled
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("AF makeup gain (0…+40 dB) — pre-Volume trim.")
+            }
             LyraSlider {
                 id: afSlider
                 Layout.preferredWidth: 76
                 from: 0; to: 40; stepSize: 1; snapMode: Slider.SnapAlways
                 value: WdspEngine.afGainDb
                 onMoved: WdspEngine.setAfGainDb(value)
-                ToolTip.text: qsTr("AF makeup gain (0…+40 dB) — pre-Volume output "
-                    + "trim. Set a comfortable level here, then ride Vol on top.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
             Label { text: "+" + Math.round(WdspEngine.afGainDb) + qsTr(" dB")
                     color: root.cText; font.family: "Consolas"
@@ -259,7 +252,14 @@ Rectangle {
             Item { width: 10 }
 
             // ── Volume + MUTE — LIVE (RX1) ──
-            Label { text: qsTr("Vol"); color: root.cMuted }
+            Label {
+                text: qsTr("Vol")
+                color: root.cMuted
+                HoverHandler { id: volLblHov }
+                ToolTip.visible: volLblHov.hovered && Prefs.tooltipsEnabled
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("RX1 volume. MUTE silences output without moving the slider.")
+            }
             LyraSlider {
                 id: volSlider
                 // Shorten when Vol2 is on the row so MUTE/Bal still fit.
@@ -288,12 +288,15 @@ Rectangle {
                 checked: WdspEngine.muted
                 onToggled: WdspEngine.setMuted(checked)
                 implicitWidth: 66; implicitHeight: 24
-                ToolTip.text: qsTr("Silence output without changing the Volume slider.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
 
             Label {
-                text: qsTr("Vol2"); color: root.cMuted
+                text: qsTr("Vol2")
+                color: root.cMuted
+                HoverHandler { id: vol2LblHov }
+                ToolTip.visible: vol2LblHov.hovered && Prefs.tooltipsEnabled
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("RX2 volume. MUTE2 silences RX2 without moving the slider.")
             }
             LyraSlider {
                 Layout.preferredWidth: 70
@@ -321,13 +324,20 @@ Rectangle {
                 checked: WdspEngine.mutedRx2
                 onToggled: WdspEngine.setMutedRx2(checked)
                 implicitWidth: 66; implicitHeight: 24
-                ToolTip.text: qsTr("Silence RX2 without changing Vol2.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
 
             Item { width: 10 }
 
-            Label { text: qsTr("Bal"); color: root.cMuted }
+            Label {
+                text: qsTr("Bal")
+                color: root.cMuted
+                HoverHandler { id: balLblHov }
+                ToolTip.visible: balLblHov.hovered && Prefs.tooltipsEnabled
+                ToolTip.delay: 600
+                ToolTip.text: root.subOn
+                    ? qsTr("Pan RX1 (left) vs RX2 (right). Centre = both equal.")
+                    : qsTr("Stereo balance — pan left/right (snaps to centre).")
+            }
             LyraSlider {
                 id: balSlider
                 Layout.preferredWidth: 76
@@ -335,11 +345,6 @@ Rectangle {
                 value: WdspEngine.balance
                 // Snap to dead-centre near 0 so it's easy to recentre.
                 onMoved: WdspEngine.setBalance(Math.abs(value) < 0.06 ? 0.0 : value)
-                ToolTip.text: root.subOn
-                    ? qsTr("Pan RX1 (left) vs RX2 (right). Centre = both equal; snaps to centre.")
-                    : qsTr("Stereo balance — pan the audio left/right "
-                        + "(centre = both channels equal; snaps to centre near the middle).")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
 
             Item { width: 10 }
@@ -367,13 +372,6 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("Monitor — hear your own processed TX audio "
-                    + "(post-rack: Speech / EQ / Combinator / Plating) on the "
-                    + "headphone jack while you transmit. It's your voice through "
-                    + "the DSP rack, before the radio's corrective ALC and TX "
-                    + "bandpass — set the level with the Monitor slider. "
-                    + "(HL2 jack now; a separate PC monitor device comes later.)")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
             }
             LyraSlider {
                 id: monSlider
@@ -498,7 +496,15 @@ Rectangle {
             spacing: 4
             Layout.fillWidth: true
 
-            Label { text: qsTr("DSP"); color: root.cAccent; font.bold: true }
+            Label {
+                text: qsTr("DSP")
+                color: root.cAccent
+                font.bold: true
+                HoverHandler { id: dspLblHov }
+                ToolTip.visible: dspLblHov.hovered && Prefs.tooltipsEnabled
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("NB blanker · BIN binaural · NR EMNR · NNR neural · ANF notch · LMS enhancer · SQ squelch · APF CW peak · NF manual notches. Light a chip; its slider shows below. Tips stay on this name so the chips stay clickable.")
+            }
 
             DspToggle {
                 text: "NB"

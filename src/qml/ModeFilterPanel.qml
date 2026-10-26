@@ -168,6 +168,12 @@ Rectangle {
             Layout.row: 0; Layout.column: 3
             text: root.rx2Focus ? qsTr("RX2 BW") : qsTr("RX BW")
             color: "#cccccc"; font.bold: true
+            HoverHandler { id: rxBwLblHov }
+            ToolTip.visible: rxBwLblHov.hovered && Prefs.tooltipsEnabled
+            ToolTip.delay: 600
+            ToolTip.text: root.isFm
+                ? qsTr("N/A in FM — TX bandwidth is set from deviation. 🔗 lock is off.")
+                : qsTr("🔗 lock (between the combos) ties TX BW and low edges to RX, both directions.")
         }
         LyraComboBox {
             id: bwCombo
@@ -202,10 +208,6 @@ Rectangle {
             checked: Prefs.bwLocked
             enabled: !root.isFm           // no TX-BW to lock to in FM
             text: "🔗"
-            ToolTip.visible: (hovered) && Prefs.tooltipsEnabled
-            ToolTip.text: root.isFm
-                ? qsTr("N/A in FM — TX bandwidth is set from deviation")
-                : qsTr("Lock TX to RX.  Bandwidths and low edges both follow, in both directions, while this is on.")
             onToggled: Prefs.bwLocked = checked
         }
 

@@ -859,6 +859,19 @@ Rectangle {
 
             Item { Layout.fillWidth: true }   // centre the action controls
 
+            Label {
+                text: qsTr("VFO")
+                color: "#8fa6ba"
+                font.bold: true
+                HoverHandler { id: vfoOpsHov }
+                // Packed lamps (SPLIT / SUB / Mem / copy / RIT / XIT / RPT)
+                // must not carry their own bubbles — they cover the next
+                // chip (GitHub #24). Hover this name instead.
+                ToolTip.visible: vfoOpsHov.hovered && Prefs.tooltipsEnabled
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("SPLIT: RX A, TX B (right-click pile-up shift). SUB: second receiver. Mem: recall/save. 1→2 / 2→1 / ⇄ copy or swap. RIT RX offset, XIT TX offset. FM uses RPT / Dev / CTCSS here instead of SPLIT.")
+            }
+
             // SPLIT — TX on VFO B, RX on VFO A.  Lit cyan when on.  Hidden
             // in FM, where the RPT button (below) is the friendlier split.
             Button {
@@ -892,10 +905,6 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("SPLIT — receive on VFO A, transmit on VFO B.  "
-                    + "Right-click for a per-mode pile-up shift (up/down 1, 5, or 10 kHz).  "
-                    + "Click the gray TX pip on a VFO to assign transmit.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
 
                 TapHandler {
                     acceptedButtons: Qt.RightButton
@@ -962,13 +971,6 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("SUB — second receiver on DDC1 (HL2 and "
-                    + "Brick).  Off keeps DDC1 mirroring RX1.  On: listen on "
-                    + "RX2 (VFO B when SPLIT is also on).  Stereo: RX1 left, "
-                    + "RX2 right.  One ADC + N2ADR filter follows RX1 — "
-                    + "same-band SUB is full strength; cross-band is much "
-                    + "weaker.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
 
             Button {
@@ -995,8 +997,6 @@ Rectangle {
                     clip: true
                 }
                 onClicked: memRecallPopup.open()
-                ToolTip.text: qsTr("Memory bank — left-click recall, right-click save or manage. Same list as Band → Mem.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
                 MemoryRecallPopup {
                     id: memRecallPopup
                     memories: root.memList
@@ -1055,19 +1055,16 @@ Rectangle {
                 implicitHeight: 26; implicitWidth: 40; font.pixelSize: 12
                 text: qsTr("1→2")
                 onClicked: root.copyAtoB()
-                ToolTip.text: qsTr("Copy VFO A → VFO B"); ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
             Button {
                 implicitHeight: 26; implicitWidth: 40; font.pixelSize: 12
                 text: qsTr("2→1")
                 onClicked: root.copyBtoA()
-                ToolTip.text: qsTr("Copy VFO B → VFO A"); ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
             Button {
                 implicitHeight: 26; implicitWidth: 36; font.pixelSize: 14
                 text: qsTr("⇄")
                 onClicked: root.swapAB()
-                ToolTip.text: qsTr("Swap VFO A ↔ VFO B"); ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
 
             // ── RIT / XIT — RX / TX incremental tuning offsets ──────────────
@@ -1099,10 +1096,6 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("RIT — Receiver Incremental Tuning.  Shifts "
-                    + "only the RX by the offset; TX stays put.  Chase an "
-                    + "off-frequency station without moving your VFO.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
             LyraSpinBox {
                 id: ritSpin
@@ -1143,8 +1136,6 @@ Rectangle {
                 implicitHeight: 26; implicitWidth: 26
                 text: qsTr("0"); font.pixelSize: 12
                 onClicked: Stream.setRitOffsetHz(0)
-                ToolTip.text: qsTr("Zero the RIT offset")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
 
             Button {
@@ -1170,10 +1161,6 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("XIT — Transmitter Incremental Tuning.  Shifts "
-                    + "only the TX by the offset; RX stays put.  PureSignal "
-                    + "tracks the shifted TX automatically.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
             LyraSpinBox {
                 id: xitSpin
@@ -1209,8 +1196,6 @@ Rectangle {
                 implicitHeight: 26; implicitWidth: 26
                 text: qsTr("0"); font.pixelSize: 12
                 onClicked: Stream.setXitOffsetHz(0)
-                ToolTip.text: qsTr("Zero the XIT offset")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
 
             Label {
@@ -1230,6 +1215,10 @@ Rectangle {
             Label {
                 text: qsTr("Dev"); color: "#cccccc"; font.bold: true
                 visible: root.fmMode
+                HoverHandler { id: devLblHov }
+                ToolTip.visible: devLblHov.hovered && Prefs.tooltipsEnabled
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("FM peak deviation — 5.0 k = Wide (US), 2.5 k = Narrow. Sets RX bandwidth to match.")
             }
             LyraSpinBox {
                 id: devSpin
@@ -1246,15 +1235,15 @@ Rectangle {
                     Stream.setFmDeviationHz(value * 100)
                     Prefs.rxBandwidth = root.fmRxBwForDev(value * 100)
                 }
-                ToolTip.text: qsTr("FM peak deviation — 5.0 k = Wide (US), 2.5 k = "
-                    + "Narrow.  Sets RX bandwidth to match.  Same control as "
-                    + "Settings → TX → FM.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 800
             }
 
             Label {
                 text: qsTr("Emph"); color: "#cccccc"; font.bold: true
                 visible: root.fmMode
+                HoverHandler { id: emphLblHov }
+                ToolTip.visible: emphLblHov.hovered && Prefs.tooltipsEnabled
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("FM pre-emphasis — Comm = 6 dB/oct voice, Off = flat (data / warmer HF).")
             }
             LyraComboBox {
                 id: emphCombo
@@ -1266,10 +1255,6 @@ Rectangle {
                 model: [qsTr("Comm"), qsTr("Off")]
                 currentIndex: Stream.fmEmphasisMode === 1 ? 0 : 1
                 onActivated: Stream.setFmEmphasisMode(currentIndex === 0 ? 1 : 0)
-                ToolTip.text: qsTr("FM pre-emphasis — Comm = 6 dB/oct voice curve, "
-                    + "Off = flat (digital/data + warmer HF).  Same control as "
-                    + "Settings → TX → FM.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 800
             }
 
             Button {
@@ -1305,21 +1290,20 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("Repeater — TX on VFO B = VFO A ± offset, RX on "
-                    + "A.  Pick the shift direction + offset and (if needed) the "
-                    + "CTCSS access tone.  VFO B tracks A as you tune.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
             Label {
                 text: qsTr("Offset"); color: "#cccccc"; font.bold: true
                 visible: root.fmMode && Stream.splitEnabled
+                HoverHandler { id: offsetLblHov }
+                ToolTip.visible: offsetLblHov.hovered && Prefs.tooltipsEnabled
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("Repeater offset — preset or type kHz. − / + sets the shift.")
             }
             Button {
                 visible: root.fmMode && Stream.splitEnabled
                 implicitHeight: 26; implicitWidth: 30; font.pixelSize: 15
                 text: root.rptDirSign < 0 ? "−" : "+"
                 onClicked: { root.rptDirSign = -root.rptDirSign; root.rptApply() }
-                ToolTip.text: qsTr("Repeater shift direction"); ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
             ComboBox {
                 id: rptOffsetCombo
@@ -1374,9 +1358,6 @@ Rectangle {
                     root.syncRptPresetCombo()
                     root.rptApply()
                 }
-                ToolTip.text: qsTr("Repeater offset — pick a preset or type kHz "
-                    + "(or 7.6 MHz). Direction is − / + at left.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
             Button {
                 id: ctcssBtn
@@ -1402,13 +1383,14 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("CTCSS — UL is TX encode, DL is the stored RX "
-                    + "recipe (decode not wired yet). Either can be empty (—).")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
             Label {
                 text: qsTr("UL"); color: "#cccccc"; font.bold: true
                 visible: root.fmMode && ctcssBtn.checked
+                HoverHandler { id: ulLblHov }
+                ToolTip.visible: ulLblHov.hovered && Prefs.tooltipsEnabled
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("Uplink CTCSS (TX encode). — = no encode.")
             }
             LyraComboBox {
                 id: ctcssToneCombo
@@ -1420,12 +1402,14 @@ Rectangle {
                 model: root.ctcssTones.map(function(t) { return root.ctcssLabel(t) })
                 currentIndex: root.nearestCtcssIndex(Stream.ctcssToneHz)
                 onActivated: Stream.setCtcssToneHz(root.ctcssTones[currentIndex])
-                ToolTip.text: qsTr("Uplink CTCSS (TX encode). — = no encode.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
             Label {
                 text: qsTr("DL"); color: "#cccccc"; font.bold: true
                 visible: root.fmDlCtcssShown
+                HoverHandler { id: dlLblHov }
+                ToolTip.visible: dlLblHov.hovered && Prefs.tooltipsEnabled
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("Downlink CTCSS (RX recipe). — = none. Decode not wired yet.")
             }
             LyraComboBox {
                 id: ctcssDlCombo
@@ -1437,9 +1421,6 @@ Rectangle {
                 model: root.ctcssTones.map(function(t) { return root.ctcssLabel(t) })
                 currentIndex: root.nearestCtcssIndex(Stream.ctcssDlHz)
                 onActivated: Stream.setCtcssDlHz(root.ctcssTones[currentIndex])
-                ToolTip.text: qsTr("Downlink CTCSS (RX recipe). — = none. Decode "
-                    + "is not wired yet; Memory still stores the value.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
             Button {
                 id: burst1750Btn
@@ -1463,12 +1444,6 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("1750 Hz tone burst (%1 s). Hold FM transmit "
-                    + "(MOX / PTT), then tap. Length: Settings → Hardware → "
-                    + "Band plan. Memory Burst=1750 stores the recipe.")
-                    .arg((Stream.fmBurstMs / 1000).toFixed(
-                        Stream.fmBurstMs % 1000 === 0 ? 0 : 1))
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
             Item { Layout.fillWidth: true }
         }
