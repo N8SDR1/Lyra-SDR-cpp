@@ -2788,6 +2788,10 @@ still uses the mic rack, but PureSignal stays off.
 
 ### Compact PureSignal dock
 
+Header **Options → PureSignal** opens a **floating** strip. Where you
+put it **and how large you make it** are remembered when you close the
+chip or Lyra (same as Amp View and Diversity).
+
 - **ON** — arms the calibrator (Thetis / DeskHPSDR one-switch). First
   ON also records **Settings → TX** coupler installed. The coupler
   path is live only while **MOX is also on** and the focused mode is
@@ -2844,7 +2848,8 @@ every keyup.
 ### Amp View
 
 Same PS engine, bigger picture — modeled on the usual HPSDR AmpView
-plot (live `GetPSDisp` curve).
+plot (live `GetPSDisp` curve). The floating window keeps the **size
+and place** you last used after a chip-close or a restart.
 
 - The plot **keeps moving** while you transmit (plasma-style trace).
 - **Snap** — captures the peak marker (`GetPk`). It is **not** a

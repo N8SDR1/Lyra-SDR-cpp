@@ -349,7 +349,7 @@ public:
         QSettings s;
         pos_ = s.value(key_ + QStringLiteral("/pos")).toPoint();
         size_ = s.value(key_ + QStringLiteral("/size")).toSize();
-        have_ = size_.width() >= 160 && size_.height() >= 160;
+        have_ = size_.isValid() && size_.width() >= 160 && size_.height() >= 40;
         dock_->installEventFilter(this);
         debounce_.setSingleShot(true);
         debounce_.setInterval(150);
@@ -378,7 +378,7 @@ protected:
         if (live && (e->type() == QEvent::Move || e->type() == QEvent::Resize
                      || e->type() == QEvent::Hide)) {
             const QSize sz = dock_->size();
-            if (sz.width() >= 160 && sz.height() >= 160) {
+            if (sz.width() >= 160 && sz.height() >= 40) {
                 pos_ = dock_->pos();
                 size_ = sz;
                 have_ = true;
@@ -3130,11 +3130,16 @@ void MainWindow::buildDocks() {
             d->hide();
         }
     }
-    // Diversity is a float-only chip. Hide/show drops the frame Qt was
-    // using, so the next open would ignore where the operator left it.
-    if (QDockWidget *div = docks_.value(QStringLiteral("diversity"))) {
-        new FloatingDockMemory(div, QStringLiteral("ui/diversityDock"),
-                               &layoutRestoring_, div);
+    // Chip floats lose their frame on hide: Qt shows them at the QML
+    // size-hint next time. Position often survived; size did not
+    // (PureSignal is a short strip, Amp View a tall plot). Same helper
+    // Diversity already used.
+    for (const char *nm : {"ps", "ampview", "diversity"}) {
+        if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
+            new FloatingDockMemory(
+                d, QStringLiteral("ui/%1Dock").arg(QLatin1String(nm)),
+                &layoutRestoring_, d);
+        }
     }
     // Profiles — front-facing quick recall of a saved TX/RX profile
     // (dropdown + Save + ● modified).  Full editor (create / rename /
