@@ -2,6 +2,17 @@
 
 Parked 2026-10-16 from tester mail + station photo. **Do not treat as a current sprint.** Recall file for possible later Lyra adds that match *his* HL2, not Alex/P2.
 
+## Bench — v0.25.24 (mail 2026-10-20, DL1VE)
+
+Quick test on his HL2+ / Mini / IO stack:
+
+- **Antenna switching works** (RF1 vs Alt RX on the Xvtr hop).
+- **LNA switching works** Auto and manual **between HF and 2 m**.
+- More tests still to run. **Lyra-to-Lyra** is on his list; he will report.
+- GPA100 analog BYTE0–4 was **not** in this test (Randy’s path).
+
+Official I/O-board support in his words — that is register 11 only, not P2 MAP.
+
 **Who:** Volker Eberwein, **DL1VE**. HL2+ (Protocol 1). Multi-version tester (Lyra + Lyra Remote).
 
 ## Station (photo)
@@ -25,8 +36,8 @@ Filter board: unknown (N2ADR vs Pico). Does not change ANT count. Pico/N2ADR is 
 |---|---|
 | Right-click-only buttons until click-in-window | Win11 focus. **Not Lyra.** |
 | Dead RX until Thetis Open | **Lyra.** IO-board RX mux stuck where Thetis left it. Lyra now writes REG_RF_INPUTS on Start and hop. |
-| LNA global; want per-band (esp. xvtr) | **Real.** Ham bands already remember LNA; 2 m/70 cm RF is outside `BandMemory` names so the PGA stays global on the Mini. |
-| Antenna per band, separate RX vs TX | **HL2 IO-board RX mux.** Photos (2026-10-19) show RF1, Alt RX, PURE. Per-band / per-Xvtr **RF1 vs Alt RX** (I2C 0x1D **register 11** only). Not P2 Alex MAP. Not analog BYTE0–4 (Randy GPA100). PURE not mapped. |
+| LNA global; want per-band (esp. xvtr) | **Closed on his bench (v0.25.24).** Auto and manual LNA hop HF ↔ 2 m. |
+| Antenna per band, separate RX vs TX | **Bench-confirmed v0.25.24.** Photos (2026-10-19) show RF1, Alt RX, PURE. Per-band / per-Xvtr **RF1 vs Alt RX** (I2C 0x1D **register 11** only). Not P2 Alex MAP. Not analog BYTE0–4 (Randy GPA100). PURE not mapped. |
 | Lyra Remote usable; want server/service | Remote stays LAN TCI. **No Windows service.** See remote park below. |
 | In-app gateware flash | **No.** Vendor / hl2setup. |
 
@@ -34,7 +45,7 @@ Filter board: unknown (N2ADR vs Pico). Does not change ANT count. Pico/N2ADR is 
 
 Keep this list short. All optional; none block DIV (DIV already shipped v0.25.20, Brick3 — N/A on his one-ADC HL2).
 
-1. **Per-Xvtr LNA / ATT** — **in tree.** Each Xvtr chip recalls its last HL2 LNA and P2 ATT. Auto stays global; the settled number is stored. First visit has no stored value.
+1. **Per-Xvtr LNA / ATT** — **in tree; Volker confirmed Auto + manual HF ↔ 2 m on v0.25.24.** Each Xvtr chip recalls its last HL2 LNA and P2 ATT. Auto is per band / per chip. First visit has no stored value.
 2. **Xvtr slot how-to (docs only)** — for PA-through-pad Mini: **Disable radio PA = off**, Settings **Enable PA** on, **Error (Hz) ≈ −250**. Default Disable PA is **on** (protects a no-pad xvtr). Drift: re-trim; no AFC.
 3. **HL2 PTT → his T/R box** — he already keys the top box from PTT. Confirm Lyra HW-PTT-out / MOX follows that RCA if a tester ever says the switch does not follow. Not a new antenna feature.
 
@@ -66,7 +77,7 @@ Photo + mail: hardware T/R and 30 dB; Lyra Xvtr error + **uncheck Disable PA**; 
 | 3 | Reid-style unicast Open / WAN UDP to the radio | **Drop** |
 | 4 | Windows service / headless server package | **Drop** |
 | 5 | In-app gateware flash | **Drop** |
-| 6 | HL2 MAP / ANT1–2 / Alt Rx | **Shipped v0.25.24** — RF1 vs Alt RX only (I2C 0x1D register 11). Not P2 MAP. Analog 0x1D BYTE0–4 stays Randy-safe. |
+| 6 | HL2 MAP / ANT1–2 / Alt Rx | **Shipped v0.25.24, Volker bench 2026-10-20** — RF1 vs Alt RX only (I2C 0x1D register 11). Not P2 MAP. Analog 0x1D BYTE0–4 stays Randy-safe. |
 | 7 | Mini LO AFC (−200…−300 Hz tracking) | **Drop** |
 | 8 | TX rack listen without keying | **Drop** — on-air always sounds different; dummy-load + MON TX for the rack, Kiwi / trusted ear for the set |
 | 9 | Linux (OS I/O cut, Windows first) | **Hold** |

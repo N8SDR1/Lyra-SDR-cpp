@@ -265,22 +265,11 @@ core that Stages B and C both reuse — exactly the "build once" plan.
 
 ---
 
-## 8.1 Parked — TX rack setup without RF (later add-in)
+## 8.1 TX rack setup without RF — **dropped** (2026-10-16)
 
-Operator ask 2026-10-06. **Not scheduled.** Wiki: Roadmap 💡 “TX rack setup
-without RF.”
-
-Gap: **Review** is raw WAV (no rack). **MON TX** (#90) is post-rack **into**
-`fexchange0` — before ALC and TX bandpass — and only while keyed. There is
-no dry-run that hears EQ/Combinator/Plate **and** 3 / 4 / 6 kHz TX width
-without RF.
-
-If built later:
-
-- Hard no-MOX / no TX I/Q / PA off.
-- Loop a 20–30 s pre-rack clip through the same mic funnel as live TX.
-- Listen **after** WDSP TXA bp0 so bandwidth A/B is real; current #90 tap
-  will never show 3 kHz vs 6 kHz.
+On-air always sounds different from a local tap. Dummy-load + **MON TX**
+for “did the rack grab”; Kiwi / trusted ear for the set. No no-RF listen
+path. Review stays raw WAV; MON TX stays post-rack / pre-ALC, keyed only.
 
 ---
 

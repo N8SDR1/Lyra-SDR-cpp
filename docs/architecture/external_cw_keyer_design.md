@@ -1,7 +1,17 @@
 # #171 — External CW keyer support (Winkeyer / K1EL WKmini)
 
-**Status:** DESIGN (analysis locked; one HL2-gateware verify before
-build). No code yet. Grounded 2026-06-22 against the **K1EL WKmini
+**Status:** **DROP extra K1EL host driver** (operator re-look 2026-10-16 vs
+Thetis + DeskHPSDR). Neither app implements the Winkeyer USB protocol.
+Thetis: Setup → DSP Keyer **Connections** Primary = **Radio** (or a COM
+paddle on DSR/CTS) and Secondary **SetCWX** on a COM key/PTT pin.
+DeskHPSDR: **CW handled in Radio** (`cw_keyer_internal`); FPGA iambic on
+the KEY jack, else host `iambic.c` from radio dot/dash, plus CAT/MIDI CW.
+Zero `winkey` / `K1EL` hits in either tree.
+
+Lyra already matches that: KEY jack + **Iambic OFF** (Winkeyer KEY out),
+and **Settings → CW → CW key over COM port** (`SerialCwKey`, CTS/DSR →
+CWX). Do **not** add a Lyra-owned WKmini COM driver (steals the logger
+port; serial echo is not a keying stream). Grounded 2026-06-22 against the **K1EL WKmini
 v1.3 manual** + the **"KE1L winkeyer info" interfacing note**
 (`Y:\Claude local\SDRProject\docs\`), the operator's SDRLogger+ K1EL
 driver (`Y:\Claude local\hamlog\main.py:1931-2132`), Thetis 2.10.3.13,
