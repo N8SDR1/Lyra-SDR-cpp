@@ -22,9 +22,26 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.29 Sheliak** — OC on Protocol 2, per-rig accessory, Xvtr OC
-rows, parked Help balloon. **v0.25.28** is the previous public build.
-See [What's new in 0.25.29](#whats-new-in-02529).
+**v0.25.30 Sheliak** — Pico **J4** band volts for Xiegu-class amps,
+and how to set / clear **`LYRA_NO_IOBOARD_FCODE`**. **v0.25.29** is
+the previous public build.
+See [What's new in 0.25.30](#whats-new-in-02530).
+
+## What's new in 0.25.30
+
+- **Xiegu / XPA125 / Micro PA50 band** comes from the I/O-board PIC as
+  a **voltage on J4 pin 8**, not from J16 OC and not from USB-BCD.
+  Settings → **Filters / BCD** → **Band Volts on J3** stays **Off**.
+  J3 is the fan header. [Band Volts on J3](#band-volts-on-j3-fan-pwm--leave-off-for-pico--j4).
+- **`LYRA_NO_IOBOARD_FCODE=1`** (optional tester switch). Skips Pico
+  I2C registers **13 / 14** only. Analog J4 (BYTE0–4) and RF1 / Alt
+  stay. This is a **Windows user environment variable**, not a Lyra
+  Settings box. [How to set LYRA_NO_IOBOARD_FCODE](#how-to-set-lyra_no_ioboard_fcode).
+- **CW keyer** stays radio KEY jack + **Settings → CW → CW key over
+  COM port**. Lyra does not add a separate Winkeyer USB driver (same
+  as Thetis / DeskHPSDR).
+- **v0.25.29 Sheliak** is the previous public build. **v0.25.22**
+  remains the long return point. Settings stay.
 
 ## What's new in 0.25.29
 
@@ -497,6 +514,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.30](#whats-new-in-02530)
 - [What's new in 0.25.29](#whats-new-in-02529)
 - [What's new in 0.25.28](#whats-new-in-02528)
 - [What's new in 0.25.27](#whats-new-in-02527)
@@ -4507,6 +4525,31 @@ Stop and Start the radio after you enable it so the dither bit is
 seeded on the first C&C frame. This is independent of N2ADR OC/LPFs
 and of HL2+ AK4951 serial band-follow (HardRock-50 / AH-4 — no setting
 needed here).
+
+### How to set LYRA_NO_IOBOARD_FCODE
+
+Optional. Use this if a Pico / J4 voltage amp (Xiegu, GPA100, M0AWS)
+stays on the **previous** band on HF hops. Lyra reads the variable
+only when it **starts**.
+
+1. Fully **quit Lyra** (File → Exit or the window X). If **lyra.exe**
+   is still in Task Manager, End task.
+2. Start menu: type **environment** (German Windows: **umgebung**).
+3. Open **Edit environment variables for your account** /
+   **Umgebungsvariablen für dieses Konto bearbeiten**. Use the
+   **user** list, not System variables.
+4. **New…** / **Neu**. Name: `LYRA_NO_IOBOARD_FCODE`  Value: `1`
+   (no spaces, no quotes).
+5. OK, then start Lyra from the Start menu or desktop icon.
+
+There is no new checkbox in Lyra. Registers **13 / 14** are skipped;
+J4 analog and RF1 / Alt are unchanged.
+
+**Remove it afterwards:** quit Lyra, same dialog, select
+`LYRA_NO_IOBOARD_FCODE`, **Delete** / **Löschen**, OK, start Lyra
+again. To confirm in a **new** Command Prompt:
+`echo %LYRA_NO_IOBOARD_FCODE%` should show `1` while it is set, and
+echo the name after delete.
 
 ## Settings → Audio
 

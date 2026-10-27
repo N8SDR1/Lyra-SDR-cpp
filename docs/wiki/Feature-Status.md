@@ -1,19 +1,20 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.29 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.30 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.29** sends OC on P2 `[1401]`, keeps USB-BCD as the FTDI path,
-and parks Help in a draggable balloon.
-**v0.25.28 Sheliak** is the previous public build.
+**v0.25.30** documents Pico **J4** band volts (Xiegu-class) and the
+`LYRA_NO_IOBOARD_FCODE` user-env how-to.
+**v0.25.29 Sheliak** is the previous public build.
 **v0.25.22** remains the long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.29)
+### Last several builds (0.25.16 → 0.25.30)
 
 | Build | What landed |
 |---|---|
+| **0.25.30** | Pico **J4** band volts for Xiegu / XPA125 / Micro PA50. J3 Band Volts stays off. **`LYRA_NO_IOBOARD_FCODE=1`** how-to (set and delete). CW keyer = KEY jack + COM CWX. **v0.25.29** is the previous public build |
 | **0.25.29** | **OC on P2 `[1401]`**, per-rig Off/N2ADR/Custom, empty Xvtr OC rows. No auto Yaesu on the radio DB9. USB-BCD FTDI unchanged. Parked Help balloon. P1 6 m hide. PS/Amp View float size. **v0.25.28** is the previous public build |
 | **0.25.28** | Pico **RX fcodes** 13/14 from the dial (GitHub #23). PureSignal dock **ON** like Thetis. Analog BYTE0–4 and RF1/Alt unchanged. **`LYRA_NO_IOBOARD_FCODE=1`** skips 13/14. **v0.25.27** is the return installer |
 | **0.25.27** | **VFO LED** digit place vs empty-LED **Step** (GitHub #22). **Helios TX SWR** after watts. **View → Freq Cal** float (GitHub #21). **v0.25.26** remains the previous public build. **v0.25.22** remains the return point |

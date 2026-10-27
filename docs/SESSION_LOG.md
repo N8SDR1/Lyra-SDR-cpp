@@ -4,6 +4,13 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-27 — v0.25.30 Sheliak RELEASED
+
+Station notes: Xiegu/XPA125 band = Pico J4 volts; J3 Band Volts stays
+off. Help: how to set and delete `LYRA_NO_IOBOARD_FCODE=1`. CW keyer
+docs: KEY jack + COM CWX, no extra Winkeyer USB driver. Tag
+`v0.25.30`. Do not merge `main`.
+
 ## 2026-10-26 — v0.25.29 Sheliak RELEASED
 
 OC Control: P2 HP `[1401]`, per-rig Off/N2ADR/Custom (Brick/ANAN

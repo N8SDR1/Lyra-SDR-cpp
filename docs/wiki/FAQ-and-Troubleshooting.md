@@ -192,15 +192,17 @@ Yes (current versions). Sending CW from the console **or** a paddle/key
 flips the meter to forward power and reds the VFO on‑air. The panadapter
 stays on RX during CW so you still see the keyed carrier.
 
-**No analog band voltage for GP100 / GPA100 / M0AWS DB9.**
-Stock Pico PWM is **J4 pin 8**, not J3. Analog follows TX frequency on
+**No analog band voltage for GP100 / GPA100 / M0AWS DB9 / Xiegu XPA125.**
+Stock Pico PWM is **J4 pin 8**, not J3. Xiegu-class amps (XPA125, Micro
+PA50) decode **voltage**, not OC ticks. Analog follows TX frequency on
 Protocol 1 **without** needing **Enable N2ADR / IO board** — that box
 is OC / LPF relays only. Start the radio; Lyra writes TX Hz over I2C
 **0x1D** (same as Thetis/Quisk/SparkSDR). There is **no extra I2C/PWM
 checkbox**. **Leave HL2 Band Volts on J3 off** unless the amp is
 actually jumpered to the **fan header**. 0 V on J3 with that box off is
 expected when J3 is GND. Protocol 2 Brick/ANAN do not use the Pico 0x1D
-path.
+path. Optional tester switch **`LYRA_NO_IOBOARD_FCODE=1`**:
+[User Guide → How to set LYRA_NO_IOBOARD_FCODE](User-Guide#how-to-set-lyra_no_ioboard_fcode).
 
 **Filter board stuck on the previous band.**
 Install **v0.25.20**. The voltage is written after the band change
