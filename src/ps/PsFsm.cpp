@@ -75,9 +75,14 @@ void PsFsm::setMox(bool on) {
         // Keep last pad (DeskHPSDR per-band ps_tx_att). Do not reseed
         // to 0/31 on every PTT — that dumps FB to 300+ then hunts.
         prevCalCount_ = calCount_;
+        autoAttState_ = kAttMonitor;
         if (attnWriter_)
             attnWriter_(lastAttDb_);
         emit telemetryChanged();
+    } else if (autoAttState_ != kAttMonitor) {
+        // Do not leave WDSP latched in reset if PTT dropped mid-sequence.
+        resumeAfterReset();
+        autoAttState_ = kAttMonitor;
     }
     if (lyra::wire::SetPSMox)
         lyra::wire::SetPSMox(kTxa, on ? 1 : 0);
@@ -120,6 +125,7 @@ void PsFsm::reset() {
         SetPSRunCal(kTxa, 0);
 
     wipeOperatorUi();
+    autoAttState_ = kAttMonitor;
     waitingNewCal_ = true;
     wipeTicksLeft_ = 4;  // ~1 s at 250 ms — stay blank until a new cal
     emit telemetryChanged();
@@ -208,6 +214,7 @@ void PsFsm::pushDisarm() {
     lastSeenFb_ = -1;
     staleFbTicks_ = 0;
     attSettleTicks_ = 0;
+    autoAttState_ = kAttMonitor;
     emit telemetryChanged();
 }
 
@@ -224,6 +231,8 @@ void PsFsm::onTick() {
     if (wipeTicksLeft_ > 0) {
         --wipeTicksLeft_;
         emit telemetryChanged();
+        if (autoAttState_ != kAttMonitor)
+            tickAutoAtt(info[4]);
         return;
     }
 
@@ -245,7 +254,8 @@ void PsFsm::onTick() {
         correcting_ = false;
         fsmState_ = info[15];
         emit telemetryChanged();
-        maybeStepAutoAtt(feedbackLevel_);
+        if (autoAttState_ != kAttMonitor)
+            tickAutoAtt(feedbackLevel_);
         return;
     }
 
@@ -257,68 +267,61 @@ void PsFsm::onTick() {
     fsmState_ = info[15];
     pollAmpPlot();
     emit telemetryChanged();
-    maybeStepAutoAtt(feedbackLevel_);
+    tickAutoAtt(feedbackLevel_);
 }
 
-void PsFsm::applyAttDb(int next) {
+bool PsFsm::writeAttPad(int next) {
     if (next < attMinDb_) next = attMinDb_;
     if (next > attMaxDb_) next = attMaxDb_;
-    if (next == lastAttDb_) return;
+    if (next == lastAttDb_) return false;
     lastAttDb_ = next;
-    attSettleTicks_ = 4;
     if (attnWriter_)
         attnWriter_(next);
-    if (lyra::wire::SetPSControl) {
-        lyra::wire::SetPSControl(kTxa, 1, 0, 0, 0);
-        lyra::wire::SetPSControl(kTxa, 0, 0, 1, 0);
-    }
     emit telemetryChanged();
+    return true;
 }
 
-void PsFsm::maybeStepAutoAtt(int fb) {
-    if (!mox_ || !attnWriter_) return;
-    if (attSettleTicks_ > 0) {
-        --attSettleTicks_;
+void PsFsm::tickAutoAtt(int fb) {
+    // DeskHPSDR ps_menu.c two-tone timer: pad on the radio, then
+    // tx_ps_reset on the next tick, then tx_ps_resume. Never
+    // SetPSControl(reset) and automode in the same call — WDSP
+    // samples reset then sees automode and LCOLLECT is aborted.
+    // Thetis PSForm timer2: step only when cal attempts change.
+    switch (autoAttState_) {
+    case kAttHoldForReset:
+        if (lyra::wire::SetPSControl)
+            lyra::wire::SetPSControl(kTxa, 1, 0, 0, 0);
+        autoAttState_ = kAttHoldForResume;
         return;
-    }
-
-    const bool calEdge = (calCount_ != prevCalCount_);
-    if (calEdge)
-        prevCalCount_ = calCount_;
-
-    if (fb == lastSeenFb_)
-        ++staleFbTicks_;
-    else {
-        lastSeenFb_ = fb;
-        staleFbTicks_ = 0;
-    }
-    // DeskHPSDR ps_menu.c 2-tone timer: treat FB as fresh if it
-    // changed *or* sat unchanged for >10 × 100 ms. WDSP 2.10 only
-    // copies info[4] after a completed calc, so first-attempt FB
-    // stays 0 and a calCount-only gate never moves the pad.
-    const bool stale = staleFbTicks_ >= 4;
-
-    // Coupler clip (Amp View D0). FB=0 during LCOLLECT is not a
-    // "too weak" reading — do not hunt ATT downward from it.
-    if (ddc0Dbfs_ >= -8 && lastAttDb_ < attMaxDb_) {
-        const int step = (attMaxDb_ >= 31 && attMinDb_ >= 0) ? 6 : 10;
-        applyAttDb(lastAttDb_ + step);
+    case kAttHoldForResume:
+        resumeAfterReset();
+        autoAttState_ = kAttMonitor;
         return;
+    case kAttMonitor:
+        break;
     }
 
-    if (!calEdge && !stale) return;
-    if (ddc0Dbfs_ >= -8) return;
-    const bool need =
-        fb > 181 || (fb <= 128 && fb > 0 && lastAttDb_ > attMinDb_);
+    if (!mox_ || !attnWriter_ || waitingNewCal_) return;
+    if (calCount_ == prevCalCount_) return;
+    prevCalCount_ = calCount_;
+
+    const bool p2Att = attMinDb_ >= 0;
+    const bool need = p2Att
+        ? (fb > 165 || (fb < 140 && lastAttDb_ > attMinDb_))
+        : (fb > 181 || (fb <= 128 && lastAttDb_ > attMinDb_));
     if (!need) return;
+
     int delta = 0;
-    if (fb > 256) {
-        delta = (attMaxDb_ >= 31 && attMinDb_ >= 0) ? 15 : 10;
-    } else if (fb > 0) {
+    if (fb > 275)
+        delta = 15;
+    else if (fb < 25)
+        delta = -15;
+    else if (fb > 0)
         delta = static_cast<int>(
             std::lround(20.0 * std::log10(static_cast<double>(fb) / 152.293)));
-    }
-    applyAttDb(lastAttDb_ + delta);
+    if (!writeAttPad(lastAttDb_ + delta))
+        return;
+    autoAttState_ = kAttHoldForReset;
 }
 
 void PsFsm::pollAmpPlot() {

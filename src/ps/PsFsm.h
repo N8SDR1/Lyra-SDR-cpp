@@ -61,8 +61,14 @@ private:
     void pollAmpPlot();
     void resumeAfterReset();
     void wipeOperatorUi();
-    void maybeStepAutoAtt(int fb);
-    void applyAttDb(int next);
+    void tickAutoAtt(int fb);
+    bool writeAttPad(int next);
+
+    enum AutoAttState : int {
+        kAttMonitor = 0,
+        kAttHoldForReset = 1,
+        kAttHoldForResume = 2,
+    };
 
     QTimer timer_;
     std::function<void(int)> attnWriter_;
@@ -81,6 +87,7 @@ private:
     int  lastSeenFb_ = -1;
     int  staleFbTicks_ = 0;
     int  attSettleTicks_ = 0;
+    int  autoAttState_ = kAttMonitor;
     int  resetGen_ = 0;
     int  calBaseline_ = 0;
     int  wipeTicksLeft_ = 0;
