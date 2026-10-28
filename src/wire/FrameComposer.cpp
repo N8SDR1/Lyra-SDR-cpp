@@ -225,10 +225,56 @@ void drop_pending_ioboard_unlocked()
                            std::memory_order_relaxed);
 }
 
+// Analog BYTE0–4 must sit at the head of the ring.  drop_pending
+// leaves REG 13/14 in place, so a hop used to queue analog *behind*
+// leftover fcodes.  Steal is FIFO — BYTE0 then waited, J4 stayed on
+// leftover PWM (Volker: 12 m click, Xiegu still 20 m; 2 m xvtr → 80 m).
+void compact_ioboard_analog_to_front_unlocked()
+{
+    if (prn == nullptr)
+        return;
+    I2cState::I2cQueueEntry analog[kMaxI2cQueue];
+    I2cState::I2cQueueEntry rest[kMaxI2cQueue];
+    int na = 0;
+    int nr = 0;
+    unsigned char idx = prn->i2c.out_index;
+    while (idx != prn->i2c.in_index) {
+        const unsigned char next =
+            static_cast<unsigned char>((idx + 1) % kMaxI2cQueue);
+        const auto& e = prn->i2c.i2c_queue[next];
+        if (is_ioboard_analog_entry(e))
+            analog[na++] = e;
+        else
+            rest[nr++] = e;
+        idx = next;
+    }
+    idx = prn->i2c.out_index;
+    for (int i = 0; i < na; ++i) {
+        idx = static_cast<unsigned char>((idx + 1) % kMaxI2cQueue);
+        prn->i2c.i2c_queue[idx] = analog[i];
+    }
+    for (int i = 0; i < nr; ++i) {
+        idx = static_cast<unsigned char>((idx + 1) % kMaxI2cQueue);
+        prn->i2c.i2c_queue[idx] = rest[i];
+    }
+    prn->i2c.in_index = idx;
+}
+
+bool analog_byte0_pending_unlocked()
+{
+    const std::uint64_t want =
+        g_ioboard_want.load(std::memory_order_relaxed);
+    if (!hl2_ioboard_analog_hz(want))
+        return false;
+    return want != g_ioboard_sent.load(std::memory_order_relaxed);
+}
+
 bool enqueue_hl2_ioboard_tx_freq_unlocked(std::uint64_t hz)
 {
     if (prn == nullptr)
         return false;
+    if (!hl2_ioboard_analog_hz(hz))
+        return true;
     drop_pending_ioboard_unlocked();
     if (i2c_free_unlocked() < 5)
         return false;
@@ -242,6 +288,7 @@ bool enqueue_hl2_ioboard_tx_freq_unlocked(std::uint64_t hz)
             return false;
     }
     g_ioboard_queued.store(hz, std::memory_order_relaxed);
+    compact_ioboard_analog_to_front_unlocked();
     return true;
 }
 
@@ -334,8 +381,9 @@ void flush_ioboard_want_unlocked()
     // Analog first.  GPA100 / J4 PWM is the 5-byte TX-Hz burst.
     // queued == want: a complete 5-byte burst is already draining.
     // sent == want: BYTE0 already went on the wire for this Hz.
-    if (want != queued && want != sent)
+    if (hl2_ioboard_analog_hz(want) && want != queued && want != sent)
         enqueue_hl2_ioboard_tx_freq_unlocked(want);
+    compact_ioboard_analog_to_front_unlocked();
 
     const unsigned char rfWant =
         g_rf_input_want.load(std::memory_order_relaxed);
@@ -345,6 +393,11 @@ void flush_ioboard_want_unlocked()
         g_rf_input_sent.load(std::memory_order_relaxed);
     if (rfWant != rfQueued && rfWant != rfSent)
         enqueue_hl2_ioboard_rf_input_unlocked(rfWant);
+
+    // After analog BYTE0 is on the wire.  13/14 in front of analog
+    // is leftover J4 PWM (Xiegu stays on the previous band).
+    if (analog_byte0_pending_unlocked())
+        return;
 
     // After analog and REG 11.  Registers 13/14 are not analog.
     const unsigned char c1Want =
@@ -377,6 +430,8 @@ bool enqueue_i2c_write(unsigned char bus, unsigned char address,
 bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz)
 {
     std::lock_guard<std::recursive_mutex> lk(g_i2c_mu);
+    if (!hl2_ioboard_analog_hz(hz))
+        return true;
     g_ioboard_want.store(hz, std::memory_order_relaxed);
     return enqueue_hl2_ioboard_tx_freq_unlocked(hz);
 }
@@ -394,6 +449,8 @@ bool enqueue_hl2_ioboard_rx_fcodes(unsigned char rx1, unsigned char rx2)
     std::lock_guard<std::recursive_mutex> lk(g_i2c_mu);
     g_rx_fcode1_want.store(rx1, std::memory_order_relaxed);
     g_rx_fcode2_want.store(rx2, std::memory_order_relaxed);
+    if (analog_byte0_pending_unlocked())
+        return true;
     bool a = true;
     bool b = true;
     const unsigned char q1 =
@@ -413,6 +470,10 @@ bool enqueue_hl2_ioboard_rx_fcodes(unsigned char rx1, unsigned char rx2)
 
 void request_hl2_ioboard_tx_freq(std::uint64_t hz)
 {
+    // VHF RF must not become the analog "want" — flush would then
+    // pack 144 MHz into J4.  Leave the last HF BYTE0–4 latched.
+    if (!hl2_ioboard_analog_hz(hz))
+        return;
     g_ioboard_want.store(hz, std::memory_order_relaxed);
 }
 

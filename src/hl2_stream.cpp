@@ -3019,13 +3019,20 @@ void HL2Stream::onIoboardSettle() {
     lyra::wire::enqueue_hl2_ioboard_tx_freq(hz);
     // Band hops only.  0.25.27 had no analog line, so Mike's log looked
     // like BYTE0–4 never went out (issue #23).  In-band 1 Hz ticks stay quiet.
+    // Above 54 MHz (2 m xvtr) analog is skipped — J4 stays on last HF PWM.
     {
         const unsigned char fc = lyra::wire::hl2_ioboard_rx_fcode(hz);
         static unsigned char lastFc = 0xFF;
         if (fc != lastFc) {
             lastFc = fc;
-            qInfo("HL2 TX Hz: I2C2 0x1D BYTE0-4 = %llu Hz (dial RF, fcode %u)",
-                  static_cast<unsigned long long>(hz), unsigned(fc));
+            if (lyra::wire::hl2_ioboard_analog_hz(hz)) {
+                qInfo("HL2 TX Hz: I2C2 0x1D BYTE0-4 = %llu Hz (dial RF, fcode %u)",
+                      static_cast<unsigned long long>(hz), unsigned(fc));
+            } else {
+                qInfo("HL2 TX Hz: skip analog BYTE0-4 at %llu Hz (VHF / xvtr; "
+                      "J4 keeps last HF PWM, fcode %u)",
+                      static_cast<unsigned long long>(hz), unsigned(fc));
+            }
         }
     }
     // Second copy.  BYTE0 on the wire is not a Pico latch.  One missed

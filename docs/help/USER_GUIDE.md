@@ -40,7 +40,9 @@ See [What's new in 0.25.31](#whats-new-in-02531).
 - **Xiegu / XPA125 / Micro PA50 band** comes from the I/O-board PIC as
   a **voltage on J4 pin 8**, not from J16 OC and not from USB-BCD.
   Settings → **Filters / BCD** → **Band Volts on J3** stays **Off**.
-  J3 is the fan header. [Band Volts on J3](#band-volts-on-j3-fan-pwm--leave-off-for-pico--j4).
+  J3 is the fan header. Analog BYTE0–4 goes out before Pico GPIO
+  fcodes 13/14 (those share I2C2; leftover PWM was 12 m stuck on 20 m).
+  2 m xvtr RF is not written into J4. [Band Volts on J3](#band-volts-on-j3-fan-pwm--leave-off-for-pico--j4).
 - **`LYRA_NO_IOBOARD_FCODE=1`** (optional tester switch). Skips Pico
   I2C registers **13 / 14** only. Analog J4 (BYTE0–4) and RF1 / Alt
   stay. This is a **Windows user environment variable**, not a Lyra

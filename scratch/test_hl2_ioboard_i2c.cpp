@@ -68,6 +68,11 @@ int main() {
     CHECK(hl2_ioboard_rx_fcode(144200000ull) == 138);
     CHECK(hl2_ioboard_rx_fcode(144302000ull) == 138);
 
+    // J4 analog PWM is HF + 6 m only.  2 m RF must not become BYTE0.
+    CHECK(24900000ull <= 54000000ull);
+    CHECK(50000000ull <= 54000000ull);
+    CHECK(144200000ull > 54000000ull);
+
     if (g_fail) {
         fprintf(stderr, "%d check(s) failed\n", g_fail);
         return 1;

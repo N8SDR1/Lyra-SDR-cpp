@@ -105,6 +105,16 @@ void set_rx_freq(int rx_idx, int freq_hz);
 // (see Q4).
 void set_tx_freq(int freq_hz);
 
+// J4 analog PWM is an HF (and 6 m) voltage table.  VHF RF (2 m xvtr)
+// must not be packed into BYTE0–4 — that leftover PWM reads as 80 m
+// on an XPA125.  Last HF analog voltage stays until the next HF hop.
+inline constexpr std::uint64_t kHl2IoboardAnalogMaxHz = 54'000'000ull;
+
+inline bool hl2_ioboard_analog_hz(std::uint64_t hz) noexcept
+{
+    return hz > 0 && hz <= kHl2IoboardAnalogMaxHz;
+}
+
 // Pack TX RF Hz as 5 big-endian bytes for the Jim Ahlstrom HL2IOBoard
 // Pico (I2C 0x1D registers 0..4 = BYTE4..BYTE0).  BYTE0 last on the wire
 // latches new_tx_freq / analog PWM.  Protocol 1 / HL2 family only.
