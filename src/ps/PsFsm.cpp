@@ -1,4 +1,5 @@
 #include "ps/PsFsm.h"
+#include "ps/PsAutoAtt.h"
 #include "ps/PsCalcThread.h"
 
 #include "wire/wdspcalls.h"
@@ -44,7 +45,6 @@ void PsFsm::setAttnRange(int minDb, int maxDb, int moxSeed) {
     attMaxDb_ = maxDb;
     moxSeedAttDb_ = std::clamp(moxSeed, minDb, maxDb);
     lastAttDb_ = std::clamp(lastAttDb_, attMinDb_, attMaxDb_);
-    prevCalCount_ = -1;
 }
 
 void PsFsm::restoreLastAtt(int db) {
@@ -74,8 +74,9 @@ void PsFsm::setMox(bool on) {
     if (on) {
         // Keep last pad (DeskHPSDR per-band ps_tx_att). Do not reseed
         // to 0/31 on every PTT — that dumps FB to 300+ then hunts.
-        prevCalCount_ = calCount_;
         autoAttState_ = kAttMonitor;
+        lastSeenFb_ = -1;
+        staleFbTicks_ = 0;
         if (attnWriter_)
             attnWriter_(lastAttDb_);
         emit telemetryChanged();
@@ -91,7 +92,6 @@ void PsFsm::setMox(bool on) {
 void PsFsm::wipeOperatorUi() {
     correcting_ = false;
     calCount_ = 0;
-    prevCalCount_ = -1;
     fsmState_ = 0;
     feedbackLevel_ = 0;
     maxTx_ = 0.0;
@@ -126,6 +126,8 @@ void PsFsm::reset() {
 
     wipeOperatorUi();
     autoAttState_ = kAttMonitor;
+    lastSeenFb_ = -1;
+    staleFbTicks_ = 0;
     waitingNewCal_ = true;
     wipeTicksLeft_ = 4;  // ~1 s at 250 ms — stay blank until a new cal
     emit telemetryChanged();
@@ -213,7 +215,6 @@ void PsFsm::pushDisarm() {
     calBaseline_ = 0;
     lastSeenFb_ = -1;
     staleFbTicks_ = 0;
-    attSettleTicks_ = 0;
     autoAttState_ = kAttMonitor;
     emit telemetryChanged();
 }
@@ -231,8 +232,7 @@ void PsFsm::onTick() {
     if (wipeTicksLeft_ > 0) {
         --wipeTicksLeft_;
         emit telemetryChanged();
-        if (autoAttState_ != kAttMonitor)
-            tickAutoAtt(info[4]);
+        tickAutoAtt(info[4]);
         return;
     }
 
@@ -254,8 +254,7 @@ void PsFsm::onTick() {
         correcting_ = false;
         fsmState_ = info[15];
         emit telemetryChanged();
-        if (autoAttState_ != kAttMonitor)
-            tickAutoAtt(feedbackLevel_);
+        tickAutoAtt(feedbackLevel_);
         return;
     }
 
@@ -286,7 +285,6 @@ void PsFsm::tickAutoAtt(int fb) {
     // tx_ps_reset on the next tick, then tx_ps_resume. Never
     // SetPSControl(reset) and automode in the same call — WDSP
     // samples reset then sees automode and LCOLLECT is aborted.
-    // Thetis PSForm timer2: step only when cal attempts change.
     switch (autoAttState_) {
     case kAttHoldForReset:
         if (lyra::wire::SetPSControl)
@@ -301,25 +299,23 @@ void PsFsm::tickAutoAtt(int fb) {
         break;
     }
 
-    if (!mox_ || !attnWriter_ || waitingNewCal_) return;
-    if (calCount_ == prevCalCount_) return;
-    prevCalCount_ = calCount_;
+    if (!mox_ || !attnWriter_) return;
 
-    const bool p2Att = attMinDb_ >= 0;
-    const bool need = p2Att
-        ? (fb > 165 || (fb < 140 && lastAttDb_ > attMinDb_))
-        : (fb > 181 || (fb <= 128 && lastAttDb_ > attMinDb_));
-    if (!need) return;
+    // DeskHPSDR ps_menu.c two-tone timer (not Thetis PSForm timer2):
+    // step when FB changes, or after ~1 s stagnant. Never wait for
+    // info[5]. A 31 dB leftover pad can keep collect from finishing;
+    // Desk still sees FB=0 and walks ATT down.
+    constexpr int kStagnantTicks = 4;  // 4 × 250 ms ≈ Desk 10 × 100 ms
+    if (fb == lastSeenFb_ && staleFbTicks_ <= kStagnantTicks) {
+        ++staleFbTicks_;
+        return;
+    }
+    lastSeenFb_ = fb;
+    staleFbTicks_ = 0;
 
-    int delta = 0;
-    if (fb > 275)
-        delta = 15;
-    else if (fb < 25)
-        delta = -15;
-    else if (fb > 0)
-        delta = static_cast<int>(
-            std::lround(20.0 * std::log10(static_cast<double>(fb) / 152.293)));
-    if (!writeAttPad(lastAttDb_ + delta))
+    if (!autoAttNeedsStep(fb, lastAttDb_, attMinDb_, attMaxDb_))
+        return;
+    if (!writeAttPad(lastAttDb_ + autoAttDeltaDb(fb)))
         return;
     autoAttState_ = kAttHoldForReset;
 }

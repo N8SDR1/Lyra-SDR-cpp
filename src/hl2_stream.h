@@ -2429,6 +2429,7 @@ private:
     QString psTxAttBandKey() const;
     QString psTxAttSettingsKey(const QString &band) const;
     void persistPsTxAtt(int db);
+    void syncAttOnTxWithPs();
 
     // Diversity pair follows the RX1 band.  A band with no saved pair
     // is 0 dB / 0°.  The on/off switch stays one radio-wide setting.
@@ -2774,6 +2775,11 @@ private:
     static constexpr bool kDefaultAttOnTxEnabled = true;
     static constexpr bool kDefaultRx2GroundOnTx  = true;
     bool   attOnTxEnabled_         = kDefaultAttOnTxEnabled;
+    // Thetis AutoAttenuate: PS ON forces ATT-on-TX on. Remember the
+    // operator checkbox and restore it when PS is not live. Do not
+    // change attOnTxDb_ (that is not the PS coupler pad).
+    bool   attOnTxSavedForPs_      = kDefaultAttOnTxEnabled;
+    bool   attOnTxHeldByPs_        = false;
     // UI write / wire-thread read (P1 apply + P2 HP overlay).
     std::atomic<bool> rx2GroundOnTx_{kDefaultRx2GroundOnTx};
     bool   txInhibit_             = false;   // #94 External TX Inhibit (persisted)

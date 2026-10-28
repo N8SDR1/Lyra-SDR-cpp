@@ -202,7 +202,7 @@ Rectangle {
                 font.bold: root.txNow && root.liveOn
                 font.pixelSize: 12
             }
-            ToolTip.text: qsTr("PS auto-att, remembered per TX band. 0 dB is normal when FB is already 129–181 (no extra pad). Brick/Hermes: ADC0 coupler 0…31 dB. HL2: TX step-att −28…+31 dB.")
+            ToolTip.text: qsTr("PS auto-att, remembered per TX band. Hunts from live FB (DeskHPSDR two-tone timer), not from cal count. A leftover 31 dB pad comes down if the coupler is starved. 0 dB is normal when FB is already in-band. Brick/Hermes: ADC0 0…31 dB. HL2: TX step-att −28…+31 dB.")
             ToolTip.delay: 800
             ToolTip.visible: attHover.hovered && Prefs.tooltipsEnabled
         }

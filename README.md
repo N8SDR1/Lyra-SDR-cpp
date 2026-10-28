@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.30 Sheliak** — Pico J4 band volts for Xiegu-class amps, `LYRA_NO_IOBOARD_FCODE` how-to. On top of v0.25.29. **v0.25.29** is the previous public build. v0.25.22 remains the long return point. WDSP 2.10 from 0.25.8.
+**v0.25.31 Sheliak** — minor PureSignal changes for Protocol 2. On top of v0.25.30. **v0.25.30** is the previous public build. v0.25.22 remains the long return point. WDSP 2.10 from 0.25.8.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc) · [Facebook](https://www.facebook.com/groups/1994335921523916)
 

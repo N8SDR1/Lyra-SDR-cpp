@@ -83,10 +83,8 @@ private:
     int  calCount_ = 0;
     bool correcting_ = false;
     int  lastAttDb_ = 0;
-    int  prevCalCount_ = -1;
     int  lastSeenFb_ = -1;
     int  staleFbTicks_ = 0;
-    int  attSettleTicks_ = 0;
     int  autoAttState_ = kAttMonitor;
     int  resetGen_ = 0;
     int  calBaseline_ = 0;

@@ -8669,8 +8669,11 @@ QWidget *SettingsDialog::buildTxTab() {
             "Default ON — matches the reference's HL2 working posture "
             "(Setup → General → Ant/Filters → \"ATT on Tx\").  Turning it "
             "OFF removes RX-ADC protection during TX; only do so if you "
-            "have a specific reason.  The TxPanel \"ATT\" lamp shows the "
-            "live state (orange = armed, red = engaged)."));
+            "have a specific reason.  PureSignal ON turns this checkbox "
+            "on (Thetis Auto Attenuate); PS off restores it. That does "
+            "not change the dB spin or the PS coupler pad.  The TxPanel "
+            "\"ATT\" lamp shows the live state (orange = armed, red = "
+            "engaged)."));
         connect(enBox, &QCheckBox::toggled, this, [this](bool on) {
             if (stream_) stream_->setAttOnTxEnabled(on);
         });

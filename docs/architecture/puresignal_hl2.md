@@ -23,7 +23,7 @@ auto-att + UI.
 | Captured-profile | Bypass Wiener apply on `(mox && ps_armed)` without clearing the operator `applyEnabled_` flag. |
 | sip1 | TX panadapter (`TXASetSipDisplay`). **Not** the calcc feed. |
 | Host `SetTXAiqc*` | **Do not call.** DeskHPSDR never does; WDSP 2.0 dropped the public iqc wrappers. `pscc` drives the engine. |
-| Auto-att writer | **HL2:** `setTxStepAttnDb` (−28…+31). **Brick/Hermes P2:** ADC0 coupler pad (0…31). Last pad **persists across PTT and per TX band** (QSettings `ps/txAtt/<band>`, DeskHPSDR `ps_tx_att`). Seed is first bind / unknown band only, not every MOX. Recal only when `info[5]` (cal attempts) **changes** and FB is outside 129–181. Delta `round(20·log10(FB/152.293))`; FB>256 uses a coarse +10/+15 step. Target ~152. FB is coupler ADC counts, not watts. |
+| Auto-att writer | **HL2:** `setTxStepAttnDb` (−28…+31). **Brick/Hermes P2:** ADC0 coupler pad (0…31). Last pad **persists across PTT and per TX band** (QSettings `ps/txAtt/<band>`, DeskHPSDR `ps_tx_att`). Seed is first bind / unknown band only, not every MOX. Hunt is Desk `ps_calibration_timer`: step when **FB (`info[4]`) changes or ~1 s stagnant**, then 3-tick pad → reset → resume. **Do not wait for cal count `info[5]`** — a 31 dB pad can starve collect so [5] never moves. P2 window 140–165; HL2 129–181. Delta `round(20·log10(FB/152.293))`; FB>275 → +15, FB<25 → −15. Target ~152. FB is coupler ADC counts, not watts. |
 
 `ddc_map(mox, ps_armed, rx2, family)` is the state-product helper. Live HL2
 row: `adcCntrl1=4`, `feedPsccFromDdc0Ddc1`, `pauseSub`, `bypassCapturedProfile`.

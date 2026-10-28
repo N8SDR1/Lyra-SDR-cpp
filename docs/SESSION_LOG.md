@@ -4,6 +4,12 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-28 — v0.25.31 Sheliak RELEASED
+
+Minor PureSignal changes for Protocol 2: auto-att hunts from live FB;
+PS ON turns ATT-on-TX on and restores it when PS is off. Tag
+`v0.25.31`. Do not merge `main`.
+
 ## 2026-10-27 — v0.25.30 Sheliak RELEASED
 
 Station notes: Xiegu/XPA125 band = Pico J4 volts; J3 Band Volts stays

@@ -671,6 +671,7 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     attOnTxDb_ = std::clamp(
         QSettings().value(QStringLiteral("tx/attOnTxDb"), kAttOnTxDb).toInt(),
         0, 31);
+    syncAttOnTxWithPs();
     // #105 CW-1a — CW keyer config (cw_tx_design.md §7 defaults; clamped
     // on load against hand-edited QSettings).  prn doesn't exist yet at
     // ctor time — applyCwConfigToPrn() at open() seeds prn->cw from these.
@@ -3631,13 +3632,15 @@ void HL2Stream::setPsAttestation(bool on) {
     else
         refreshPsWire();
     emit psLiveArmedChanged(psLiveArmed());
+    syncAttOnTxWithPs();
 }
 
 void HL2Stream::setPsArmed(bool on) {
     // Dock ON is the Thetis/DeskHPSDR gesture: one switch. First ON
     // records the coupler fact so Arm is not a second buried checkbox.
     // Unchecking Settings → TX coupler still disarms (stock HL2).
-    // Drive / watts cap / PA Gain / ATT-on-TX are not on this path.
+    // Drive / watts cap / PA Gain are not on this path. ATT-on-TX
+    // follows Thetis AutoAttenuate: PS live forces the checkbox on.
     if (on && !psAttestation_) {
         psAttestation_ = true;
         QSettings().setValue(QStringLiteral("tx/psAttestation"), true);
@@ -3652,6 +3655,7 @@ void HL2Stream::setPsArmed(bool on) {
     emit psArmedChanged(on);
     refreshPsWire();
     emit psLiveArmedChanged(psLiveArmed());
+    syncAttOnTxWithPs();
 }
 
 bool HL2Stream::psDigitalLockout() const {
@@ -3677,6 +3681,7 @@ void HL2Stream::setPsUiMode(const QString &uiMode) {
         return;
     refreshPsWire();
     emit psLiveArmedChanged(psLiveArmed());
+    syncAttOnTxWithPs();
 }
 
 bool HL2Stream::psLiveArmed() const {
@@ -4980,6 +4985,27 @@ void HL2Stream::fireFmBurst() {
 // TX — operator opt-out; default ON.  Runs on the Qt main thread, same
 // as the FSM steps (no lock needed — the AttOnTxPolicy-precedent
 // single-int prn write, mirroring setLnaGainDb).
+void HL2Stream::syncAttOnTxWithPs() {
+    // Thetis PSForm AutoAttenuate: on → ATTOnTX = true; off → restore
+    // SetupForm.ATTOnTXChecked. Do not write attOnTxDb_ into the PS pad.
+    if (deskPs_)
+        return;
+    const bool live = psLiveArmed();
+    if (live) {
+        if (!attOnTxHeldByPs_) {
+            attOnTxSavedForPs_ = attOnTxEnabled_;
+            attOnTxHeldByPs_ = true;
+        }
+        if (!attOnTxEnabled_)
+            setAttOnTxEnabled(true);
+        return;
+    }
+    if (!attOnTxHeldByPs_)
+        return;
+    attOnTxHeldByPs_ = false;
+    setAttOnTxEnabled(attOnTxSavedForPs_);
+}
+
 void HL2Stream::setAttOnTxEnabled(bool on) {
     if (on == attOnTxEnabled_) return;
     attOnTxEnabled_ = on;

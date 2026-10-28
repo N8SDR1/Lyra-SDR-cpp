@@ -22,10 +22,18 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.30 Sheliak** — Pico **J4** band volts for Xiegu-class amps,
-and how to set / clear **`LYRA_NO_IOBOARD_FCODE`**. **v0.25.29** is
-the previous public build.
-See [What's new in 0.25.30](#whats-new-in-02530).
+**v0.25.31 Sheliak** — minor PureSignal changes for Protocol 2.
+**v0.25.30** is the previous public build.
+See [What's new in 0.25.31](#whats-new-in-02531).
+
+## What's new in 0.25.31
+
+- **Minor PureSignal changes for Protocol 2.** Auto-att follows live
+  feedback so a leftover pad cannot starve a calibration. PS **ON**
+  turns **ATT-on-TX** on; PS off restores the checkbox. The ATT dB
+  value is not changed.
+- **v0.25.30 Sheliak** is the previous public build. **v0.25.22**
+  remains the long return point. Settings stay.
 
 ## What's new in 0.25.30
 
@@ -514,6 +522,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.31](#whats-new-in-02531)
 - [What's new in 0.25.30](#whats-new-in-02530)
 - [What's new in 0.25.29](#whats-new-in-02529)
 - [What's new in 0.25.28](#whats-new-in-02528)

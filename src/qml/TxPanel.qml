@@ -340,7 +340,7 @@ Rectangle {
             HoverHandler { id: attHov }
             LyraHoverHelp {
                 title: qsTr("ATT on TX")
-                text: qsTr("RX front-end pad on key-down. Gray = off; orange = armed; red = engaged now. Click toggles (same as Settings → TX). Default ON.")
+                text: qsTr("RX front-end pad on key-down. Gray = off; orange = armed; red = engaged now. Click toggles (same as Settings → TX). PureSignal ON turns this on; PS off restores. Default ON.")
                 hovered: attHov.hovered
             }
         }
