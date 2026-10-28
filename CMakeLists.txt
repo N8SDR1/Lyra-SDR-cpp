@@ -811,6 +811,14 @@ if(MSVC)
     target_compile_options(test_profile PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
+add_executable(test_ps_host_tx EXCLUDE_FROM_ALL
+    scratch/test_ps_host_tx.cpp
+)
+target_include_directories(test_ps_host_tx PRIVATE src)
+if(MSVC)
+    target_compile_options(test_ps_host_tx PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
 add_executable(test_ps_att_hunt EXCLUDE_FROM_ALL
     scratch/test_ps_att_hunt.cpp
 )

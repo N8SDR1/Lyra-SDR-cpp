@@ -3,6 +3,7 @@
 #include "wire/wdspcalls.h"
 
 #include <cmath>
+#include <cstddef>
 
 namespace lyra::ps {
 
@@ -24,6 +25,19 @@ void PsCalcThread::setRun(bool on) {
         peakSq0_ = 0.f;
         peakSq1_ = 0.f;
         sprAcc_  = 0;
+    }
+}
+
+void PsCalcThread::pushHostTx(int spr, const double *txIq) {
+    if (spr <= 0 || !txIq) return;
+    std::lock_guard<std::mutex> lk(mu_);
+    hostTx_.insert(hostTx_.end(), txIq, txIq + static_cast<size_t>(spr) * 2);
+    constexpr size_t kCap = 16384;  // 8192 complex @ 192 kHz ≈ 43 ms
+    if (hostTx_.size() > kCap) {
+        const size_t drop = hostTx_.size() - kCap;
+        const size_t even = drop + (drop % 2);
+        hostTx_.erase(hostTx_.begin(),
+                      hostTx_.begin() + static_cast<std::ptrdiff_t>(even));
     }
 }
 
@@ -60,6 +74,18 @@ void PsCalcThread::feed(int spr, const double *rxDdc0, const double *txDdc1) {
         tx_.erase(tx_.begin(), tx_.begin() + kBlock * 2);
         rx_.erase(rx_.begin(), rx_.begin() + kBlock * 2);
     }
+}
+
+void PsCalcThread::feedCoupler(int spr, const double *rxDdc0) {
+    if (spr <= 0 || !rxDdc0) return;
+    std::vector<double> tx(static_cast<size_t>(spr) * 2);
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        const int hostSpr = static_cast<int>(hostTx_.size() / 2);
+        if (copyHostTxForCoupler(hostTx_.data(), hostSpr, tx.data(), spr) != spr)
+            return;
+    }
+    feed(spr, rxDdc0, tx.data());
 }
 
 PsCalcThread::FeedDiag PsCalcThread::takeFeedDiag() {

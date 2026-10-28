@@ -623,6 +623,9 @@ QByteArray P2Session::buildDdcSpecificPacket() const {
         pkt[off + 1] = static_cast<char>(rate >> 8);
         pkt[off + 2] = static_cast<char>(rate & 0xFF);
         pkt[off + 5] = char{24};                       // 24-bit samples
+        // Desk's live-PS DDC1 overlay also writes bits at +3 ([26]).
+        // Keep both so TX-DAC samples are 24-bit either decode.
+        pkt[off + 3] = char{24};
     };
     for (int i = 0; i < kNumDdc; ++i) {
         const auto n = static_cast<std::size_t>(i);
@@ -911,14 +914,28 @@ void P2Session::ingestPsccInterleaved(const double *iq, int nComplex) {
         return;
     std::vector<double> rx(static_cast<std::size_t>(pairs) * 2);
     std::vector<double> tx(static_cast<std::size_t>(pairs) * 2);
+    double rxSq = 0.0;
+    double txSq = 0.0;
     for (int i = 0; i < pairs; ++i) {
-        rx[static_cast<std::size_t>(2 * i)]     = iq[4 * i];
-        rx[static_cast<std::size_t>(2 * i) + 1] = iq[4 * i + 1];
-        tx[static_cast<std::size_t>(2 * i)]     = iq[4 * i + 2];
-        tx[static_cast<std::size_t>(2 * i) + 1] = iq[4 * i + 3];
+        const double rI = iq[4 * i];
+        const double rQ = iq[4 * i + 1];
+        const double tI = iq[4 * i + 2];
+        const double tQ = iq[4 * i + 3];
+        rx[static_cast<std::size_t>(2 * i)]     = rI;
+        rx[static_cast<std::size_t>(2 * i) + 1] = rQ;
+        tx[static_cast<std::size_t>(2 * i)]     = tI;
+        tx[static_cast<std::size_t>(2 * i) + 1] = tQ;
+        rxSq = std::max(rxSq, rI * rI + rQ * rQ);
+        txSq = std::max(txSq, tI * tI + tQ * tQ);
     }
-    ingestPsccIq(0, rx.data(), pairs);
-    ingestPsccIq(1, tx.data(), pairs);
+    auto &pscc = lyra::ps::PsCalcThread::instance();
+    pscc.setRun(true);
+    // Brick3 TX-DAC on the odd samples is live — that is the Amp View
+    // scatter. Host DUC tap only when those samples are empty (Brick2).
+    if (txSq > 1.0e-8 && txSq > rxSq * 1.0e-4)
+        pscc.feed(pairs, rx.data(), tx.data());
+    else
+        pscc.feedCoupler(pairs, rx.data());
 }
 
 void P2Session::ingestPsccIq(int ddc, const double *iq, int nComplex) {
@@ -929,28 +946,10 @@ void P2Session::ingestPsccIq(int ddc, const double *iq, int nComplex) {
             clearPsccIq();
         return;
     }
-    auto &dst = (ddc == 0) ? psccRx_ : psccTx_;
-    dst.insert(dst.end(), iq, iq + static_cast<std::size_t>(nComplex) * 2);
-    constexpr std::size_t kCapDoubles = 16384;
-    if (dst.size() > kCapDoubles) {
-        std::size_t drop = dst.size() - kCapDoubles;
-        if (drop % 2u != 0)
-            ++drop;
-        dst.erase(dst.begin(),
-                  dst.begin() + static_cast<std::ptrdiff_t>(drop));
-    }
-    const std::size_t n = std::min(psccRx_.size(), psccTx_.size()) / 2;
-    if (n == 0)
+    if (ddc != 0)
         return;
-    // Ingest is already gated on isPureSignalLive(). Do not let
-    // refreshPsWire's XmitBit snapshot starve pscc (peaks without
-    // FB) — that still is Greg's Amp View: D0 hot, cal 0, FB 0.
     lyra::ps::PsCalcThread::instance().setRun(true);
-    lyra::ps::PsCalcThread::instance().feed(
-        static_cast<int>(n), psccRx_.data(), psccTx_.data());
-    const auto used = static_cast<std::ptrdiff_t>(n * 2);
-    psccRx_.erase(psccRx_.begin(), psccRx_.begin() + used);
-    psccTx_.erase(psccTx_.begin(), psccTx_.begin() + used);
+    lyra::ps::PsCalcThread::instance().feedCoupler(nComplex, iq);
 }
 
 void P2Session::setAttOnTx(bool enabled, int db) {
