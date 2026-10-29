@@ -42,7 +42,9 @@ controllers (sidecar)**.
 
 **Which digital / SSTV programs are recommended?**
 Lyra does not ship them. **Settings → Apps** lists programs we have tested
-with: [Open SSTV](https://bucknova.github.io/Open-SSTV/),
+with: [STD](https://github.com/N8SDR1/STD/releases) (N8SDR's digital-modes
+app; pair over TCI / VAC; [details](https://n8sdr1.github.io/STD/)),
+[Open SSTV](https://bucknova.github.io/Open-SSTV/),
 [MSHV](http://lz2hv.org/mshv) or [WSJT-X](https://wsjtx.github.io/wsjtx/index.html)
 for FT8/FT4, and [VarAC](https://www.varac-hamradio.com/). Browse to each
 `.exe` after you install it.

@@ -22,9 +22,29 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.31 Sheliak** — minor PureSignal changes for Protocol 2.
-**v0.25.30** is the previous public build.
-See [What's new in 0.25.31](#whats-new-in-02531).
+**v0.25.32 Sheliak** — J4 analog-first, Protocol 2 PureSignal replica
+tightening, STD on Settings → Apps.
+**v0.25.31** is the previous public build.
+See [What's new in 0.25.32](#whats-new-in-02532).
+
+## What's new in 0.25.32
+
+- **J4 analog-first.** Analog BYTE0–4 is sent **before** Pico GPIO
+  fcodes 13/14 so leftover PWM cannot pin J4 on the previous band
+  (Volker / Mike: 12 m stuck on 20 m). RF above **54 MHz** is not
+  packed into J4 (2 m xvtr leftover reading as 80 m).
+- **PureSignal tightening (Protocol 2 replica).** Radio TX-DAC echo
+  on the odd DDC0 samples goes into `pscc` when that energy is
+  present. If those samples are empty, the host DUC tap is used so
+  collect can start. This is **not** DeskHPSDR-identical PureSignal
+  on Brick2 until D1 moves on B2 / Greg.
+- **Suggested Apps: STD.** Settings → **Apps** → Tested with and
+  recommended lists **STD** (N8SDR's digital-modes app). The name
+  opens the [GitHub releases](https://github.com/N8SDR1/STD/releases);
+  details open <https://n8sdr1.github.io/STD/>. Pair over TCI / VAC.
+  Hardware → Startup is unchanged (SDRLogger+ only).
+- **v0.25.31 Sheliak** is the previous public build. **v0.25.22**
+  remains the long return point. Settings stay.
 
 ## What's new in 0.25.31
 
@@ -524,6 +544,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.32](#whats-new-in-02532)
 - [What's new in 0.25.31](#whats-new-in-02531)
 - [What's new in 0.25.30](#whats-new-in-02530)
 - [What's new in 0.25.29](#whats-new-in-02529)
@@ -2775,7 +2796,10 @@ the on-air signal is cleaner (less IMD). It is **not** a power booster.
 on that radio. BrickSDR2 uses the radio's Protocol-2 feedback path
 (ADC0 pad). **Do not** turn this on unless that hardware is actually
 installed — without a coupler you get garbage feedback and a worse
-signal.
+signal. On Protocol 2, Lyra uses the radio's TX-DAC echo when those
+odd DDC0 samples have energy; if they are empty it uses the host DUC
+tap so collect can start. That is a **tightening**, not DeskHPSDR-
+identical PureSignal on Brick2 until D1 moves on B2 / Greg.
 
 **PS jack vs MAP RX2.** Plug the sampler return into the Brick3 rear
 **PS** jack. Lyra already uses that port when PureSignal is on. There
@@ -4414,11 +4438,15 @@ transverter). This tab is the pin-level detail.
 USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no filter board (analog still follows).
 
 **Band hops.** The Pico latches analog when **BYTE0** of the five-byte
-TX-Hz write lands. Lyra spaces those I2C steals with **delay=5** (same
-as Thetis/Quisk) so two writes do not share one UDP datagram, drops
-any analog burst still queued from the previous band, and only
-coalesces a hop after BYTE0 is on the wire. A leftover 80 m write
-cannot leave **J4 pin 8** on the 80 m voltage after you hop to 20 m.
+TX-Hz write lands. Analog BYTE0–4 is compacted to the **front** of the
+I2C ring so leftover Pico GPIO fcodes 13/14 cannot sit in front of
+BYTE0 (that leftover PWM pinned J4 on the previous band). Lyra spaces
+those I2C steals with **delay=5** (same as Thetis/Quisk) so two writes
+do not share one UDP datagram, drops any analog burst still queued
+from the previous band, and only coalesces a hop after BYTE0 is on
+the wire. RF above **54 MHz** is not packed into J4 (2 m xvtr leftover
+reading as 80 m). A leftover 80 m write cannot leave **J4 pin 8** on
+the 80 m voltage after you hop to 20 m.
 
 ### Filter board — OC Control (J16 pins)
 
@@ -6147,6 +6175,7 @@ links.
 
 | Use | Program | Link |
 | --- | --- | --- |
+| Digimode console | STD (TCI / VAC with Lyra; [details](https://n8sdr1.github.io/STD/)) | <https://github.com/N8SDR1/STD/releases> |
 | SSTV | Open SSTV | <https://bucknova.github.io/Open-SSTV/> |
 | FT8 / FT4 | MSHV | <http://lz2hv.org/mshv> |
 | FT8 / FT4 | WSJT-X | <https://wsjtx.github.io/wsjtx/index.html> |

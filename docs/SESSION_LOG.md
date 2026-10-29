@@ -4,6 +4,14 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-29 — v0.25.32 Sheliak RELEASED
+
+J4 analog-first (BYTE0 before fcodes; skip analog want >54 MHz).
+PureSignal P2 replica tightening: radio TX-DAC when odd samples have
+energy, host DUC tap if empty — not Desk-identical PS on Brick2 until
+D1 moves on B2/Greg. Settings → Apps recommended: STD (not Hardware
+Startup). Tag `v0.25.32`. Do not merge `main`. Mac stays `macos-port`.
+
 ## 2026-10-28 — v0.25.31 Sheliak RELEASED
 
 Minor PureSignal changes for Protocol 2: auto-att hunts from live FB;

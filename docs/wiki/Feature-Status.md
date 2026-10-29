@@ -1,18 +1,20 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.31 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.32 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.31** is a small Protocol 2 PureSignal patch on v0.25.30.
-**v0.25.30 Sheliak** is the previous public build.
+**v0.25.32** is J4 analog-first, a Protocol 2 PureSignal replica
+tightening, and STD on Settings → Apps, on top of v0.25.31.
+**v0.25.31 Sheliak** is the previous public build.
 **v0.25.22** remains the long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.31)
+### Last several builds (0.25.16 → 0.25.32)
 
 | Build | What landed |
 |---|---|
+| **0.25.32** | J4 analog-first (BYTE0 before fcodes; skip analog want >54 MHz). PureSignal P2 replica tightening (radio TX-DAC when present, host DUC if empty — not Desk-identical on Brick2 until D1 on B2/Greg). Settings → Apps recommended: **STD**. **v0.25.31** is the previous public build |
 | **0.25.31** | Minor PureSignal changes for Protocol 2 (FB auto-att; PS ON turns ATT-on-TX on). **v0.25.30** is the previous public build |
 | **0.25.30** | Pico **J4** band volts for Xiegu / XPA125 / Micro PA50. J3 Band Volts stays off. **`LYRA_NO_IOBOARD_FCODE=1`** how-to (set and delete). CW keyer = KEY jack + COM CWX. **v0.25.29** is the previous public build |
 | **0.25.29** | **OC on P2 `[1401]`**, per-rig Off/N2ADR/Custom, empty Xvtr OC rows. No auto Yaesu on the radio DB9. USB-BCD FTDI unchanged. Parked Help balloon. P1 6 m hide. PS/Amp View float size. **v0.25.28** is the previous public build |
@@ -75,7 +77,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ TX power / drive, separate **tune drive**, AM carrier level, mic gain + **20 dB mic boost**; Protocol 2 uses analog drive (HP [345]) plus per-band **PA Gain / Full Output / CAP**, including a dedicated **11m** slot
 - ✅ **Separate RX and TX filter lows** (current build) — **RX lo** under **RX BW**, **TX lo** under **TX BW** on the Filters dock (also Settings → Audio). **0–500 Hz**. The lock keeps them equal; unlock and a profile can hold different lows. Older profiles copy the old shared low onto both sides.
 - ✅ Always-on **ALC** + operator **Leveler**, **PHROT** phase rotator
-- ✅ **PureSignal** — adaptive TX predistortion (HL2 / HL2+ coupler mod; BrickSDR2 ADC0 pad; Brick3 rear **PS** jack). Compact dock: ON / 2-tone / **Voice** / ATT / FB / Reset. Engine chips (st / cal / D0 / D1) on **Amp View**. Auto-att persisted **per TX band** (v0.25.16). Attestation in Settings → TX (default off).
+- ✅ **PureSignal** — adaptive TX predistortion (HL2 / HL2+ coupler mod; BrickSDR2 ADC0 pad; Brick3 rear **PS** jack). Compact dock: ON / 2-tone / **Voice** / ATT / FB / Reset. Engine chips (st / cal / D0 / D1) on **Amp View**. Auto-att persisted **per TX band** (v0.25.16). Attestation in Settings → TX (default off). **v0.25.32** P2 replica tightening: radio TX-DAC when the odd samples have energy, host DUC tap if those samples are empty. Not Desk-identical PS on Brick2 until D1 moves on B2 / Greg.
 - ✅ **Waterfall callsign ID** — paints your call in the SSB passband (ham bands only)
 
 ### Native TX audio rack (studio-in-the-radio)
@@ -121,7 +123,7 @@ Where Lyra stands today. Everything marked ✅ is shipped and working in
 - ✅ **USB-BCD** band data for linear-amp band switching
 - ✅ **Backup &amp; Restore** — export config, dated snapshots (survive reinstall), selective restore
 - ✅ Solar / propagation panel (band chips tune VFO A to that band's current stored frequency; they do not step the 1 / 2 / 3 stack), weather alerts
-- ✅ **Apps** — named shortcuts for third-party programs; **Tested with and recommended** links (Open SSTV, MSHV / WSJT-X, VarAC, midi2tci); auto-start after Hardware Startup (default off)
+- ✅ **Apps** — named shortcuts for third-party programs; **Tested with and recommended** links (STD, Open SSTV, MSHV / WSJT-X, VarAC, midi2tci); auto-start after Hardware Startup (default off)
 - ✅ **USB encoder (HID wheel)** — Settings → Hardware → Navigation (Windows); tunes the focused VFO by the Tuning **Step**
 - ✅ **MIDI via TCI sidecar** — not native MIDI; Browse an operator-installed MIDI→TCI program under Settings → Apps (default TCI port **40001**)
 

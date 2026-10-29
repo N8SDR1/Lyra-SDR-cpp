@@ -116,6 +116,12 @@ P7 implements the DeskHPSDR P2 bits (gated, default off). First RF stays HL2.
 `PsCalcThread` from EP6. P2 IQ never hit that path, so the dock showed
 `in=0` / `FB=0` even with more power than an HL2 can make.
 
+**v0.25.32 replica tightening (not Desk-identical on Brick2):** interleaved
+P2 DDC0 even = coupler, odd = radio TX-DAC echo. When those odd samples
+have energy (Brick3 Amp View path), they stay in `pscc`. When they are
+empty, the host DUC tap is the replica so collect can start. Do **not**
+claim DeskHPSDR-identical PureSignal on Brick2 until D1 moves on B2 / Greg.
+
 Hermes-class live PS TX (Brick dummy 2026-09-26: 7.7 W, DDC0=DDC1=0 pkt/s
 with two independent streams + ADC0 att 31):
 

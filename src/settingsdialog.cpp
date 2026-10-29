@@ -11485,6 +11485,10 @@ QWidget *SettingsDialog::buildAppsTab() {
     recV->addWidget(recHint);
     auto *recLinks = new QLabel(
         tr("<ul>"
+           "<li><b>Digimode console</b> — "
+           "<a href=\"https://github.com/N8SDR1/STD/releases\">STD</a> "
+           "(N8SDR's digital-modes app; pair with Lyra over TCI / VAC — "
+           "<a href=\"https://n8sdr1.github.io/STD/\">details</a>)</li>"
            "<li><b>SSTV</b> — "
            "<a href=\"https://bucknova.github.io/Open-SSTV/\">Open SSTV</a></li>"
            "<li><b>FT8 / FT4</b> — "

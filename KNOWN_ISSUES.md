@@ -6,7 +6,7 @@ for the Hermes Lite 2 / 2+ (Protocol 1) and **BrickSDR2 / Brick3SDR** (Protocol 
 expectations so you know what's a real bug versus a feature that simply
 hasn't landed yet. (Pin or link this in Discord.)
 
-Current tree: **v0.25.31 Sheliak**. Minor PureSignal changes for Protocol 2. v0.25.30 Sheliak is the previous public build. v0.25.22 remains the long return point. Always grab the latest from the
+Current tree: **v0.25.32 Sheliak**. J4 analog-first, Protocol 2 PureSignal replica tightening, STD on Settings → Apps. v0.25.31 Sheliak is the previous public build. v0.25.22 remains the long return point. Always grab the latest from the
 [Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases).
 
 > **What already works** (so you don't wonder): full RX DSP, and **transmit
@@ -40,6 +40,8 @@ These are on the roadmap, not broken:
   mod, or dummy-load drive of only 2–3 W, often shows **FB ≈ 0**. Raise
   drive (typically ~5–8 W on a bare HL2) and attest in Settings → TX.
   SUB is paused while MOX+PS is live (preference is not wiped).
+  Protocol 2 replica tightening (v0.25.32) is **not** Desk-identical
+  PureSignal on Brick2 until D1 moves on B2 / Greg.
 * **Cross-band SUB is much weaker** (HL2, BrickSDR2, ANAN-10 / 100). One
   ADC and one analog filter. With an N2ADR / filter board on, OC follows
   **RX1** — RX2 on another amateur band sits behind that LPF/BPF.
