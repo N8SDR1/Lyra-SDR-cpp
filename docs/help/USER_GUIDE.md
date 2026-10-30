@@ -2799,10 +2799,10 @@ installed — without a coupler you get garbage feedback and a worse
 signal. On Protocol 2 the reference is the radio's own **TX-DAC
 replica** (odd DDC0 samples) and the TX IQ stream stays at **unity**;
 Drive only moves the analog drive byte. That is why **PureSignal
-calibrates at any Drive setting on Brick2 / Brick3** — you do not need
-100 % Drive to make FB rise. **Drive warning after upgrading from
-v0.25.16–0.25.31:** those builds also scaled the IQ with Drive, so the
-same slider position now produces **more RF** (about +7 dB at 40 %).
+no longer needs 100 % Drive on Brick2 / Brick3** to make FB rise.
+**Drive warning after upgrading from v0.25.16–0.25.31:** those builds
+also scaled the IQ with Drive, so the same slider position (and TUN)
+now produces **more RF** (about +8 dB at 40 %).
 Turn Drive down before keying into an amplifier and walk it up; learned
 watts-cap ceilings are reset once on a P2 rig, so re-run **TUN**.
 

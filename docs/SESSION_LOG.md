@@ -16,7 +16,7 @@ unchanged, one-shot per-rig cap-ceiling reset `p2/psUnityIqCapResetV1`);
 `a278e9b` revert 94e5056 host DUC tap + `+3` DDC byte; `12cd393`
 iqSampleScale() 1.0 while PS live. No version bump, no tag, no DEV
 rebuild — Rick reads the diff first. Operator warning: same Drive
-position = more RF on P2 (~+7 dB at 40 %). Pre-existing test rot
+position = more RF on P2 (~+8 dB at 40 %). Pre-existing test rot
 noted: test_p2_tx_packets.cpp no longer matches the P2TxWriter API;
 test_p2_g2_profile has a stale "7000DLE profile-locked" assertion.
 

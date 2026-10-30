@@ -34,9 +34,11 @@ on Brick2 / Brick3 only had a chance at 100 % Drive.
 ## **OPERATOR WARNING — read before the first key-up**
 
 **After this upgrade the same Drive slider position produces MORE RF on
-Protocol-2 radios than v0.25.16–0.25.31 did** — roughly **+7 dB (about
-5×) at 40 % Drive, +10 dB at 30 %**, and more the lower the slider sits.
-100 % is unchanged.
+Protocol-2 radios than v0.25.16–0.25.31 did** — roughly **+8 dB (about
+6×) at 40 % Drive, +10 dB (about 11×) at 30 %**, and more the lower the
+slider sits. TUN power rises the same way. 100 % is unchanged only on a
+band whose PA Gain is 100 or higher; a band with PA Gain below 100 is
+hotter at 100 % too.
 
 **If you drive an external amplifier — especially a low-drive amp such as
 the VK 1 kW — turn Drive DOWN before keying and walk it up while watching
