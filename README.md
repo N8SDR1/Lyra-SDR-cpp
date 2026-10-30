@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.32 Sheliak** — J4 analog-first, Protocol 2 PureSignal replica tightening, STD on Settings → Apps. On top of v0.25.31. **v0.25.31** is the previous public build. v0.25.22 remains the long return point. WDSP 2.10 from 0.25.8.
+**v0.25.33 Sheliak** — stability upgrade, recommended for all Protocol 2 radios: P2 TX drive handling fixed (PureSignal calibrates at normal drive on Brick2 / Brick3; **turn Drive down and walk it up before your first TX**), CTUN pan lock on P2, J4 analog-first, 48 kHz PS, STD on Settings → Apps. On top of v0.25.31 (v0.25.32 was tagged but never released). **v0.25.31** is the previous public build. v0.25.22 remains the long return point. WDSP 2.10 from 0.25.8.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc) · [Facebook](https://www.facebook.com/groups/1994335921523916)
 

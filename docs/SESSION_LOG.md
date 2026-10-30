@@ -4,7 +4,20 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
-## 2026-10-30 — P2 PureSignal root cause: TX IQ scaled with Drive (unreleased)
+## 2026-10-30 — v0.25.33 Sheliak RELEASED (stability upgrade)
+
+Ships the P2 unity-IQ fix below plus `2ae5848` CTUN pan lock on P2,
+`54afb17` J4 analog-first and STD on Apps (both carried from the
+v0.25.32 tag), `12cd393` PS at 48 kHz. Framed operator-facing as a
+stability upgrade recommended for all Protocol 2 radios; drive warning
+(+8 dB at 40 %, +10 dB at 30 %, TUN included; walk Drive up; re-run TUN
+per band) is mandatory in the release body. Star name stays Sheliak
+(series name since 0.25.0). `v0.25.32` tag (`9be343a`) left in place,
+unpublished — that build carried the host-DUC PS replica regression.
+UNRELEASED-ps-p2-unity-iq.md folded into `docs/releases/v0.25.33.md`.
+Tag `v0.25.33`. Do not merge `main`. Mac stays `macos-port`.
+
+## 2026-10-30 — P2 PureSignal root cause: TX IQ scaled with Drive
 
 Four audits agree (docs/PS_P2_REGRESSION_REPORT.md): ac3ad57 (v0.25.16)
 made `SetTXFixedGain(0, rv, rv)` unconditional, so P2 applied Drive
@@ -20,7 +33,7 @@ position = more RF on P2 (~+8 dB at 40 %). Pre-existing test rot
 noted: test_p2_tx_packets.cpp no longer matches the P2TxWriter API;
 test_p2_g2_profile has a stale "7000DLE profile-locked" assertion.
 
-## 2026-10-29 — v0.25.32 Sheliak RELEASED
+## 2026-10-29 — v0.25.32 Sheliak tagged (NEVER RELEASED — PS replica regression; superseded by v0.25.33)
 
 J4 analog-first (BYTE0 before fcodes; skip analog want >54 MHz).
 PureSignal P2 replica tightening: radio TX-DAC when odd samples have

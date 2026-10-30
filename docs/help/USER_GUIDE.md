@@ -22,12 +22,46 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.32 Sheliak** — J4 analog-first, Protocol 2 PureSignal replica
-tightening, STD on Settings → Apps.
-**v0.25.31** is the previous public build.
-See [What's new in 0.25.32](#whats-new-in-02532).
+**v0.25.33 Sheliak** — stability upgrade, recommended for all Protocol 2
+radios. P2 TX drive handling fixed (PureSignal calibrates at normal
+drive), CTUN pan lock on P2, J4 analog-first, 48 kHz PureSignal, STD on
+Settings → Apps.
+**v0.25.31** is the previous public build (v0.25.32 was tagged but never
+released). See [What's new in 0.25.33](#whats-new-in-02533).
 
-## What's new in 0.25.32
+## What's new in 0.25.33
+
+- **Recommended upgrade for all Brick / Protocol 2 operators.** Fixes a
+  TX drive handling issue present since **v0.25.16** that affected
+  PureSignal calibration below full drive. PureSignal now calibrates at
+  normal operating drive levels on Brick2 / Brick3. **Protocol 1 / HL2
+  unchanged.**
+- **Before your first transmit after upgrading: turn Drive down and
+  walk it up.** On Protocol 2 radios the same Drive slider setting now
+  produces more RF than previous versions (about **+8 dB at 40 %**,
+  **+10 dB at 30 %**; **TUN included**). Essential if you drive an
+  external amplifier. Learned amp watts-cap ceilings are reset once per
+  P2 rig — **re-run TUN on each band.**
+- **CTUN on Protocol 2.** The panadapter now stays locked at the
+  engagement point and audio follows the VFO, matching Protocol 1.
+- **I/O board (J4 analog PWM)** is now sent **before** band fcodes;
+  VHF / transverter frequencies no longer push a wrong analog band.
+- **PureSignal at 48 kHz** sample rate on Protocol 2 fixed.
+- **Suggested Apps: STD.** Settings → **Apps** → Tested with and
+  recommended lists **STD** (N8SDR's digital-modes app). The name
+  opens the [GitHub releases](https://github.com/N8SDR1/STD/releases);
+  details open <https://n8sdr1.github.io/STD/>. Pair over TCI / VAC.
+  Hardware → Startup is unchanged (SDRLogger+ only).
+- Internal: an experimental PureSignal host-reference path was removed;
+  tests added.
+- **v0.25.31 Sheliak** is the previous public build. **v0.25.22**
+  remains the long return point. Settings stay.
+
+## What's new in 0.25.32 (tagged, never released)
+
+> v0.25.32 was tagged but no installer was published; its PureSignal
+> "replica" fallback was a regression. Everything else here shipped in
+> **0.25.33**.
 
 - **J4 analog-first.** Analog BYTE0–4 is sent **before** Pico GPIO
   fcodes 13/14 so leftover PWM cannot pin J4 on the previous band
@@ -544,7 +578,8 @@ Dummy load first.
 
 ## Contents
 
-- [What's new in 0.25.32](#whats-new-in-02532)
+- [What's new in 0.25.33](#whats-new-in-02533)
+- [What's new in 0.25.32 (tagged, never released)](#whats-new-in-02532-tagged-never-released)
 - [What's new in 0.25.31](#whats-new-in-02531)
 - [What's new in 0.25.30](#whats-new-in-02530)
 - [What's new in 0.25.29](#whats-new-in-02529)
@@ -2800,9 +2835,11 @@ signal. On Protocol 2 the reference is the radio's own **TX-DAC
 replica** (odd DDC0 samples) and the TX IQ stream stays at **unity**;
 Drive only moves the analog drive byte. That is why **PureSignal
 no longer needs 100 % Drive on Brick2 / Brick3** to make FB rise.
-**Drive warning after upgrading from v0.25.16–0.25.31:** those builds
-also scaled the IQ with Drive, so the same slider position (and TUN)
-now produces **more RF** (about +8 dB at 40 %).
+**Drive warning after upgrading from v0.25.16–0.25.31 to v0.25.33:**
+those builds also scaled the IQ with Drive, so the same slider position
+(and TUN) now produces **more RF** (about +8 dB at 40 %, +10 dB at
+30 %). Turn Drive down and walk it up before the first key-up; re-run
+TUN per band.
 Turn Drive down before keying into an amplifier and walk it up; learned
 watts-cap ceilings are reset once on a P2 rig, so re-run **TUN**.
 

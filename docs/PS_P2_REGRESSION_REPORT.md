@@ -243,5 +243,6 @@ thresholds, three-tick sequence and per-band pad persistence stay as shipped);
 (the symbol is not exported by the bundled `wdsp.dll`, so the call is inert and
 the effective value is the compiled-in 0.06); SetPk; DDC routing.
 
-Operator-facing notes: `docs/releases/UNRELEASED-ps-p2-unity-iq.md` (includes the
-drive-level warning for amplifier users).
+Operator-facing notes: `docs/releases/v0.25.33.md` (includes the
+drive-level warning for amplifier users). Shipped as **v0.25.33** on 2026-10-30;
+v0.25.32 was tagged but never released.

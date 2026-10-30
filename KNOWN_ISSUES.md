@@ -6,7 +6,7 @@ for the Hermes Lite 2 / 2+ (Protocol 1) and **BrickSDR2 / Brick3SDR** (Protocol 
 expectations so you know what's a real bug versus a feature that simply
 hasn't landed yet. (Pin or link this in Discord.)
 
-Current tree: **v0.25.32 Sheliak**. J4 analog-first, Protocol 2 PureSignal replica tightening, STD on Settings → Apps. v0.25.31 Sheliak is the previous public build. v0.25.22 remains the long return point. Always grab the latest from the
+Current tree: **v0.25.33 Sheliak**. Stability upgrade recommended for all Protocol 2 radios: P2 TX drive handling fixed (PureSignal calibrates at normal drive), CTUN pan lock on P2, J4 analog-first, 48 kHz PS, STD on Settings → Apps. **Turn Drive down and walk it up before your first TX on a P2 radio.** v0.25.31 Sheliak is the previous public build (v0.25.32 was tagged but never released). v0.25.22 remains the long return point. Always grab the latest from the
 [Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases).
 
 > **What already works** (so you don't wonder): full RX DSP, and **transmit
@@ -43,10 +43,11 @@ These are on the roadmap, not broken:
   **Brick2 / Brick3 PureSignal never finishing (FB 0 / cal 0 / pad
   walked to 0 dB) was a v0.25.16–0.25.31 bug** — Protocol-2 TX IQ was
   scaled with Drive, so the TX-DAC replica never reached SetPk below
-  full drive. Fixed in the unreleased build after v0.25.32 (P2 TX IQ at
-  unity; see `docs/releases/UNRELEASED-ps-p2-unity-iq.md`). **After that
-  upgrade the same Drive position makes more RF on P2** — turn Drive
-  down before keying into an amp.
+  full drive. Fixed in **v0.25.33** (P2 TX IQ at unity; see
+  `docs/releases/v0.25.33.md`). **After that upgrade the same Drive
+  position makes more RF on P2** (about +8 dB at 40 %, +10 dB at 30 %,
+  TUN included) — turn Drive down and walk it up before keying into an
+  amp, and re-run TUN per band.
 * **Cross-band SUB is much weaker** (HL2, BrickSDR2, ANAN-10 / 100). One
   ADC and one analog filter. With an N2ADR / filter board on, OC follows
   **RX1** — RX2 on another amateur band sits behind that LPF/BPF.

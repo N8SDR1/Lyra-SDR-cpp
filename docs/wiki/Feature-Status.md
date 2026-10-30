@@ -1,20 +1,24 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.32 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.33 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.32** is J4 analog-first, a Protocol 2 PureSignal replica
-tightening, and STD on Settings → Apps, on top of v0.25.31.
-**v0.25.31 Sheliak** is the previous public build.
+**v0.25.33** is a stability upgrade recommended for all Protocol 2
+radios: P2 TX drive handling fixed (PureSignal calibrates at normal
+drive — **turn Drive down and walk it up before your first TX**), CTUN
+pan lock on P2, J4 analog-first, 48 kHz PS, STD on Settings → Apps.
+**v0.25.31 Sheliak** is the previous public build (v0.25.32 was tagged
+but never released).
 **v0.25.22** remains the long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.32)
+### Last several builds (0.25.16 → 0.25.33)
 
 | Build | What landed |
 |---|---|
-| **0.25.32** | J4 analog-first (BYTE0 before fcodes; skip analog want >54 MHz). PureSignal P2 replica tightening (radio TX-DAC when present, host DUC if empty — not Desk-identical on Brick2 until D1 on B2/Greg). Settings → Apps recommended: **STD**. **v0.25.31** is the previous public build |
+| **0.25.33** | **Stability upgrade — recommended for all Protocol 2 radios.** P2 TX IQ back at unity (Drive was applied twice since 0.25.16; PureSignal now calibrates at normal drive on Brick2 / Brick3; **same Drive slider = more RF, about +8 dB at 40 % — turn Drive down and walk it up, re-run TUN per band**). CTUN on P2 locks the pan like P1. J4 analog-first (BYTE0 before fcodes; no analog want >54 MHz). PS at 48 kHz on P2. Settings → Apps recommended: **STD**. Experimental PS host-reference path removed. HL2 / P1 unchanged. **v0.25.31** is the previous public build |
+| 0.25.32 | *Tagged, never released* (PureSignal host-replica regression). Its J4 analog-first and STD items shipped in 0.25.33 |
 | **0.25.31** | Minor PureSignal changes for Protocol 2 (FB auto-att; PS ON turns ATT-on-TX on). **v0.25.30** is the previous public build |
 | **0.25.30** | Pico **J4** band volts for Xiegu / XPA125 / Micro PA50. J3 Band Volts stays off. **`LYRA_NO_IOBOARD_FCODE=1`** how-to (set and delete). CW keyer = KEY jack + COM CWX. **v0.25.29** is the previous public build |
 | **0.25.29** | **OC on P2 `[1401]`**, per-rig Off/N2ADR/Custom, empty Xvtr OC rows. No auto Yaesu on the radio DB9. USB-BCD FTDI unchanged. Parked Help balloon. P1 6 m hide. PS/Amp View float size. **v0.25.28** is the previous public build |
@@ -77,7 +81,7 @@ tightening, and STD on Settings → Apps, on top of v0.25.31.
 - ✅ TX power / drive, separate **tune drive**, AM carrier level, mic gain + **20 dB mic boost**; Protocol 2 uses analog drive (HP [345]) plus per-band **PA Gain / Full Output / CAP**, including a dedicated **11m** slot
 - ✅ **Separate RX and TX filter lows** (current build) — **RX lo** under **RX BW**, **TX lo** under **TX BW** on the Filters dock (also Settings → Audio). **0–500 Hz**. The lock keeps them equal; unlock and a profile can hold different lows. Older profiles copy the old shared low onto both sides.
 - ✅ Always-on **ALC** + operator **Leveler**, **PHROT** phase rotator
-- ✅ **PureSignal** — adaptive TX predistortion (HL2 / HL2+ coupler mod; BrickSDR2 ADC0 pad; Brick3 rear **PS** jack). Compact dock: ON / 2-tone / **Voice** / ATT / FB / Reset. Engine chips (st / cal / D0 / D1) on **Amp View**. Auto-att persisted **per TX band** (v0.25.16). Attestation in Settings → TX (default off). **v0.25.32** P2 replica tightening: radio TX-DAC when the odd samples have energy, host DUC tap if those samples are empty. Not Desk-identical PS on Brick2 until D1 moves on B2 / Greg.
+- ✅ **PureSignal** — adaptive TX predistortion (HL2 / HL2+ coupler mod; BrickSDR2 ADC0 pad; Brick3 rear **PS** jack). Compact dock: ON / 2-tone / **Voice** / ATT / FB / Reset. Engine chips (st / cal / D0 / D1) on **Amp View**. Auto-att persisted **per TX band** (v0.25.16). Attestation in Settings → TX (default off). **v0.25.33**: Protocol 2 TX IQ stays at unity (watts on the analog drive byte only), so PureSignal calibrates at normal operating drive on Brick2 / Brick3; the reference is the radio's own TX-DAC replica. Same Drive slider now makes more RF on P2 than 0.25.16–0.25.31 — turn Drive down and walk it up.
 - ✅ **Waterfall callsign ID** — paints your call in the SSB passband (ham bands only)
 
 ### Native TX audio rack (studio-in-the-radio)
