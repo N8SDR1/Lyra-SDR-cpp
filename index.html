@@ -122,6 +122,11 @@
   .credits p { font-size: 14.5px; margin: 6px 0; }
   .credits .name { color: var(--head); font-weight: 600; }
 
+  /* Companion apps — two boxes side by side on desktop, stacked on mobile */
+  .companion-grid { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: stretch; }
+  .companion { display: flex; flex-direction: column; }
+  .companion p { flex: 1; }
+
   footer { text-align: center; padding: 34px 0 56px; color: var(--muted); font-size: 13px; }
   footer a { color: var(--muted); }
   footer a:hover { color: var(--accent); }
@@ -287,14 +292,26 @@
       </div>
     </section>
 
-    <section>
-      <h2>Companion app</h2>
-      <div class="credits" style="text-align:center;">
-        <h3 style="color:var(--head); font-size:20px; margin-bottom:10px;">🔗 SDRLogger+ — the logbook that speaks Lyra</h3>
-        <p style="max-width:660px; margin:0 auto;"><a href="https://n8sdr1.github.io/SDRLoggerPlus/"><strong style="color:var(--accent)">SDRLogger+</strong></a> is Lyra's sister application — a modern contest &amp; DX logger by the same developer. Link the two over TCI and switch on <strong style="color:var(--head)">Combo</strong>: copy a call once in Lyra's CW console and it lands in the log with a callbook lookup, the operator's name returns to your macros, RST auto-fills from Lyra's calibrated S-meter, and one macro logs the QSO as you send 73.</p>
-        <div class="cta" style="margin-top:20px;">
-          <a class="btn btn-primary" href="https://n8sdr1.github.io/SDRLoggerPlus/">Visit SDRLogger+</a>
-          <a class="btn btn-ghost" href="https://github.com/N8SDR1/SDRLoggerPlus">★ GitHub</a>
+    <section id="companion-apps">
+      <h2>Companion apps</h2>
+      <p class="marquee-sub">Same shack, same developer. Both link to Lyra over TCI.</p>
+      <div class="grid companion-grid">
+        <div class="credits companion" style="text-align:center;">
+          <h3 style="color:var(--head); font-size:20px; margin-bottom:10px;">🔗 SDRLogger+ — the logbook that speaks Lyra</h3>
+          <p style="max-width:660px; margin:0 auto;"><a href="https://n8sdr1.github.io/SDRLoggerPlus/"><strong style="color:var(--accent)">SDRLogger+</strong></a> is Lyra's sister application — a modern contest &amp; DX logger by the same developer. Link the two over TCI and switch on <strong style="color:var(--head)">Combo</strong>: copy a call once in Lyra's CW console and it lands in the log with a callbook lookup, the operator's name returns to your macros, RST auto-fills from Lyra's calibrated S-meter, and one macro logs the QSO as you send 73.</p>
+          <div class="cta" style="margin-top:20px;">
+            <a class="btn btn-primary" href="https://n8sdr1.github.io/SDRLoggerPlus/">Visit SDRLogger+</a>
+            <a class="btn btn-ghost" href="https://github.com/N8SDR1/SDRLoggerPlus">★ GitHub</a>
+          </div>
+        </div>
+        <div class="credits companion" style="text-align:center;">
+          <h3 style="color:var(--head); font-size:20px; margin-bottom:10px;">📡 STD — Shift, Tone, Decode</h3>
+          <p style="max-width:660px; margin:0 auto;"><a href="https://n8sdr1.github.io/STD/"><strong style="color:var(--accent)">STD</strong></a> is Lyra's digital-modes console — a 64-bit Windows digimode app by the same developer, now in testing. FT8 / FT4 / FT2, RTTY, PSK, Olivia, Contestia, MFSK, MT63, JS8, WSPR and Hell, with PSK Reporter built in. Link it to Lyra over TCI and route the audio through <strong style="color:var(--head)">VAC</strong>: frequency and mode stay in sync, PTT keys from the decoder, and CW stays in Lyra.</p>
+          <div class="cta" style="margin-top:20px;">
+            <a class="btn btn-primary" href="https://n8sdr1.github.io/STD/">Visit STD</a>
+            <a class="btn btn-ghost" href="https://github.com/N8SDR1/STD/releases">Releases</a>
+            <a class="btn btn-ghost" href="https://github.com/N8SDR1/STD">★ GitHub</a>
+          </div>
         </div>
       </div>
     </section>
