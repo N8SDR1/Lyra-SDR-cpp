@@ -4,6 +4,22 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-30 — P2 PureSignal root cause: TX IQ scaled with Drive (unreleased)
+
+Four audits agree (docs/PS_P2_REGRESSION_REPORT.md): ac3ad57 (v0.25.16)
+made `SetTXFixedGain(0, rv, rv)` unconditional, so P2 applied Drive
+twice (IQ × HP [345]); the TX-DAC replica followed the IQ and never
+reached SetPk below full drive → st 4, FB 0, cal 0, auto-att pad → 0
+(Greg / Brick2). Three code commits on `feature/wdsp-2.10`:
+`e95b135` P2 IQ at unity (tx/TxDriveSplit.h + test_tx_drive_split, P1
+unchanged, one-shot per-rig cap-ceiling reset `p2/psUnityIqCapResetV1`);
+`a278e9b` revert 94e5056 host DUC tap + `+3` DDC byte; `12cd393`
+iqSampleScale() 1.0 while PS live. No version bump, no tag, no DEV
+rebuild — Rick reads the diff first. Operator warning: same Drive
+position = more RF on P2 (~+7 dB at 40 %). Pre-existing test rot
+noted: test_p2_tx_packets.cpp no longer matches the P2TxWriter API;
+test_p2_g2_profile has a stale "7000DLE profile-locked" assertion.
+
 ## 2026-10-29 — v0.25.32 Sheliak RELEASED
 
 J4 analog-first (BYTE0 before fcodes; skip analog want >54 MHz).

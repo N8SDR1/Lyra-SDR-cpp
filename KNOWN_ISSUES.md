@@ -40,8 +40,13 @@ These are on the roadmap, not broken:
   mod, or dummy-load drive of only 2–3 W, often shows **FB ≈ 0**. Raise
   drive (typically ~5–8 W on a bare HL2) and attest in Settings → TX.
   SUB is paused while MOX+PS is live (preference is not wiped).
-  Protocol 2 replica tightening (v0.25.32) is **not** Desk-identical
-  PureSignal on Brick2 until D1 moves on B2 / Greg.
+  **Brick2 / Brick3 PureSignal never finishing (FB 0 / cal 0 / pad
+  walked to 0 dB) was a v0.25.16–0.25.31 bug** — Protocol-2 TX IQ was
+  scaled with Drive, so the TX-DAC replica never reached SetPk below
+  full drive. Fixed in the unreleased build after v0.25.32 (P2 TX IQ at
+  unity; see `docs/releases/UNRELEASED-ps-p2-unity-iq.md`). **After that
+  upgrade the same Drive position makes more RF on P2** — turn Drive
+  down before keying into an amp.
 * **Cross-band SUB is much weaker** (HL2, BrickSDR2, ANAN-10 / 100). One
   ADC and one analog filter. With an N2ADR / filter board on, OC follows
   **RX1** — RX2 on another amateur band sits behind that LPF/BPF.

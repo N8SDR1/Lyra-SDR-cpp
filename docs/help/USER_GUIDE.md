@@ -2796,10 +2796,15 @@ the on-air signal is cleaner (less IMD). It is **not** a power booster.
 on that radio. BrickSDR2 uses the radio's Protocol-2 feedback path
 (ADC0 pad). **Do not** turn this on unless that hardware is actually
 installed — without a coupler you get garbage feedback and a worse
-signal. On Protocol 2, Lyra uses the radio's TX-DAC echo when those
-odd DDC0 samples have energy; if they are empty it uses the host DUC
-tap so collect can start. That is a **tightening**, not DeskHPSDR-
-identical PureSignal on Brick2 until D1 moves on B2 / Greg.
+signal. On Protocol 2 the reference is the radio's own **TX-DAC
+replica** (odd DDC0 samples) and the TX IQ stream stays at **unity**;
+Drive only moves the analog drive byte. That is why **PureSignal
+calibrates at any Drive setting on Brick2 / Brick3** — you do not need
+100 % Drive to make FB rise. **Drive warning after upgrading from
+v0.25.16–0.25.31:** those builds also scaled the IQ with Drive, so the
+same slider position now produces **more RF** (about +7 dB at 40 %).
+Turn Drive down before keying into an amplifier and walk it up; learned
+watts-cap ceilings are reset once on a P2 rig, so re-run **TUN**.
 
 **PS jack vs MAP RX2.** Plug the sampler return into the Brick3 rear
 **PS** jack. Lyra already uses that port when PureSignal is on. There
