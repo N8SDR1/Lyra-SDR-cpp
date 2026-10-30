@@ -205,7 +205,9 @@ public:
     quint32 iqSeqErrors()  const { return iqSeqErrors_;  }
     // Hermes-class Brick2 at 48 kHz: IQ is ~29 dB hotter than 192 kHz.
     // deskHPSDR `p2_iq_sample_gain` (new_protocol.c). Saturn (2 ADC)
-    // stays 1.0. Applied at IQ unpack, not on the wire.
+    // stays 1.0. Applied at IQ unpack, not on the wire. Always 1.0
+    // while PureSignal is live (normal-RX trim only; the PS pair stream
+    // is 192 kHz and must reach pscc at full scale).
     double iqSampleScale() const;
 
     // nullptr is an explicit no/unverified-front-end state.

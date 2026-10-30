@@ -81,12 +81,14 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
                 buf.resize(static_cast<std::size_t>(n) * 2);
                 const auto *u =
                     reinterpret_cast<const unsigned char *>(iq.constData());
+                // Per frame, not per sample: 1.0 while PS is live (192 kHz
+                // pair stream), else the 48 kHz one-ADC trim.
+                const double scale = sess->iqSampleScale();
                 for (int i = 0, k = 0; i < n; ++i, k += 6) {
                     const auto iRaw = static_cast<qint32>(
                         (u[k]     << 24) | (u[k + 1] << 16) | (u[k + 2] << 8));
                     const auto qRaw = static_cast<qint32>(
                         (u[k + 3] << 24) | (u[k + 4] << 16) | (u[k + 5] << 8));
-                    const double scale = sess->iqSampleScale();
                     buf[2 * static_cast<std::size_t>(i)]     =
                         iRaw / 2147483648.0 * scale;
                     buf[2 * static_cast<std::size_t>(i) + 1] =

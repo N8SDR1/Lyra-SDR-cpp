@@ -1393,6 +1393,13 @@ void P2Session::open(const QString &ip) {
 }
 
 double P2Session::iqSampleScale() const {
+    // The −29 dB 48 kHz trim is a normal-RX correction only. While PS is
+    // live the radio runs DDC0 at 192 kHz regardless of the stored
+    // operator rate, and both the coupler (even) and the TX-DAC replica
+    // (odd) must reach pscc at full scale or SetPk is never met and
+    // collect never finishes.
+    if (isPureSignalLive())
+        return 1.0;
     if (ddcRateKhz_[0] != 48)
         return 1.0;
     if (profile_ && profile_->adcCount > 1)
