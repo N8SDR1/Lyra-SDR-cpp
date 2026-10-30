@@ -50,8 +50,9 @@ released). See [What's new in 0.25.33](#whats-new-in-02533).
 - **Suggested Apps: STD.** Settings → **Apps** → Tested with and
   recommended lists **STD** (N8SDR's digital-modes app). The name
   opens the [GitHub releases](https://github.com/N8SDR1/STD/releases);
-  details open <https://n8sdr1.github.io/STD/>. Pair over TCI / VAC.
-  Hardware → Startup is unchanged (SDRLogger+ only).
+  details open <https://n8sdr1.github.io/STD/>. Connects over TCI, which
+  carries rig control and audio. Hardware → Startup is unchanged
+  (SDRLogger+ only).
 - Internal: an experimental PureSignal host-reference path was removed;
   tests added.
 - **v0.25.31 Sheliak** is the previous public build. **v0.25.22**
@@ -75,8 +76,9 @@ released). See [What's new in 0.25.33](#whats-new-in-02533).
 - **Suggested Apps: STD.** Settings → **Apps** → Tested with and
   recommended lists **STD** (N8SDR's digital-modes app). The name
   opens the [GitHub releases](https://github.com/N8SDR1/STD/releases);
-  details open <https://n8sdr1.github.io/STD/>. Pair over TCI / VAC.
-  Hardware → Startup is unchanged (SDRLogger+ only).
+  details open <https://n8sdr1.github.io/STD/>. Connects over TCI, which
+  carries rig control and audio. Hardware → Startup is unchanged
+  (SDRLogger+ only).
 - **v0.25.31 Sheliak** is the previous public build. **v0.25.22**
   remains the long return point. Settings stay.
 
@@ -6217,7 +6219,7 @@ links.
 
 | Use | Program | Link |
 | --- | --- | --- |
-| Digimode console | STD (TCI / VAC with Lyra; [details](https://n8sdr1.github.io/STD/)) | <https://github.com/N8SDR1/STD/releases> |
+| Digimode console | STD (connects over TCI — rig control and audio; [details](https://n8sdr1.github.io/STD/)) | <https://github.com/N8SDR1/STD/releases> |
 | SSTV | Open SSTV | <https://bucknova.github.io/Open-SSTV/> |
 | FT8 / FT4 | MSHV | <http://lz2hv.org/mshv> |
 | FT8 / FT4 | WSJT-X | <https://wsjtx.github.io/wsjtx/index.html> |
