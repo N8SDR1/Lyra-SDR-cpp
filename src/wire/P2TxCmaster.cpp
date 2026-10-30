@@ -6,7 +6,6 @@
 #include "wire/ObBuffs.h"
 #include "wire/cmsetup.h"
 #include "wire/wdspcalls.h"
-#include "ps/PsCalcThread.h"
 
 #include <algorithm>
 #include <atomic>
@@ -53,10 +52,6 @@ void p2TxCmasterOutbound(int id, int nsamples, double *iq) noexcept {
         pk = std::max(pk, std::fabs(iq[static_cast<std::size_t>(n)]));
     lastPeak.store(pk, std::memory_order_relaxed);
     p2TxInputFifo().pushInterleaved(iq, static_cast<std::size_t>(nsamples));
-    // Same IQ pscc uses as the TX replica. Do not wait for the radio's
-    // TX-DAC echo on DDC0 odd samples — Brick packets often send zeros
-    // there (Amp View D1 dead, FB 0, cal 0).
-    lyra::ps::PsCalcThread::instance().pushHostTx(nsamples, iq);
 }
 }
 

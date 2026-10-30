@@ -811,14 +811,6 @@ if(MSVC)
     target_compile_options(test_profile PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
-add_executable(test_ps_host_tx EXCLUDE_FROM_ALL
-    scratch/test_ps_host_tx.cpp
-)
-target_include_directories(test_ps_host_tx PRIVATE src)
-if(MSVC)
-    target_compile_options(test_ps_host_tx PRIVATE /utf-8 /Zc:preprocessor)
-endif()
-
 # P1 byte+fixed-gain vs P2 byte-only (unity IQ) TX drive split.
 add_executable(test_tx_drive_split EXCLUDE_FROM_ALL
     scratch/test_tx_drive_split.cpp

@@ -10,6 +10,8 @@ PsCalcThread &PsCalcThread::instance() {
     return g;
 }
 
+void PsCalcThread::setRun(bool) {}
+
 void PsCalcThread::feed(int, const double *, const double *) {}
 
 } // namespace lyra::ps
@@ -18,6 +20,10 @@ namespace lyra::wire {
 
 double p2TxCmasterLastPeak() { return 0.0; }
 
+void p2TxCmasterResetPeak() {}
+
 void setP2TxCmasterChannelRunning(bool) {}
+
+void reassertP2TxCmasterProducer() {}
 
 } // namespace lyra::wire
