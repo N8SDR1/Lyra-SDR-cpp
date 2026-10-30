@@ -13,11 +13,13 @@
 // Lyra's router port is a verbatim port of.
 //
 // Division of labour with HL2Stream:
-//   * HL2Stream REMAINS the tuning/state authority — every VFO
-//     gesture, band button, memory recall and CAT command lands in
-//     HL2Stream::setRx1FreqHz whether or not the P1 wire is up.  The
-//     bridge subscribes to rx1FreqChanged and mirrors the dial onto
-//     DDC0, so the entire tuning UI drives the Saturn for free.
+    //   * HL2Stream REMAINS the tuning/state authority — every VFO
+    //     gesture, band button, memory recall and CAT command lands in
+    //     HL2Stream::setRx1FreqHz whether or not the P1 wire is up.  The
+    //     bridge subscribes to rx1FreqChanged / ritChanged / ctuneChanged
+    //     and mirrors DDC0 via p2Ddc0RfHz (CTUN centre when engaged,
+    //     else dial+RIT).  DUC follows the heard/LED TX VFO, not the
+    //     frozen pan.
 //   * The two wire paths are mutually exclusive: open() refuses while
 //     the P1 stream runs, and the Settings Open path closes this
 //     bridge before opening an HL2.  That guarantee is what makes the
@@ -242,9 +244,10 @@ private:
     void persistFrontEndForBand(const QString &band, const QString &name,
                                 const QVariant &value);
     quint16 chooseRateKhz();   // engine rate → legal P2 rate (may set engine rate)
-    // Mirror the tuning state onto the session: DDC0 = effective RX carrier
-    // (dial + RIT), and DUC = effective TX carrier (VFO B/XIT when enabled).
-    // Called whenever the relevant tuning state changes.
+    // Mirror the tuning state onto the session: DDC0 = p2Ddc0RfHz
+    // (CTUN centre when engaged, else dial+RIT) after xvtr/cal, and
+    // DUC = effective TX carrier (VFO/split/XIT — heard/LED, not the
+    // frozen pan).  Called whenever the relevant tuning state changes.
     void pushDialToSession();
     void syncRx2Ddc();
     void restoreFrontEndForBand(const QString &band);

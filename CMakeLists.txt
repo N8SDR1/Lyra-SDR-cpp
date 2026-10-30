@@ -837,6 +837,15 @@ if(MSVC)
     target_compile_options(test_puresignal_ddc_map PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
+add_executable(test_p2_ctune EXCLUDE_FROM_ALL
+    scratch/test_p2_ctune.cpp
+)
+target_include_directories(test_p2_ctune PRIVATE src)
+target_link_libraries(test_p2_ctune PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_p2_ctune PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
 # P2 Phase B — Saturn / ANAN G2 control-plane session bench test.
 # EXCLUDE_FROM_ALL; `cmake --build build --target test_p2_session`.
 # Console tool: opens a P2 session (general + HP run=1), prints the

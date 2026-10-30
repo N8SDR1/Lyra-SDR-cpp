@@ -3,6 +3,7 @@
 #include "P2RxBridge.h"
 
 #include "FrameComposer.h"
+#include "P2TuneHz.h"
 #include "P2Session.h"
 #include "P2TxCmaster.h"
 #include "Router.h"
@@ -327,9 +328,10 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
         emit runningChanged();
     });
 
-    // VFO + RIT follow: HL2Stream stays the tuning authority (see
-    // header); the DDC mirrors the RIT-adjusted effective RX
-    // frequency exactly as the P1 path's pushEffectiveRxFreq does.
+    // VFO / RIT / CTUN follow: HL2Stream stays the tuning authority
+    // (see header).  DDC0 matches P1 pushEffectiveRxFreq: locked at
+    // ctuneCenterHz when CTUN is on, else dial+RIT.  DUC stays on
+    // the heard/LED TX path (not the frozen pan).
     if (stream_) {
         connect(stream_, &lyra::ipc::HL2Stream::ocBitsChanged, this,
                 [this](int bits) {
@@ -341,6 +343,8 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
         connect(stream_, &lyra::ipc::HL2Stream::rx1FreqChanged, this,
                 [this]() { pushDialToSession(); });
         connect(stream_, &lyra::ipc::HL2Stream::ritChanged, this,
+                [this]() { pushDialToSession(); });
+        connect(stream_, &lyra::ipc::HL2Stream::ctuneChanged, this,
                 [this]() { pushDialToSession(); });
         connect(stream_, &lyra::ipc::HL2Stream::subEnabledChanged, this,
                 [this]() { syncRx2Ddc(); });
@@ -796,10 +800,12 @@ void P2RxBridge::pushDialToSession() {
         if (auto *xv = stream_->xvtrSlots())
             xv->reapplyStoredGain();
     }
-    quint32 rx = stream_->rx1FreqHz();
-    if (stream_->ritEnabled())
-        rx = static_cast<quint32>(
-            std::max<qint64>(0, qint64(rx) + stream_->ritOffsetHz()));
+    // DDC0: CTUN locks the hardware NCO at the pan centre (RIT is in
+    // the WDSP shift, same as P1).  CTUN off: dial + RIT.
+    quint32 rx = p2Ddc0RfHz(stream_->rx1FreqHz(),
+                            stream_->ritEnabled(),
+                            stream_->ritOffsetHz(),
+                            stream_->ctuneCenterHz());
     // Display RF → radio IF (identity when no transverter slot matches),
     // then the existing calibration choke.
     rx = static_cast<quint32>(stream_->ddsHzForRf(rx));
@@ -1159,9 +1165,14 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     activateTxProducerSeam();
     resetTxUiState();
     rateKhz_ = chooseRateKhz();
-    // Seed DDC0 from the dial (rx/freqHz persists across launches; 0
-    // only on a truly fresh install → park on 20 m).
-    quint32 hz = stream_ ? stream_->rx1FreqHz() : 0;
+    // Seed DDC0 from the CTUN/dial contract (rx/freqHz persists across
+    // launches; 0 only on a truly fresh install → park on 20 m).
+    quint32 hz = stream_
+        ? p2Ddc0RfHz(stream_->rx1FreqHz(),
+                     stream_->ritEnabled(),
+                     stream_->ritOffsetHz(),
+                     stream_->ctuneCenterHz())
+        : 0;
     if (hz == 0) hz = 14'100'000u;
     const int rxIf = stream_ ? stream_->ddsHzForRf(hz) : static_cast<int>(hz);
     const quint32 correctedHz =
