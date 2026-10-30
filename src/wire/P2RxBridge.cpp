@@ -1257,6 +1257,35 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
         }
         txDriveLimitPercent_ = std::clamp(stored, 1, 100);
     }
+    // One-shot: v0.25.16–0.25.31 scaled P2 TX IQ with Drive on top of HP
+    // [345] (drive applied twice). Watts-cap ceilings TUN-learned under
+    // that curve are wrong for unity IQ (same raw drive now gives several
+    // dB more RF), so forget them once per install for this P2 rig and
+    // let TUN re-learn. Same keys as HL2Stream::clearCapLearnForBand
+    // (rig/<id>/pa_gain/<band>/capCeilRaw|capCeilCapW|capSettled); the
+    // rig-scoped prefix keeps HL2 / P1 learn untouched. Runs BEFORE
+    // setTxCalRigId → loadTxPowerCal_ reads them.
+    if (!rigId_.isEmpty()) {
+        QSettings qs;
+        const QString doneKey =
+            rigScopedKey(rigId_, QStringLiteral("p2/psUnityIqCapResetV1"));
+        if (!qs.value(doneKey, false).toBool()) {
+            for (int i = 0; i < lyra::kPaPowerBandCount; ++i) {
+                const char *nm = lyra::paPowerBandName(i);
+                const QString band = (nm && nm[0])
+                    ? QString::fromUtf8(nm) : QString::number(i);
+                qs.setValue(rigScopedKey(rigId_,
+                    QStringLiteral("pa_gain/%1/capCeilRaw").arg(band)), -1);
+                qs.setValue(rigScopedKey(rigId_,
+                    QStringLiteral("pa_gain/%1/capCeilCapW").arg(band)), -1.0);
+                qs.setValue(rigScopedKey(rigId_,
+                    QStringLiteral("pa_gain/%1/capSettled").arg(band)), false);
+            }
+            qs.setValue(doneKey, true);
+            qWarning("P2: unity TX IQ — learned watts-cap ceilings reset for "
+                     "this rig (re-run TUN per band)");
+        }
+    }
     // Per-rig auto-arm preference (default off): re-applies the transient
     // bench interlock automatically once the transport reports Ready.
     txAutoArm_ = QSettings().value(

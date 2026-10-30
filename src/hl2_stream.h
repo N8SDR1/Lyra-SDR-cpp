@@ -974,8 +974,10 @@ public:
     }
     // When true, applyTxPower_ uses the P2 analog-drive formula (linear
     // 0..255 byte, no HL2 16-step DAC divisor) and keeps IQ fixed-gain at
-    // unity so watts live on HP [345] only.  Set by the P2 bridge on
-    // open/close.  Does not change the operator slider.
+    // unity so watts live on HP [345] only (tx/TxDriveSplit.h; unity IQ
+    // is what lets the radio's TX-DAC replica reach the PureSignal SetPk
+    // at any drive).  Set by the P2 bridge on open/close.  Does not
+    // change the operator slider.
     void    setP2DrivePath(bool on);
     // Bind PA-gain / watts-cap / PWR-trim persistence to a specific
     // radio profile (the connected P2 rig). Empty restores the active

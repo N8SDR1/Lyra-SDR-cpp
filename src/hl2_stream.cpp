@@ -27,6 +27,7 @@
 #include "wire/FrameComposer.h" // §5 control-plane mapping: set_rx_freq / set_tx_freq / set_rx_step_attn_db (P4.b RX side)
 #include "wire/RbpFilter.h"     // prbpfilter2 RX2-jack ground bit
 #include "wire/TxGain.h"        // SetTXFixedGain/Run — TX power model Stage 2 fine drive
+#include "tx/TxDriveSplit.h"    // P1 byte+gain / P2 byte-only split (unit-tested)
 #include "bands.h"              // amateurBands / bandIndexForFreq — TX power model Stage 3
 #include "bandmemory.h"
 #include "rig/RigScope.h"       // multi-rig Stage 3 — per-rig key routing (cal/)
@@ -2807,10 +2808,13 @@ void HL2Stream::restoreFoldedDriveSafely_() {
 }
 
 void HL2Stream::applyTxPower_(int requestedRaw) {
-    // The single TX power chokepoint.  RadioVolume drives BOTH the coarse
-    // AD9866 drive_level byte (round(255·RV)) AND the ChannelMaster txgain
-    // digital fixed gain (SetTXFixedGain(RV)) — exactly as Thetis drives
-    // both from one RadioVolume.  The byte gives the 16 coarse steps; the
+    // The single TX power chokepoint.  On HL2 P1, RadioVolume drives BOTH
+    // the coarse AD9866 drive_level byte (round(255·RV)) AND the
+    // ChannelMaster txgain digital fixed gain (SetTXFixedGain(RV)) —
+    // exactly as Thetis drives both from one RadioVolume.  On P2 only the
+    // byte (HP [345]) carries RV; IQ fixed gain is pinned at unity (see
+    // the block comment at the SetTXFixedGain call below).
+    // The byte gives the 16 coarse steps; the
     // fixed gain fills continuously between them + below the PA floor
     // (sub-watt) and is PureSignal-safe (it's the reference's own TX gain
     // stage, where PS taps post-gain).  The per-band PA Gain shapes RV so
@@ -2860,8 +2864,8 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
     // refine with a CW-keyed servo learn (option B) if the operator wants it.
     const bool p2Path = p2DrivePath_.load(std::memory_order_relaxed);
     // CW fold is HL2 P1 only: that gateware substitutes a keyed carrier and
-    // bypasses IQ fixed-gain. P2 streams host I/Q; copying the fold would
-    // under-drive Brick/ANAN and fight PureSignal's later IQ tap.
+    // bypasses IQ fixed-gain. P2 streams host I/Q at unity (see below);
+    // copying the fold would under-drive Brick/ANAN.
     const bool cwFold = !p2Path && capActive_()
         && (txMode_.load(std::memory_order_relaxed) == 3      // WDSP CWL
          || txMode_.load(std::memory_order_relaxed) == 4);    // WDSP CWU
@@ -2872,19 +2876,55 @@ void HL2Stream::applyTxPower_(int requestedRaw) {
     // over); an ~0.85 amplitude margin (power ~0.85^[2..3]) clears it with a
     // safety cushion.  Protective cap -> deliberately errs low.  Reclaim the
     // residual exactly with a CW-keyed servo learn (option B) if wanted.
-    constexpr double kCwCapHeadroom = 0.85;
-    const double byteRv = cwFold ? rv * rv * kCwCapHeadroom : rv;
-    const int    byte = static_cast<int>(std::lround(255.0 * byteRv));
-    const int emitted = byte < 0 ? 0 : (byte > 255 ? 255 : byte);
+    // The byte / fixed-gain split lives in tx/TxDriveSplit.h (pure, unit-
+    // tested): P1 byte=round(255·byteRv), gain=rv; P2 byte=round(255·rv),
+    // gain=1.0.  kCwCapHeadroom (0.85) is defined there.
+    const lyra::tx::TxDriveSplit split =
+        lyra::tx::splitTxDrive(rv, p2Path, cwFold);
+    const int emitted = split.driveByte;
     txEmittedDriveByte_.store(emitted, std::memory_order_relaxed);
     if (lyra::wire::prn != nullptr)
         lyra::wire::set_drive_level(emitted);
     lyra::wire::SetTXFixedGainRun(0, 1);
-    // Analog HP [345] still carries the byte. Brick3 (and any P2 FPGA that
-    // does not scale the DAC from [345]) sat at ~0.9 W across Drive 0–100 %
-    // while IQ was pinned at unity. Scale IQ with Drive like P1 so 0 % is
-    // silence and the slider is live; at 100 % rv=1 (same as the old pin).
-    lyra::wire::SetTXFixedGain(0, rv, rv);
+    // ------------------------------------------------------------------
+    // P2: TX IQ STAYS AT UNITY.  Watts live on HP [345] ONLY.  DO NOT
+    // SCALE P2 IQ WITH DRIVE AGAIN.
+    //
+    // Both working references keep Protocol-2 TX IQ at unity and put the
+    // drive on the analog byte:
+    //   * deskHPSDR radio.c:2523      `transmitter->do_scale = 0;
+    //                                  transmitter->drive_level = level;`
+    //     ("For most of the radios, just copy the level and switch off
+    //     scaling").  do_scale / drive_iscal are set ONLY for the original
+    //     Penelope and the HermesLite-II (the two radios whose drive byte
+    //     cannot reach the DAC), and transmitter.c:1734 multiplies the IQ
+    //     gain by drive_scale only `if (tx->do_scale)`.
+    //   * Thetis cmaster.cs:1118-1122  `CMSetTXOutputLevelRun`:
+    //     `run = !PennyLanePresent; SetTXFixedGainRun(0, run)` — fixed
+    //     gain is OFF (unity) on every radio that honours the drive byte.
+    //
+    // Why it matters (PureSignal): the radio's TX-DAC replica — the odd
+    // interleaved DDC0 samples / DDC1 — FOLLOWS THE IQ AMPLITUDE, not
+    // [345].  WDSP calcc LCOLLECT sorts samples into amplitude buckets up
+    // to SetPk (0.2899 on P2) and will not finish until every bucket has
+    // filled.  Scaling IQ by rv shrinks the replica by rv: at 40 % drive
+    // the replica peaks ~−18 dB vs SetPk −10.8 dB, buckets 7-15 never
+    // fill, st stays 4, FB 0, cal 0, and the auto-attenuator walks the
+    // coupler pad to 0 dB (Greg VK3KV Brick2, v0.25.16–0.25.31; see
+    // docs/PS_P2_REGRESSION_REPORT.md).  Unity IQ makes the replica reach
+    // SetPk at ANY drive, which is why PS calibrates at partial drive in
+    // deskHPSDR / Thetis on the same radio.
+    //
+    // No PS-state branch here on purpose: a "unity only while PS is
+    // armed" rule would change RF output the moment PS is toggled.
+    //
+    // If a P2 radio is found that does not scale its DAC from [345]
+    // (the v0.25.16 "Brick3 sat at ~0.9 W" motivation), that is a
+    // per-model hardware-profile question for the protocol / profile
+    // layer, NOT a reason to scale IQ here.  Scaling IQ here breaks
+    // PureSignal on every P2 radio that does honour [345].
+    // ------------------------------------------------------------------
+    lyra::wire::SetTXFixedGain(0, split.fixedGain, split.fixedGain);
 
     // Amp-cap live indicator for the TX-panel CAP chip.  Recomputed here
     // because this is the one chokepoint every drive / PA-gain / band / cap
