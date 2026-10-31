@@ -1462,6 +1462,9 @@ void HL2Stream::open(const QString &ip) {
     iobStaleReported_ = 0;
     if (!p2DrivePath_.load(std::memory_order_relaxed)) {
         lyra::wire::hl2iob::init_for_open(ioboardForcePresent_);
+        // Arm the record gate now so cycle-0 records (latch/probe/regs 0-3) are
+        // captured; drainIoboardRecords() only re-syncs it from the stats timer.
+        lyra::wire::hl2iob::set_log_verbose(lyra::ui::LogBuffer::instance().verbose());
         ep6Thread_.set_i2c_sink([](const uint8_t* c, int n) {
             if (n >= 5)
                 lyra::wire::hl2iob::on_i2c_reply(c);
@@ -3193,7 +3196,7 @@ void HL2Stream::pollIoboardSession() {
         } else if (!iobAbsentReported_ && iob::probes_sent() >= 3) {
             iobAbsentReported_ = true;
             report(QStringLiteral(
-                "[iob] IO board not detected (no reply at 0x41) — 0x1D not "
+                "[iob] IO board not detected (0x41 did not answer) — 0x1D not "
                 "written; probing every 1.7 s, then every 30 s"));
         }
     }
