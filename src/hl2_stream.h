@@ -1444,6 +1444,22 @@ public slots:
     void requestMox(bool on);                       // PttSource::Manual
 
 public:
+    // HL2 IO board (I2C2 0x1D) policies — Settings → Filters / BCD.
+    // Each setter persists its hw/ key, then republishes the snapshot.
+    // Transverter bands: false = hold the last HF TX Hz (default),
+    // true = send the on-air RF on every band.
+    bool ioboardXvtrOnAirRf() const {
+        return ioboardXvtrAnalog_ == lyra::wire::hl2iob::XvtrPolicy::OnAirRf;
+    }
+    void setIoboardXvtrAnalog(bool onAirRf);
+    bool ioboardSendRxFcodes() const { return ioboardSendRxFcodes_; }
+    void setIoboardSendRxFcodes(bool on);
+    // DIY Pico without the PCA9536: skip detection, write every cycle.
+    bool ioboardForcePresent() const { return ioboardForcePresent_; }
+    void setIoboardForcePresent(bool on);
+    enum class IoboardStatus { NotDetected, Detected, ForcedPresent, Protocol2 };
+    IoboardStatus ioboardStatus() const;
+
     // Task #33 — PTT source tracking (Thetis-faithful TCIPTT-vs-MOX
     // pattern, see docs/refs/mshv_tci/README.md §"Thetis TCI TX
     // architecture").  The 2-arg overload records which subsystem
@@ -1811,6 +1827,10 @@ signals:
     void paEnabledChanged(bool on);
     void micBoostChanged(bool on);
     void bandVoltsOutputChanged(bool on);
+    // IO board: status changed (detected, forced, protocol) or a policy
+    // setter ran.
+    void ioboardStatusChanged();
+    void ioboardSettingsChanged();
     // TX-0c-pa-drive — operator-tunable drive DAC level changed (via
     // Settings SpinBox or persistence reload).  Raw 0..255 wire value.
     void txDriveLevelChanged(int level);
@@ -2042,6 +2062,8 @@ private:
     lyra::wire::hl2iob::Inputs ioboardInputs() const;
     void pollIoboardSession();
     void drainIoboardRecords();
+    void updateIoboardStatus();
+    void persistLastHfTxHz();
     bool refuseTxBandJump(quint32 fromHz, quint32 toHz);
     // Writes the RX DDC NCOs from rx1FreqHz_ + (ritEnabled ? ritOffsetHz : 0)
     // — the single RX-NCO writer, mirror of pushEffectiveTxFreq.  Called by
@@ -2386,6 +2408,8 @@ private:
     bool                 ioboardSendRxFcodes_ = true;
     bool                 ioboardForcePresent_ = false;
     std::uint64_t        lastHfTxHz_ = 0;     // last TX Hz outside a transverter slot
+    std::uint64_t        lastHfTxHzSaved_ = 0;   // value last written to hw/ioboardLastHfTxHz
+    IoboardStatus        ioboardStatusShown_ = IoboardStatus::NotDetected;
     // Per-session report state (reset in open()).
     bool                 iobPresentReported_ = false;
     bool                 iobAbsentReported_ = false;

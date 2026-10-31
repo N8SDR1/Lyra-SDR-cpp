@@ -514,6 +514,24 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     if (lyra::wire::prn != nullptr)
         lyra::wire::set_band_volts_output(
             bandVolts_.load(std::memory_order_relaxed));
+    // HL2 IO board (I2C2 0x1D) policies + the held HF TX Hz used on
+    // transverter bands under "hold last HF".
+    {
+        QSettings s;
+        ioboardForcePresent_ =
+            s.value(QStringLiteral("hw/ioboardForcePresent"), false).toBool();
+        ioboardXvtrAnalog_ =
+            s.value(QStringLiteral("hw/ioboardXvtrAnalog"),
+                    QStringLiteral("holdLastHf")).toString()
+                    == QLatin1String("onAirRf")
+                ? lyra::wire::hl2iob::XvtrPolicy::OnAirRf
+                : lyra::wire::hl2iob::XvtrPolicy::HoldLastHf;
+        ioboardSendRxFcodes_ =
+            s.value(QStringLiteral("hw/ioboardSendRxFcodes"), true).toBool();
+        lastHfTxHz_ =
+            s.value(QStringLiteral("hw/ioboardLastHfTxHz"), 0).toULongLong();
+        lastHfTxHzSaved_ = lastHfTxHz_;
+    }
     // TX-0c-pa-drive — operator-tunable drive DAC level (raw 0..255,
     // UI exposes 0..100 %).  Persisted across launches; NOT cleared on
     // stream open/close — the "volume" knob carries the operator's
@@ -1712,6 +1730,7 @@ void HL2Stream::close() {
 
     statsTimer_.stop();
     lyra::wire::hl2iob::stop();
+    persistLastHfTxHz();
     autoLnaTimer_.stop();
     hwPttTimer_.stop();   // Stage 2b2-fix-v2 — HW-PTT poll
     if (adcOverloadTier_) { adcOverloadTier_ = 0; emit adcOverloadChanged(); }
@@ -1788,6 +1807,7 @@ void HL2Stream::onStatsTick() {
 
     drainIoboardRecords();
     pollIoboardSession();
+    updateIoboardStatus();
 
     // TX-0a raw-telemetry probe — env-gated, 5 Hz, main thread.  Logs
     // the decoded raw ADC slots + converted values so the operator can
@@ -2965,6 +2985,7 @@ void HL2Stream::setP2DrivePath(bool on) {
     applyTxPower_(txDriveLevel_.load(std::memory_order_relaxed));
     if (was && !on)
         publishIoboardState();
+    updateIoboardStatus();
 }
 
 QString HL2Stream::txCalKey_(const QString &logical) const {
@@ -3072,7 +3093,68 @@ void HL2Stream::publishIoboardState() {
     // VHF dial would look like HF and poison the held value.
     if (xvtr_)
         lastHfTxHz_ = iob::update_last_hf(in, lastHfTxHz_);
-    iob::publish(iob::compute_snapshot(in, lastHfTxHz_));
+    if (in.txInXvtrSlot)
+        persistLastHfTxHz();   // HF -> transverter transition
+    lyra::wire::hl2iob::publish(iob::compute_snapshot(in, lastHfTxHz_));
+}
+
+void HL2Stream::persistLastHfTxHz() {
+    if (lastHfTxHz_ == lastHfTxHzSaved_)
+        return;
+    QSettings().setValue(QStringLiteral("hw/ioboardLastHfTxHz"),
+                         static_cast<qulonglong>(lastHfTxHz_));
+    lastHfTxHzSaved_ = lastHfTxHz_;
+}
+
+HL2Stream::IoboardStatus HL2Stream::ioboardStatus() const {
+    if (p2DrivePath_.load(std::memory_order_relaxed))
+        return IoboardStatus::Protocol2;
+    if (ioboardForcePresent_)
+        return IoboardStatus::ForcedPresent;
+    if (lyra::wire::hl2iob::running() && lyra::wire::hl2iob::present())
+        return IoboardStatus::Detected;
+    return IoboardStatus::NotDetected;
+}
+
+void HL2Stream::updateIoboardStatus() {
+    const IoboardStatus s = ioboardStatus();
+    if (s == ioboardStatusShown_)
+        return;
+    ioboardStatusShown_ = s;
+    emit ioboardStatusChanged();
+}
+
+void HL2Stream::setIoboardXvtrAnalog(bool onAirRf) {
+    const auto p = onAirRf ? lyra::wire::hl2iob::XvtrPolicy::OnAirRf
+                           : lyra::wire::hl2iob::XvtrPolicy::HoldLastHf;
+    if (p == ioboardXvtrAnalog_)
+        return;
+    ioboardXvtrAnalog_ = p;
+    QSettings().setValue(QStringLiteral("hw/ioboardXvtrAnalog"),
+                         onAirRf ? QStringLiteral("onAirRf")
+                                 : QStringLiteral("holdLastHf"));
+    publishIoboardState();
+    emit ioboardSettingsChanged();
+}
+
+void HL2Stream::setIoboardSendRxFcodes(bool on) {
+    if (on == ioboardSendRxFcodes_)
+        return;
+    ioboardSendRxFcodes_ = on;
+    QSettings().setValue(QStringLiteral("hw/ioboardSendRxFcodes"), on);
+    publishIoboardState();
+    emit ioboardSettingsChanged();
+}
+
+void HL2Stream::setIoboardForcePresent(bool on) {
+    if (on == ioboardForcePresent_)
+        return;
+    ioboardForcePresent_ = on;
+    QSettings().setValue(QStringLiteral("hw/ioboardForcePresent"), on);
+    lyra::wire::hl2iob::set_force_present(on);
+    publishIoboardState();
+    updateIoboardStatus();
+    emit ioboardSettingsChanged();
 }
 
 void HL2Stream::pollIoboardSession() {

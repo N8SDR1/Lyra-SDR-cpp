@@ -117,8 +117,9 @@ std::uint64_t compute_snapshot(const Inputs& in, std::uint64_t lastHfTxHz) noexc
     Snapshot s;
     s.valid = true;
 
+    // No TX dial (0 Hz) sends nothing under either policy.
     std::uint64_t tx = in.txHz;
-    if (in.xvtrPolicy == XvtrPolicy::HoldLastHf && in.txInXvtrSlot)
+    if (tx > 0 && in.xvtrPolicy == XvtrPolicy::HoldLastHf && in.txInXvtrSlot)
         tx = lastHfTxHz;
     tx &= kTxHzMask;
     s.sendTx = tx > 0;

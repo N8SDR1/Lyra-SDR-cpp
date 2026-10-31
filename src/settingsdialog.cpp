@@ -5283,7 +5283,7 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
             "Custom — emit the grid as ticked. Editing N2ADR ticks promotes "
             "to Custom.\n\n"
             "P1 HL2: I2C 0x20. P2: HP [1401]. Analog J4 / REG 11 are not "
-            "this control."));
+            "this control — see the IO board box."));
         connect(acc, &QComboBox::currentIndexChanged, page, [this, acc](int) {
             stream_->setOcAccessory(static_cast<lyra::oc::OcAccessory>(
                 acc->currentData().toInt()));
@@ -5608,6 +5608,112 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         // ocBox (enable + live pins + grid + preset buttons) is complete.
         root->addWidget(ocBox);
 
+        // --- HL2 IO board (I2C2 0x1D) — detection-gated, periodic --------
+        // Protocol 1 only.  Same model as deskHPSDR: written every cycle
+        // while the board answers at 0x41 or is forced present.
+        {
+            using lyra::ipc::HL2Stream;
+            auto *iobBox = section(tr("IO board (HL2IOBoard, I2C 0x1D)"));
+            auto *iv = new QVBoxLayout(iobBox);
+
+            auto *statusRow = new QHBoxLayout;
+            statusRow->addWidget(new QLabel(tr("Status:")));
+            auto *status = new QLabel;
+            status->setStyleSheet(QStringLiteral("font-weight:bold;"));
+            statusRow->addWidget(status);
+            statusRow->addStretch(1);
+            iv->addLayout(statusRow);
+            auto showStatus = [this, status]() {
+                switch (stream_->ioboardStatus()) {
+                case HL2Stream::IoboardStatus::Detected:
+                    status->setText(tr("Detected"));
+                    break;
+                case HL2Stream::IoboardStatus::ForcedPresent:
+                    status->setText(tr("Forced present"));
+                    break;
+                case HL2Stream::IoboardStatus::Protocol2:
+                    status->setText(tr("Protocol 2 — not used"));
+                    break;
+                case HL2Stream::IoboardStatus::NotDetected:
+                    status->setText(tr("Not detected"));
+                    break;
+                }
+            };
+            showStatus();
+            connect(stream_, &HL2Stream::ioboardStatusChanged, status, showStatus);
+
+            auto *iobNote = new QLabel(tr(
+                "Protocol 1 only. While the IO board answers at 0x41 (or is "
+                "forced present) Lyra writes the TX frequency (registers 0–4), "
+                "the RF1 / Alt RX input (register 11) and the RX frequency "
+                "codes (registers 13 / 14) about every 346 ms, as deskHPSDR "
+                "does. With no board detected nothing is written to 0x1D."));
+            iobNote->setWordWrap(true);
+            iv->addWidget(iobNote);
+
+            auto *xvRow = new QHBoxLayout;
+            xvRow->addWidget(new QLabel(tr("Transverter bands send")));
+            auto *xv = new QComboBox;
+            xv->addItem(tr("Hold last HF frequency"), false);
+            xv->addItem(tr("On-air RF frequency"), true);
+            xv->setCurrentIndex(stream_->ioboardXvtrOnAirRf() ? 1 : 0);
+            xv->setToolTip(tr(
+                "TX frequency sent to the IO board (registers 0–4) while TX is "
+                "inside a transverter slot.\n\n"
+                "Hold last HF frequency (default): keep sending the last HF TX "
+                "frequency, so an HF-only band-volts amplifier on J4 "
+                "(GPA100 / XPA125B class) stays on its HF band. If no HF "
+                "frequency has been used yet, registers 0–4 are not sent.\n\n"
+                "On-air RF frequency: send the RF frequency on every band "
+                "(for example 144.2 MHz gives the 2 m band volts on J4)."));
+            connect(xv, &QComboBox::currentIndexChanged, page, [this, xv](int) {
+                stream_->setIoboardXvtrAnalog(xv->currentData().toBool());
+            });
+            xvRow->addWidget(xv);
+            xvRow->addStretch(1);
+            iv->addLayout(xvRow);
+
+            auto *rxc = new QCheckBox(tr("Send RX frequency codes (registers 13 / 14)"));
+            rxc->setChecked(stream_->ioboardSendRxFcodes());
+            rxc->setToolTip(tr(
+                "Register 13 = RX1 frequency code, register 14 = RX2 (or RX1 "
+                "when SUB is off). Firmware that follows the RX band (for "
+                "example K7MDL Pico GPIO) uses them. Default on, as "
+                "deskHPSDR."));
+            connect(rxc, &QCheckBox::toggled, stream_,
+                    &HL2Stream::setIoboardSendRxFcodes);
+            iv->addWidget(rxc);
+
+            auto *force = new QCheckBox(
+                tr("Force IO board present (DIY Pico without PCA9536)"));
+            force->setChecked(stream_->ioboardForcePresent());
+            force->setToolTip(tr(
+                "Skips detection at 0x41 and writes 0x1D every cycle. Only for "
+                "a Pico on I2C bus 2 without the PCA9536 (deskHPSDR "
+                "force_iob). Default off."));
+            connect(force, &QCheckBox::toggled, stream_,
+                    &HL2Stream::setIoboardForcePresent);
+            iv->addWidget(force);
+
+            connect(stream_, &HL2Stream::ioboardSettingsChanged, iobBox,
+                    [this, xv, rxc, force]() {
+                        const int i = stream_->ioboardXvtrOnAirRf() ? 1 : 0;
+                        if (xv->currentIndex() != i) {
+                            QSignalBlocker b(xv);
+                            xv->setCurrentIndex(i);
+                        }
+                        if (rxc->isChecked() != stream_->ioboardSendRxFcodes()) {
+                            QSignalBlocker b(rxc);
+                            rxc->setChecked(stream_->ioboardSendRxFcodes());
+                        }
+                        if (force->isChecked() != stream_->ioboardForcePresent()) {
+                            QSignalBlocker b(force);
+                            force->setChecked(stream_->ioboardForcePresent());
+                        }
+                    });
+            root->addWidget(iobBox);
+        }
+
         // --- HL2 Band Volts on J3 / fan PWM (DeskHPSDR + MI0BOT) ----------
         // IO-board J3 is GPIO04_Fan. Gateware Band Volts (wiki) hijacks
         // that PWM when C0=0x00 C3 bit 3 (ADC dither) is set. DeskHPSDR:
@@ -5622,9 +5728,9 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
 
             auto *note = new QLabel(tr(
                 "Leave this off for a stock N2ADR Pico, M0AWS DB9, or "
-                "GP100/GPA100 on J4 pin 8. That analog is always sent on "
-                "Protocol 1 (I2C2 C0 0x3d, slave 0x1D TX Hz) — same as "
-                "Thetis/Quisk, no extra box.\n\n"
+                "GP100/GPA100 on J4 pin 8. That analog is sent on Protocol 1 "
+                "(I2C2 C0 0x3d, slave 0x1D TX Hz) while an IO board is "
+                "detected or forced present — see the IO board box above.\n\n"
                 "Tick this only if the amp is jumpered to IO-board J3 "
                 "(GPIO04_Fan). Then J3 becomes gateware Band Volts instead "
                 "of a cooling fan (DeskHPSDR / MI0BOT “HL2 Band Volts”)."));

@@ -990,6 +990,14 @@ if(MSVC)
     target_compile_options(test_hl2_ioboard_frames PRIVATE /utf-8 /Zc:preprocessor /W4)
 endif()
 
+# HL2 I/O board — every input-change path publishes the snapshot, and only
+# HL2Stream::publishIoboardState writes it (plan §5 publish_paths_static).
+#   ctest --test-dir build -R hl2_ioboard_publish_paths_static
+enable_testing()
+add_test(NAME hl2_ioboard_publish_paths_static
+         COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR}/src
+                 -P ${CMAKE_SOURCE_DIR}/scratch/hl2_ioboard_publish_paths.cmake)
+
 add_executable(test_band_jump EXCLUDE_FROM_ALL
     scratch/test_band_jump.cpp
     src/bands.h

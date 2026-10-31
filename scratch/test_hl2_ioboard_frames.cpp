@@ -1406,6 +1406,209 @@ static void t_record_ring_spsc()
 }
 
 // ===========================================================================
+// C3 gate — policies, driven through the public hl2iob::publish()
+// ===========================================================================
+static iob::Inputs tx_inputs(std::uint64_t tx, bool in_slot, iob::XvtrPolicy p,
+                             bool rxcodes = true, int port = 0)
+{
+    iob::Inputs in;
+    in.txHz = tx;
+    in.txInXvtrSlot = in_slot;
+    in.rx1Hz = tx;
+    in.rxPort = port;
+    in.xvtrPolicy = p;
+    in.sendRxCodes = rxcodes;
+    return in;
+}
+
+// Publish w, run 20 cycles; returns the Pico commits seen after the publish.
+static std::vector<std::uint64_t> commits_after(Env& e, std::uint64_t w)
+{
+    const std::size_t before = e.pico.commits.size();
+    iob::publish(w);
+    e.run(140 * 20);
+    return {e.pico.commits.begin() + static_cast<long>(before), e.pico.commits.end()};
+}
+
+static int tx_reg_writes_after(const Env& e, long dg)
+{
+    int n = 0;
+    for (const auto& w : e.writes())
+        if (w.dg > dg && w.c[3] <= 4) ++n;
+    return n;
+}
+
+static void t_xvtr_hold_last_hf(Driver* d)
+{
+    g_test = "xvtr_hold_last_hf";
+    const auto hold = iob::XvtrPolicy::HoldLastHf;
+    const iob::Inputs hf = tx_inputs(14074000, false, hold);
+    const std::uint64_t last = iob::update_last_hf(hf, 0);
+    CHECK(last == 14074000);
+    const iob::Inputs vhf = tx_inputs(144200000, true, hold);
+    CHECK(iob::update_last_hf(vhf, last) == 14074000);   // a slot never updates it
+    const iob::Snapshot s = iob::unpack(iob::compute_snapshot(vhf, last));
+    CHECK(s.valid && s.sendTx && s.txHz == 14074000);
+
+    Env e(d);
+    e.open(true);
+    auto c = commits_after(e, iob::compute_snapshot(hf, 0));
+    CHECK(!c.empty() && c.back() == 14074000);
+    const double j4_hf = e.pico.j4;
+    CHECK(std::fabs(j4_hf - 1.67) < 1e-9);
+    c = commits_after(e, iob::compute_snapshot(vhf, last));
+    CHECK(!c.empty());
+    for (std::uint64_t v : c) CHECK(v == 14074000);
+    CHECK(e.pico.j4 == j4_hf);
+}
+
+static void t_xvtr_hold_no_history(Driver* d)
+{
+    g_test = "xvtr_hold_no_history";
+    const iob::Inputs vhf =
+        tx_inputs(144200000, true, iob::XvtrPolicy::HoldLastHf);
+    const std::uint64_t w = iob::compute_snapshot(vhf, 0);
+    const iob::Snapshot s = iob::unpack(w);
+    CHECK(s.valid && !s.sendTx);
+
+    Env e(d);
+    e.open(true);
+    const auto c = commits_after(e, w);
+    CHECK(c.empty());
+    CHECK(e.pico.commits.empty());
+    CHECK(tx_reg_writes_after(e, 0) == 0);
+    int n11 = 0;
+    for (const auto& x : e.writes()) if (x.c[3] == 11) ++n11;
+    CHECK(n11 > 10);                                    // the cycle still runs
+}
+
+static void t_xvtr_onair_rf(Driver* d)
+{
+    g_test = "xvtr_onair_rf";
+    const iob::Inputs vhf =
+        tx_inputs(144200000, true, iob::XvtrPolicy::OnAirRf);
+    const iob::Snapshot s = iob::unpack(iob::compute_snapshot(vhf, 14074000));
+    CHECK(s.valid && s.sendTx && s.txHz == 144200000);
+
+    Env e(d);
+    e.open(true);
+    const auto c = commits_after(e, iob::compute_snapshot(vhf, 14074000));
+    CHECK(!c.empty());
+    for (std::uint64_t v : c) CHECK(v == 144200000);
+    CHECKF(std::fabs(e.pico.j4 - 3.67) < 1e-9, "J4 %.2f V", e.pico.j4);
+}
+
+static void t_xvtr_6m_slot_held(Driver* d)
+{
+    g_test = "xvtr_6m_slot_held";
+    const auto hold = iob::XvtrPolicy::HoldLastHf;
+    const iob::Inputs slot6 = tx_inputs(50100000, true, hold);
+    const iob::Inputs direct6 = tx_inputs(50100000, false, hold);
+    const iob::Snapshot a = iob::unpack(iob::compute_snapshot(slot6, 14074000));
+    const iob::Snapshot b = iob::unpack(iob::compute_snapshot(direct6, 14074000));
+    CHECK(a.sendTx && a.txHz == 14074000);
+    CHECK(b.sendTx && b.txHz == 50100000);
+    CHECK(iob::update_last_hf(direct6, 14074000) == 50100000);
+
+    Env e(d);
+    e.open(true);
+    auto c = commits_after(e, iob::compute_snapshot(slot6, 14074000));
+    CHECK(!c.empty());
+    for (std::uint64_t v : c) CHECK(v == 14074000);
+    c = commits_after(e, iob::compute_snapshot(direct6, 14074000));
+    CHECK(!c.empty() && c.back() == 50100000);
+    CHECK(std::fabs(e.pico.j4 - 3.33) < 1e-9);
+}
+
+static void t_tx_zero_never_sent(Driver* d)
+{
+    g_test = "tx_zero_never_sent";
+    for (int p = 0; p < 2; ++p)
+        for (int slot = 0; slot < 2; ++slot)
+            for (std::uint64_t last : {std::uint64_t{0}, std::uint64_t{14074000}}) {
+                const auto pol = p ? iob::XvtrPolicy::OnAirRf
+                                   : iob::XvtrPolicy::HoldLastHf;
+                const iob::Inputs in = tx_inputs(0, slot != 0, pol);
+                const iob::Snapshot s =
+                    iob::unpack(iob::compute_snapshot(in, last));
+                CHECK(s.valid && !s.sendTx && s.txHz == 0);
+                CHECK(iob::update_last_hf(in, last) == last);
+            }
+    Env e(d);
+    e.open(true);
+    iob::publish(iob::compute_snapshot(
+        tx_inputs(0, false, iob::XvtrPolicy::OnAirRf), 0));
+    e.run(140 * 20);
+    CHECK(e.pico.commits.empty());
+    CHECK(tx_reg_writes_after(e, 0) == 0);
+}
+
+static void t_rx_fcodes_off_silent(Driver* d)
+{
+    g_test = "rx_fcodes_off_silent";
+    Env e(d);
+    e.open(true);
+    std::mt19937 rng(17);
+    const std::uint64_t hz[] = {1840000, 3573000, 7074000, 14074000, 28074000};
+    for (int k = 0; k < 40; ++k) {
+        iob::Inputs in = tx_inputs(hz[rng() % 5], false,
+                                   iob::XvtrPolicy::HoldLastHf, false, (k & 1) * 2);
+        in.subEnabled = (k % 3) == 0;
+        in.rx2Hz = hz[rng() % 5];
+        CHECK(!iob::unpack(iob::compute_snapshot(in, 0)).sendRxCodes);
+        iob::publish(iob::compute_snapshot(in, 0));
+        e.run(rng() % 400);
+    }
+    e.run(140 * 5);
+    int n1314 = 0, n11 = 0;
+    for (const auto& w : e.writes()) {
+        if (w.c[3] == 13 || w.c[3] == 14) ++n1314;
+        if (w.c[3] == 11) ++n11;
+    }
+    CHECK(n1314 == 0);
+    CHECK(n11 > 20);
+    CHECK(!e.pico.commits.empty());
+}
+
+static void t_reg11_from_rx_port()
+{
+    g_test = "reg11_from_rx_port";
+    // HL2Stream::setHl2RxPort clamp: 2 stays 2, anything else becomes 0.
+    auto clamp = [](int port) { return port == 2 ? 2 : 0; };
+    for (int port : {0, 2, 1, 3, -1, 99}) {
+        for (int p = 0; p < 2; ++p)
+            for (int rxc = 0; rxc < 2; ++rxc)
+                for (int slot = 0; slot < 2; ++slot) {
+                    iob::Inputs in = tx_inputs(
+                        slot ? 144200000 : 7074000, slot != 0,
+                        p ? iob::XvtrPolicy::OnAirRf : iob::XvtrPolicy::HoldLastHf,
+                        rxc != 0, clamp(port));
+                    const std::uint64_t w = iob::compute_snapshot(in, 0);
+                    const iob::Snapshot s = iob::unpack(w);
+                    CHECK(s.reg11Alt == (clamp(port) == 2));
+                    const int r = iob::reg11_value(w);
+                    CHECK(r == clamp(port));
+                    CHECK(r == 0 || r == 2);
+                    // unclamped input: still never 1
+                    in.rxPort = port;
+                    const int u = iob::reg11_value(iob::compute_snapshot(in, 0));
+                    CHECK(u == 0 || u == 2);
+                }
+    }
+}
+
+static void run_policy_suite(Driver* d)
+{
+    std::printf("-- policies: %s\n", d->name());
+    t_xvtr_hold_last_hf(d);
+    t_xvtr_hold_no_history(d);
+    t_xvtr_onair_rf(d);
+    t_xvtr_6m_slot_held(d);
+    t_tx_zero_never_sent(d);
+    t_rx_fcodes_off_silent(d);
+}
+
+// ===========================================================================
 static void run_sequencer_suite(Driver* d, bool exact_period_possible)
 {
     std::printf("-- driver: %s\n", d->name());
@@ -1448,6 +1651,10 @@ int main()
     run_sequencer_suite(&sim, true);
     ComposerDriver composer;
     run_sequencer_suite(&composer, false);
+
+    t_reg11_from_rx_port();
+    run_policy_suite(&sim);
+    run_policy_suite(&composer);
 
     t_record_ring_spsc();
 
