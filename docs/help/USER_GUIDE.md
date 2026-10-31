@@ -59,8 +59,9 @@ unchanged.
   switch, which is no longer read — delete it if you set it.
 - **REG 11** is only ever **0** (RF1) or **2** (Alt RX), never 1. TX
   frequency registers are never written with 0 Hz.
-- **`[iob]` log records** (Help → Log, verbose) show every latch, write,
-  probe, reply, slip and restart for bench diagnostics.
+- **`[iob]` log records** (Settings → Hardware → **Enable verbose debug
+  logging**, also a checkbox in Help → Show Log…) show every latch,
+  write, probe, reply, slip and restart for bench diagnostics.
 - Not in this build: **Xvtr / SWL rows in OC Control** (still queued).
 - Testers: Mike K7MDL, Randy W7CPA, Volker DL1VE.
 - Details: [HL2 IO board (HL2IOBoard Pico, I2C 0x1D)](#hl2-io-board-hl2ioboard-pico-i2c-0x1d).
@@ -4602,15 +4603,19 @@ old `LYRA_NO_IOBOARD_FCODE=1` environment variable, which is **no
 longer read** — if you set it for 0.25.28–0.25.33, delete it (quit
 Lyra, Start → *environment*, user list, select it, **Delete**).
 
-**Troubleshooting with the `[iob]` log.** Help → **Log** with
-**Verbose** on records every step: `latch` (snapshot taken: tx, r11,
-f13, f14, armed), `W reg=… val=…` (a register write), `R 0x41`
-(detection probe), `reply 0x41` (what the ID chip answered), `slip`
-(an IO frame stepped aside for a gateware frame) and `restart`
-(snapshot changed, cycle restarted). Save the log as `.txt` and attach
-it when you report a band-voltage or RF1 / Alt problem; the `t=` and
-`c=` columns (milliseconds and cycle number) let the write order and
-timing be checked against the Pico's own IO-Control readback.
+**Troubleshooting with the `[iob]` log.** Turn on Settings →
+**Hardware** → **Enable verbose debug logging** (the same switch is the
+**Verbose debug logging** checkbox in Help → **Show Log…**), then
+reproduce the problem. With it on, the log records every step: `latch`
+(snapshot taken: tx, r11, f13, f14, armed), `W reg=… val=…` (a register
+write), `R 0x41` (detection probe), `reply 0x41` (what the ID chip
+answered), `slip` (an IO frame stepped aside for a gateware frame) and
+`restart` (snapshot changed, cycle restarted). Then send
+`%APPDATA%\N8SDR\Lyra-cpp\logs\lyra-log.txt` (or **Save…** from the
+Log window) when you report a band-voltage or RF1 / Alt problem — the
+lines tagged `[iob]` are the ones that matter; their `t=` and `c=`
+columns (milliseconds and cycle number) let the write order and timing
+be checked against the Pico's own IO-Control readback.
 
 **Still queued, not in this build:** **Xvtr / SWL rows in OC Control**
 (J16 pin ticks for transverter and general-coverage chips).

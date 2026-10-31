@@ -220,8 +220,10 @@ chip with an HF-only band-volts amp, **Transverter bands send** =
 **Hold last HF frequency** (default) keeps the amp on the HF band.
 Stock PWM is **J4 pin 8**. Leave **Band Volts on J3** off unless the
 amp is on the fan header. Protocol 2 Brick/ANAN do not use this path.
-For a report, save the log with **Verbose** on and attach it — the
-`[iob]` lines show every write.
+For a report, turn on Settings → **Hardware** → **Enable verbose debug
+logging** (also a checkbox in Help → Show Log…), reproduce, then send
+`%APPDATA%\N8SDR\Lyra-cpp\logs\lyra-log.txt` — the lines tagged
+`[iob]` show every write.
 
 **I'm running an amplifier — anything to set first?**
 Yes — configure **TR‑sequencing** and the **RF‑delay / ATT‑on‑TX**
