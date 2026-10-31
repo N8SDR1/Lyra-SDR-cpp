@@ -944,7 +944,7 @@ void Ep6RecvThread::decode_status_header(const uint8_t cc[5]) {
     // I2C readback overlay — `networkproto1.c:478-493`.
     if (cc[0] & 0x80) {
         if (i2c_sink_) {
-            i2c_sink_(cc + 1, 4);
+            i2c_sink_(cc, 5);
         }
         return;
     }

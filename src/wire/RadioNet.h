@@ -178,6 +178,7 @@ struct SeqLogSnapshot {
 };
 
 // HL2 I²C queue state (network.h:113-148 / _i2c).
+// Unused on HL2 — the IO-board sequencer in `Hl2IoBoard.cpp` composes its frames directly.
 struct I2cState {
 #pragma pack(push, 1)
 #pragma warning(push)

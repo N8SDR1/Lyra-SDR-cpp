@@ -971,23 +971,20 @@ if(MSVC)
     target_compile_options(test_oc_control PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
-# HL2IOBoard Pico TX-Hz pack (I2C 0x1D BYTE4..BYTE0).  EXCLUDE_FROM_ALL.
-add_executable(test_hl2_ioboard_i2c EXCLUDE_FROM_ALL
-    scratch/test_hl2_ioboard_i2c.cpp
-)
-target_link_libraries(test_hl2_ioboard_i2c PRIVATE Qt6::Core)
-set_target_properties(test_hl2_ioboard_i2c PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
-if(MSVC)
-    target_compile_options(test_hl2_ioboard_i2c PRIVATE /utf-8 /Zc:preprocessor)
-endif()
-
-# HL2 I/O board sequencer — frame-level harness (plan §5).  EXCLUDE_FROM_ALL.
+# HL2 I/O board sequencer — frame-level harness (plan §5): module-level
+# driver plus the real write_main_loop_hl2.  EXCLUDE_FROM_ALL.
 add_executable(test_hl2_ioboard_frames EXCLUDE_FROM_ALL
     scratch/test_hl2_ioboard_frames.cpp
+    scratch/hl2_ioboard_test_stubs.cpp
     src/wire/Hl2IoBoard.h
     src/wire/Hl2IoBoard.cpp
+    src/wire/FrameComposer.h
+    src/wire/FrameComposer.cpp
+    src/wire/RbpFilter.h
+    src/wire/RbpFilter.cpp
 )
 target_include_directories(test_hl2_ioboard_frames PRIVATE src)
+target_link_libraries(test_hl2_ioboard_frames PRIVATE Qt6::Core)
 set_target_properties(test_hl2_ioboard_frames PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 if(MSVC)
     target_compile_options(test_hl2_ioboard_frames PRIVATE /utf-8 /Zc:preprocessor /W4)

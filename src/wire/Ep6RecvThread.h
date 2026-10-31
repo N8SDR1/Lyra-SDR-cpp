@@ -106,8 +106,8 @@ using Ep6TxClipSource = std::function<bool(int n_pairs, double* iq_pairs)>;
 using Ep6MicRecordTap = std::function<void(int n_pairs, const double* iq_pairs)>;
 
 // Sink for the I2C-readback overlay (when C0 bit 7 is set per
-// `MetisReadThreadMainLoop_HL2:500-508`).  Inert on this build
-// until I2C consumers register.
+// `MetisReadThreadMainLoop_HL2:500-508`).  Receives C0..C4 (5 bytes)
+// so the consumer can check the echoed I2C command address in C0.
 using Ep6I2cSink = std::function<void(const uint8_t* bytes,
                                       int n_bytes)>;
 

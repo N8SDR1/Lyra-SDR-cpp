@@ -42,7 +42,6 @@
 
 #pragma once
 
-#include <cmath>
 #include <cstdint>
 
 namespace lyra::wire {
@@ -104,84 +103,6 @@ void set_rx_freq(int rx_idx, int freq_hz);
 // `prn` is nullptr.  Must be called from the wire-egress thread
 // (see Q4).
 void set_tx_freq(int freq_hz);
-
-// J4 analog PWM is an HF (and 6 m) voltage table.  VHF RF (2 m xvtr)
-// must not be packed into BYTE0–4 — that leftover PWM reads as 80 m
-// on an XPA125.  Last HF analog voltage stays until the next HF hop.
-inline constexpr std::uint64_t kHl2IoboardAnalogMaxHz = 54'000'000ull;
-
-inline bool hl2_ioboard_analog_hz(std::uint64_t hz) noexcept
-{
-    return hz > 0 && hz <= kHl2IoboardAnalogMaxHz;
-}
-
-// Pack TX RF Hz as 5 big-endian bytes for the Jim Ahlstrom HL2IOBoard
-// Pico (I2C 0x1D registers 0..4 = BYTE4..BYTE0).  BYTE0 last on the wire
-// latches new_tx_freq / analog PWM.  Protocol 1 / HL2 family only.
-inline void pack_hl2_ioboard_tx_freq_bytes(std::uint64_t hz,
-                                           unsigned char out[5]) noexcept
-{
-    out[0] = static_cast<unsigned char>((hz >> 32) & 0xFFu);
-    out[1] = static_cast<unsigned char>((hz >> 24) & 0xFFu);
-    out[2] = static_cast<unsigned char>((hz >> 16) & 0xFFu);
-    out[3] = static_cast<unsigned char>((hz >>  8) & 0xFFu);
-    out[4] = static_cast<unsigned char>( hz        & 0xFFu);
-}
-
-// Ahlstrom / deskHPSDR one-byte RX frequency code for Pico registers
-// 13 and 14 (REG_FCODE_RX1 / RX2).  Same C cast as old_protocol.c:
-// (int)(0.5 + 15.47 * ln(Hz / 18748.1)).  Dial RF, not the IF NCO.
-// Does not touch analog BYTE0–4 (GPA100 J4 PWM).
-inline unsigned char hl2_ioboard_rx_fcode(std::uint64_t hz) noexcept
-{
-    if (hz == 0)
-        return 0;
-    const int code = static_cast<int>(0.5 + 15.47 * std::log(
-        static_cast<double>(hz) / 18748.1));
-    if (code < 0)
-        return 0;
-    if (code > 255)
-        return 255;
-    return static_cast<unsigned char>(code);
-}
-
-// Host I2C write overlay (C0 0x3c / 0x3d).  Same ring as the EP2 I2C
-// steal in write_main_loop_hl2.  Returns false if prn is null or the
-// 32-slot ring is full.  Address is 7-bit.
-// bus 0 → I2C1 (C0 command 0x3c); bus 1 → I2C2 (C0 command 0x3d).
-// N2ADR LPF (0x20) and IO-board analog slave (0x1D) sit on I2C2.
-bool enqueue_i2c_write(unsigned char bus, unsigned char address,
-                       unsigned char control, unsigned char write_data);
-
-// Five writes to IO-board slave 0x1D on I2C2: BYTE4..BYTE0
-// (register 0 then 4 last).  Replaces any analog bytes still in the
-// ring so the Pico never mixes two TX frequencies.  False if prn is
-// null or fewer than 5 free slots after that drop.
-// Drops ONLY registers 0..4.  REG_RF_INPUTS (11) and any other 0x1D
-// register stay in the ring — GPA100 / J4 PWM must not be mixed with
-// the RX SMA mux.
-bool enqueue_hl2_ioboard_tx_freq(std::uint64_t hz);
-
-// Makerfabs / Ahlstrom IO-board RX SMA mux (Thetis REG_RF_INPUTS = 11).
-// value 0 = RF1 (PA / N2ADR antenna), 2 = Alt RX.  One I2C2 write to
-// 0x1D register 11.  Does not touch registers 0..4 (analog TX-Hz).
-bool enqueue_hl2_ioboard_rf_input(unsigned char value);
-
-// Pico REG_FCODE_RX1 (13) and RX2 (14).  Separate from analog 0..4
-// and from REG_RF_INPUTS (11).  deskHPSDR writes these so a decoder
-// that follows rx_band in receive (K7MDL / issue #23) sees VHF.
-bool enqueue_hl2_ioboard_rx_fcodes(unsigned char rx1, unsigned char rx2);
-
-// Latest TX RF Hz the EP2 writer should push to 0x1D on I2C2.
-// Writer retries until register 4 (BYTE0) is actually overlaid —
-// queueing the burst is not the same as the Pico latching PWM.
-void request_hl2_ioboard_tx_freq(std::uint64_t hz);
-
-// Hz whose analog BYTE0 (register 4) has been stolen onto an EP2
-// I2C overlay.  ~0 until the first BYTE0 goes out.  Band-follow
-// coalesce must use this — not "we enqueued" — or a dropped burst
-// looks done while J4 stays on the leftover PWM (issue #17).
-std::uint64_t hl2_ioboard_tx_freq_on_wire();
 
 // HL2 "Band Volts" output enable (MI0BOT / Ramdor gateware feature).
 // Writes the C0=0x00 frame's C3 bit 3 — the ADC "dither" bit — which the

@@ -89,6 +89,7 @@
 // is at namespace-pulling distance so the destructor + getter +
 // open()/close() wiring sites all compile without forward-declaring.
 #include "wire/Ep6RecvThread.h"
+#include "wire/Hl2IoBoard.h"
 // Stage 2b2: Router.h needed for the inline setIqSink shim's
 // register_sink() + router_instance(0) calls (the post-rxWorker_
 // IQ-dispatch path).
@@ -1251,9 +1252,10 @@ public slots:
     void setSampleRate(int hz);
 
     // Enable/disable N2ADR OC filters (frame-0 C2 → gateware I2C 0x20).
-    // Protocol 1 / HL2 / HL2+ only.  Pico analog (I2C2 0x1D TX-Hz) is
-    // not gated here — Thetis/Quisk send it whenever streaming.  Default
-    // ON.  Persisted as hw/filterBoard.  J3 Band Volts is a separate box.
+    // Protocol 1 / HL2 / HL2+ only.  The IO board (I2C2 0x1D) is not
+    // gated here — its sequencer runs while an IO board is detected or
+    // forced present.  Default ON.  Persisted as hw/filterBoard.  J3 Band
+    // Volts is a separate box.
     void setFilterBoardEnabled(bool on);
     // Off = emit 0. N2adr = stamp HF N2ADR map (Xvtr rows stay 0).
     // Custom = emit the grid as edited (Thetis / DeskHPSDR). A tick while
@@ -1266,7 +1268,8 @@ public slots:
     void stampOcYaesuExample();
 
     // HL2 IO-board RX jack.  0 = RF1, 2 = Alt RX.  Other values → RF1.
-    // I2C2 0x1D register 11 only — never registers 0..4 (GPA100 analog).
+    // Carried in the IO-board snapshot as register 11 (0 or 2), written
+    // every sequencer cycle while an IO board is detected or forced.
     int  hl2RxPort() const {
         return hl2RxPort_.load(std::memory_order_relaxed);
     }
@@ -1915,8 +1918,6 @@ signals:
 private slots:
     void onStatsTick();
     void onAutoLnaTick();
-    // P1 analog TX-Hz burst, after the band-change call has returned.
-    void onIoboardSettle();
     // Stage 2b2-fix-v2 — HW-PTT-in poll slot (Qt main thread,
     // ~20 Hz).  Reads `lyra::wire::prn->ptt_in` level, edge-
     // detects, fires requestMoxFromHwPtt() on transitions.
@@ -2032,18 +2033,15 @@ private:
     // on, else VFO A (rx1).  The SINGLE TX-freq writer for split paths so
     // PureSignal's feedback DDCs (which read tx[0].frequency) follow it.
     void pushEffectiveTxFreq();
-    // HL2 / HL2+ P1 only: schedule the five I2C2 0x1D TX-Hz bytes.
-    // The burst waits until this call returns (mode, OC, filter setup),
-    // then is written twice.  Skipped on Protocol 2.  force is accepted
-    // so startup / P1-return call sites stay source-compatible.
-    void pushIoboardTxFreq(bool force = false);
-    // I2C2 0x1D register 11 (RF1 vs Alt RX).  Independent of analog
-    // BYTE0–4.  Skipped on Protocol 2.
-    void pushHl2RxPort();
-    // Pico REG_FCODE_RX1/RX2 (13/14).  Dial RF, not IF.  Independent of
-    // analog BYTE0–4 and register 11.  Skipped on Protocol 2.
-    // LYRA_NO_IOBOARD_FCODE=1 skips 13/14 only.
-    void pushIoboardRxFcodes();
+    // HL2 / HL2+ P1 IO board: the ONLY writer of the sequencer snapshot
+    // (Hl2IoBoard.h).  Updates lastHfTxHz_, then publishes
+    // compute_snapshot(inputs, lastHfTxHz_).  Every path that changes TX
+    // Hz, RX1/RX2 dial, SUB, RF1/Alt or an IO-board policy ends here.
+    // Qt thread only; inert on Protocol 2.
+    void publishIoboardState();
+    lyra::wire::hl2iob::Inputs ioboardInputs() const;
+    void pollIoboardSession();
+    void drainIoboardRecords();
     bool refuseTxBandJump(quint32 fromHz, quint32 toHz);
     // Writes the RX DDC NCOs from rx1FreqHz_ + (ritEnabled ? ritOffsetHz : 0)
     // — the single RX-NCO writer, mirror of pushEffectiveTxFreq.  Called by
@@ -2381,13 +2379,17 @@ private:
     // Last TX band applyTxPower_ ran for — so a freq dial tick only
     // re-applies the power when the band (gbb) actually changed.
     std::atomic<int>     lastTxBand_{-2};
-    // Analog TX-Hz debounce.  A band click used to enqueue 0x1D while
-    // OC / mode setup was still running, then treat BYTE0-on-the-wire
-    // as latched.  A missed Pico latch stuck the previous band's voltage
-    // until some other frequency was written (#17).
-    QTimer               ioboardSettleTimer_;
-    int                  ioboardEpoch_ = 0;
     std::atomic<int>     hl2RxPort_{0};  // 0 RF1, 2 Alt RX; P1 IO-board only
+    // HL2 IO board (Hl2IoBoard.h).  Qt thread only.
+    lyra::wire::hl2iob::XvtrPolicy ioboardXvtrAnalog_ =
+        lyra::wire::hl2iob::XvtrPolicy::HoldLastHf;
+    bool                 ioboardSendRxFcodes_ = true;
+    bool                 ioboardForcePresent_ = false;
+    std::uint64_t        lastHfTxHz_ = 0;     // last TX Hz outside a transverter slot
+    // Per-session report state (reset in open()).
+    bool                 iobPresentReported_ = false;
+    bool                 iobAbsentReported_ = false;
+    std::uint64_t        iobStaleReported_ = 0;
     std::atomic<int>     txStepAttnDb_{0};      // 0..31 dB; 0x1C C3 (31-db)
     std::atomic<int>     txMode_{1};            // 0=LSB 1=USB; mirror of the WDSP TXA mode, for the TUN DDS-offset sign (txDdsHzForTune)
     std::atomic<bool>    psUiDigital_{false};   // focused RX DIG/DRM/CW/FM lock-out

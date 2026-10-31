@@ -2,10 +2,13 @@
 //
 // Plan: docs/architecture/HL2_IOBOARD_REMEDIATION_PLAN.md §5.
 //
-// Links the real src/wire/Hl2IoBoard.cpp.  The datagram stream is produced
-// by a driver that calls the sequencer exactly the way write_main_loop_hl2
-// does (begin_datagram before the two USB frames, compose_frame for USB
-// frame 2, end_datagram after), and is consumed by a gateware model
+// Links the real src/wire/Hl2IoBoard.cpp and src/wire/FrameComposer.cpp.
+// The datagram stream comes from one of two drivers: SimDriver calls the
+// sequencer the way write_main_loop_hl2 does (begin_datagram before the two
+// USB frames, compose_frame for USB frame 2, end_datagram after) with
+// synthetic round-robin frames; ComposerDriver runs the real
+// write_main_loop_hl2 and captures metis_write_frame
+// (hl2_ioboard_test_stubs.cpp).  Either stream is consumed by a gateware model
 // (queue-less bus 2, 100 us per transaction, frame-0 / mic-boost
 // transactions, optional UDP loss) feeding a Pico model (Registers[],
 // commit on register 4, FT-817 J4 table).
@@ -13,7 +16,9 @@
 // cmake --build build --target test_hl2_ioboard_frames
 // build\test_hl2_ioboard_frames.exe
 
+#include "wire/FrameComposer.h"
 #include "wire/Hl2IoBoard.h"
+#include "wire/RadioNet.h"
 
 #include <algorithm>
 #include <atomic>
@@ -29,6 +34,11 @@
 #include <vector>
 
 namespace iob = lyra::wire::hl2iob;
+
+// hl2_ioboard_test_stubs.cpp
+extern std::uint8_t g_hl2iob_test_dg[1024];
+extern long g_hl2iob_test_dg_count;
+void hl2iob_test_wire_setup();
 
 // ---------------------------------------------------------------------------
 // check plumbing
@@ -194,6 +204,50 @@ struct SimDriver : Driver {
             d.f[1] = synth(take());
         }
         iob::end_datagram(f1_case);
+        return d;
+    }
+};
+
+// Round-robin case from a frame's C0 address; -1 = not a round-robin frame.
+static int case_from_c0(std::uint8_t c0)
+{
+    const std::uint8_t a = static_cast<std::uint8_t>(c0 & 0xFE);
+    for (int i = 0; i < 19; ++i)
+        if (kCaseC0[i] == a) return i;
+    return -1;
+}
+
+// Drives the real write_main_loop_hl2 (src/wire/FrameComposer.cpp);
+// metis_write_frame is captured by hl2_ioboard_test_stubs.cpp.  Inputs go
+// through the fields compose_case_0 / compose_case_10 read.  The composer
+// round robin is never reset (as in the application across sessions).
+struct ComposerDriver : Driver {
+    const char* name() const override { return "composer"; }
+    void reset() override
+    {
+        hl2iob_test_wire_setup();
+        oc = dither = micboost = xmit = 0;
+    }
+    Dg step() override
+    {
+        using namespace lyra::wire;
+        prn->oc_output = oc;
+        prn->adc[0].dither = dither;
+        prn->mic.mic_boost = static_cast<unsigned char>(micboost & 1);
+        XmitBit = xmit;
+        static const char lriq[1008] = {};
+        const long before = g_hl2iob_test_dg_count;
+        write_main_loop_hl2(lriq);
+        CHECK(g_hl2iob_test_dg_count == before + 1);
+        Dg d;
+        for (int k = 0; k < 2; ++k) {
+            const std::uint8_t* p = g_hl2iob_test_dg + 512 * k;
+            CHECK(p[0] == 0x7F && p[1] == 0x7F && p[2] == 0x7F);
+            for (int i = 0; i < 5; ++i) d.f[k].c[i] = p[3 + i];
+            d.f[k].rr_case = is_io_frame(d.f[k].c) ? -1 : case_from_c0(d.f[k].c[0]);
+            CHECK(is_io_frame(d.f[k].c) || d.f[k].rr_case >= 0);
+        }
+        CHECK(!is_io_frame(d.f[0].c));
         return d;
     }
 };
@@ -1392,6 +1446,8 @@ int main()
 
     SimDriver sim;
     run_sequencer_suite(&sim, true);
+    ComposerDriver composer;
+    run_sequencer_suite(&composer, false);
 
     t_record_ring_spsc();
 
