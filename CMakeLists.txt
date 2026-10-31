@@ -185,6 +185,8 @@ qt_add_executable(lyra
     src/wire/RbpFilter.cpp
     src/wire/FrameComposer.h
     src/wire/FrameComposer.cpp
+    src/wire/Hl2IoBoard.h
+    src/wire/Hl2IoBoard.cpp
     src/wire/Ep6RecvThread.h
     src/wire/Ep6RecvThread.cpp
     src/wire/Router.h
@@ -977,6 +979,18 @@ target_link_libraries(test_hl2_ioboard_i2c PRIVATE Qt6::Core)
 set_target_properties(test_hl2_ioboard_i2c PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 if(MSVC)
     target_compile_options(test_hl2_ioboard_i2c PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# HL2 I/O board sequencer — frame-level harness (plan §5).  EXCLUDE_FROM_ALL.
+add_executable(test_hl2_ioboard_frames EXCLUDE_FROM_ALL
+    scratch/test_hl2_ioboard_frames.cpp
+    src/wire/Hl2IoBoard.h
+    src/wire/Hl2IoBoard.cpp
+)
+target_include_directories(test_hl2_ioboard_frames PRIVATE src)
+set_target_properties(test_hl2_ioboard_frames PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+if(MSVC)
+    target_compile_options(test_hl2_ioboard_frames PRIVATE /utf-8 /Zc:preprocessor /W4)
 endif()
 
 add_executable(test_band_jump EXCLUDE_FROM_ALL
