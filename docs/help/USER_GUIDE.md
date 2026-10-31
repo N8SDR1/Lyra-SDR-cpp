@@ -22,12 +22,50 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.33 Sheliak** — stability upgrade, recommended for all Protocol 2
-radios. P2 TX drive handling fixed (PureSignal calibrates at normal
-drive), CTUN pan lock on P2, J4 analog-first, 48 kHz PureSignal, STD on
-Settings → Apps.
-**v0.25.31** is the previous public build (v0.25.32 was tagged but never
-released). See [What's new in 0.25.33](#whats-new-in-02533).
+**v0.25.34 Sheliak** — HL2 IO board (N2ADR HL2IOBoard Pico) rework:
+periodic re-send sequencer, board detection with **Force IO board
+present**, **Transverter bands send** policy, **Send RX frequency
+codes** checkbox. Protocol 1 only; Protocol 2 and the rest of the wire
+unchanged.
+**v0.25.33** is the previous public build. See
+[What's new in 0.25.34](#whats-new-in-02534).
+
+## What's new in 0.25.34
+
+- **HL2 IO board writes are now periodic, like deskHPSDR.** Instead of
+  one I2C write per change, Lyra latches a snapshot (TX Hz, RF1 / Alt,
+  RX codes) and re-sends registers **0–4, 11, 13, 14** every ~0.35 s.
+  A write the Pico misses is repeated on the next cycle. The IO
+  frames sit in the second USB frame of an EP2 datagram and step aside
+  when the gateware is busy with its own filter-board frame, so the
+  HL2 I2C bridge never has to hold two commands at once. Band hop →
+  Pico commit ≈ 0.2 s. Fixes random / mixed-byte TX Hz on the Pico,
+  REG 11 stuck after a 2 m → HF hop, RF1 / Alt not sticking, and J4
+  band voltage not following the band.
+- **Board detection.** Lyra reads the board's PCA9536 ID chip at
+  **0x41** (same probe as Thetis / deskHPSDR) and writes **0x1D** only
+  once it answers. Probes 10× at ~1.7 s, then every ~30 s. Without a
+  board nothing is written to 0x1D. Settings → **Filters / BCD** →
+  **IO board** shows **Detected / Not detected / Forced present**.
+- **Force IO board present** (new checkbox) — for a DIY Pico on I2C
+  bus 2 built without the PCA9536. Skips detection, writes every
+  cycle. Default off.
+- **Transverter bands send** (new picker) — **Hold last HF frequency**
+  (default: the Pico keeps the last HF TX frequency while a transverter
+  slot is selected, so an HF band-volts amp on J4 does not hop) or
+  **On-air RF frequency**.
+- **Send RX frequency codes (registers 13 / 14)** (new checkbox,
+  default on). Replaces the `LYRA_NO_IOBOARD_FCODE=1` environment
+  switch, which is no longer read — delete it if you set it.
+- **REG 11** is only ever **0** (RF1) or **2** (Alt RX), never 1. TX
+  frequency registers are never written with 0 Hz.
+- **`[iob]` log records** (Help → Log, verbose) show every latch, write,
+  probe, reply, slip and restart for bench diagnostics.
+- Not in this build: **Xvtr / SWL rows in OC Control** (still queued).
+- Testers: Mike K7MDL, Randy W7CPA, Volker DL1VE.
+- Details: [HL2 IO board (HL2IOBoard Pico, I2C 0x1D)](#hl2-io-board-hl2ioboard-pico-i2c-0x1d).
+- **v0.25.33 Sheliak** is the previous public build. **v0.25.22**
+  remains the long return point. Settings stay.
 
 ## What's new in 0.25.33
 
@@ -102,7 +140,8 @@ released). See [What's new in 0.25.33](#whats-new-in-02533).
 - **`LYRA_NO_IOBOARD_FCODE=1`** (optional tester switch). Skips Pico
   I2C registers **13 / 14** only. Analog J4 (BYTE0–4) and RF1 / Alt
   stay. This is a **Windows user environment variable**, not a Lyra
-  Settings box. [How to set LYRA_NO_IOBOARD_FCODE](#how-to-set-lyra_no_ioboard_fcode).
+  Settings box. Retired in 0.25.34 — see
+  [LYRA_NO_IOBOARD_FCODE (retired)](#lyra_no_ioboard_fcode-retired-in-02534).
 - **CW keyer** stays radio KEY jack + **Settings → CW → CW key over
   COM port**. Lyra does not add a separate Winkeyer USB driver (same
   as Thetis / DeskHPSDR).
@@ -672,6 +711,7 @@ Dummy load first.
   - [Radio](#radio)
   - [Transmit (PA enable + safety timeout + hardware PTT)](#transmit-pa-enable--safety-timeout--hardware-ptt)
 - [Settings → Filters / BCD](#settings--filters--bcd)
+  - [HL2 IO board (HL2IOBoard Pico, I2C 0x1D)](#hl2-io-board-hl2ioboard-pico-i2c-0x1d)
   - [Filter board — OC Control (J16 pins)](#filter-board--oc-control-j16-pins)
   - [Transmit pin action + external-PA gating](#transmit-pin-action--external-pa-gating)
   - [USB-BCD (linear-amp band switching)](#usb-bcd-linear-amp-band-switching)
@@ -1877,7 +1917,7 @@ guide opens this Band chapter.
 | **Basic HL2 or HL2+.** One antenna SMA. PureSignal or not. No Pico, no IO board, no transverter. | Nothing extra. Leave **RF1**. **Enable N2ADR / IO board** on if you have the filter board, off if you do not. PureSignal is its own panel; this jack choice does not move the PS tap. |
 | **N2ADR (and maybe PS) plus a basic transverter** on the antenna jack — IF in/out of **HF** on the transverter, that box does T/R (6 m Mini with VHF / TRX / HF / PTT). No Pico / IO board. | **Xvtr** chip for the LO (so the VFO shows 50 MHz while the radio sits on 10 m IF). Leave **RF1**. Do **not** click **Alt**. Disable PA in the slot editor unless you intentionally drive the pad with the HL2 PA. |
 | **N2ADR + Pico + IO board**, transverter IF on the rear **Alt RX** SMA, HF antenna still on **RF1** (Volker-style Mini). | HF bands: leave **RF1**. On the **2 m** (or matching) Xvtr chip, click **Alt** once. That chip remembers it. Hopping HF ↔ VHF then switches the IO-board mux the same way Thetis does. |
-| **Band voltage / BCD to an amp or antenna switch** (GPA100 on J4 pin 8, USB-BCD cable, or J3 Band Volts). Pico analog, with or without a transverter. | Nothing on **RF1** / **Alt** unless you also have station 3. Analog TX-Hz on J4 is always sent on Protocol 1 — it is **not** the N2ADR checkbox and **not** the Alt chip. **Do not** tick **HL2 Band Volts on J3** for J4 / GPA100. USB-BCD is a separate picker on the same Settings tab. |
+| **Band voltage / BCD to an amp or antenna switch** (GPA100 on J4 pin 8, USB-BCD cable, or J3 Band Volts). Pico analog, with or without a transverter. | Nothing on **RF1** / **Alt** unless you also have station 3. Analog TX-Hz on J4 is sent on Protocol 1 whenever the IO board is detected (Settings → Filters / BCD → IO board shows **Detected**) — it is **not** the N2ADR checkbox and **not** the Alt chip. A Pico without the PCA9536 ID chip needs **Force IO board present**. **Do not** tick **HL2 Band Volts on J3** for J4 / GPA100. USB-BCD is a separate picker on the same Settings tab. |
 
 **Do not click Alt** if you have only one SMA. It does nothing useful without an IO board, and with an IO board it listens to an empty jack.
 
@@ -4476,21 +4516,104 @@ transverter). This tab is the pin-level detail.
 | Path | Pin | How Lyra turns it on | Same as |
 |------|-----|----------------------|---------|
 | Gateware Band Volts | **J3** (fan PWM / GPIO04_Fan) | **HL2 Band Volts on J3** checkbox | DeskHPSDR RX → *HL2 Band Volts / Dither Bit*; MI0BOT Thetis *HL2 Band Volts* |
-| Pico analog (stock `n2adr_basic`) | **J4 pin 8** | Always on Protocol 1 — Lyra writes TX Hz over I2C **0x1D** (I2C2) | Thetis / Quisk / SparkSDR (same Pico TX-freq writes; OC is filters only) |
+| Pico analog (stock `n2adr_basic`) | **J4 pin 8** | Protocol 1, whenever the IO board is **detected** at 0x41 or **forced present** — Lyra writes TX Hz over I2C **0x1D** (I2C2) every ~0.35 s | Thetis / Quisk / deskHPSDR (same Pico TX-freq writes; OC is filters only) |
 | N2ADR LPF / J16 OC | P1: J16 → I2C **0x20**. P2: HP **[1401]** (`OC<<1`) | **Enable N2ADR / IO board** | DeskHPSDR `filter_board` / `high_priority[1401]` |
 
-USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no filter board (analog still follows).
+USB-BCD stays off until you pick a cable. Turn N2ADR off if you have no filter board (the Pico path is separate and only runs when a board answers).
 
-**Band hops.** The Pico latches analog when **BYTE0** of the five-byte
-TX-Hz write lands. Analog BYTE0–4 is compacted to the **front** of the
-I2C ring so leftover Pico GPIO fcodes 13/14 cannot sit in front of
-BYTE0 (that leftover PWM pinned J4 on the previous band). Lyra spaces
-those I2C steals with **delay=5** (same as Thetis/Quisk) so two writes
-do not share one UDP datagram, drops any analog burst still queued
-from the previous band, and only coalesces a hop after BYTE0 is on
-the wire. RF above **54 MHz** is not packed into J4 (2 m xvtr leftover
-reading as 80 m). A leftover 80 m write cannot leave **J4 pin 8** on
-the 80 m voltage after you hop to 20 m.
+**Band hops.** Since **0.25.34** the IO-board registers are not written
+"on change" at all — they are re-sent from one latched snapshot every
+cycle (see [HL2 IO board](#hl2-io-board-hl2ioboard-pico-i2c-0x1d)
+below). A hop restarts the cycle, and the Pico latches analog when
+register **4** (the last TX-Hz byte) lands, roughly **0.2 s** after the
+band change. A write the Pico misses is simply repeated ~0.35 s later,
+so a leftover 80 m write cannot leave **J4 pin 8** on the 80 m voltage
+after you hop to 20 m.
+
+### HL2 IO board (HL2IOBoard Pico, I2C 0x1D)
+
+Settings → **Filters / BCD** → **IO board (HL2IOBoard, I2C 0x1D)**.
+Protocol 1 only; Protocol 2 radios show **Protocol 2 — not used**.
+
+**What it drives.** The N2ADR **HL2IOBoard** (Pico) listens on the
+HL2's second I2C bus at **0x1D**. Lyra writes:
+
+| Registers | Carries | Used by |
+|---|---|---|
+| **0–4** | TX frequency (five bytes; register 4 commits) | Stock `n2adr_basic` → **J4 pin 8** band voltage (GPA100 / XPA125 / Micro PA50 / M0AWS DB9); K7MDL and other firmwares |
+| **11** | RX input: **0** = RF1 (antenna SMA), **2** = Alt RX jack | The **RF1 / Alt** chip on the Band dock (Xvtr row). Never written as 1 |
+| **13 / 14** | One-byte RX frequency codes for RX1 / RX2 (RX1 twice when SUB is off) | Firmware that follows the **RX** band (K7MDL Pico GPIO decoders) |
+
+**How it is sent (the sequencer).** Lyra uses the same periodic model
+as deskHPSDR. Every cycle (~0.35 s) it latches one snapshot — TX Hz,
+RF1 / Alt, RX codes — and walks a fixed slot order: latch, detection
+probe, registers 0–4, register 11, registers 13 / 14. Every cycle
+re-sends everything, so there is no queue to drain and nothing to
+retry: a write the Pico or the gateware's I2C bridge drops is on the
+wire again next cycle. Each IO write rides in the second USB frame of
+an EP2 datagram and slips one datagram when it would sit next to the
+gateware's own filter-board frame, so the HL2 I2C bridge — which can
+only hold one command — is never asked to hold two. A changed snapshot
+(band hop, RF1 ↔ Alt, SUB on / off) restarts the cycle at the next
+slot; band hop → register-4 commit is about **0.2 s**. The TX
+frequency registers are never written with **0 Hz**.
+
+**Detection and the Status line.** The IO board carries a PCA9536 at
+**0x41**. Lyra reads it (the probe Thetis and deskHPSDR also use) and
+writes **0x1D** only once it answers — a stock HL2 / HL2+ with just the
+N2ADR filter board sees **no** 0x1D traffic at all. The probe runs ten
+times at ~1.7 s, then every ~30 s, so a board you power up later is
+still found. Status shows:
+
+- **Detected** — 0x41 answered; registers are being sent every cycle.
+- **Not detected** — no answer yet; nothing is written to 0x1D. The log
+  says `[iob] IO board not detected (0x41 did not answer)`.
+- **Forced present** — detection skipped by the checkbox below.
+- **Protocol 2 — not used** — Brick / ANAN; this group is inert.
+
+**Force IO board present (DIY Pico without PCA9536).** Tick this only
+if you built a Pico onto I2C bus 2 without the PCA9536 ID chip (the
+deskHPSDR `force_iob` case). Lyra skips the 0x41 probe and writes 0x1D
+every cycle. Leave it **off** on a standard HL2IOBoard, and off if you
+have no board — forcing it on a bare HL2 just puts unanswered I2C
+traffic on the bus. Takes effect live; no restart needed.
+
+**Transverter bands send.** What goes into registers 0–4 while the TX
+is on an **Xvtr** chip:
+
+- **Hold last HF frequency** (default) — keep sending the last HF TX
+  frequency. An HF-only band-volts amplifier on J4 (GPA100 / XPA125B
+  class) stays on the HF band it was on instead of hopping to a
+  voltage it does not understand when you select 2 m. If no HF
+  frequency has been used yet in this session, registers 0–4 are not
+  sent until one has.
+- **On-air RF frequency** — send the real RF frequency on every band
+  (144.2 MHz gives the 2 m band voltage on J4). Pick this if your
+  Pico firmware / amp decodes VHF and you want the board to follow the
+  transverter.
+
+Either way, **register 11** (RF1 / Alt) and the RX codes still follow
+the live chip, so the Alt RX mux switches on an HF ↔ VHF hop as before.
+
+**Send RX frequency codes (registers 13 / 14).** Default **on**, as
+deskHPSDR. Untick it if a Pico GPIO decoder misbehaves on the RX codes
+and you only need J4 analog and RF1 / Alt. This checkbox replaces the
+old `LYRA_NO_IOBOARD_FCODE=1` environment variable, which is **no
+longer read** — if you set it for 0.25.28–0.25.33, delete it (quit
+Lyra, Start → *environment*, user list, select it, **Delete**).
+
+**Troubleshooting with the `[iob]` log.** Help → **Log** with
+**Verbose** on records every step: `latch` (snapshot taken: tx, r11,
+f13, f14, armed), `W reg=… val=…` (a register write), `R 0x41`
+(detection probe), `reply 0x41` (what the ID chip answered), `slip`
+(an IO frame stepped aside for a gateware frame) and `restart`
+(snapshot changed, cycle restarted). Save the log as `.txt` and attach
+it when you report a band-voltage or RF1 / Alt problem; the `t=` and
+`c=` columns (milliseconds and cycle number) let the write order and
+timing be checked against the Pico's own IO-Control readback.
+
+**Still queued, not in this build:** **Xvtr / SWL rows in OC Control**
+(J16 pin ticks for transverter and general-coverage chips).
 
 ### Filter board — OC Control (J16 pins)
 
@@ -4609,30 +4732,17 @@ seeded on the first C&C frame. This is independent of N2ADR OC/LPFs
 and of HL2+ AK4951 serial band-follow (HardRock-50 / AH-4 — no setting
 needed here).
 
-### How to set LYRA_NO_IOBOARD_FCODE
+### LYRA_NO_IOBOARD_FCODE (retired in 0.25.34)
 
-Optional. Use this if a Pico / J4 voltage amp (Xiegu, GPA100, M0AWS)
-stays on the **previous** band on HF hops. Lyra reads the variable
-only when it **starts**.
-
-1. Fully **quit Lyra** (File → Exit or the window X). If **lyra.exe**
-   is still in Task Manager, End task.
-2. Start menu: type **environment** (German Windows: **umgebung**).
-3. Open **Edit environment variables for your account** /
-   **Umgebungsvariablen für dieses Konto bearbeiten**. Use the
-   **user** list, not System variables.
-4. **New…** / **Neu**. Name: `LYRA_NO_IOBOARD_FCODE`  Value: `1`
-   (no spaces, no quotes).
-5. OK, then start Lyra from the Start menu or desktop icon.
-
-There is no new checkbox in Lyra. Registers **13 / 14** are skipped;
-J4 analog and RF1 / Alt are unchanged.
-
-**Remove it afterwards:** quit Lyra, same dialog, select
-`LYRA_NO_IOBOARD_FCODE`, **Delete** / **Löschen**, OK, start Lyra
-again. To confirm in a **new** Command Prompt:
-`echo %LYRA_NO_IOBOARD_FCODE%` should show `1` while it is set, and
-echo the name after delete.
+The `LYRA_NO_IOBOARD_FCODE=1` environment switch from 0.25.28–0.25.33
+is **no longer read**. Use Settings → **Filters / BCD** → **IO board**
+→ **Send RX frequency codes (registers 13 / 14)** instead (untick =
+the old switch). If you set the variable earlier, remove it: quit
+Lyra, Start menu → type **environment** (German Windows: **umgebung**),
+open **Edit environment variables for your account** /
+**Umgebungsvariablen für dieses Konto bearbeiten**, select
+`LYRA_NO_IOBOARD_FCODE` in the **user** list, **Delete** / **Löschen**,
+OK. See [HL2 IO board](#hl2-io-board-hl2ioboard-pico-i2c-0x1d).
 
 ## Settings → Audio
 

@@ -4,6 +4,26 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-10-31 — v0.25.34 Sheliak RELEASED (HL2 IO board sequencer)
+
+HL2 IO board (N2ADR HL2IOBoard Pico, I2C 0x1D) rework, Protocol 1
+only. `f6eb10f` standalone slot sequencer module + frame harness,
+`bf04ef4` hl2_stream switched to the periodic sequencer (write-on-change
+I2C path removed from FrameComposer), `b0289d1` Settings → Filters /
+BCD → IO board group (Transverter bands send, Send RX fcodes, Force
+present, Status line), C3b verbose `[iob]` gate armed at open + 0x41
+warning wording. deskHPSDR model: 11 slots × 12 EP2 datagrams
+(~31.5 ms / slot, ~346 ms / cycle); slot 0 latch, 1 probe 0x41, 2–6
+regs 0–4, 7 REG 11, 8–9 regs 13/14; second-USB-frame placement with a
+one-datagram slip next to gateware case 0 / 10 frames; restart on a
+changed snapshot. Detection: PCA9536 at 0x41, 10 probes at ~1.7 s then
+~30 s. REG 11 only 0 / 2; never 0 Hz. `LYRA_NO_IOBOARD_FCODE` retired.
+Bench on N8SDR HL2+ (no IO board): zero 0x1D traffic absent, forced
+capture correct, restart / power-cycle / live force / fast hops clean,
+Brick3 P2 + PS TX no IO-board activity. Pico-side confirmation from
+testers (K7MDL / W7CPA / DL1VE). Xvtr / SWL OC rows still queued.
+Tag `v0.25.34`. `main` untouched. Mac stays `macos-port`.
+
 ## 2026-10-30 — v0.25.33 Sheliak RELEASED (stability upgrade)
 
 Ships the P2 unity-IQ fix below plus `2ae5848` CTUN pan lock on P2,

@@ -6,7 +6,7 @@ for the Hermes Lite 2 / 2+ (Protocol 1) and **BrickSDR2 / Brick3SDR** (Protocol 
 expectations so you know what's a real bug versus a feature that simply
 hasn't landed yet. (Pin or link this in Discord.)
 
-Current tree: **v0.25.33 Sheliak**. Stability upgrade recommended for all Protocol 2 radios: P2 TX drive handling fixed (PureSignal calibrates at normal drive), CTUN pan lock on P2, J4 analog-first, 48 kHz PS, STD on Settings → Apps. **Turn Drive down and walk it up before your first TX on a P2 radio.** v0.25.31 Sheliak is the previous public build (v0.25.32 was tagged but never released). v0.25.22 remains the long return point. Always grab the latest from the
+Current tree: **v0.25.34 Sheliak**. HL2 IO board (N2ADR HL2IOBoard Pico, I2C 0x1D) rework on Protocol 1: periodic re-send sequencer like deskHPSDR, board detection at 0x41 with **Force IO board present**, **Transverter bands send** policy, **Send RX frequency codes** checkbox (replaces `LYRA_NO_IOBOARD_FCODE`). Protocol 2 unchanged. v0.25.33 Sheliak is the previous public build (its P2 drive warning still applies if you skip from ≤0.25.31: **turn Drive down and walk it up before your first TX on a P2 radio**). v0.25.22 remains the long return point. Always grab the latest from the
 [Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases).
 
 > **What already works** (so you don't wonder): full RX DSP, and **transmit

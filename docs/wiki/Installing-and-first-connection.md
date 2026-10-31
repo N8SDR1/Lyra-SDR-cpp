@@ -108,10 +108,13 @@ first:
   mic via VAC1, or TCI for digital.
 - **TX power / drive**, and **enable the PA** if your build needs it
   (Settings → TX → Advanced). Brick3 first RF: **dummy load**.
-- **HL2 filter board (J4 pin 8):** follow is always on. You do **not**
-  need **Enable N2ADR**. Leave **Band Volts on J3** off unless the amp
-  is on the fan header. **v0.25.20** writes the voltage after the band
-  change finishes, including a return to a band already on the dial.
+- **HL2 IO board (J4 pin 8 band volts, RF1 / Alt):** follow is on as
+  soon as the board is **detected** (Settings → Filters / BCD → IO
+  board → Status). You do **not** need **Enable N2ADR** for it. A DIY
+  Pico without the PCA9536 ID chip needs **Force IO board present**.
+  Leave **Band Volts on J3** off unless the amp is on the fan header.
+  **v0.25.34** re-sends the registers every ~0.35 s, so a missed write
+  repairs itself.
 - **Running an amplifier?** Read
   **[User Guide → Operating with an external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**
   first — Lyra has TR‑sequencing and hot‑switch protection you should
