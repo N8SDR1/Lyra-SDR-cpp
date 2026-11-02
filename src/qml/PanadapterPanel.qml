@@ -147,6 +147,7 @@ Item {
             Stream.setCtuneEnabled(false)
         var a = Stream.rx1FreqHz
         if (Stream.splitEnabled) {
+            Stream.setRptActive(false)   // a swap ends the RPT relation (as TuningPanel.swapAB)
             var bSplit = Stream.vfoBHz
             Stream.setVfoBHz(a)
             Stream.setRx1FreqHz(bSplit)

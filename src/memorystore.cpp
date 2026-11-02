@@ -104,6 +104,9 @@ void MemoryStore::recall(int index) {
         if (p.offsetHz != 0) {
             stream_->setVfoBHz(quint32(qint64(p.freq) + p.offsetHz));
             stream_->setSplitEnabled(true);
+            // A recalled repeater IS the RPT path: VFO B tracks A ± offset
+            // while on this band, and the split drops on a band change.
+            stream_->setRptActive(true);
         } else {
             stream_->setSplitEnabled(false);
         }

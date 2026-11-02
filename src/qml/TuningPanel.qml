@@ -64,10 +64,17 @@ Rectangle {
     Connections {
         target: Stream
         function onRx1FreqChanged() {
+            var prevHz = root.centerHz
             root.centerHz = Stream.rx1FreqHz
             // Duplex: while RPT is active (FM split), VFO B tracks A ± offset
-            // as you tune across repeater outputs.
-            if (root.fmMode && Stream.splitEnabled) root.rptApply()
+            // as you tune across repeater outputs.  Only RPT-split tracks
+            // (operator SPLIT never has VFO B re-derived), and never across
+            // a band edge — the stream drops RPT on that crossing first
+            // (HL2Stream::setRx1FreqHz); the band check here is belt-and-
+            // braces so a stale offset can't be re-applied on the new band.
+            if (root.fmMode && Stream.splitEnabled && Stream.rptActive
+                    && Stream.bandIdFor(prevHz) === Stream.bandIdFor(root.centerHz))
+                root.rptApply()
         }
         function onRx2FreqChanged() { root.rx2Hz = Stream.rx2FreqHz }
         function onVfoBHzChanged() {
@@ -144,7 +151,11 @@ Rectangle {
         else
             Stream.setRx2FreqHz(hz - WdspEngine.markerOffsetHzRx2)
     }
+    // 1→2 / 2→1 / ⇄ break the RPT relation (VFO B is no longer A ± offset):
+    // split stays as the operator left it, but it is operator split now.
     function copyAtoB() {
+        if (Stream.splitEnabled)
+            Stream.setRptActive(false)
         if (Stream.splitEnabled)
             Stream.setVfoBHz(Stream.rx1FreqHz)
         else if (Stream.subEnabled)
@@ -157,6 +168,8 @@ Rectangle {
         }
     }
     function copyBtoA() {
+        if (Stream.splitEnabled)
+            Stream.setRptActive(false)
         if (Stream.splitEnabled)
             Stream.setRx1FreqHz(Stream.vfoBHz)
         else if (Stream.subEnabled)
@@ -171,6 +184,7 @@ Rectangle {
     function swapAB() {
         var a = Stream.rx1FreqHz
         if (Stream.splitEnabled) {
+            Stream.setRptActive(false)
             var b = Stream.vfoBHz
             Stream.setVfoBHz(a)
             Stream.setRx1FreqHz(b)
@@ -1329,6 +1343,9 @@ Rectangle {
                     if (checked) {
                         root.applyBandDefault()
                         Stream.setSplitEnabled(true)
+                        // Mark this split as RPT: it drops (split off, VFO B
+                        // re-synced to A) when RX1 leaves this band.
+                        Stream.setRptActive(true)
                         root.rptApply()
                     } else {
                         Stream.setSplitEnabled(false)

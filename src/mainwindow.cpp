@@ -2224,6 +2224,13 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
             statusBar()->showMessage(
                 tr("Frequency change ignored while transmitting."), 4000);
         });
+        // RPT (FM repeater offset) dropped because RX1 crossed a band
+        // edge — the stream already turned split off and parked VFO B on
+        // the new band; this is the operator-visible half (DL1VE).
+        connect(st, &lyra::ipc::HL2Stream::rptDropped, this,
+                [this](const QString &leftBand) {
+            statusBus_->show(tr("RPT off — left %1").arg(leftBand), 4000);
+        });
         connect(st, &lyra::ipc::HL2Stream::rx1FreqChanged, this,
                 [this, st]() {
             if (!prefs_->bandPlanEdges()

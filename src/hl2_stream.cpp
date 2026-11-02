@@ -285,6 +285,14 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
     if (splitEnabled_.load(std::memory_order_relaxed))
         txFreqHz_.store(vfoBHz_.load(std::memory_order_relaxed),
                         std::memory_order_relaxed);
+    // RPT-vs-operator split.  Only meaningful while split is on.  A
+    // persisted split from before this key existed has no flag: it is
+    // NOT inferred (defaults false) and behaves as operator split until
+    // the operator clicks it off.
+    rptActive_.store(
+        splitEnabled_.load(std::memory_order_relaxed)
+            && QSettings().value(QStringLiteral("tx/rptActive"), false).toBool(),
+        std::memory_order_relaxed);
     // SUB / RX2 — default OFF (zero extra DSP; DDC1 mirrors RX1).
     subEnabled_.store(
         QSettings().value(QStringLiteral("rx/subEnabled"), false).toBool(),
@@ -1460,6 +1468,7 @@ void HL2Stream::open(const QString &ip) {
     iobPresentReported_ = false;
     iobAbsentReported_ = false;
     iobStaleReported_ = 0;
+    iobFollowBReported_ = false;
     if (!p2DrivePath_.load(std::memory_order_relaxed)) {
         lyra::wire::hl2iob::init_for_open(ioboardForcePresent_);
         // Arm the record gate now so cycle-0 records (latch/probe/regs 0-3) are
@@ -2063,14 +2072,47 @@ bool HL2Stream::refuseTxBandJump(quint32 fromHz, quint32 toHz) {
 
 void HL2Stream::setRx1FreqHz(quint32 hz) {
     const quint32 prev = rx1FreqHz_.load(std::memory_order_relaxed);
-    // Simplex: VFO A is TX.  SPLIT: A is RX-only; B carries TX.
-    if (!splitEnabled_.load(std::memory_order_relaxed)
+    // Simplex: VFO A is TX.  SPLIT: A is RX-only; B carries TX.  RPT
+    // split counts as simplex here: a band jump would drop RPT (below)
+    // and move TX with it, so refuse it while keyed like simplex does.
+    if ((!splitEnabled_.load(std::memory_order_relaxed)
+         || rptActive_.load(std::memory_order_relaxed))
         && refuseTxBandJump(prev, hz))
         return;
     if (prev == hz)
         return;
     rx1FreqHz_.store(hz, std::memory_order_relaxed);
     QSettings().setValue(QStringLiteral("rx/freqHz"), hz);
+    // RPT offset drops on a band-edge crossing (DL1VE, v0.25.34): a 2 m
+    // repeater offset must never ride along to HF as a stale VFO B.
+    // Band identity = Xvtr slot or ham/BC/CB table entry (BandMemory's
+    // applyBand notion); tuning inside one band / one gap never fires.
+    // Reference apps: Thetis keeps the offset per TX band and FM-gates
+    // it; deskHPSDR turns split off and copies A→B on a band change.
+    // Operator SPLIT (rptActive false) is deliberately left alone.
+    // Runs BEFORE the NCO pushes so the TX recompute below already sees
+    // split off — one TX write + one IO-board word for this tune.
+    if (rptActive_.load(std::memory_order_relaxed)) {
+        const QString leftBand = bandIdFor(prev);
+        if (leftBand != bandIdFor(hz)) {
+            const quint32 oldB = vfoBHz_.load(std::memory_order_relaxed);
+            setSplitEnabled(false);          // also clears rptActive_
+            setVfoBHz(hz);                   // A→B: VFO B lands on the new band
+            QString shown = leftBand;
+            if (shown.startsWith(QLatin1String("xvtr:")) && xvtr_)
+                shown = xvtr_->slotName(shown.mid(5).toInt());
+            else if (shown.startsWith(QLatin1String("bc_"))
+                     || shown.startsWith(QLatin1String("cb_")))
+                shown = shown.mid(3);
+            if (shown.isEmpty())
+                shown = QStringLiteral("band");
+            safetyLog(QStringLiteral(
+                "TX: RPT off — RX1 left %1 on a band change; SPLIT off, "
+                "VFO B -> %2 Hz (was %3 Hz)")
+                          .arg(shown).arg(hz).arg(oldB));
+            emit rptDropped(shown);
+        }
+    }
     // NCOs first, then notify.  Protocol 2 mirrors DUC from txFreqHz_
     // on rx1FreqChanged — if that fires before pushEffectiveTxFreq,
     // TX stays on the previous dial (start is correct; any later VFO
@@ -2352,6 +2394,11 @@ void HL2Stream::setSplitEnabled(bool on) {
     if (prev == on)
         return;
     QSettings().setValue(QStringLiteral("tx/splitEnabled"), on);
+    // Split off (SPLIT button, RPT button, A/B pip, memory, CAT/TCI, desk,
+    // band-change drop) always ends the RPT reason — the next split-on is
+    // operator split unless the RPT path re-marks it.
+    if (!on)
+        setRptActive(false);
     if (!on && !subEnabled_.load(std::memory_order_relaxed)
         && focusedRx_.load(std::memory_order_relaxed) != 1) {
         focusedRx_.store(1, std::memory_order_relaxed);
@@ -2375,6 +2422,20 @@ void HL2Stream::setSplitEnabled(bool on) {
         pushEffectiveRxFreq();
     }
     publishIoboardState();
+}
+
+void HL2Stream::setRptActive(bool on) {
+    if (rptActive_.exchange(on, std::memory_order_relaxed) == on)
+        return;
+    QSettings().setValue(QStringLiteral("tx/rptActive"), on);
+    emit rptActiveChanged();
+}
+
+QString HL2Stream::bandIdFor(quint32 rfHz) const {
+    const int xv = xvtrMatchingSlot(static_cast<qint64>(rfHz));
+    if (xv >= 0)
+        return QStringLiteral("xvtr:%1").arg(xv);
+    return lyra::ui::BandMemory::bandNameFor(static_cast<int>(rfHz));
 }
 
 void HL2Stream::setVfoBHz(quint32 hz) {
@@ -3171,7 +3232,13 @@ void HL2Stream::pollIoboardSession() {
     if (!iobPresentReported_) {
         if (iob::force_present()) {
             iobPresentReported_ = true;
-            report(QStringLiteral("[iob] IO board forced present — detection skipped"));
+            const iob::Snapshot s = iob::unpack(iob::published());
+            report(QStringLiteral(
+                "[iob] IO board forced present — detection skipped: TX %1 Hz, REG11 %2")
+                .arg(s.sendTx ? QString::number(qulonglong(s.txHz))
+                              : QStringLiteral("none"),
+                     s.reg11Alt ? QStringLiteral("2 (Alt RX)")
+                                : QStringLiteral("0 (RF1)")));
         } else if (iob::present()) {
             iobPresentReported_ = true;
             const iob::Inputs in = ioboardInputs();
@@ -3204,6 +3271,23 @@ void HL2Stream::pollIoboardSession() {
     const std::uint64_t expected =
         iob::compute_snapshot(ioboardInputs(), lastHfTxHz_);
     const std::uint64_t published = iob::published();
+    // DL1VE diagnostic: say ONCE when the IO-board TX-frequency regs (0–4)
+    // are following VFO B rather than RX1 — i.e. SPLIT is on and the
+    // published TX word differs from the dial.  Re-arms when the condition
+    // clears; never logs per cycle, adds no wire traffic.
+    {
+        const iob::Snapshot s = iob::unpack(published);
+        const bool followB = splitEnabled_.load(std::memory_order_relaxed)
+            && s.valid && s.sendTx
+            && s.txHz != rx1FreqHz_.load(std::memory_order_relaxed);
+        if (followB && !iobFollowBReported_) {
+            iobFollowBReported_ = true;
+            report(QStringLiteral("[iob] TX regs follow VFO B (SPLIT on): %1 Hz")
+                       .arg(qulonglong(s.txHz)));
+        } else if (!followB) {
+            iobFollowBReported_ = false;
+        }
+    }
     if (expected == published) {
         iobStaleReported_ = 0;
     } else if (iobStaleReported_ != expected) {
