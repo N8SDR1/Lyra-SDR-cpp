@@ -4,6 +4,32 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-02 — v0.25.35 Sheliak RELEASED (GEN RF1/Alt memory, RPT band-change drop)
+
+Two tester fixes over v0.25.34, no wire / DSP changes. `5442443` GEN
+slots remember RF1/Alt + LNA + Auto-LNA per slot (GitHub #24, K7MDL):
+GEN freqs fall outside BandMemory's ham/BC/CB tables so nothing was
+saved or applied; GenSlots now does it XvtrSlots-style
+(`gen/<n>/rxPort|lnaDb|autoLna`), applied after the freq + mode writes
+behind an `applying_` guard; unset LNA/Auto leave live state alone,
+unset rxPort = RF1, resetSlot clears all three; TX drive untouched.
+`b2820cd` RPT offset drops on band change (DL1VE): 2 m RPT → 15 m left
+VFO B at RX1 − 600 kHz, SPLIT lit, 20.492 MHz on the IO-board TX regs,
+persisted. New `rptActive` (`tx/rptActive`) set by the RPT button /
+repeater memory, cleared by any split-off and 1→2 / 2→1 / ⇄;
+`setRx1FreqHz` drops split + A→B when `bandIdFor()` (Xvtr slot or
+BandMemory band) changes, safetyLog `TX: RPT off — RX1 left <band>…`,
+status bus `RPT off — left <band>`; keyed RPT gets the simplex
+band-jump refusal; TuningPanel duplex tracker gated on rptActive +
+same band. Operator SPLIT persists across bands as before (Thetis /
+deskHPSDR). Old persisted RPT split loads as operator split — click
+SPLIT off once. One-shot `[iob] TX regs follow VFO B (SPLIT on)` in
+pollIoboardSession; forced-present line shows TX Hz / REG 11. Docs:
+release notes, USER_GUIDE (What's new, new GEN heading, RPT paragraph,
+`[iob]` troubleshooting), wiki Feature Status / FAQ / Installing /
+Home / Roadmap, README, KNOWN_ISSUES. Xvtr / SWL OC rows still queued.
+Tag `v0.25.35`. `main` untouched. Mac stays `macos-port`.
+
 ## 2026-10-31 — v0.25.34 Sheliak RELEASED (HL2 IO board sequencer)
 
 HL2 IO board (N2ADR HL2IOBoard Pico, I2C 0x1D) rework, Protocol 1

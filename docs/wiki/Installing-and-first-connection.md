@@ -114,7 +114,10 @@ first:
   Pico without the PCA9536 ID chip needs **Force IO board present**.
   Leave **Band Volts on J3** off unless the amp is on the fan header.
   **v0.25.34** re-sends the registers every ~0.35 s, so a missed write
-  repairs itself.
+  repairs itself. **v0.25.35:** the GEN1–3 slots remember RF1 / Alt and
+  LNA per slot, and an FM **RPT** offset drops when you leave the band
+  (operator SPLIT still persists). If SPLIT comes up lit after the
+  upgrade, click it off once.
 - **Running an amplifier?** Read
   **[User Guide → Operating with an external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**
   first — Lyra has TR‑sequencing and hot‑switch protection you should

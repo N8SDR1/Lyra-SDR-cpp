@@ -22,13 +22,48 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.34 Sheliak** — HL2 IO board (N2ADR HL2IOBoard Pico) rework:
-periodic re-send sequencer, board detection with **Force IO board
-present**, **Transverter bands send** policy, **Send RX frequency
-codes** checkbox. Protocol 1 only; Protocol 2 and the rest of the wire
-unchanged.
-**v0.25.33** is the previous public build. See
-[What's new in 0.25.34](#whats-new-in-02534).
+**v0.25.35 Sheliak** — **GEN1 / GEN2 / GEN3** remember **RF1 / Alt**
+and **LNA** per slot (GitHub #24); an FM **RPT** offset no longer
+follows you onto another band (RPT / SPLIT drop, VFO B re-synced, status
++ log line) while operator **SPLIT** keeps persisting as before; new
+`[iob] TX regs follow VFO B` verbose-log line. No wire or DSP changes.
+**v0.25.34** is the previous public build. See
+[What's new in 0.25.35](#whats-new-in-02535).
+
+## What's new in 0.25.35
+
+- **GEN1 / GEN2 / GEN3 remember RF1 / Alt and LNA per slot** (GitHub
+  #24). A GEN button used to recall only frequency + mode; **RF1 / Alt**
+  and the **LNA** stayed at whatever the previous band left, because
+  general-coverage frequencies sit outside the per-band memory's ham /
+  broadcast / CB tables. Each GEN slot now keeps its own **RF1 / Alt**,
+  **LNA** and **Auto-LNA**, like the Xvtr chips. Upgrade-neutral:
+  RF1 / Alt defaults to **RF1**; LNA / Auto are remembered once you
+  touch them while that slot is active. **Right-click → reset** clears
+  them too. TX drive on GEN slots is unchanged. See
+  [GEN1 / GEN2 / GEN3](#gen1--gen2--gen3--general-coverage-slots).
+- **FM RPT offset drops when you leave the band.** With **RPT** armed
+  (say on the 2 m transverter chip), hopping to an HF band used to drag
+  VFO B along at RX1 − offset, leave **SPLIT** lit, and send an
+  out-of-band TX frequency to the IO board / amplifier — and it
+  survived restarts because split + VFO B persist. Now, when RX1
+  crosses into a different band while RPT is active, RPT / SPLIT turn
+  off, VFO B is set to the new RX1, the status bar shows **RPT off —
+  left ‹band›** and the log records it. **Operator SPLIT** (set with
+  the **SPLIT** button, CAT / TCI or the desk) is unchanged: it still
+  persists across band changes with VFO B where you left it, as in
+  Thetis / deskHPSDR. See [SPLIT](#split--receive-a-transmit-b).
+- **Upgrade note:** a split left over from an RPT session on an older
+  build loads as operator split (it is not inferred). If SPLIT comes up
+  lit after installing, click **SPLIT** (or **RPT**) off once.
+- **`[iob]` log:** one-shot `TX regs follow VFO B (SPLIT on): ‹hz› Hz`
+  whenever the IO-board TX registers carry VFO B rather than the dial;
+  the **forced present** status line now also shows TX Hz and REG 11.
+  Log only. See [HL2 IO board](#hl2-io-board-hl2ioboard-pico-i2c-0x1d).
+- Not in this build: **Xvtr / SWL rows in OC Control** (still queued).
+- Reported by: Mike K7MDL (GEN), Volker DL1VE (RPT).
+- **v0.25.34 Sheliak** is the previous public build. **v0.25.22**
+  remains the long return point. Settings stay.
 
 ## What's new in 0.25.34
 
@@ -620,6 +655,8 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.35](#whats-new-in-02535)
+- [What's new in 0.25.34](#whats-new-in-02534)
 - [What's new in 0.25.33](#whats-new-in-02533)
 - [What's new in 0.25.32 (tagged, never released)](#whats-new-in-02532-tagged-never-released)
 - [What's new in 0.25.31](#whats-new-in-02531)
@@ -673,6 +710,7 @@ Dummy load first.
 - [Band panel](#band-panel)
   - [Xvtr (transverters)](#xvtr-transverters)
   - [Which Hermes Lite station is mine?](#which-hermes-lite-station-is-mine)
+  - [GEN1 / GEN2 / GEN3 — general-coverage slots](#gen1--gen2--gen3--general-coverage-slots)
 - [Audio panel](#audio-panel)
 - [Setting up audio output](#setting-up-audio-output)
 - [Setting up your mic input](#setting-up-your-mic-input)
@@ -1486,7 +1524,21 @@ not needed):
   **70 cm** IARU Region 1 repeaters are typically **−7600 kHz**. Band
   defaults when you first arm RPT: 10 m 100 kHz, 2 m 600 kHz, 6 m 1 MHz,
   70 cm 7.6 MHz (all shift down). VFO B = VFO A ± offset, split armed.
-  As you tune VFO A, VFO B **tracks** the offset (duplex). **CTCSS** is a
+  As you tune VFO A, VFO B **tracks** the offset (duplex) — **within the
+  band**. Since **0.25.35**, when VFO A crosses into a different band
+  (an HF band button, another Xvtr chip, a broadcast / CB band) while
+  RPT is armed, RPT and SPLIT turn **off**, VFO B is set to the new VFO
+  A, the status bar shows **RPT off — left ‹band›** and the log records
+  `TX: RPT off — RX1 left ‹band› on a band change`. A 2 m repeater
+  offset therefore never reaches HF as a stale VFO B / out-of-band TX
+  frequency on the IO board or amplifier (that is how Thetis and
+  deskHPSDR behave too). This applies only to the **RPT**-armed split
+  (RPT button or a repeater memory). **Operator SPLIT** — the SPLIT
+  button, a CAT / TCI client or the desk — is **not** dropped on a band
+  change: it persists with VFO B where you left it, as before. One-time
+  upgrade note: a split left armed by an RPT session on a build before
+  0.25.35 loads as operator split; click **SPLIT** (or **RPT**) off once.
+  **CTCSS** is a
   lit button → enable it and pick **UL** (TX encode) and **DL** (RX recipe).
   Either combo may be **—** (no tone). Hold FM
   **MOX / PTT**, then tap **1750**: a 1750 Hz tone is mixed into TX audio
@@ -1926,6 +1978,8 @@ Protocol 2 (Brick / ANAN) hides **RF1** / **Alt**. Use **Ant** / **RX** / **MAP*
 
 More pin detail: [Settings → Filters / BCD](#settings--filters--bcd).
 
+### GEN1 / GEN2 / GEN3 — general-coverage slots
+
 **GEN1 / GEN2 / GEN3** (to the right of the band buttons) are
 **general-coverage slots** for listening outside the ham bands —
 shortwave, MW, time stations, utility. Each works like a band button but
@@ -1934,6 +1988,19 @@ while it's the active slot (highlighted) **tuning around updates it**, so
 it always remembers where you left off. Defaults are WWV 10 MHz, WWV
 15 MHz, and 1 MHz (MW), all AM. **Right-click** a GEN button to reset it
 to its default. Clicking an amateur band button leaves general-coverage.
+
+**RF1 / Alt and LNA per GEN slot** (since 0.25.35). Each GEN slot also
+remembers its own **RF1 / Alt** (Protocol 1, HL2 IO board RX jack),
+**LNA** and **Auto-LNA**, the same way the Xvtr chips do. Click **Alt**
+while GEN1 is active and GEN1 comes back on Alt next time, even after a
+hop through 20 m on RF1 and a restart; GEN2 keeps its own choice. The
+per-band memory cannot do this for you because general-coverage
+frequencies sit outside its ham / broadcast / CB tables — before 0.25.35
+a GEN slot simply kept whatever the previous band left, which is what
+GitHub #24 reported. Defaults: **RF1**; LNA / Auto are only remembered
+once you touch them while that slot is active (an untouched slot leaves
+the live LNA alone). **Right-click → reset** clears them along with the
+frequency and mode. TX drive is not stored per GEN slot.
 
 **TIME — HF time stations.** Between GEN3 and Mem, the **TIME** button
 hops through the world's shortwave time-and-frequency stations — handy for
@@ -4610,7 +4677,15 @@ reproduce the problem. With it on, the log records every step: `latch`
 (snapshot taken: tx, r11, f13, f14, armed), `W reg=… val=…` (a register
 write), `R 0x41` (detection probe), `reply 0x41` (what the ID chip
 answered), `slip` (an IO frame stepped aside for a gateware frame) and
-`restart` (snapshot changed, cycle restarted). Then send
+`restart` (snapshot changed, cycle restarted). Since **0.25.35** there
+is also a one-shot `[iob] TX regs follow VFO B (SPLIT on): ‹hz› Hz`,
+written once whenever **SPLIT** is on and the TX frequency the board is
+being sent (registers 0–4) is VFO B rather than the dial — if the J4
+band voltage or an amp's band decode seems to sit on the wrong band,
+this line tells you the TX word came from VFO B, and the cure is
+**SPLIT** (or **RPT**) off. It re-arms when the condition clears and
+never repeats per cycle. The **forced present** status line now shows
+the TX Hz and REG 11 being sent, like the detected line. Then send
 `%APPDATA%\N8SDR\Lyra-cpp\logs\lyra-log.txt` (or **Save…** from the
 Log window) when you report a band-voltage or RF1 / Alt problem — the
 lines tagged `[iob]` are the ones that matter; their `t=` and `c=`

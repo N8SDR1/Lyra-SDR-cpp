@@ -393,6 +393,25 @@ auto-enable SUB.
 moves *transmit* to VFO B. They are independent — both, one, or neither.
 FM **RPT** still replaces SPLIT in FM.
 
+**I left the 2 m repeater and SPLIT stayed lit / the amp decoded the wrong band.**
+Install **v0.25.35**. An **RPT** (FM repeater offset) split now drops
+the moment RX1 crosses into another band: RPT / SPLIT turn off, VFO B is
+set to the new RX1, the status bar says **RPT off — left ‹band›**, and
+the IO-board TX registers follow the dial again. **Operator SPLIT** (the
+SPLIT button, CAT / TCI, the desk) is deliberately *not* dropped on a
+band change — it persists with VFO B where you left it, as in Thetis /
+deskHPSDR. If SPLIT comes up lit right after installing over an older
+build that had RPT armed, click **SPLIT** off once; from then on the
+distinction is tracked. With verbose logging on, a one-shot
+`[iob] TX regs follow VFO B (SPLIT on): ‹hz› Hz` line tells you when
+the board's TX word is VFO B rather than RX1.
+
+**GEN1 / GEN2 / GEN3 keep the previous band's RF1 / Alt or LNA.**
+Install **v0.25.35** (GitHub #24). Each GEN slot now remembers its own
+**RF1 / Alt**, **LNA** and **Auto-LNA**, like the Xvtr chips. Default is
+RF1; LNA / Auto are stored once you touch them while that slot is
+active. **Right-click** a GEN button → reset clears them.
+
 **What do the colours mean?**
 **Orange TUNE A** + **cyan** passband = RX1. **Lime TUNE B** + **green**
 passband / carrier = RX2. Band chips: **red** glow = RX1’s band, **green**

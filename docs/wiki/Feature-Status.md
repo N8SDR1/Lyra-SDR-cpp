@@ -1,24 +1,24 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.34 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.35 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.34** reworks the HL2 **IO board** (N2ADR HL2IOBoard Pico, I2C
-0x1D) path on Protocol 1: periodic re-send sequencer like deskHPSDR,
-board detection at 0x41 with **Force IO board present**, **Transverter
-bands send** policy, **Send RX frequency codes** checkbox. Protocol 2
-unchanged.
-**v0.25.33 Sheliak** is the previous public build (stability upgrade
-for Protocol 2 — coming from ≤0.25.31, **turn Drive down and walk it
-up before your first TX on a P2 radio**).
+**v0.25.35** makes the **GEN1 / GEN2 / GEN3** slots remember **RF1 /
+Alt** and **LNA** per slot (GitHub #24) and drops an FM **RPT** offset
+when RX1 leaves the band (SPLIT off, VFO B re-synced) — operator
+**SPLIT** still persists. No wire or DSP changes.
+**v0.25.34 Sheliak** is the previous public build (HL2 IO board
+sequencer + detection on Protocol 1; coming from ≤0.25.31, **turn Drive
+down and walk it up before your first TX on a P2 radio**).
 **v0.25.22** remains the long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.34)
+### Last several builds (0.25.16 → 0.25.35)
 
 | Build | What landed |
 |---|---|
+| **0.25.35** | **GEN1 / GEN2 / GEN3 remember RF1 / Alt + LNA / Auto-LNA per slot** (GitHub #24; general-coverage frequencies sit outside the per-band memory's tables, so the slot keeps them itself like an Xvtr chip; RF1 default, LNA / Auto remembered once touched; right-click reset clears them). **FM RPT offset drops on a band change**: RPT / SPLIT off, VFO B ← RX1, status bar `RPT off — left ‹band›`, log line; operator **SPLIT** still persists across bands (Thetis / deskHPSDR default). A split left armed by an older RPT session loads as operator split — click SPLIT off once. One-shot `[iob] TX regs follow VFO B (SPLIT on)` verbose-log line; forced-present status line shows TX Hz / REG 11. No wire or DSP changes. **v0.25.34** is the previous public build |
 | **0.25.34** | **HL2 IO board sequencer** (Protocol 1). Registers 0–4 / 11 / 13 / 14 re-sent from one latched snapshot every ~0.35 s (11 slots × 12 EP2 datagrams, deskHPSDR model); IO frames in the second USB frame, slip one datagram next to gateware case 0 / 10. Band hop → reg-4 commit ≈ 0.2 s. **Detection** via PCA9536 at 0x41 (10 × ~1.7 s, then ~30 s); 0x1D written only once it answers. Settings → Filters / BCD → **IO board**: Status, **Transverter bands send** (Hold last HF / On-air RF), **Send RX frequency codes (13 / 14)** (replaces `LYRA_NO_IOBOARD_FCODE`), **Force IO board present**. REG 11 only 0 / 2; never 0 Hz. Verbose `[iob]` log. Fixes mixed-byte TX Hz, REG 11 stuck after 2 m → HF, RF1 / Alt not sticking, J4 not following. Xvtr / SWL OC rows still queued. **v0.25.33** is the previous public build |
 | **0.25.33** | **Stability upgrade — recommended for all Protocol 2 radios.** P2 TX IQ back at unity (Drive was applied twice since 0.25.16; PureSignal now calibrates at normal drive on Brick2 / Brick3; **same Drive slider = more RF, about +8 dB at 40 % — turn Drive down and walk it up, re-run TUN per band**). CTUN on P2 locks the pan like P1. J4 analog-first (BYTE0 before fcodes; no analog want >54 MHz). PS at 48 kHz on P2. Settings → Apps recommended: **STD**. Experimental PS host-reference path removed. HL2 / P1 unchanged. **v0.25.31** is the previous public build |
 | 0.25.32 | *Tagged, never released* (PureSignal host-replica regression). Its J4 analog-first and STD items shipped in 0.25.33 |
@@ -114,7 +114,7 @@ up before your first TX on a P2 radio**).
   (v0.25.17; Issue #18 — Stop no longer slams the mixer to 100 % / unmute)
 - ✅ **11 m / CB channel chips on the SUB pane** — click-tune mode follows Hardware **Region** (v0.25.18)
 - ✅ **Crash-safe graphics** — auto-steps down to a safer backend if a launch ever fails; an **operator-pinned** Vulkan/D3D/OpenGL choice in Settings is not overridden by that ladder (v0.24.5)
-- ✅ Band switching + **per-band memory**; GEN / time-station / 20-slot memory bank; **EiBi** shortwave overlay
+- ✅ Band switching + **per-band memory**; GEN / time-station / 20-slot memory bank; **EiBi** shortwave overlay. Since **v0.25.35** each **GEN** slot also keeps its own **RF1 / Alt** and **LNA / Auto-LNA** (GitHub #24)
 
 ## Tools &amp; extras
 
