@@ -27,7 +27,9 @@ SPLIT off once. One-shot `[iob] TX regs follow VFO B (SPLIT on)` in
 pollIoboardSession; forced-present line shows TX Hz / REG 11. Docs:
 release notes, USER_GUIDE (What's new, new GEN heading, RPT paragraph,
 `[iob]` troubleshooting), wiki Feature Status / FAQ / Installing /
-Home / Roadmap, README, KNOWN_ISSUES. Xvtr / SWL OC rows still queued.
+Home / Roadmap, README, KNOWN_ISSUES. Still queued: Xvtr slots 4 → 8
+and SWL-band OC rows (per-slot Xvtr OC rows shipped 0.25.29; release
+text that said otherwise corrected the same day, incl. the GitHub body).
 Tag `v0.25.35`. `main` untouched. Mac stays `macos-port`.
 
 ## 2026-10-31 — v0.25.34 Sheliak RELEASED (HL2 IO board sequencer)
@@ -47,7 +49,8 @@ changed snapshot. Detection: PCA9536 at 0x41, 10 probes at ~1.7 s then
 Bench on N8SDR HL2+ (no IO board): zero 0x1D traffic absent, forced
 capture correct, restart / power-cycle / live force / fast hops clean,
 Brick3 P2 + PS TX no IO-board activity. Pico-side confirmation from
-testers (K7MDL / W7CPA / DL1VE). Xvtr / SWL OC rows still queued.
+testers (K7MDL / W7CPA / DL1VE). Still queued: Xvtr slots 4 → 8 and
+SWL-band OC rows (per-slot Xvtr OC rows shipped 0.25.29).
 Tag `v0.25.34`. `main` untouched. Mac stays `macos-port`.
 
 ## 2026-10-30 — v0.25.33 Sheliak RELEASED (stability upgrade)

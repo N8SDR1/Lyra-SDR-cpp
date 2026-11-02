@@ -60,7 +60,9 @@ follows you onto another band (RPT / SPLIT drop, VFO B re-synced, status
   whenever the IO-board TX registers carry VFO B rather than the dial;
   the **forced present** status line now also shows TX Hz and REG 11.
   Log only. See [HL2 IO board](#hl2-io-board-hl2ioboard-pico-i2c-0x1d).
-- Not in this build: **Xvtr / SWL rows in OC Control** (still queued).
+- Not in this build: **transverter slot count 4 → 8** and **OC Control
+  rows for the broadcast (SWL) bands** (queued for the next release).
+  Per-slot Xvtr OC rows have been in Filters / BCD since v0.25.29.
 - Reported by: Mike K7MDL (GEN), Volker DL1VE (RPT).
 - **v0.25.34 Sheliak** is the previous public build. **v0.25.22**
   remains the long return point. Settings stay.
@@ -97,7 +99,9 @@ follows you onto another band (RPT / SPLIT drop, VFO B re-synced, status
 - **`[iob]` log records** (Settings → Hardware → **Enable verbose debug
   logging**, also a checkbox in Help → Show Log…) show every latch,
   write, probe, reply, slip and restart for bench diagnostics.
-- Not in this build: **Xvtr / SWL rows in OC Control** (still queued).
+- Not in this build: **transverter slot count 4 → 8** and **OC Control
+  rows for the broadcast (SWL) bands** (queued). Per-slot Xvtr OC rows
+  have been in Filters / BCD since v0.25.29.
 - Testers: Mike K7MDL, Randy W7CPA, Volker DL1VE.
 - Details: [HL2 IO board (HL2IOBoard Pico, I2C 0x1D)](#hl2-io-board-hl2ioboard-pico-i2c-0x1d).
 - **v0.25.33 Sheliak** is the previous public build. **v0.25.22**
@@ -4692,8 +4696,10 @@ lines tagged `[iob]` are the ones that matter; their `t=` and `c=`
 columns (milliseconds and cycle number) let the write order and timing
 be checked against the Pico's own IO-Control readback.
 
-**Still queued, not in this build:** **Xvtr / SWL rows in OC Control**
-(J16 pin ticks for transverter and general-coverage chips).
+**Still queued, not in this build:** **transverter slot count 4 → 8**
+and **OC Control rows for the broadcast (SWL) bands** (J16 pin ticks
+for the shortwave broadcast bands). Per-slot Xvtr OC rows have been in
+Filters / BCD since v0.25.29 — see the next section.
 
 ### Filter board — OC Control (J16 pins)
 
