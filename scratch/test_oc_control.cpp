@@ -12,6 +12,8 @@
 #include "bands.h"
 
 #include <cstdio>
+#include <string>
+#include <vector>
 
 using lyra::oc::OcControl;
 using lyra::oc::TxPinAction;
@@ -276,37 +278,61 @@ int main() {
 
     // ---- 16. N2ADR seed for the SWL rows (ham LPF directly above) ---------
     {
-        // RX = LPF pin (+ pin 7 HPF when the band is above 3 MHz); TX = LPF.
+        // RX = LPF pin (+ pin 7 HPF when the band is above 3 MHz).
+        // TX = 0 for EVERY broadcast band (RX-only rows).
         CHECK_EQ(OcControl::n2adrBroadcastSeed(BC120, false), 0x02);        // 80 m LPF, HPF dropped
-        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC120, true),  0x02);
         CHECK_EQ(OcControl::n2adrBroadcastSeed(BC90,  false), 0x02 | 0x40); // 80 m
         CHECK_EQ(OcControl::n2adrBroadcastSeed(BC75,  false), 0x02 | 0x40); // 80 m
         CHECK_EQ(OcControl::n2adrBroadcastSeed(BC60,  false), 0x04 | 0x40); // 60/40 m
         CHECK_EQ(OcControl::n2adrBroadcastSeed(BC49,  false), 0x04 | 0x40); // 40 m
-        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC49,  true),  0x04);
-        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC41,  false), 0x08 | 0x40); // 30/20 m (7.45 > 40 m top)
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC41,  false), 0x04 | 0x40); // 40 m (straddle override)
         CHECK_EQ(OcControl::n2adrBroadcastSeed(BC31,  false), 0x08 | 0x40); // 30/20 m
-        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC31,  true),  0x08);
         CHECK_EQ(OcControl::n2adrBroadcastSeed(BC25,  false), 0x08 | 0x40);
         CHECK_EQ(OcControl::n2adrBroadcastSeed(BC22,  false), 0x08 | 0x40);
         CHECK_EQ(OcControl::n2adrBroadcastSeed(BC19,  false), 0x10 | 0x40); // 17/15 m
-        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC19,  true),  0x10);
         CHECK_EQ(OcControl::n2adrBroadcastSeed(BC16,  false), 0x10 | 0x40);
-        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC13,  false), 0x20 | 0x40); // 12/10 m (21.85 > 15 m top)
-        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC13,  true),  0x20);
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC13,  false), 0x10 | 0x40); // 15 m (straddle override)
         CHECK_EQ(OcControl::n2adrBroadcastSeed(-1, false), 0);
         CHECK_EQ(OcControl::n2adrBroadcastSeed(12, false), 0);
-        // Every seed must equal some ham row's N2ADR mask (TX side exactly;
-        // RX side modulo the HPF bit) — no invented pin patterns.
+        // Straddle seeds equal the adjacent ham row's RX mask exactly, so
+        // the change gate is silent across 7.300 / 21.450.
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC41, false), lyra::n2adrOcPattern(B40, false));
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC13, false), lyra::n2adrOcPattern(B15, false));
         for (int bc = 0; bc < 12; ++bc) {
-            const int tx = OcControl::n2adrBroadcastSeed(bc, true);
+            CHECK_EQ(OcControl::n2adrBroadcastSeed(bc, true), 0);   // TX always 0
+            // Every RX seed is some ham row's LPF pin (modulo the HPF bit)
+            // — no invented pin patterns.
+            const int rxLpf = OcControl::n2adrBroadcastSeed(bc, false) & ~0x40;
             bool found = false;
             for (int b = 0; b < 11 && !found; ++b)
-                found = (lyra::n2adrOcPattern(b, true) == tx);
+                found = (lyra::n2adrOcPattern(b, true) == rxLpf);
             CHECK(found);
-            const int rxLpf = OcControl::n2adrBroadcastSeed(bc, false) & ~0x40;
-            CHECK_EQ(rxLpf, tx);
         }
+    }
+
+    // ---- 16b. First-run / rig-switch N2ADR stamp leaves SWL rows at 0 ----
+    // Mirrors HL2Stream::seedOcN2adr() (hl2_stream.cpp) — the ONLY seed
+    // the reloadOcFromDisk() default path runs: amateur rows via
+    // n2adrOcPattern, nothing else.  scratch/oc_swl_seed_paths.cmake
+    // (ctest oc_swl_seed_paths_static) guards that the stream code really
+    // keeps seedOcSwlN2adr() out of that path.
+    {
+        OcControl oc;
+        oc.setEnabled(true);
+        const int nB = oc.nBands();
+        for (int bi = 0; bi < nB; ++bi) {
+            oc.setRxMaskA(bi, quint8(lyra::n2adrOcPattern(bi, false)));
+            oc.setTxMaskA(bi, quint8(lyra::n2adrOcPattern(bi, true)));
+        }
+        for (int bc = 0; bc < oc.nBcBands(); ++bc) {
+            const int row = oc.bcRow(bc);
+            CHECK_EQ(oc.rxMaskA(row), 0);
+            CHECK_EQ(oc.txMaskA(row), 0);
+            CHECK_EQ(oc.rxMaskB(row), 0);
+            CHECK_EQ(oc.txMaskB(row), 0);
+            CHECK_EQ(oc.compute(row, row, false, false, false, false), 0);
+        }
+        CHECK_EQ(oc.compute(B40, B40, false, false, false, false), 0x44);   // ham rows did stamp
     }
 
     // ---- 17. SWL rows compute through pin-action group 2 -----------------
@@ -352,6 +378,116 @@ int main() {
         oc.setRxMaskA(B40, 0x44);
         CHECK_EQ(oc.compute(B40, B20, false, false, false, false), 0x48);
         CHECK_EQ(oc.compute(B20, B40, false, false, false, false), 0x48);
+    }
+
+    // ---- 19. Bounds: rowForHz never yields a row a getter rejects; BC rows
+    //          never alias ham rows ---------------------------------------
+    {
+        OcControl oc;
+        oc.setEnabled(true);
+        const int nB  = oc.nBands();
+        const int nBc = oc.nBcBands();
+        // Distinct fingerprint per row so aliasing would show.
+        for (int b = 0; b < nB; ++b)
+            oc.setRxMaskA(b, quint8(0x01 + b));            // 0x01..0x0B
+        for (int bc = 0; bc < nBc; ++bc)
+            oc.setRxMaskA(oc.bcRow(bc), quint8(0x40 | bc)); // 0x40..0x4B
+        for (int b = 0; b < nB; ++b)
+            CHECK_EQ(oc.rxMaskA(b), 0x01 + b);             // ham rows untouched by BC writes
+        for (int bc = 0; bc < nBc; ++bc)
+            CHECK_EQ(oc.rxMaskA(oc.bcRow(bc)), 0x40 | bc); // BC rows read their own slot
+        // Sweep the dial 0..60 MHz in 1 kHz steps.
+        int hamHits = 0, bcHits = 0;
+        for (int hz = 0; hz <= 60'000'000; hz += 1000) {
+            const int row = OcControl::rowForHz(hz);
+            if (row < 0) continue;
+            CHECK(row < oc.nRows());
+            // A getter accepts it: write a marker through the setter and read it back.
+            const quint8 was = oc.rxMaskA(row);
+            oc.setTxMaskB(row, 0x55);
+            CHECK_EQ(oc.txMaskB(row), 0x55);
+            oc.setTxMaskB(row, 0);
+            CHECK_EQ(oc.rxMaskA(row), was);                // setter hit the same row only
+            if (row < nB) {
+                ++hamHits;
+                CHECK_EQ(OcControl::bcIndexOfRow(row), -1);
+                CHECK_EQ(lyra::bandIndexForFreq(hz), row);
+            } else {
+                ++bcHits;
+                const int bc = OcControl::bcIndexOfRow(row);
+                CHECK(bc >= 0 && bc < nBc);
+                CHECK_EQ(oc.bcRow(bc), row);
+                CHECK_EQ(lyra::broadcastBandIndexForFreq(hz), bc);
+                CHECK_EQ(lyra::bandIndexForFreq(hz), -1);  // never a BC row inside a ham band
+            }
+        }
+        CHECK(hamHits > 0 && bcHits > 0);
+        // Rejected indices: every getter returns 0, every setter is a no-op.
+        for (int bad : {-1, oc.nRows(), oc.nRows() + 5, 999}) {
+            oc.setRxMaskA(bad, 0x7F); oc.setTxMaskA(bad, 0x7F);
+            oc.setRxMaskB(bad, 0x7F); oc.setTxMaskB(bad, 0x7F);
+            CHECK_EQ(oc.rxMaskA(bad), 0); CHECK_EQ(oc.txMaskA(bad), 0);
+            CHECK_EQ(oc.rxMaskB(bad), 0); CHECK_EQ(oc.txMaskB(bad), 0);
+            CHECK_EQ(oc.compute(bad, bad, false, false, false, false), 0);
+            CHECK_EQ(oc.compute(bad, B40, true, false, false, false), 0);
+        }
+        CHECK_EQ(oc.rxMaskA(nB - 1), 0x01 + nB - 1);       // fingerprints survived
+        CHECK_EQ(oc.rxMaskA(oc.bcRow(nBc - 1)), 0x40 | (nBc - 1));
+    }
+
+    // ---- 20. Consistency with BandMemory::bandNameFor --------------------
+    // BandMemory is not linked here (it needs HL2Stream), so the lookup is
+    // replicated verbatim from bandmemory.cpp:118-132: amateur first, then
+    // "bc_" + broadcast, then "cb_" + CB, else "".  The OC row space has no
+    // CB row by decision, so a "cb_" name must map to row -1.
+    {
+        auto bandNameFor = [](int hz) -> std::string {
+            const int a = lyra::bandIndexForFreq(hz);
+            if (a >= 0) return lyra::amateurBands()[size_t(a)].name;
+            const int b = lyra::broadcastBandIndexForFreq(hz);
+            if (b >= 0) return std::string("bc_") + lyra::broadcastBands()[size_t(b)].name;
+            const int c = lyra::cbBandIndexForFreq(hz);
+            if (c >= 0) return std::string("cb_") + lyra::cbBands()[size_t(c)].name;
+            return "";
+        };
+        auto rowName = [](int row) -> std::string {
+            const int nB = int(lyra::amateurBands().size());
+            if (row >= 0 && row < nB) return lyra::amateurBands()[size_t(row)].name;
+            const int bc = OcControl::bcIndexOfRow(row);
+            if (bc >= 0) return std::string("bc_") + lyra::broadcastBands()[size_t(bc)].name;
+            return "";
+        };
+        std::vector<int> probes = {7'200'000, 7'300'000, 7'301'000,
+                                   21'450'000, 21'451'000, 3'900'000};
+        for (const auto &b : lyra::amateurBands())
+            for (int hz : {b.low - 1, b.low, b.low + 1, b.high - 1, b.high, b.high + 1})
+                probes.push_back(hz);
+        for (const auto &b : lyra::broadcastBands())
+            for (int hz : {b.low - 1, b.low, b.low + 1, b.high - 1, b.high, b.high + 1})
+                probes.push_back(hz);
+        for (const auto &b : lyra::cbBands())
+            for (int hz : {b.low - 1, b.low, b.high, b.high + 1})
+                probes.push_back(hz);
+        int checked = 0;
+        for (int hz : probes) {
+            const std::string bm = bandNameFor(hz);
+            const std::string oc = rowName(OcControl::rowForHz(hz, -1));
+            const std::string expect = (bm.rfind("cb_", 0) == 0) ? std::string() : bm;
+            if (oc != expect) {
+                std::fprintf(stderr, "FAIL %s:%d  rowForHz(%d) -> '%s', BandMemory -> '%s'\n",
+                             __FILE__, __LINE__, hz, oc.c_str(), bm.c_str());
+                ++g_fail;
+            }
+            ++checked;
+        }
+        CHECK(checked > 100);
+        // Spot-check the named cases explicitly.
+        CHECK_EQ(OcControl::rowForHz(7'200'000), B40);
+        CHECK_EQ(OcControl::rowForHz(7'300'000), B40);
+        CHECK_EQ(OcControl::rowForHz(7'301'000), OcControl::rowForHz(7'350'000));  // 41 m BC
+        CHECK_EQ(OcControl::rowForHz(21'450'000), B15);
+        CHECK_EQ(OcControl::rowForHz(21'451'000), OcControl::rowForHz(21'600'000)); // 13 m BC
+        CHECK_EQ(OcControl::rowForHz(3'900'000), B80);
     }
 
     if (g_fail == 0) {

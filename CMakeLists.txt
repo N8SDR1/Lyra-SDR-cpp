@@ -998,6 +998,14 @@ add_test(NAME hl2_ioboard_publish_paths_static
          COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR}/src
                  -P ${CMAKE_SOURCE_DIR}/scratch/hl2_ioboard_publish_paths.cmake)
 
+# OC SWL rows — the broadcast J16 rows are stamped only by the explicit
+# N2ADR accessory pick, never by the first-run / rig-switch default, and
+# their TX seed is 0.  Static body scan of hl2_stream.cpp + OcControl.cpp.
+#   ctest --test-dir build -R oc_swl_seed_paths_static
+add_test(NAME oc_swl_seed_paths_static
+         COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR}/src
+                 -P ${CMAKE_SOURCE_DIR}/scratch/oc_swl_seed_paths.cmake)
+
 add_executable(test_band_jump EXCLUDE_FROM_ALL
     scratch/test_band_jump.cpp
     src/bands.h

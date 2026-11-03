@@ -80,10 +80,11 @@ public:
     // zero change to HF behaviour.  Pass the radio-side Hz (post-Xvtr IF).
     static int rowForHz(int hz, int xvtrSlot = -1);
 
-    // N2ADR seed for broadcast row <bc> (pure).  The mask of the amateur
-    // row whose N2ADR LPF covers the whole BC band, nearest cutoff first
-    // (= the ham band directly above it).  Bands entirely below 160 m
-    // seed EMPTY.  Table + rationale in OcControl.cpp.
+    // N2ADR seed for broadcast row <bc> (pure).  RX: the mask of the
+    // amateur row whose N2ADR LPF covers the BC band (the ham band directly
+    // above it; 41 m / 13 m straddle overrides borrow the adjacent ham
+    // row).  TX: always 0 — RX-only rows.  Bands entirely below 160 m seed
+    // EMPTY.  Table + rationale in OcControl.cpp.
     static quint8 n2adrBroadcastSeed(int bc, bool tx);
 
     // ---- per-row 7-bit J16 masks (row = see "OC row index space") ----------

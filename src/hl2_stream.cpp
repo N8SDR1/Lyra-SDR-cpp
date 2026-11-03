@@ -6459,8 +6459,13 @@ void HL2Stream::setOcAccessory(lyra::oc::OcAccessory mode) {
     if (mode == lyra::oc::OcAccessory::Off) {
         setFilterBoardEnabled(false);
     } else {
-        if (mode == lyra::oc::OcAccessory::N2adr)
+        if (mode == lyra::oc::OcAccessory::N2adr) {
+            // Explicit operator action (accessory combo / "Reload N2ADR"
+            // button): ham rows AND the SWL rows.  The first-run default
+            // in reloadOcFromDisk() stamps ham rows only.
             seedOcN2adr();
+            seedOcSwlN2adr();
+        }
         setFilterBoardEnabled(true);
     }
     saveOcSettings();
@@ -6522,11 +6527,18 @@ void HL2Stream::updateOcPattern(bool transmitting) {
             bits = oc_.computeXvtr(xv, transmitting, /*tune*/ false,
                                    /*twoTone*/ false, /*pa*/ false);
         } else {
+            // bi is an OcControl row: amateur, or a SWL broadcast row
+            // (OcControl::rowForHz precedence), or -1 = all pins off.
             const int bi = ocBandIndexForRf(rf);
             bits = oc_.compute(bi, bi, transmitting, /*tune*/ false,
                                /*twoTone*/ false, /*pa*/ false);
         }
     }
+    // P2 note: ocBitsChanged below is forwarded by P2RxBridge to
+    // P2Session::setOcOutput (Brick3 byte [1401]).  SWL rows therefore reach
+    // a P2 radio only when OC is enabled for that rig bucket — the
+    // reloadOcFromDisk() default is Off for every non-HL2 family, so a
+    // Brick / ANAN operator must opt in before any row (ham or SWL) emits.
     // Change gate (Thetis m_nOldBits, −1-seeded so the first emit after an
     // enable/open is never swallowed — §7.5.1).  Push only on a real change.
     if (!oc_.takeIfChanged(bits)) {
@@ -6579,6 +6591,10 @@ void HL2Stream::reloadOcFromDisk() {
     const bool hl2 = (fam == lyra::rig::RadioFamily::Hl2);
     if (!present) {
         if (hl2) {
+            // Ham rows only — SWL rows stay 0 (pins off) until the operator
+            // picks N2ADR / presses "Reload N2ADR" (seedOcSwlN2adr).  This
+            // runs for every new rig bucket (ctor + setTxCalRigId), so it
+            // must not stamp anything the operator has not asked for.
             seedOcN2adr();
             ocAccessory_ = lyra::oc::OcAccessory::N2adr;
         } else {
@@ -6621,8 +6637,10 @@ void HL2Stream::seedOcYaesuExample() {
 void HL2Stream::seedOcN2adr() {
     // Seed OcControl's per-band RX/TX masks from the N2ADR filter-board
     // preset (bands.cpp n2adrOcPattern) so an enabled board reproduces the
-    // shipped behaviour exactly.  Xvtr rows stay 0 (DeskHPSDR).  The
-    // Stage-4 "N2ADR Filter" preset button re-seeds through this same helper.
+    // shipped behaviour exactly.  HAM ROWS ONLY — Xvtr rows stay 0
+    // (DeskHPSDR) and SWL rows are a separate, operator-only stamp
+    // (seedOcSwlN2adr).  This is the first-run default for a new HL2 rig
+    // (reloadOcFromDisk) as well as half of the explicit N2ADR pick.
     const int n = static_cast<int>(lyra::amateurBands().size());
     for (int bi = 0; bi < n; ++bi) {
         oc_.setRxMaskA(bi,
@@ -6630,15 +6648,22 @@ void HL2Stream::seedOcN2adr() {
         oc_.setTxMaskA(bi,
             static_cast<quint8>(lyra::n2adrOcPattern(bi, /*tx*/ true)));
     }
-    // SWL broadcast rows borrow the LPF of the ham band directly above
-    // them (OcControl::n2adrBroadcastSeed — table in OcControl.cpp).  Same
-    // seed moment as the ham rows: preset pick, "Reload N2ADR" button, or
-    // the first-run default for a new HL2 rig in reloadOcFromDisk().
-    for (int bc = 0; bc < oc_.nBcBands(); ++bc) {
+}
+
+void HL2Stream::seedOcSwlN2adr() {
+    // SWL broadcast rows borrow the RX LPF of the ham band directly above
+    // them (OcControl::n2adrBroadcastSeed — table in OcControl.cpp); TX
+    // masks seed 0 (RX-only rows).  Invoked ONLY from the explicit operator
+    // actions — the N2ADR accessory pick and the Settings "Reload N2ADR HF"
+    // button — never from the first-run / rig-switch default path.
+    const int n = oc_.nBcBands();
+    for (int bc = 0; bc < n; ++bc) {
         const int row = oc_.bcRow(bc);
         oc_.setRxMaskA(row, lyra::oc::OcControl::n2adrBroadcastSeed(bc, /*tx*/ false));
         oc_.setTxMaskA(row, lyra::oc::OcControl::n2adrBroadcastSeed(bc, /*tx*/ true));
     }
+    emit logLine(QStringLiteral("[oc] SWL rows seeded from N2ADR (%1 rows, TX off)")
+                     .arg(n));
 }
 
 void HL2Stream::applyOcEdit() {
@@ -6739,8 +6764,9 @@ bool HL2Stream::loadOcSettings() {
         oc_.setRxMaskXvtr(i, quint8(s.value(QStringLiteral("xvtrRx/%1").arg(i), 0).toInt()));
         oc_.setTxMaskXvtr(i, quint8(s.value(QStringLiteral("xvtrTx/%1").arg(i), 0).toInt()));
     }
-    // SWL rows: a rig saved before these keys existed reads 0 = pins off,
-    // exactly today's behaviour, until the operator re-seeds N2ADR.
+    // SWL rows: missing keys default to LITERAL 0 = pins off (never the
+    // in-memory value), so a rig saved before these keys existed behaves
+    // exactly as today until the operator re-seeds N2ADR.
     for (int bc = 0; bc < oc_.nBcBands(); ++bc) {
         const int row = oc_.bcRow(bc);
         oc_.setRxMaskA(row, quint8(s.value(QStringLiteral("swlRxA/%1").arg(bc), 0).toInt()));

@@ -67,29 +67,35 @@ int OcControl::rowForHz(int hz, int xvtrSlot) {
 }
 
 quint8 OcControl::n2adrBroadcastSeed(int bc, bool tx) {
+    // RX-ONLY rows: the TX seed is always 0.  Lyra has no out-of-ham TX
+    // block, so a seeded TX mask would energise an N2ADR LPF relay on key
+    // at a broadcast frequency.  The operator may still tick TX by hand.
+    if (tx)
+        return 0;
+
     // The N2ADR board has six LPFs, each shared by the amateur bands it
     // covers (bands.cpp n2adrOcPattern): pin 1 = 160 m, 2 = 80 m,
     // 3 = 60+40 m, 4 = 30+20 m, 5 = 17+15 m, 6 = 12+10 m, pin 7 = 3 MHz
     // HPF (RX only).  The seed code carries no explicit cutoffs, so each
     // LPF's usable passband is taken as "up to the top edge of the highest
     // amateur band on that pin".  A broadcast band therefore borrows the
-    // mask of the LOWEST amateur band whose upper edge is >= the BC band's
-    // upper edge — the nearest LPF that passes the whole band, i.e. the
-    // ham band directly above it:
+    // RX mask of the LOWEST amateur band whose upper edge is >= the BC
+    // band's upper edge — the nearest LPF that passes the whole band, i.e.
+    // the ham band directly above it:
     //
-    //   BC band   MHz            ham row  pins (RX / TX)
-    //   120 m     2.300- 2.495   80 m     2    / 2    (HPF dropped, <3 MHz)
-    //    90 m     3.200- 3.400   80 m     2.7  / 2
-    //    75 m     3.900- 4.000   80 m     2.7  / 2    (ham 80 m wins live)
-    //    60 m     4.750- 5.060   60 m     3.7  / 3
-    //    49 m     5.900- 6.200   40 m     3.7  / 3
-    //    41 m     7.200- 7.450   30 m     4.7  / 4    (straddles 40 m top)
-    //    31 m     9.400- 9.900   30 m     4.7  / 4
-    //    25 m    11.600-12.100   20 m     4.7  / 4
-    //    22 m    13.570-13.870   20 m     4.7  / 4
-    //    19 m    15.100-15.830   17 m     5.7  / 5
-    //    16 m    17.480-17.900   17 m     5.7  / 5
-    //    13 m    21.450-21.850   12 m     6.7  / 6    (straddles 15 m top)
+    //   BC band   MHz            ham row  RX pins   TX
+    //   120 m     2.300- 2.495   80 m     2         0   (HPF dropped, <3 MHz)
+    //    90 m     3.200- 3.400   80 m     2.7       0
+    //    75 m     3.900- 4.000   80 m     2.7       0   (ham 80 m wins live)
+    //    60 m     4.750- 5.060   60 m     3.7       0
+    //    49 m     5.900- 6.200   40 m     3.7       0
+    //    41 m     7.200- 7.450   40 m     3.7       0   (override, see below)
+    //    31 m     9.400- 9.900   30 m     4.7       0
+    //    25 m    11.600-12.100   20 m     4.7       0
+    //    22 m    13.570-13.870   20 m     4.7       0
+    //    19 m    15.100-15.830   17 m     5.7       0
+    //    16 m    17.480-17.900   17 m     5.7       0
+    //    13 m    21.450-21.850   15 m     5.7       0   (override, see below)
     //
     // Pin 7 (3 MHz HPF) is only kept when the BC band sits entirely above
     // 3 MHz — on 120 m it would attenuate the band itself.  Anything whose
@@ -101,16 +107,45 @@ quint8 OcControl::n2adrBroadcastSeed(int bc, bool tx) {
     const auto &hams = lyra::amateurBands();
     if (hams.empty() || b.high < hams.front().low)
         return 0;                                   // below 160 m: no LPF
+
+    // STRADDLE OVERRIDES (operator decision, pending a bench check of the
+    // LPF corners — flip here if the bench says otherwise).  Two BC bands
+    // start inside a ham band and run a little past its top edge:
+    // 41 m (7.200-7.450) past 40 m's 7.300 and 13 m (21.450-21.850) past
+    // 15 m's 21.450.  Seeding them with the SAME mask as that adjacent ham
+    // row means the change gate suppresses a relay click on every
+    // 7.300 / 21.450 crossing, at the cost of running those LPFs a few
+    // hundred kHz past the ham edge on RX.  Keyed by the ham band whose
+    // LPF to borrow, matched on the BC band's lower edge sitting inside it.
+    struct Straddle { int bcLowHz; int hamHighHz; };
+    static constexpr Straddle kStraddle[] = {
+        {7'200'000, 7'300'000},     // 41 m BC -> 40 m LPF (pin 3)
+        {21'450'000, 21'450'000},   // 13 m BC -> 15 m LPF (pin 5)
+    };
     int mask = 0;
-    for (size_t a = 0; a < hams.size(); ++a) {
-        if (hams[a].high >= b.high) {
-            mask = lyra::n2adrOcPattern(static_cast<int>(a), tx);
-            break;
+    bool overridden = false;
+    for (const Straddle &s : kStraddle) {
+        if (b.low != s.bcLowHz) continue;
+        for (size_t a = 0; a < hams.size(); ++a) {
+            if (hams[a].high == s.hamHighHz) {
+                mask = lyra::n2adrOcPattern(static_cast<int>(a), /*tx*/ false);
+                overridden = true;
+                break;
+            }
+        }
+        break;
+    }
+    if (!overridden) {
+        for (size_t a = 0; a < hams.size(); ++a) {
+            if (hams[a].high >= b.high) {
+                mask = lyra::n2adrOcPattern(static_cast<int>(a), /*tx*/ false);
+                break;
+            }
         }
     }
     constexpr int kHpfPin7 = 0x40;
     constexpr int kHpfCornerHz = 3'000'000;
-    if (!tx && b.low < kHpfCornerHz)
+    if (b.low < kHpfCornerHz)
         mask &= ~kHpfPin7;
     return static_cast<quint8>(mask & 0x7F);
 }

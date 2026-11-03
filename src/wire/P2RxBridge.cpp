@@ -335,6 +335,11 @@ P2RxBridge::P2RxBridge(lyra::ipc::HL2Stream *stream,
     // ctuneCenterHz when CTUN is on, else dial+RIT.  DUC stays on
     // the heard/LED TX path (not the frozen pan).
     if (stream_) {
+        // OC -> Brick3 byte [1401].  The bits are whatever HL2Stream's
+        // OcControl resolved (ham row, SWL broadcast row, Xvtr chip, or 0)
+        // and are only non-zero when the OC accessory is enabled for THIS
+        // rig bucket — reloadOcFromDisk() defaults non-HL2 families to Off,
+        // so SWL rows never reach a P2 radio unless the operator opts in.
         connect(stream_, &lyra::ipc::HL2Stream::ocBitsChanged, this,
                 [this](int bits) {
                     if (!session_) return;

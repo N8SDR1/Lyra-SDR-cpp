@@ -2151,7 +2151,8 @@ private:
     // #199 Stage 2 — OC wire sink (the write-tail of the old updateOcPattern)
     // + the N2ADR preset seeder for the editable OcControl table.
     void setOcOutput(quint8 bits);
-    void seedOcN2adr();
+    void seedOcN2adr();           // ham rows only (also the first-run default)
+    void seedOcSwlN2adr();        // SWL rows — explicit operator action only
     void seedOcYaesuExample();
     void seedOcEmpty();
     bool loadOcSettings();        // true if this rig has a saved table
