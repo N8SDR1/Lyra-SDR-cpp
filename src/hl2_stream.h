@@ -1381,8 +1381,10 @@ public slots:
     int ddsHzForRf(quint32 rfHz) const;
     // Enabled Xvtr slot index containing displayed RF, or -1.
     int xvtrMatchingSlot(qint64 rfHz) const;
-    // Amateur-band index for HF J16. Returns -1 on an Xvtr chip (those
-    // use OcControl xvtr masks, DeskHPSDR-style — not the IF/10 m row).
+    // OcControl row for J16 (amateur row, or a broadcast/SWL row —
+    // OcControl::rowForHz precedence).  Returns -1 on an Xvtr chip (those
+    // use OcControl xvtr masks, DeskHPSDR-style — not the IF/10 m row)
+    // and for CB / GEN / out-of-table.
     int ocBandIndexForRf(quint32 rfHz) const;
     void applyPaWire();
     void setMicBoost(bool on);

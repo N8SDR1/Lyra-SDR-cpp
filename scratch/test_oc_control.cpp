@@ -237,6 +237,123 @@ int main() {
         CHECK_EQ(lyra::yaesuBcdCodeForFreq(144200000, false, true), 0);
     }
 
+    // ---- 15. SWL rows: index space + precedence (Xvtr > ham > BC > none) --
+    // broadcastBands(): 120m=0 90m 75m 60m 49m 41m 31m 25m 22m 19m 16m 13m=11
+    enum { BC120 = 0, BC90, BC75, BC60, BC49, BC41, BC31, BC25, BC22, BC19, BC16, BC13 };
+    {
+        OcControl oc;
+        const int nB = oc.nBands();
+        CHECK_EQ(nB, 11);
+        CHECK_EQ(oc.nBcBands(), 12);
+        CHECK_EQ(oc.nRows(), 23);
+        CHECK_EQ(oc.bcRow(BC49), nB + BC49);
+        CHECK_EQ(oc.bcRow(-1), -1);
+        CHECK_EQ(oc.bcRow(12), -1);
+        CHECK(OcControl::isBcRow(nB));
+        CHECK(!OcControl::isBcRow(nB - 1));
+        CHECK(!OcControl::isBcRow(nB + 12));
+        CHECK_EQ(OcControl::bcIndexOfRow(nB + BC31), BC31);
+        CHECK_EQ(OcControl::bcIndexOfRow(B40), -1);
+
+        // amateur rows unchanged
+        CHECK_EQ(OcControl::rowForHz(7'200'000), B40);     // 41 m BC overlap -> ham wins
+        CHECK_EQ(OcControl::rowForHz(3'950'000), B80);     // 75 m BC inside 80 m -> ham
+        CHECK_EQ(OcControl::rowForHz(21'450'000), B15);    // 13 m BC lower edge -> ham
+        // broadcast rows where no ham band claims the dial
+        CHECK_EQ(OcControl::rowForHz(5'975'000), oc.bcRow(BC49));
+        CHECK_EQ(OcControl::rowForHz(7'350'000), oc.bcRow(BC41));
+        CHECK_EQ(OcControl::rowForHz(9'580'000), oc.bcRow(BC31));
+        CHECK_EQ(OcControl::rowForHz(21'600'000), oc.bcRow(BC13));
+        CHECK_EQ(OcControl::rowForHz(2'400'000), oc.bcRow(BC120));
+        // none: CB, GEN-ish dial positions, LW/MW
+        CHECK_EQ(OcControl::rowForHz(27'185'000), -1);     // CB stays pins-off
+        CHECK_EQ(OcControl::rowForHz(1'000'000), -1);      // MW
+        CHECK_EQ(OcControl::rowForHz(8'000'000), -1);      // gap
+        // Xvtr slot wins over everything
+        CHECK_EQ(OcControl::rowForHz(7'200'000, 0), -1);
+        CHECK_EQ(OcControl::rowForHz(5'975'000, 7), -1);
+    }
+
+    // ---- 16. N2ADR seed for the SWL rows (ham LPF directly above) ---------
+    {
+        // RX = LPF pin (+ pin 7 HPF when the band is above 3 MHz); TX = LPF.
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC120, false), 0x02);        // 80 m LPF, HPF dropped
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC120, true),  0x02);
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC90,  false), 0x02 | 0x40); // 80 m
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC75,  false), 0x02 | 0x40); // 80 m
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC60,  false), 0x04 | 0x40); // 60/40 m
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC49,  false), 0x04 | 0x40); // 40 m
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC49,  true),  0x04);
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC41,  false), 0x08 | 0x40); // 30/20 m (7.45 > 40 m top)
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC31,  false), 0x08 | 0x40); // 30/20 m
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC31,  true),  0x08);
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC25,  false), 0x08 | 0x40);
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC22,  false), 0x08 | 0x40);
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC19,  false), 0x10 | 0x40); // 17/15 m
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC19,  true),  0x10);
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC16,  false), 0x10 | 0x40);
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC13,  false), 0x20 | 0x40); // 12/10 m (21.85 > 15 m top)
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(BC13,  true),  0x20);
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(-1, false), 0);
+        CHECK_EQ(OcControl::n2adrBroadcastSeed(12, false), 0);
+        // Every seed must equal some ham row's N2ADR mask (TX side exactly;
+        // RX side modulo the HPF bit) — no invented pin patterns.
+        for (int bc = 0; bc < 12; ++bc) {
+            const int tx = OcControl::n2adrBroadcastSeed(bc, true);
+            bool found = false;
+            for (int b = 0; b < 11 && !found; ++b)
+                found = (lyra::n2adrOcPattern(b, true) == tx);
+            CHECK(found);
+            const int rxLpf = OcControl::n2adrBroadcastSeed(bc, false) & ~0x40;
+            CHECK_EQ(rxLpf, tx);
+        }
+    }
+
+    // ---- 17. SWL rows compute through pin-action group 2 -----------------
+    {
+        OcControl oc;
+        oc.setEnabled(true);
+        const int r49 = oc.bcRow(BC49);
+        oc.setRxMaskA(r49, 0x44);
+        oc.setTxMaskA(r49, 0x04);
+        CHECK_EQ(oc.rxMaskA(r49), 0x44);
+        CHECK_EQ(oc.compute(r49, r49, false, false, false, false), 0x44);
+        CHECK_EQ(oc.compute(r49, r49, true,  false, false, false), 0x04);
+        // group 2 gates apply to the SWL row ...
+        oc.setTxPinAction(/*SWL*/ 2, /*pin1*/ 3, TxPinAction::Tune);
+        CHECK_EQ(oc.compute(r49, r49, true, /*tune*/ false, false, false), 0x00);
+        CHECK_EQ(oc.compute(r49, r49, true, /*tune*/ true,  false, false), 0x04);
+        oc.setRxPinPa(2, 7, true);
+        CHECK_EQ(oc.compute(r49, r49, false, false, false, /*pa*/ false), 0x04);
+        // ... and NOT to the ham rows (group 0 untouched)
+        oc.setTxMaskA(B40, 0x04);
+        oc.setRxMaskA(B40, 0x44);
+        CHECK_EQ(oc.compute(B40, B40, true,  false, false, false), 0x04);
+        CHECK_EQ(oc.compute(B40, B40, false, false, false, false), 0x44);
+        // out-of-range row past the SWL block -> 0
+        CHECK_EQ(oc.compute(oc.nRows(), oc.nRows(), false, false, false, false), 0);
+        oc.setRxMaskA(oc.nRows(), 0x7F);   // ignored
+        CHECK_EQ(oc.rxMaskA(oc.nRows()), 0);
+    }
+
+    // ---- 18. HL2 RX2 "higher band" pick compares frequency, not row # ----
+    {
+        OcControl oc;
+        oc.setEnabled(true);
+        oc.setRx2Enabled(true);
+        const int r49 = oc.bcRow(BC49);        // 5.9 MHz, row 15
+        oc.setRxMaskA(r49, 0x44);
+        oc.setRxMaskA(B20, 0x48);              // 14 MHz, row 5
+        // A = 49 m BC (row 15), B = 20 m (row 5): 20 m is the HIGHER band
+        CHECK_EQ(oc.compute(r49, B20, false, false, false, false), 0x48);
+        // A = 20 m, B = 49 m BC: A is already higher -> A's mask
+        CHECK_EQ(oc.compute(B20, r49, false, false, false, false), 0x48);
+        // ham vs ham unchanged
+        oc.setRxMaskA(B40, 0x44);
+        CHECK_EQ(oc.compute(B40, B20, false, false, false, false), 0x48);
+        CHECK_EQ(oc.compute(B20, B40, false, false, false, false), 0x48);
+    }
+
     if (g_fail == 0) {
         std::printf("test_oc_control: ALL PASS\n");
         return 0;

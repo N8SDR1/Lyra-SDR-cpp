@@ -3604,9 +3604,10 @@ int HL2Stream::xvtrMatchingSlot(qint64 rfHz) const {
 }
 
 int HL2Stream::ocBandIndexForRf(quint32 rfHz) const {
-    if (xvtrMatchingSlot(static_cast<qint64>(rfHz)) >= 0)
-        return -1;
-    return lyra::bandIndexForFreq(ddsHzForRf(rfHz));
+    // OcControl::rowForHz owns the precedence (Xvtr -> amateur -> broadcast
+    // -> none); this only supplies the two inputs.
+    return lyra::oc::OcControl::rowForHz(
+        ddsHzForRf(rfHz), xvtrMatchingSlot(static_cast<qint64>(rfHz)));
 }
 
 void HL2Stream::setXvtrSlots(lyra::ui::XvtrSlots *xvtrSlots) {
@@ -6556,7 +6557,7 @@ QString HL2Stream::ocGroupKey() const {
 }
 
 void HL2Stream::seedOcEmpty() {
-    const int n = oc_.nBands();
+    const int n = oc_.nRows();   // amateur + broadcast rows
     for (int bi = 0; bi < n; ++bi) {
         oc_.setRxMaskA(bi, 0);
         oc_.setTxMaskA(bi, 0);
@@ -6603,6 +6604,14 @@ void HL2Stream::seedOcYaesuExample() {
         oc_.setRxMaskB(bi, 0);
         oc_.setTxMaskB(bi, 0);
     }
+    // Yaesu BCD has no broadcast codes: SWL rows go empty (pins off).
+    for (int bc = 0; bc < oc_.nBcBands(); ++bc) {
+        const int row = oc_.bcRow(bc);
+        oc_.setRxMaskA(row, 0);
+        oc_.setTxMaskA(row, 0);
+        oc_.setRxMaskB(row, 0);
+        oc_.setTxMaskB(row, 0);
+    }
     for (int i = 0; i < lyra::oc::OcControl::kXvtrSlots; ++i) {
         oc_.setRxMaskXvtr(i, 0);
         oc_.setTxMaskXvtr(i, 0);
@@ -6620,6 +6629,15 @@ void HL2Stream::seedOcN2adr() {
             static_cast<quint8>(lyra::n2adrOcPattern(bi, /*tx*/ false)));
         oc_.setTxMaskA(bi,
             static_cast<quint8>(lyra::n2adrOcPattern(bi, /*tx*/ true)));
+    }
+    // SWL broadcast rows borrow the LPF of the ham band directly above
+    // them (OcControl::n2adrBroadcastSeed — table in OcControl.cpp).  Same
+    // seed moment as the ham rows: preset pick, "Reload N2ADR" button, or
+    // the first-run default for a new HL2 rig in reloadOcFromDisk().
+    for (int bc = 0; bc < oc_.nBcBands(); ++bc) {
+        const int row = oc_.bcRow(bc);
+        oc_.setRxMaskA(row, lyra::oc::OcControl::n2adrBroadcastSeed(bc, /*tx*/ false));
+        oc_.setTxMaskA(row, lyra::oc::OcControl::n2adrBroadcastSeed(bc, /*tx*/ true));
     }
 }
 
@@ -6665,6 +6683,14 @@ void HL2Stream::saveOcSettings() const {
     for (int i = 0; i < lyra::oc::OcControl::kXvtrSlots; ++i) {
         s.setValue(QStringLiteral("xvtrRx/%1").arg(i), int(oc_.rxMaskXvtr(i)));
         s.setValue(QStringLiteral("xvtrTx/%1").arg(i), int(oc_.txMaskXvtr(i)));
+    }
+    // SWL broadcast rows — additive keys, N = broadcastBands() index.
+    for (int bc = 0; bc < oc_.nBcBands(); ++bc) {
+        const int row = oc_.bcRow(bc);
+        s.setValue(QStringLiteral("swlRxA/%1").arg(bc), int(oc_.rxMaskA(row)));
+        s.setValue(QStringLiteral("swlTxA/%1").arg(bc), int(oc_.txMaskA(row)));
+        s.setValue(QStringLiteral("swlRxB/%1").arg(bc), int(oc_.rxMaskB(row)));
+        s.setValue(QStringLiteral("swlTxB/%1").arg(bc), int(oc_.txMaskB(row)));
     }
     s.endGroup();
 }
@@ -6712,6 +6738,15 @@ bool HL2Stream::loadOcSettings() {
     for (int i = 0; i < lyra::oc::OcControl::kXvtrSlots; ++i) {
         oc_.setRxMaskXvtr(i, quint8(s.value(QStringLiteral("xvtrRx/%1").arg(i), 0).toInt()));
         oc_.setTxMaskXvtr(i, quint8(s.value(QStringLiteral("xvtrTx/%1").arg(i), 0).toInt()));
+    }
+    // SWL rows: a rig saved before these keys existed reads 0 = pins off,
+    // exactly today's behaviour, until the operator re-seeds N2ADR.
+    for (int bc = 0; bc < oc_.nBcBands(); ++bc) {
+        const int row = oc_.bcRow(bc);
+        oc_.setRxMaskA(row, quint8(s.value(QStringLiteral("swlRxA/%1").arg(bc), 0).toInt()));
+        oc_.setTxMaskA(row, quint8(s.value(QStringLiteral("swlTxA/%1").arg(bc), 0).toInt()));
+        oc_.setRxMaskB(row, quint8(s.value(QStringLiteral("swlRxB/%1").arg(bc), 0).toInt()));
+        oc_.setTxMaskB(row, quint8(s.value(QStringLiteral("swlTxB/%1").arg(bc), 0).toInt()));
     }
     s.endGroup();
     return true;

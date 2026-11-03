@@ -73,6 +73,7 @@
 #include <QPainter>      // #91 VOX — colored mic-level meter bar
 #include <QPaintEvent>
 #include <QGridLayout>
+#include <QToolButton>   // folded SWL rows header on the OC grid
 #include <QRadioButton>
 #include <QButtonGroup>
 #include <QSignalBlocker>
@@ -5279,7 +5280,8 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
             "and DeskHPSDR OC: the host emits the ticks you set. It does not "
             "auto-choose Yaesu BCD for a radio DB9.\n\n"
             "Off — emit 0. Table is kept.\n"
-            "N2ADR — stamp the stock HF LPF map. Xvtr rows stay empty.\n"
+            "N2ADR — stamp the stock HF LPF map; SWL broadcast rows get the "
+            "LPF of the ham band just above them. Xvtr rows stay empty.\n"
             "Custom — emit the grid as ticked. Editing N2ADR ticks promotes "
             "to Custom.\n\n"
             "P1 HL2: I2C 0x20. P2: HP [1401]. Analog J4 / REG 11 are not "
@@ -5343,20 +5345,28 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
             "<b>Example Yaesu A–D</b> only stamps a starting grid.<br>"
             "<b>Xvtr:</b> leave empty so J16 idles (an HF amp on J16 will not "
             "follow 10 m). Copy 10 m ticks (RX pins 6+7, TX pin 6) if the HL2 "
-            "LPF must stay on the IF."));
+            "LPF must stay on the IF.<br>"
+            "<b>SWL:</b> broadcast rows (folded below) follow their own ticks; "
+            "N2ADR seeds each with the LPF of the ham band just above it. "
+            "Where a BC band overlaps a ham band the ham row is used. CB and "
+            "GEN have no row (pins off)."));
         pinHelp->setWordWrap(true);
         pinHelp->setTextFormat(Qt::RichText);
         pinHelp->setStyleSheet(QStringLiteral(
             "QLabel{color:#8fa6ba;font-size:12px;padding:4px 0;}"));
         ocv->addWidget(pinHelp);
 
-        // --- per-band editable grid (HF + named Xvtr, DeskHPSDR / #24) ---
+        // --- per-band editable grid (HF + named Xvtr + folded SWL rows) ---
         const auto &bands = lyra::amateurBands();
         const int nB = int(bands.size());
         const int nXv = lyra::oc::OcControl::kXvtrSlots;
+        const auto &bcBands = lyra::broadcastBands();
+        const int nBc = int(bcBands.size());
         const int xvHdrRow = 2 + nB;
         const int xvFirstRow = xvHdrRow + 1;
-        const int gridRows = xvFirstRow + nXv;
+        const int swlHdrRow = xvFirstRow + nXv;
+        const int swlFirstRow = swlHdrRow + 1;
+        const int gridRows = swlFirstRow + nBc;
         auto *grid = new QGridLayout;
         grid->setHorizontalSpacing(4);
         grid->setVerticalSpacing(3);
@@ -5449,6 +5459,83 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
             }
         }
 
+        // --- SWL broadcast rows: collapsible, folded by default -----------
+        // One arrow-button header row; the band rows live in the same
+        // QGridLayout (so the pin columns line up) and are simply hidden
+        // while folded — the grid drops empty rows.  Open/closed persists.
+        const QString swlOpenKey = QStringLiteral("hw/ocSwlRowsOpen");
+        auto *swlHdr = new QToolButton;
+        swlHdr->setCheckable(true);
+        swlHdr->setAutoRaise(true);
+        swlHdr->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        swlHdr->setText(tr("SWL broadcast rows (%1) — ham row wins on overlap")
+                            .arg(nBc));
+        swlHdr->setToolTip(tr(
+            "J16 ticks for the shortwave broadcast meter bands. Used only "
+            "when the dial is outside every ham band and Xvtr chip (ham "
+            "rows win on 75 m / 41 m / 13 m overlaps). N2ADR seeds each row "
+            "with the LPF of the ham band directly above it; 120 m drops "
+            "the 3 MHz HPF. CB and GEN keep pins off."));
+        swlHdr->setStyleSheet(QStringLiteral(
+            "QToolButton{color:#4fc3f7;font-weight:bold;padding-top:8px;"
+            "border:none;background:transparent;}"));
+        grid->addWidget(swlHdr, swlHdrRow, 0, 1, 16, Qt::AlignLeft);
+
+        QVector<QLabel *> swlLabels(nBc);
+        QVector<QVector<QCheckBox *>> swlRxCb(nBc), swlTxCb(nBc);
+        QVector<QWidget *> swlWidgets;
+        for (int bc = 0; bc < nBc; ++bc) {
+            const int row = oc->bcRow(bc);
+            auto *bl = new QLabel(tr("%1 BC").arg(QString::fromLatin1(bcBands[bc].name)));
+            bl->setStyleSheet(QStringLiteral("QLabel{color:#cdd9e5;}"));
+            bl->setToolTip(tr("%1–%2 MHz")
+                               .arg(bcBands[bc].low / 1e6, 0, 'f', 3)
+                               .arg(bcBands[bc].high / 1e6, 0, 'f', 3));
+            swlLabels[bc] = bl;
+            swlWidgets.append(bl);
+            grid->addWidget(bl, swlFirstRow + bc, 0);
+            for (int p = 1; p <= 7; ++p) {
+                auto *rx = new QCheckBox;
+                auto *tx = new QCheckBox;
+                swlRxCb[bc].append(rx);
+                swlTxCb[bc].append(tx);
+                swlWidgets.append(rx);
+                swlWidgets.append(tx);
+                grid->addWidget(rx, swlFirstRow + bc, p, Qt::AlignCenter);
+                grid->addWidget(tx, swlFirstRow + bc, 8 + p, Qt::AlignCenter);
+                const int bit = 1 << (p - 1);
+                connect(rx, &QCheckBox::toggled, page,
+                        [this, oc, row, bit](bool on) {
+                            quint8 m = oc->rxMaskA(row);
+                            if (on) m |= bit; else m &= ~bit;
+                            oc->setRxMaskA(row, m);
+                            stream_->noteOcGridEdited();
+                        });
+                connect(tx, &QCheckBox::toggled, page,
+                        [this, oc, row, bit](bool on) {
+                            quint8 m = oc->txMaskA(row);
+                            if (on) m |= bit; else m &= ~bit;
+                            oc->setTxMaskA(row, m);
+                            stream_->noteOcGridEdited();
+                        });
+            }
+        }
+        {
+            const bool open = QSettings().value(swlOpenKey, false).toBool();
+            swlHdr->setChecked(open);
+            swlHdr->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
+            // Only hide here: a show() before the grid is parented would
+            // float the widget as a window.  The toggle below runs after.
+            if (!open)
+                for (auto *w : swlWidgets) w->hide();
+        }
+        connect(swlHdr, &QToolButton::toggled, page,
+                [swlHdr, swlWidgets, swlOpenKey](bool open) {
+                    swlHdr->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
+                    for (auto *w : swlWidgets) w->setVisible(open);
+                    QSettings().setValue(swlOpenKey, open);
+                });
+
         auto *liveCap = new QLabel;
         liveCap->setWordWrap(true);
         liveCap->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
@@ -5472,19 +5559,23 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
             }
         };
 
-        auto paintLive = [this, hfLabels, xvLabels, nB, nXv, liveCap, liveOn, liveOff,
-                          xvOff, refreshXvtrLabels]() {
+        auto paintLive = [this, hfLabels, xvLabels, swlLabels, nB, nXv, nBc,
+                          liveCap, liveOn, liveOff, xvOff, refreshXvtrLabels]() {
             refreshXvtrLabels();
-            int liveHf = -1;
+            int liveRow = -1;   // OcControl row: amateur, or a SWL row
             int liveXv = -1;
             if (stream_) {
                 const quint32 rf = stream_->rx1FreqHz();
                 liveXv = stream_->xvtrMatchingSlot(static_cast<qint64>(rf));
                 if (liveXv < 0)
-                    liveHf = stream_->ocBandIndexForRf(rf);
+                    liveRow = stream_->ocBandIndexForRf(rf);
             }
+            const int liveHf = (liveRow >= 0 && liveRow < nB) ? liveRow : -1;
+            const int liveBc = lyra::oc::OcControl::bcIndexOfRow(liveRow);
             for (int b = 0; b < nB; ++b)
                 hfLabels[b]->setStyleSheet(b == liveHf ? liveOn : liveOff);
+            for (int bc = 0; bc < nBc; ++bc)
+                swlLabels[bc]->setStyleSheet(bc == liveBc ? liveOn : liveOff);
             auto *xv = stream_ ? stream_->xvtrSlots() : nullptr;
             for (int i = 0; i < nXv; ++i) {
                 if (i == liveXv)
@@ -5499,15 +5590,19 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
                 liveCap->setText(tr("Live J16: %1 — empty ticks = pins off "
                                     "(HF amp on J16 will not follow 10 m IF).")
                                      .arg(nm));
-            } else if (liveHf >= 0 && liveHf < nB) {
+            } else if (liveHf >= 0) {
                 liveCap->setText(tr("Live J16: %1")
                     .arg(QString::fromLatin1(lyra::amateurBands()[size_t(liveHf)].name)));
+            } else if (liveBc >= 0) {
+                liveCap->setText(tr("Live J16: %1 BC (SWL row)")
+                    .arg(QString::fromLatin1(lyra::broadcastBands()[size_t(liveBc)].name)));
             } else {
-                liveCap->setText(tr("Live J16: none (GEN / out of table)"));
+                liveCap->setText(tr("Live J16: none (GEN / CB / out of table)"));
             }
         };
 
-        auto loadGrid = [oc, rxCb, txCb, xvRxCb, xvTxCb, nB, nXv, paintLive]() {
+        auto loadGrid = [oc, rxCb, txCb, xvRxCb, xvTxCb, swlRxCb, swlTxCb,
+                         nB, nXv, nBc, paintLive]() {
             for (int b = 0; b < nB; ++b)
                 for (int p = 0; p < 7; ++p) {
                     const int bit = 1 << p;
@@ -5524,6 +5619,16 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
                     xvRxCb[i][p]->setChecked(oc->rxMaskXvtr(i) & bit);
                     xvTxCb[i][p]->setChecked(oc->txMaskXvtr(i) & bit);
                 }
+            for (int bc = 0; bc < nBc; ++bc) {
+                const int row = oc->bcRow(bc);
+                for (int p = 0; p < 7; ++p) {
+                    const int bit = 1 << p;
+                    QSignalBlocker br(swlRxCb[bc][p]);
+                    QSignalBlocker bt(swlTxCb[bc][p]);
+                    swlRxCb[bc][p]->setChecked(oc->rxMaskA(row) & bit);
+                    swlTxCb[bc][p]->setChecked(oc->txMaskA(row) & bit);
+                }
+            }
             paintLive();
         };
         loadGrid();
@@ -5543,7 +5648,8 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         auto *n2 = new QPushButton(tr("Reload N2ADR HF"));
         n2->setToolTip(tr(
             "Same as picking N2ADR in the accessory combo: stamp the stock "
-            "HF map. Xvtr rows stay as they are."));
+            "HF map and seed the SWL broadcast rows from the ham LPF above "
+            "each. Xvtr rows stay as they are."));
         connect(n2, &QPushButton::clicked, page, [this, loadGrid]() {
             stream_->setOcAccessory(lyra::oc::OcAccessory::N2adr);
             loadGrid();
@@ -5559,7 +5665,7 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         });
         auto *clr = new QPushButton(tr("Clear all"));
         connect(clr, &QPushButton::clicked, page, [this, oc, loadGrid]() {
-            const int n = oc->nBands();
+            const int n = oc->nRows();   // amateur + SWL rows
             for (int b = 0; b < n; ++b) {
                 oc->setRxMaskA(b, 0);
                 oc->setTxMaskA(b, 0);
@@ -5587,7 +5693,8 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         btnRow->addWidget(hot);
         ocv->addLayout(btnRow);
 
-        auto setGridOn = [this, rxCb, txCb, xvRxCb, xvTxCb, nB, nXv]() {
+        auto setGridOn = [this, rxCb, txCb, xvRxCb, xvTxCb, swlRxCb, swlTxCb,
+                          nB, nXv, nBc]() {
             const bool on =
                 stream_->ocAccessory() != lyra::oc::OcAccessory::Off;
             for (int b = 0; b < nB; ++b)
@@ -5599,6 +5706,11 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
                 for (int p = 0; p < 7; ++p) {
                     xvRxCb[i][p]->setEnabled(on);
                     xvTxCb[i][p]->setEnabled(on);
+                }
+            for (int bc = 0; bc < nBc; ++bc)
+                for (int p = 0; p < 7; ++p) {
+                    swlRxCb[bc][p]->setEnabled(on);
+                    swlTxCb[bc][p]->setEnabled(on);
                 }
         };
         setGridOn();
