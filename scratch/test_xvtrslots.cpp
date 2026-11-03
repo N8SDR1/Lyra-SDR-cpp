@@ -35,6 +35,10 @@ int main() {
     CHECK_EQ(ddsHz(144300000, 116000000, 100), 28299900);
     CHECK_EQ(ddsHz(10000000, 20000000, 0), 0);
     CHECK_EQ(ddsHz(0, 0, 1), 0);
+    // Slot count is the shared single source of truth (XvtrSlots::kCount
+    // and OcControl::kXvtrSlots both alias it).  8 since the K7MDL
+    // multi-band stack request.
+    CHECK_EQ(lyra::xvtr::kSlotCount, 8);
     if (g_fail) {
         std::fprintf(stderr, "%d check(s) failed\n", g_fail);
         return 1;

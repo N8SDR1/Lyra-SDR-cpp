@@ -61,8 +61,12 @@ void XvtrSlots::applyDefaults() {
                  420000000, 450000000, 392000000, 0, true, false, 432200000};
     slots_[2] = {true, QStringLiteral("23cm"),
                  1240000000, 1300000000, 1212000000, 0, true, false, 1296000000};
-    slots_[3] = {false, QStringLiteral("4"),
-                 0, 0, 0, 0, true, false, 0};
+    // Remaining slots: disabled, named by their 1-based number — the same
+    // untouched state slot 4 has always shipped in.
+    for (int i = 3; i < kCount; ++i) {
+        slots_[i] = {false, QString::number(i + 1),
+                     0, 0, 0, 0, true, false, 0};
+    }
 }
 
 void XvtrSlots::load() {

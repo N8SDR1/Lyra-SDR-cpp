@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include "xvtr_math.h"   // lyra::xvtr::kSlotCount — shared with XvtrSlots
+
 #include <QObject>
 #include <QVector>
 
@@ -54,7 +56,7 @@ class OcControl : public QObject {
 public:
     static constexpr int kPins      = 7;   // J16 open-collector pins 1..7
     static constexpr int kGroups    = 3;   // 0=HF (live v1), 1=VHF, 2=SWL (reserved)
-    static constexpr int kXvtrSlots = 4;   // matches XvtrSlots::kCount — DeskHPSDR appends named xvtr rows
+    static constexpr int kXvtrSlots = lyra::xvtr::kSlotCount;   // == XvtrSlots::kCount — DeskHPSDR appends named xvtr rows
 
     explicit OcControl(QObject *parent = nullptr);
 

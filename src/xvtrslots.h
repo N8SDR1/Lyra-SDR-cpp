@@ -1,8 +1,10 @@
 // Lyra — transverter (Xvtr) slots: display RF, radio IF = RF − LO − error.
-// Four chips on the Band dock. Hardware NCO/TX writers subtract LO; VFO,
+// kCount chips on the Band dock. Hardware NCO/TX writers subtract LO; VFO,
 // TCI, memory, panadapter stay in RF.
 
 #pragma once
+
+#include "xvtr_math.h"   // lyra::xvtr::kSlotCount — shared with OcControl
 
 #include <QObject>
 #include <QString>
@@ -22,7 +24,7 @@ class XvtrSlots : public QObject {
     Q_PROPERTY(int activeSlot READ activeSlot NOTIFY slotsChanged)
     Q_PROPERTY(int activeSlotRx2 READ activeSlotRx2 NOTIFY slotsChanged)
 public:
-    static constexpr int kCount = 4;
+    static constexpr int kCount = lyra::xvtr::kSlotCount;
 
     explicit XvtrSlots(lyra::ipc::HL2Stream *stream, Prefs *prefs,
                        QObject *parent = nullptr);

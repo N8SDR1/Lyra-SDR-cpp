@@ -191,6 +191,26 @@ int main() {
         CHECK_EQ(oc.computeXvtr(1, true, false, false, false), 0);
     }
 
+    // ---- 12b. Eight Xvtr rows (shared lyra::xvtr::kSlotCount) -------------
+    {
+        static_assert(OcControl::kXvtrSlots == lyra::xvtr::kSlotCount,
+                      "OcControl Xvtr row count must track the slot count");
+        CHECK_EQ(OcControl::kXvtrSlots, 8);
+        OcControl oc;
+        oc.setEnabled(true);
+        for (int i = 0; i < OcControl::kXvtrSlots; ++i) {
+            CHECK_EQ(oc.rxMaskXvtr(i), 0);          // new rows start empty
+            CHECK_EQ(oc.computeXvtr(i, false, false, false, false), 0);
+        }
+        oc.setRxMaskXvtr(7, 0x40);                 // last row is addressable
+        oc.setTxMaskXvtr(7, 0x20);
+        CHECK_EQ(oc.computeXvtr(7, false, false, false, false), 0x40);
+        CHECK_EQ(oc.computeXvtr(7, true,  false, false, false), 0x20);
+        CHECK_EQ(oc.computeXvtr(8, true,  false, false, false), 0);   // past the end
+        oc.setRxMaskXvtr(8, 0x7F);                 // ignored, no overflow
+        CHECK_EQ(oc.rxMaskXvtr(8), 0);
+    }
+
     // ---- 13. Xvtr TX pin-action uses HF group 0 gates --------------------
     {
         OcControl oc;

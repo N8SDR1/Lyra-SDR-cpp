@@ -527,48 +527,61 @@ Rectangle {
             RowLabel {
                 text: qsTr("Xvtr")
                 tip: qsTr("Click: tune RX1 to this transverter. Shift+click: SUB. Right-click: edit the slot.")
+                Layout.alignment: Qt.AlignTop | Qt.AlignLeft
+                Layout.topMargin: 3
             }
-            Repeater {
-                model: 4
-                delegate: ChipButton {
-                    required property int index
-                    text: {
-                        Xvtr.activeSlot
-                        Xvtr.activeSlotRx2
-                        return Xvtr.slotName(index)
-                    }
-                    opacity: {
-                        Xvtr.activeSlot
-                        return Xvtr.slotEnabled(index) ? 1.0 : 0.45
-                    }
-                    chipActive: Xvtr.activeSlot === index
-                    chipSub: Stream.subEnabled && Xvtr.activeSlotRx2 === index
-                    activeFill: "#082026"
-                    activeBorder: "#34d0ff"
-                    activeText: "#b8f0ff"
-                    onClicked: {
-                        if (!Xvtr.slotEnabled(index)) {
-                            xvtrEditor.openFor(index)
-                            return
+            // All Xvtr.slotCount chips in one row on an HL2 (fits the
+            // default dock width like the Ham row does).  When the Alex
+            // ANT / RX chips share this row (P2 / desk with the ladder)
+            // wrap to two rows of four so the dock's minimum width does
+            // not grow.
+            GridLayout {
+                columns: P2Bridge.hasAlexAntennaSelect ? 4 : Xvtr.slotCount
+                rowSpacing: 4
+                columnSpacing: 4
+                Layout.alignment: Qt.AlignTop
+                Repeater {
+                    model: Xvtr.slotCount
+                    delegate: ChipButton {
+                        required property int index
+                        text: {
+                            Xvtr.activeSlot
+                            Xvtr.activeSlotRx2
+                            return Xvtr.slotName(index)
                         }
-                        Gen.deactivate()
-                        Xvtr.tune(index)
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        acceptedButtons: Qt.LeftButton | Qt.RightButton
-                        onPressed: (mouse) => {
-                            mouse.accepted = (mouse.button === Qt.RightButton)
-                                    || (mouse.modifiers & Qt.ShiftModifier)
+                        opacity: {
+                            Xvtr.activeSlot
+                            return Xvtr.slotEnabled(index) ? 1.0 : 0.45
                         }
-                        onClicked: (mouse) => {
-                            if (mouse.button === Qt.RightButton) {
+                        chipActive: Xvtr.activeSlot === index
+                        chipSub: Stream.subEnabled && Xvtr.activeSlotRx2 === index
+                        activeFill: "#082026"
+                        activeBorder: "#34d0ff"
+                        activeText: "#b8f0ff"
+                        onClicked: {
+                            if (!Xvtr.slotEnabled(index)) {
                                 xvtrEditor.openFor(index)
                                 return
                             }
-                            if (Xvtr.slotEnabled(index)) {
-                                Gen.deactivate()
-                                Xvtr.tuneSub(index)
+                            Gen.deactivate()
+                            Xvtr.tune(index)
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            onPressed: (mouse) => {
+                                mouse.accepted = (mouse.button === Qt.RightButton)
+                                        || (mouse.modifiers & Qt.ShiftModifier)
+                            }
+                            onClicked: (mouse) => {
+                                if (mouse.button === Qt.RightButton) {
+                                    xvtrEditor.openFor(index)
+                                    return
+                                }
+                                if (Xvtr.slotEnabled(index)) {
+                                    Gen.deactivate()
+                                    Xvtr.tuneSub(index)
+                                }
                             }
                         }
                     }
