@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
         p.bwLocked = true; p.filterLow = 50; p.micSource = "tci";
         p.micGainDb = 4.5; p.micBoost = true; p.tuneDriveMode = 1;
         p.tuneDrivePct = 25; p.txDriveLevel = 200; p.tciRxGainDb = -3.0;
-        p.tciTxGainDb = 2.0; p.agcMode = "slow"; p.autoMuteOnTx = false;
+        p.agcMode = "slow"; p.autoMuteOnTx = false;
         p.txTimeoutSec = 300; p.txTimeoutBypass = true;
         Profile q = Profile::fromJson("X", p.toJson());
         CHECK(p.sameValues(q));

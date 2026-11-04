@@ -396,18 +396,6 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
             rxGainLinear_ =
                 std::pow(10.0, prefs_->tciRxGainDb() / 20.0);
         });
-        // Task #108 — symmetric INBOUND (MSHV → Lyra TXA) gain cache.
-        // Seeded from the persisted value at ctor; refreshed on every
-        // tciTxGainDbChanged emit (operator drags the Settings slider,
-        // future TX-profile recall, etc.).  Hot path applies the
-        // multiplier in onTciAudioBlock right before TciMicSource->
-        // submitFromTci, AFTER decode + resample.
-        txGainLinear_ =
-            std::pow(10.0, prefs_->tciTxGainDb() / 20.0);
-        connect(prefs_, &Prefs::tciTxGainDbChanged, this, [this]() {
-            txGainLinear_ =
-                std::pow(10.0, prefs_->tciTxGainDb() / 20.0);
-        });
         connect(prefs_, &Prefs::micSourceChanged, this, [this]() {
             if (voiceLive_) applyVoiceLive();
         });
@@ -1143,8 +1131,10 @@ void TciServer::onBinaryMessage(const QByteArray &frame) {
     }
 
     // TCI TX-audio re-home (TX_ARCHITECTURAL_MAPPING.md §4.6 data model):
-    // the decoded + gained (#108) + resampled-to-TXA-rate (#68) mono goes
-    // into the TciTxBridge.  The verbatim cm_main TX pump drains it through
+    // the decoded + resampled-to-TXA-rate (#68) mono goes into the
+    // TciTxBridge as-is — no host-side gain stage.  The level is set by
+    // the client app's own TX/drive slider, Lyra's digital drive %, and
+    // the TXA ALC.  The verbatim cm_main TX pump drains it through
     // the InboundTCITxAudio seam (CMaster.cpp xcmaster case 1) when the
     // operator has selected TCI as the mic source (use_tci_audio); on the
     // wire only while MOX (sendProtocol1Samples zeroes outIQbufp at !XmitBit).

@@ -343,8 +343,8 @@ TX); **`vfo_limits` hardcoded** (not band/HL2-derived).
 
 ### 11.2 Network-tab TCI settings (settingsdialog.cpp ~638-827)
 Present: bind host, port, rate-limit, send-initial-state, "add CW to
-modulations", emulate-ExpertSDR3, emulate-SunSDR2, RX-out gain, TX-in gain,
-master enable + status. **Missing (the operator's "settings we still need"):**
+modulations", emulate-ExpertSDR3, emulate-SunSDR2, RX-out gain (the
+TX-in gain spinner was retired as a no-op), master enable + status. **Missing (the operator's "settings we still need"):**
 - **CW group** (lands with the keyer): keyer WPM default, keyer mode
   (straight / iambic A / B), reverse paddles, weight, strict-spacing,
   break-in OFF/SEMI, hang/PTT-delay, HW-sidetone enable+level, CWX speed +

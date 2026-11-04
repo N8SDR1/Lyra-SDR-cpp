@@ -1996,45 +1996,10 @@ QWidget *SettingsDialog::buildNetworkTab() {
             }
         });
         form->addRow(tr("RX-out gain:"), rxGainSpin);
-
-        // ── Task #108 — symmetric INBOUND TCI gain (operator-flagged
-        //    2026-06-03: MSHV / JTDX / WSJT-X overdrive Lyra's TXA
-        //    ALC).  Same range, same pattern as the RX-out spinner
-        //    above, applied in TciServer at audio-block ingress —
-        //    AFTER decode + resample, BEFORE TciMicSource hands the
-        //    samples to TxDspWorker.  Stopgap until per-profile TCI
-        //    gain ships under #49 + #55.
-        auto *txGainSpin = new QDoubleSpinBox(grp);
-        txGainSpin->setRange(-40.0, 10.0);
-        txGainSpin->setDecimals(1);
-        txGainSpin->setSingleStep(1.0);
-        txGainSpin->setSuffix(tr(" dB"));
-        txGainSpin->setValue(prefs_->tciTxGainDb());
-        txGainSpin->setToolTip(tr(
-            "Attenuate (or boost) the TX audio Lyra RECEIVES from TCI "
-            "clients (MSHV, JTDX, WSJT-X, etc.) before it hits the "
-            "WDSP TXA chain.  Negative dB reduces the level if your "
-            "client sends audio hotter than Lyra's ALC handles "
-            "gracefully (the common case — digital-mode software "
-            "often outputs near full-scale by default).  Positive dB "
-            "boosts a quiet client.  0 dB = byte-identical to your "
-            "client's stream level.  Live: takes effect on the next "
-            "received audio packet.\n\n"
-            "Mirror of the RX-out gain above.  Stopgap until per-mode "
-            "RX/TX gain profiles ship (planned tasks #49 + #55)."));
-        connect(txGainSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-                grp, [this](double v) {
-            if (prefs_) prefs_->setTciTxGainDb(v);
-        });
-        connect(prefs_, &lyra::ui::Prefs::tciTxGainDbChanged, txGainSpin,
-                [this, txGainSpin]() {
-            const double v = prefs_->tciTxGainDb();
-            if (txGainSpin->value() != v) {
-                QSignalBlocker b(txGainSpin);
-                txGainSpin->setValue(v);
-            }
-        });
-        form->addRow(tr("TX-in gain:"), txGainSpin);
+        // No TX-in counterpart: the #108 inbound gain stage was dropped
+        // in the TX-rip refactor (c4a6324) and never re-plumbed, so the
+        // level of TCI TX audio is set by the client app, Lyra's digital
+        // drive %, and the ALC.
     }
 
     auto *enable = new QCheckBox(tr("TCI server running"), grp);

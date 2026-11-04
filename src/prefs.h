@@ -68,16 +68,9 @@ class Prefs : public QObject {
     // gain profile bundles.
     Q_PROPERTY(double tciRxGainDb READ tciRxGainDb WRITE setTciRxGainDb
                NOTIFY tciRxGainDbChanged)
-    // Task #108 — symmetric mirror of Task #75 on the INBOUND side.
-    // MSHV / JTDX / WSJT-X often send TX audio at levels that overdrive
-    // Lyra's TXA ALC — operator-flagged 2026-06-03 ("looks like it
-    // might be overdriving it slightly").  Applied in TciServer at
-    // audio-block ingress, AFTER decode + resample and BEFORE handing
-    // samples to TciMicSource.  Range -40..+10 dB, default 0 dB =
-    // unity = byte-identical to pre-#108 behaviour.  Stopgap until
-    // per-profile TCI gain ships under #49 + #55.
-    Q_PROPERTY(double tciTxGainDb READ tciTxGainDb WRITE setTciTxGainDb
-               NOTIFY tciTxGainDbChanged)
+    // (The #108 inbound mirror, tciTxGainDb, was retired: its sample
+    // multiply was dropped in the TX-rip refactor and never restored.
+    // The persisted "tci/tx_gain_db" key is left as a harmless orphan.)
     // #175 — waterfall-ID controls.  wfIdLevel = burst level (0..0.065;
     // deliberately low — a full-duty multitone ID is effectively full-power
     // digital into the finals, so a hot level splatters/IMDs and stresses an
@@ -507,8 +500,6 @@ public:
     void   setFixedTuneDrivePct(int v);
     double tciRxGainDb() const { return tciRxGainDb_; }
     void   setTciRxGainDb(double v);
-    double tciTxGainDb() const { return tciTxGainDb_; }
-    void   setTciTxGainDb(double v);
     // Remote access (TCI remote and the later IP remote share these).
     // The password is a one-way hash; the clear phrase is never stored.
     // A blank password means remote transmit stays off once a session
@@ -802,7 +793,6 @@ signals:
     void tuneDrivePctChanged();
     void fixedTuneDrivePctChanged();
     void tciRxGainDbChanged();
-    void tciTxGainDbChanged();
     void remotePasswordChanged();
     void remoteListenRequiresPasswordChanged();
     void remoteAcceptIpsChanged();
@@ -927,7 +917,6 @@ private:
     double  tciRxGainDb_ = 0.0;
     // Task #108 — symmetric INBOUND TCI gain (MSHV → Lyra TXA).
     // Default 0 dB = unity = byte-identical to pre-#108 behaviour.
-    double  tciTxGainDb_ = 0.0;
     QByteArray remotePwSalt_;
     QByteArray remotePwHash_;
     int     remotePwIters_ = 0;

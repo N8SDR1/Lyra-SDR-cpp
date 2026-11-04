@@ -5777,15 +5777,14 @@ cables, no host-side sound card needed.
 > client key and release the same way.
 * The **Mic gain** slider on the TX panel still applies to TCI audio —
   the same chain handles voice and digital. [Profiles](#profiles-txrx-chain-presets)
-  now save mic gain (and the TCI gains), so you can keep an SSB-voice
+  now save mic gain (and the TCI RX-out gain), so you can keep an SSB-voice
   profile and an FT8/MSHV digital profile each with their own trim and
   bind them per mode family — switching mode then recalls the right trim
   automatically.
 
-**Dedicated TCI-only gain sliders** (Settings → Network → TCI server
-group). Two independent ±dB knobs sized for the common digital-mode
-mismatches, so you can dial the TCI path without disturbing your voice
-mic gain:
+**Dedicated TCI-only gain slider** (Settings → Network → TCI server
+group). One ±dB knob sized for the common digital-mode mismatch, so you
+can dial the TCI path without disturbing your voice mic gain:
 
 - **RX-out gain** (−40 … +10 dB, default **0 dB** = unity) — attenuates
   or boosts the audio Lyra **sends** to TCI clients. Drop this if
@@ -5793,20 +5792,17 @@ mic gain:
   client-side RX gain slider isn't bringing it down enough. 0 dB =
   byte-identical to Lyra's RX level. Takes effect at the next emitted
   audio packet (~43 ms at 48 kHz / 2048-sample frames).
-- **TX-in gain** (−40 … +10 dB, default **0 dB** = unity) — attenuates
-  or boosts the TX audio Lyra **receives** from the client before it
-  hits the WDSP TXA chain. Drop this if your client outputs audio
-  hotter than Lyra's ALC handles gracefully (the common case —
-  digital-mode software often sends near full-scale by default and
-  overdrives Lyra's TXA limiter slightly). Boost it for an unusually
-  quiet client. 0 dB = byte-identical to the client's stream level.
-  Takes effect at the next received audio packet.
 
-Both sliders are the live, always-available adjustment. The TCI RX and
-TX gains are also saved in [profiles](#profiles-txrx-chain-presets), so
-you can store balanced ESSB-voice and digital setups and recall them —
+There is no Lyra-side gain on the TX audio it **receives** from a TCI
+client: the level is set by the client app's own TX / drive slider,
+Lyra's **digital drive %** (Settings → TX), and the TXA ALC, which in
+DIGU/DIGL acts as a peak limiter only.
+
+The slider is the live, always-available adjustment. The TCI RX-out
+gain is also saved in [profiles](#profiles-txrx-chain-presets), so you
+can store balanced ESSB-voice and digital setups and recall them —
 manually or via per-mode-family auto-recall — instead of retouching the
-gains every time you switch.
+gain every time you switch.
 
 **Troubleshooting:**
 
@@ -5820,11 +5816,11 @@ gains every time you switch.
   parameters, drop **Settings → Network → RX-out gain** (Lyra side,
   works for all clients at once) or the client's own RX gain slider
   until the waterfall sits in the normal −20 to −10 dB range.
-* **MSHV / JTDX TX overdrives Lyra's ALC** — drop **Settings → Network
-  → TX-in gain** by 3-6 dB (the client's modulator is louder than
-  Lyra's TXA chain wants by default). Watch the MIC and ALC bars on
-  the multimeter while keying — MIC should peak around −10 to −6 dBFS
-  with ALC barely budging.
+* **MSHV / JTDX TX overdrives Lyra's ALC** — lower the client's own
+  TX / drive slider (the client's modulator is louder than Lyra's TXA
+  chain wants by default) and set power with Lyra's digital drive %.
+  Watch the MIC and ALC bars on the multimeter while keying — MIC
+  should peak around −10 to −6 dBFS with ALC barely budging.
 * **You're transmitting but nobody's decoding you (no PSKReporter
   spots)** — usually means a frequency / band / power issue on the
   station side (wrong dial, antenna fault, low drive). Check the

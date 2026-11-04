@@ -68,8 +68,9 @@ struct Profile {
     int     txDriveLevel = 0;  // 0..255 (the TX-power knob)
 
     // --- TCI gains ---
+    // (tciTxGainDb retired — a "tciTxGainDb" key in an older saved
+    // profile is simply ignored on load.)
     double  tciRxGainDb = 0.0;
-    double  tciTxGainDb = 0.0;
 
     // --- VAC (Virtual Audio Cable, #158) ---
     // Per-profile so a digital/VAC profile carries source(micpc)+enable

@@ -166,8 +166,8 @@ constexpr auto kFixedTuneDrive = "tx/fixed_tune_drive_pct";  // #95
 // TCI server group; clients see the gain change at the next emitted
 // audio packet boundary (~43 ms at 48 kHz / 2048-sample frames).
 constexpr auto kTciRxGainDb  = "tci/rx_gain_db";
-// Task #108 — symmetric inbound (MSHV/JTDX/WSJT-X → Lyra TXA) gain.
-constexpr auto kTciTxGainDb  = "tci/tx_gain_db";
+// (Retired: "tci/tx_gain_db" — the #108 inbound gain.  Any saved key
+// is left in place as a harmless orphan; nothing reads it.)
 constexpr auto kRemotePwSalt = "remote/password_salt";
 constexpr auto kRemotePwHash = "remote/password_hash";
 constexpr auto kRemotePwIters = "remote/password_iters";
@@ -266,8 +266,6 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
         s.value(kFixedTuneDrive, 25).toInt(), 0, 100);
     tciRxGainDb_  = std::clamp(
         s.value(kTciRxGainDb, 0.0).toDouble(), -40.0, 10.0);
-    tciTxGainDb_  = std::clamp(
-        s.value(kTciTxGainDb, 0.0).toDouble(), -40.0, 10.0);
     remotePwSalt_ = QByteArray::fromBase64(
         s.value(kRemotePwSalt).toString().toLatin1());
     remotePwHash_ = QByteArray::fromBase64(
@@ -658,17 +656,6 @@ void Prefs::setTciRxGainDb(double v) {
     tciRxGainDb_ = v;
     QSettings().setValue(kTciRxGainDb, v);
     emit tciRxGainDbChanged();
-}
-
-void Prefs::setTciTxGainDb(double v) {
-    // Task #108 — same pattern as setTciRxGainDb.  Range -40..+10 dB,
-    // skip no-op emits so TciServer's cached linear multiplier doesn't
-    // recompute std::pow for identical-value drags.
-    v = std::clamp(v, -40.0, 10.0);
-    if (v == tciTxGainDb_) return;
-    tciTxGainDb_ = v;
-    QSettings().setValue(kTciTxGainDb, v);
-    emit tciTxGainDbChanged();
 }
 
 QString Prefs::remotePasswordProblem(const QString &password) const {

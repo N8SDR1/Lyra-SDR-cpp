@@ -20,7 +20,6 @@ QJsonObject Profile::toJson() const {
     o["tuneDrivePct"]  = tuneDrivePct;
     o["txDriveLevel"]  = txDriveLevel;
     o["tciRxGainDb"]   = tciRxGainDb;
-    o["tciTxGainDb"]   = tciTxGainDb;
     o["vac1Enabled"]     = vac1Enabled;
     o["vac1AutoDigital"] = vac1AutoDigital;
     o["vac1RxGainDb"]    = vac1RxGainDb;
@@ -79,7 +78,7 @@ Profile Profile::fromJson(const QString &name, const QJsonObject &o) {
     if (o.contains("tuneDrivePct"))  p.tuneDrivePct  = o["tuneDrivePct"].toInt(p.tuneDrivePct);
     if (o.contains("txDriveLevel"))  p.txDriveLevel  = o["txDriveLevel"].toInt(p.txDriveLevel);
     if (o.contains("tciRxGainDb"))   p.tciRxGainDb   = o["tciRxGainDb"].toDouble(p.tciRxGainDb);
-    if (o.contains("tciTxGainDb"))   p.tciTxGainDb   = o["tciTxGainDb"].toDouble(p.tciTxGainDb);
+    // "tciTxGainDb" (retired) is ignored if present in an older profile.
     if (o.contains("vac1Enabled"))     p.vac1Enabled     = o["vac1Enabled"].toBool(p.vac1Enabled);
     if (o.contains("vac1AutoDigital")) p.vac1AutoDigital = o["vac1AutoDigital"].toBool(p.vac1AutoDigital);
     if (o.contains("vac1RxGainDb"))    p.vac1RxGainDb    = o["vac1RxGainDb"].toDouble(p.vac1RxGainDb);
@@ -130,7 +129,6 @@ bool Profile::sameValues(const Profile &b) const {
         // tuneDrivePct / txDriveLevel deliberately excluded — per-band
         // (BandMemory), not profile fields (see Profile.h).
         && dEq(tciRxGainDb, b.tciRxGainDb)
-        && dEq(tciTxGainDb, b.tciTxGainDb)
         && vac1Enabled == b.vac1Enabled
         && vac1AutoDigital == b.vac1AutoDigital
         && dEq(vac1RxGainDb, b.vac1RxGainDb)

@@ -413,11 +413,6 @@ private:
     // ingress + main-thread Prefs setter never race).  Default
     // 1.0 = unity = pre-#75 byte-identical wire.
     double   rxGainLinear_     = 1.0;
-    // Task #108 — symmetric INBOUND gain cache (MSHV → Lyra TXA).
-    // Cached from Prefs.tciTxGainDb on every tciTxGainDbChanged emit
-    // so the per-sample multiply in onTciAudioBlock doesn't pay
-    // std::pow.  Default 1.0 = unity = pre-#108 byte-identical wire.
-    double   txGainLinear_     = 1.0;
 
     // Per-key broadcast rate limiter + soft DSP-parameter store.
     QHash<QString, qint64> lastSent_;

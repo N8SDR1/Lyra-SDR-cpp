@@ -1224,7 +1224,6 @@ int main(int argc, char *argv[])
         // per-band (BandMemory), so capturing them made a band change dirty
         // the profile (operator report 2026-06-16; see Profile.h).
         p.tciRxGainDb     = prefs->tciRxGainDb();
-        p.tciTxGainDb     = prefs->tciTxGainDb();
         p.vac1Enabled     = wdspEngine->vac1Enabled();
         p.vac1AutoDigital = wdspEngine->vac1AutoDigital();
         p.vac1RxGainDb    = wdspEngine->vac1RxGainDb();
@@ -1306,7 +1305,6 @@ int main(int argc, char *argv[])
         // tuneDrivePct / txDriveLevel NOT applied — BandMemory owns per-band
         // TX power + tune drive; a profile load leaves them untouched.
         prefs->setTciRxGainDb(p.tciRxGainDb);
-        prefs->setTciTxGainDb(p.tciTxGainDb);
         wdspEngine->setAgcMode(p.agcMode);
         wdspEngine->setAutoMuteOnTx(p.autoMuteOnTx);
         // #160: ALC ceiling + Leveler trio (these forward to the live TXA
@@ -1358,8 +1356,7 @@ int main(int argc, char *argv[])
                      &lyra::ui::Prefs::micSourceChanged,
                      &lyra::ui::Prefs::tuneDriveModeChanged,
                      &lyra::ui::Prefs::fixedTuneDrivePctChanged,
-                     &lyra::ui::Prefs::tciRxGainDbChanged,
-                     &lyra::ui::Prefs::tciTxGainDbChanged})
+                     &lyra::ui::Prefs::tciRxGainDbChanged})
         QObject::connect(prefs, sig, profiles,
                          &lyra::profile::ProfileManager::refreshModified);
     QObject::connect(stream, &lyra::ipc::HL2Stream::micGainDbChanged, profiles,
