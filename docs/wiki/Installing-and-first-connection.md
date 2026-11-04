@@ -117,7 +117,13 @@ first:
   repairs itself. **v0.25.35:** the GEN1–3 slots remember RF1 / Alt and
   LNA per slot, and an FM **RPT** offset drops when you leave the band
   (operator SPLIT still persists). If SPLIT comes up lit after the
-  upgrade, click it off once.
+  upgrade, click it off once. **v0.25.36:** eight transverter slots,
+  and **SWL broadcast rows** on J16 — they stay empty until you press
+  **Reload N2ADR HF** (Settings → Filters / BCD), which seeds them RX-only.
+- **Digital modes (DIGU / DIGL):** since **v0.25.36** the ALC is a peak
+  limiter only and the Leveler is held off automatically, so you no
+  longer need a separate profile just to park the Leveler for FT8 / RADE
+  / PSK.
 - **Running an amplifier?** Read
   **[User Guide → Operating with an external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**
   first — Lyra has TR‑sequencing and hot‑switch protection you should

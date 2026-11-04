@@ -412,6 +412,25 @@ Install **v0.25.35** (GitHub #24). Each GEN slot now remembers its own
 RF1; LNA / Auto are stored once you touch them while that slot is
 active. **Right-click** a GEN button → reset clears them.
 
+**My digital app's signal is distorted / nobody decodes my RADE or PSK, but FT8 works.**
+Install **v0.25.36**. In **DIGU / DIGL** the ALC is now a peak limiter
+only (max gain 1.0) and the **Leveler** is held off whatever the toggle
+says, so variable-envelope digital waveforms go out unshaped. Voice
+modes keep your ALC / Leveler settings. Still hot? Turn the app's own
+output / drive down, or Lyra's **digital drive %** (Settings → TX) — the
+old TCI **TX-in gain** spinner is gone; it had not done anything.
+
+**My N2ADR board sits unfiltered on the shortwave broadcast bands (49 m / 31 m / 19 m).**
+Install **v0.25.36**, then Settings → **Filters / BCD** → **Reload N2ADR
+HF**. That seeds the folded **SWL broadcast rows** (120 m … 13 m) with
+the RX LPF of the ham band above each, TX unticked. The rows stay empty
+until you do this. Where a broadcast band overlaps a ham band the ham
+row wins (7.200–7.300 is 40 m); CB and GEN still get no row.
+
+**I need more than four transverter chips.**
+Install **v0.25.36** — there are eight. Slots 5–8 start disabled; right-
+click a chip to enable and name it. Your first four are unchanged.
+
 **What do the colours mean?**
 **Orange TUNE A** + **cyan** passband = RX1. **Lime TUNE B** + **green**
 passband / carrier = RX2. Band chips: **red** glow = RX1’s band, **green**

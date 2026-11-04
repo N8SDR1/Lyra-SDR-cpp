@@ -4,11 +4,13 @@ Where Lyra is headed. This is a **direction, not a dated schedule** — items la
 when they're solid. Everything shipped today is on the [Feature Status](Feature-Status)
 page.
 
-**Now (v0.25.35 Sheliak):** HL2 / HL2+
+**Now (v0.25.36 Sheliak):** HL2 / HL2+
 P1, BrickSDR2 / Brick3SDR P2, SUB + SPLIT, PureSignal, TX rack. Brick3 /
 ANAN-100D get a second SUB panadapter. **Diversity** (two ADCs, same
 frequency) is in and confirmed on Brick3SDR. Protocol 1 **RF1 / Alt RX**
-on the Xvtr row. Protocol 2 DUC-IQ on its own TX pump.
+on the Xvtr row. Protocol 2 DUC-IQ on its own TX pump. **Eight Xvtr
+slots**, **SWL broadcast rows** in OC Control and an automatic
+digital-mode ALC / Leveler hold-off landed in v0.25.36.
 **Lyra to Lyra (v0.25.25):** desk RX2 picture and audio, CW from the
 desk, on top of v0.25.24 Sheliak. Steps are in the user guide,
 [Lyra to Lyra](User-Guide#lyra-to-lyra). **v0.25.24** is the previous

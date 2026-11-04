@@ -22,13 +22,65 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.35 Sheliak** — **GEN1 / GEN2 / GEN3** remember **RF1 / Alt**
-and **LNA** per slot (GitHub #24); an FM **RPT** offset no longer
-follows you onto another band (RPT / SPLIT drop, VFO B re-synced, status
-+ log line) while operator **SPLIT** keeps persisting as before; new
-`[iob] TX regs follow VFO B` verbose-log line. No wire or DSP changes.
-**v0.25.34** is the previous public build. See
-[What's new in 0.25.35](#whats-new-in-02535).
+**v0.25.36 Sheliak** — **eight transverter slots** (was four); **SWL
+broadcast rows** in OC Control (J16 pins for 120 m … 13 m, seeded from
+N2ADR only when you press **Reload N2ADR HF**, RX-only, ham row wins on
+overlap); in **DIGU / DIGL** the **ALC** is a peak limiter only and the
+**Leveler** is held off automatically; the dead TCI **TX-in gain**
+control is gone. No change to the IO-board wire traffic, to the ham-band
+J16 pattern, or to any receive DSP. **v0.25.35** is the previous public
+build. See [What's new in 0.25.36](#whats-new-in-02536).
+
+## What's new in 0.25.36
+
+- **Eight transverter slots** (was four). Slots 5–8 start **disabled
+  and empty**, exactly how the spare fourth slot has always shipped, so
+  a station using one to four sees no change. One row of eight chips on
+  an HL2; on a Protocol 2 / Alex rig that shares the row with the ANT /
+  RX chips they wrap 2 × 4 so the Band dock keeps its width. Slots 1–4
+  are read unchanged. The Filters / BCD Xvtr OC rows, Clear all and the
+  live-row highlight follow the new count. See
+  [Xvtr (transverters)](#xvtr-transverters).
+- **SWL broadcast rows on J16.** A shortwave broadcast band used to
+  resolve to "no row" = every J16 pin off, so an N2ADR board sat
+  unfiltered on 49 m / 31 m / 19 m. Settings → **Filters / BCD** now has
+  a fold-out **SWL broadcast rows** section under the ham and Xvtr rows
+  — one row per broadcast band (**120 m … 13 m**, twelve rows) with the
+  same RX / TX pin ticks. Precedence is **Xvtr slot → ham band →
+  broadcast band → none**: where a broadcast band overlaps a ham band
+  the ham row wins (7.200–7.300 is **40 m**, not 41 m). **CB and
+  GEN1–3 still get no row** (pins off). The **Live J16** readout says
+  `‹band› BC (SWL row)` or `none (GEN / CB / out of table)`.
+- **SWL rows fill only when you ask.** Picking **N2ADR** in the OC
+  accessory combo or pressing **Reload N2ADR HF** seeds the twelve rows
+  with the RX LPF of the ham band just above each (41 m borrows 40 m,
+  13 m borrows 15 m, 120 m has no 3 MHz HPF), **TX unticked** — they
+  are receive filters. First run and a rig switch stay ham-only, so
+  until you reload, the SWL rows are empty (pins off), as before. Log:
+  `[oc] SWL rows seeded from N2ADR (12 rows, TX off)`. See
+  [OC Control](#filter-board--oc-control-j16-pins).
+- **Digital modes: ALC is a limiter only, Leveler held off.** In
+  **DIGU / DIGL** the ALC max gain is capped at **1.0** (it only catches
+  peaks over full scale) and the **Leveler** is held **off** whatever
+  the toggle says. Voice modes keep your ALC / Leveler settings; nothing
+  saved changes. Found while testing **RADE** digital voice through
+  **STD** over TCI — the ALC was riding the gain of variable-envelope
+  waveforms so others could not decode them, while FT8 got through.
+  Confirmed on the air 2026-11-04. Applies to any TCI or VAC client
+  keying DIGU / DIGL (MSHV, WSJT-X, JTDX, VarAC, STD, Open SSTV …) — you
+  no longer need to turn the Leveler off by hand for digital. See
+  [Leveler](#leveler-txa-pre-alc-amplifier-stage).
+- **TCI TX-in gain control removed.** Settings → **Network** → TCI
+  **TX-in gain** had done nothing since June. The level of TX audio
+  Lyra receives from a TCI client is set by the client app's own drive,
+  Lyra's **digital drive %** and the ALC. **RX-out gain** stays. See
+  [Digital modes over TCI](#digital-modes-over-tci-ft8--ft4--msk144--q65--etc).
+- Not in this build: an external **10 MHz reference on CL1 / CL2** is
+  being scoped; a dedicated Xvtr settings page is undecided; native
+  MIDI is not planned beyond the midi2tci sidecar.
+- Reported by: Mike K7MDL (eight Xvtr slots, SWL rows).
+- **v0.25.35 Sheliak** is the previous public build. **v0.25.22**
+  remains the long return point. Settings stay.
 
 ## What's new in 0.25.35
 
@@ -61,7 +113,7 @@ follows you onto another band (RPT / SPLIT drop, VFO B re-synced, status
   the **forced present** status line now also shows TX Hz and REG 11.
   Log only. See [HL2 IO board](#hl2-io-board-hl2ioboard-pico-i2c-0x1d).
 - Not in this build: **transverter slot count 4 → 8** and **OC Control
-  rows for the broadcast (SWL) bands** (queued for the next release).
+  rows for the broadcast (SWL) bands** — both shipped in **0.25.36**.
   Per-slot Xvtr OC rows have been in Filters / BCD since v0.25.29.
 - Reported by: Mike K7MDL (GEN), Volker DL1VE (RPT).
 - **v0.25.34 Sheliak** is the previous public build. **v0.25.22**
@@ -100,8 +152,8 @@ follows you onto another band (RPT / SPLIT drop, VFO B re-synced, status
   logging**, also a checkbox in Help → Show Log…) show every latch,
   write, probe, reply, slip and restart for bench diagnostics.
 - Not in this build: **transverter slot count 4 → 8** and **OC Control
-  rows for the broadcast (SWL) bands** (queued). Per-slot Xvtr OC rows
-  have been in Filters / BCD since v0.25.29.
+  rows for the broadcast (SWL) bands** (both shipped in 0.25.36).
+  Per-slot Xvtr OC rows have been in Filters / BCD since v0.25.29.
 - Testers: Mike K7MDL, Randy W7CPA, Volker DL1VE.
 - Details: [HL2 IO board (HL2IOBoard Pico, I2C 0x1D)](#hl2-io-board-hl2ioboard-pico-i2c-0x1d).
 - **v0.25.33 Sheliak** is the previous public build. **v0.25.22**
@@ -650,8 +702,9 @@ Dummy load first.
 - **NR-C** tried an occupied-bin mix so voice/CW edges stayed brick-wall
   in audio. That mix also lifted the audio noise floor; 0.25.10 dropped it
   once the panadapter used uncleaned IQ.
-- **Xvtr** chips on the Band row — four transverter slots; VFO stays in RF;
-  right-click the slot editor. See [Band panel](#band-panel).
+- **Xvtr** chips on the Band row — four transverter slots (eight since
+  0.25.36); VFO stays in RF; right-click the slot editor. See
+  [Band panel](#band-panel).
 - **Anti-aliasing (MSAA)** — Settings → Visuals **Off / 2× / 4× / 8×**
   (restart). See [Graphics backend](#graphics-backend).
 - **Protocol 1 Brick / ANAN** still show in Discover; **Open is refused**.
@@ -659,6 +712,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.36](#whats-new-in-02536)
 - [What's new in 0.25.35](#whats-new-in-02535)
 - [What's new in 0.25.34](#whats-new-in-02534)
 - [What's new in 0.25.33](#whats-new-in-02533)
@@ -1862,8 +1916,11 @@ Quick band switching, in four rows:
   frequency and mode** and return to it when you click them (band default
   the first time). The active band lights the same way.
 - **Gen** — the GEN1/2/3 general-coverage slots (below).
-- **Xvtr** — four transverter chips (defaults **2m / 70cm / 23cm** plus a
-  spare). Click a chip to tune RX1 to that slot’s last RF. Full detail:
+- **Xvtr** — eight transverter chips (defaults **2m / 70cm / 23cm**; the
+  other five start disabled and empty until you right-click and set them
+  up). One row of eight on an HL2; they wrap 2 × 4 when the ANT / RX
+  chips share the row. Click a chip to tune RX1 to that slot’s last RF.
+  Full detail:
   [Xvtr (transverters)](#xvtr-transverters). On Protocol 1 the same row
   has **RF1** / **Alt** (HL2 RX jack). Most stations leave **RF1**. See
   [Which Hermes Lite station is mine?](#which-hermes-lite-station-is-mine).
@@ -2516,8 +2573,10 @@ over TCI — no microphone involved.
 3. In the program (MSHV / JTDX / WSJT-X / FLDigi…), select **TCI** and
    point it at Lyra's address + TCI port.
 4. Set levels in the **program** so Lyra's ALC shows only light action —
-   digital wants clean, just-below-ALC drive. If it's hot, Lyra also has a
-   TCI input-gain trim to tame an over-driven client.
+   digital wants clean, just-below-ALC drive. If it's hot, turn the
+   program's output / drive down, or Lyra's **digital drive %**
+   (Settings → TX). In **DIGU / DIGL** the ALC is a peak limiter only
+   and the Leveler is held off (since 0.25.36).
 
 ### Setting levels (any source)
 
@@ -3144,7 +3203,10 @@ so you're never surprised:
 - **Digital modes auto-bypass the whole rack.** In **DIGU / DIGL** Lyra
   automatically skips the entire native rack (EQ + Speech + Combinator +
   Plating) so FT8 / JS8 / etc. transmit unshaped — you don't have to switch
-  anything off. (This auto-gate is a Lyra convenience; the reference leaves
+  anything off. Since **0.25.36** the same gate also holds the **Leveler
+  off** and caps the **ALC** at a peak limiter in DIGU / DIGL, so
+  variable-envelope digital waveforms (RADE, PSK) are not reshaped
+  either. (This auto-gate is a Lyra convenience; the reference leaves
   it to you to untick manually or load a digital profile.) The panels show
   this at a glance: in **DIGU / DIGL** — and in **CW**, where there's no mic
   audio to shape — each rack panel's **ON** lamp greys out, its controls dim,
@@ -4696,10 +4758,11 @@ lines tagged `[iob]` are the ones that matter; their `t=` and `c=`
 columns (milliseconds and cycle number) let the write order and timing
 be checked against the Pico's own IO-Control readback.
 
-**Still queued, not in this build:** **transverter slot count 4 → 8**
-and **OC Control rows for the broadcast (SWL) bands** (J16 pin ticks
-for the shortwave broadcast bands). Per-slot Xvtr OC rows have been in
-Filters / BCD since v0.25.29 — see the next section.
+**Since 0.25.36:** eight **transverter slots** (was four) and **OC
+Control rows for the broadcast (SWL) bands** (J16 pin ticks for the
+shortwave broadcast bands, folded under the ham / Xvtr rows). Per-slot
+Xvtr OC rows have been in Filters / BCD since v0.25.29 — see the next
+section.
 
 ### Filter board — OC Control (J16 pins)
 
@@ -4717,7 +4780,8 @@ the OC bits. Analog on **J3** is the separate Band Volts checkbox.
   Yaesu BCD for a Brick or ANAN DB9. Hermes Lite defaults to N2ADR;
   Brick / ANAN default **Off** (onboard filters are Alex).
   - **Off** — emit 0. Table is kept.
-  - **N2ADR** — stamp the stock HF LPF map. Xvtr rows stay empty.
+  - **N2ADR** — stamp the stock HF LPF map and (since 0.25.36) seed the
+    **SWL broadcast rows** from it, RX only. Xvtr rows stay empty.
     Editing a tick promotes to **Custom**.
   - **Custom** — emit the grid as you ticked it.
   **Example Yaesu A–D** is only a starting grid (pins 1–4 = A/B/C/D).
@@ -4734,17 +4798,40 @@ the OC bits. Analog on **J3** is the separate Band Volts checkbox.
   pins are being driven **right now**, on the wire. They follow the band
   as you tune and flip to the transmit pattern while you're keyed.
 - **The per-band grid** — one row per amateur band (160 m–6 m), then
-  **named Xvtr chips** under that.
+  **named Xvtr chips** under that, then a folded **SWL broadcast rows**
+  section (below).
   Each row has **J16 Receive pins** (green) and **J16 Transmit pins**
   (red), pins 1–7. Tick a pin to drive it on that band or chip. The live
   row is highlighted. Edits apply and save immediately.
+- **SWL broadcast rows** (since 0.25.36) — click the fold arrow
+  **SWL broadcast rows (12) — ham row wins on overlap** to open one row
+  per shortwave broadcast band, **120 m … 13 m**, with the same RX / TX
+  ticks. They are used only when the dial is outside every ham band and
+  Xvtr chip: the order is **Xvtr slot → ham band → broadcast band →
+  none**, so 7.200–7.300 is **40 m** (not 41 m), 75 m BC sits inside
+  80 m and never fires, and 21.450 is 15 m. **CB (11 m) and GEN1–3 have
+  no row** — pins off, as before. The rows start **empty (pins off)**
+  and stay that way through first run and rig switches; they fill only
+  when you pick **N2ADR** in the accessory combo or press **Reload
+  N2ADR HF**, which seeds each with the RX LPF of the ham band just
+  above it (41 m borrows 40 m's pins 3 + 7, 13 m borrows 15 m's pins
+  5 + 7, 120 m is pin 2 only with no 3 MHz HPF) and leaves **TX
+  unticked** — these are receive filters; a seeded TX mask would pull an
+  LPF relay on key at a broadcast frequency. Tick TX by hand if you mean
+  it. The log says `[oc] SWL rows seeded from N2ADR (12 rows, TX off)`.
+  The live-row highlight and the **Live J16** status cover them:
+  **Live J16: 49m BC (SWL row)**, or **none (GEN / CB / out of table)**.
+  The fold open / closed state is remembered. On a Brick / ANAN these
+  rows reach `[1401]` only when OC is enabled for that rig.
 - **Xvtr rows default empty (all pins off).** Selecting a Mini / 2 m
   chip then idles J16 so an **XPA125 on HF** does not stay on the 10 m
   IF pattern. If the **N2ADR LPF** must follow the radio’s IF, copy the
   10 m ticks onto that Xvtr row.
-- **Reload N2ADR HF** — same as picking N2ADR in the combo (HF only).
-  **Example Yaesu A–D** — optional starting ticks only; then edit.
-  **Clear all** — blanks HF and Xvtr and switches to Custom.
+- **Reload N2ADR HF** — same as picking N2ADR in the combo: the HF map
+  plus the SWL rows (RX only); Xvtr rows stay as they are.
+  **Example Yaesu A–D** — optional starting ticks only; then edit (it
+  blanks the SWL rows — Yaesu BCD has no broadcast codes).
+  **Clear all** — blanks HF, Xvtr and SWL and switches to Custom.
 - **Allow hot switching** — lets transmit-pin edits take effect while
   you're transmitting. Off (default) is safer — edits apply on the next
   key.
@@ -5027,7 +5114,7 @@ Mic source → Mic Boost (+20 dB HW) → Mic Gain (SW) → Leveler (optional) �
 | **Mic source** | Mic In (codec) | Picks the audio source driving the TX chain. **Mic In** = the HL2 / HL2+ codec mic input (the v0.2.x default; this is the hand-mic / headset-mic / desk-mic path). **TCI** = inbound TX_AUDIO_STREAM from a digital-modes TCI client (MSHV / JTDX / FlDigi); pick this for digital-mode operation so the client's modulator audio replaces the hand-mic. **PC Soundcard (VAC1)** / **(VAC2)** route TX audio from Settings → Audio VAC1 or VAC2 (see [Digital modes over VAC](#digital-modes-over-vac-virtual-audio-cable)). VAC2 needs **SUB** for RX2 audio into the cable. TCI audio and VAC TX are exclusive — TCI always wins. A TCI client that sends `TRX:0,true,tci` auto-selects TCI — the picker tracks it. |
 | **Mic Boost** | OFF | HL2 hardware +20 dB analog mic preamp (codec PGA, single bit on the wire — C0 0x12 C2 bit 0). Pure hardware boost ahead of the digital chain. Enable when your hand mic / headset mic is genuinely too quiet to hit the modulator at a reasonable level even with the Mic Gain slider near max. Hardware is 2-state (off / +20 dB); intermediate trim comes from Mic Gain stacked on top. **Only affects the codec mic input** — PC mic / TCI sources bypass the codec PGA entirely, so this checkbox has no effect on those routes. Persisted across launches. |
 | **Mic Gain** | 0 dB | The mic-into-modulator gain (WDSP TXA PanelGain1 — TXA chain stage #3, before phrot / EQ / leveler / CFCOMP / bandpass / compressor / OSCtrl / ALC). **Bidirectionally bound with the TxPanel front-UI slider** — slider for quick QSO-time adjustments, spin-box here for typed precision. 0 dB = WDSP unity; +10 to +20 dB typical SSB; +25 to +35 dB ESSB with headroom. Range −90 dB to +40 dB matches the reference's Default TX profile. **Stacks on top of Mic Boost** — if Mic Boost is ON, the modulator sees Mic Boost +20 dB + Mic Gain combined. |
-| **ALC Max Gain** ⚠ | 3 (LINEAR) | The ALC (Automatic Level Control) max-gain ceiling — the always-on output limiter that catches peaks the leveler and compressor didn't bound, **before** the I/Q reaches the wire. **LINEAR amplitude factor (NOT dB) — units corrected in §15.27**: 1 = unity (limiter cannot amplify, only attenuate); 3 = the verified reference's default = 3× amplitude headroom = +9.54 dB of allowed amplification before the ALC pulls down. Earlier Lyra builds shipped this property as dB and called `dbToLin(3.0) = 1.413` — capping the ceiling at 47% of the reference's value and producing a ~6 dB power deficit on continuous mic-input tones (the §15.27 / #79 root cause; fixed 2026-06-03). Range 0..120 LINEAR matches the reference spinner exactly. Operator tuning: lower (1–2) for tighter splatter protection at the cost of headroom; higher (5–20) for ESSB-style program-level headroom. |
+| **ALC Max Gain** ⚠ | 3 (LINEAR) | The ALC (Automatic Level Control) max-gain ceiling — the always-on output limiter that catches peaks the leveler and compressor didn't bound, **before** the I/Q reaches the wire. **LINEAR amplitude factor (NOT dB) — units corrected in §15.27**: 1 = unity (limiter cannot amplify, only attenuate); 3 = the verified reference's default = 3× amplitude headroom = +9.54 dB of allowed amplification before the ALC pulls down. Earlier Lyra builds shipped this property as dB and called `dbToLin(3.0) = 1.413` — capping the ceiling at 47% of the reference's value and producing a ~6 dB power deficit on continuous mic-input tones (the §15.27 / #79 root cause; fixed 2026-06-03). Range 0..120 LINEAR matches the reference spinner exactly. Operator tuning: lower (1–2) for tighter splatter protection at the cost of headroom; higher (5–20) for ESSB-style program-level headroom. In **DIGU / DIGL** the live ceiling is held at **1** (limiter only) whatever you set here (since 0.25.36); the saved value is untouched. |
 | **ALC Decay** | 10 ms | The ALC release time constant — exponential-curve tau, NOT an absolute time. Sets how quickly the limiter releases gain reduction after a peak. Default 10 ms matches the verified reference's Setup-load value EXACTLY. Operator tuning: lower (3–5 ms) for snappier release that lets program material breathe but can sound 'pumpy' on aggressive content; higher (30–50 ms) for smoother release that holds gain steadier but compresses dynamics more. Range 1..50 ms matches the reference spinner exactly. Attack stays at the WDSP create-time default (1 ms) and is not exposed (reference UI doesn't expose attack either). |
 
 > **The ALC ceiling is a SAFETY knob, not a daily-use one.** Set it
@@ -5060,15 +5147,18 @@ can be unpredictable.  Tick the Enable checkbox if you want
 reference-parity gain behaviour; leave it off if you prefer to
 ride mic gain manually.
 
-> **Not recommended for digital modes (FT8 / FT4 / MSK144 / Q65 / RTTY,
-> etc.).** Digital-mode software already outputs a controlled, constant
-> level, and the modes need a clean, *linear* TX chain. The Leveler rides
-> gain on the envelope — on a digital signal that pumps the level and adds
-> distortion, which widens your signal, raises IMD, and makes your reported
-> levels inconsistent. **Leave the Leveler OFF for digital.** It's a
-> voice/ESSB tool. The easy way to keep this straight is a per-mode-family
-> profile: a digital/VAC profile with Leveler off, a voice profile with it
-> set how you like — switching mode recalls the right one.
+> **Digital modes: automatic since 0.25.36.** Digital-mode software
+> already outputs a controlled level, and the modes need a clean,
+> *linear* TX chain. The Leveler rides gain on the envelope — on a
+> digital signal that pumps the level and adds distortion, which widens
+> your signal, raises IMD, and makes your reported levels inconsistent.
+> So in **DIGU / DIGL** Lyra now holds the **Leveler off** whatever this
+> checkbox says, and caps the **ALC Max Gain at 1.0** so the ALC only
+> limits peaks over full scale — variable-envelope waveforms (RADE
+> digital voice, PSK, OFDM) go out unshaped. Your saved Leveler / ALC
+> values are untouched and come back the moment you return to a voice
+> mode. You no longer need a separate digital profile just to park the
+> Leveler; it is still a voice / ESSB tool.
 
 | Knob | Default | What it controls |
 |---|---|---|
@@ -5874,8 +5964,9 @@ needs **SUB** so RX2 is on the cable:
    (Settings → Network). In MSHV's audio panel, point **Output** at the TX
    cable and **Input** at the RX cable (the reverse of Lyra), and pick the
    channel (Left) your cable carries.
-4. Leave the **[Leveler](#leveler-txa-pre-alc-amplifier-stage) OFF** for
-   digital (see that section).
+4. The **[Leveler](#leveler-txa-pre-alc-amplifier-stage)** is held off
+   and the ALC is a peak limiter only in **DIGU / DIGL** (since 0.25.36)
+   — nothing to switch by hand.
 
 **The fastest fix when a VAC transmit produces no power:** check the
 **Mic source** — if it's on **TCI** (e.g. your TCI/voice profile left it

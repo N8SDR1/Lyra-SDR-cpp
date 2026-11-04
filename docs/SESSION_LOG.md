@@ -4,6 +4,41 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-04 — v0.25.36 Sheliak RELEASED (8 Xvtr slots, SWL J16 rows, digital-mode ALC)
+
+Five commits over v0.25.35. `546813d` Xvtr slots 4 → 8 (K7MDL's
+five-band stack): `lyra::xvtr::kSlotCount = 8` in `xvtr_math.h` is the
+single source, `XvtrSlots::kCount` / `OcControl::kXvtrSlots` alias it;
+slots 5–8 default disabled / numbered; BandPanel Repeater model
+`Xvtr.slotCount`, one row of 8 on HL2, wraps 2×4 beside the Alex ANT /
+RX chips so dock min width is unchanged; `xvtr/4..7/*` additive.
+`ecb041c` SWL broadcast rows on J16: `OcControl::rowForHz(hz, xvtrSlot)`
+Xvtr → ham → BC → none (ham wins 75 m / 41 m / 13 m overlaps); rows
+0–10 ham, 11–22 BC; pin-table group 2 for BC; folded "SWL broadcast
+rows" section in the Filters / BCD grid (`hw/ocSwlRowsOpen`); keys
+`swlRxA|TxA|RxB|TxB/N`; Live J16 reads "<band> BC (SWL row)" / "none
+(GEN / CB / out of table)"; CB + GEN deliberately no row. `ec07dab`
+second pass after design review: SWL seed only from
+`setOcAccessory(N2adr)` (combo + Reload button), never from
+`reloadOcFromDisk` / first run / rig switch; TX seed = 0 for every band
+(RX-only filters); 41 m → 40 m row (3+7), 13 m → 15 m row (5+7), 120 m
+pin 2 only; `[oc] SWL rows seeded from N2ADR (12 rows, TX off)`; bounds
+via `nRows()`; test_oc_control 22 groups + `oc_swl_seed_paths_static`
+ctest. `f9042df` TX: `applyDigitalTxLevels()` — in DIGU / DIGL ALC max
+gain capped at 1.0 (limiter only) and Leveler held off regardless of the
+toggle, voice modes keep operator values, nothing saved changes; found
+testing RADE through STD over TCI (3.0 ALC gain + 10 ms decay reshaped
+variable-envelope waveforms; FT8 got through); first RADE contact on
+the air 2026-11-04. `2b04d57` TCI TX-in gain spinner retired (no-op
+since c4a6324; `tci/tx_gain_db` orphaned, profile field dropped,
+RX-out gain stays). Docs: `docs/releases/v0.25.36.md`, USER_GUIDE
+(What's new, stale "queued" lines → shipped, four → eight Xvtr, OC
+Control SWL bullet, Leveler / ALC / VAC / TCI digital advice →
+automatic), README, KNOWN_ISSUES, wiki Feature Status / Home / Roadmap /
+Installing / FAQ. Open: CL1 / CL2 external 10 MHz reference scoping
+(`HL2_EXT_REF_CL1_CL2_SCOPE.md`, untracked). Tag `v0.25.36`. `main`
+untouched. Mac stays `macos-port`.
+
 ## 2026-11-02 — v0.25.35 Sheliak RELEASED (GEN RF1/Alt memory, RPT band-change drop)
 
 Two tester fixes over v0.25.34, no wire / DSP changes. `5442443` GEN

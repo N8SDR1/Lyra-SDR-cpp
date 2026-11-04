@@ -1,25 +1,29 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.35 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.36 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.35** makes the **GEN1 / GEN2 / GEN3** slots remember **RF1 /
-Alt** and **LNA** per slot (GitHub #24) and drops an FM **RPT** offset
-when RX1 leaves the band (SPLIT off, VFO B re-synced) — operator
-**SPLIT** still persists. No wire or DSP changes.
-**v0.25.34 Sheliak** is the previous public build (HL2 IO board
-sequencer + detection on Protocol 1; coming from ≤0.25.31, **turn Drive
-down and walk it up before your first TX on a P2 radio**).
+**v0.25.36** brings **eight transverter slots** (was four), **SWL
+broadcast rows** in OC Control (J16 pins for 120 m … 13 m, seeded from
+N2ADR only on **Reload N2ADR HF**, RX-only, ham row wins on overlap),
+and in **DIGU / DIGL** holds the **ALC** to a peak limiter and the
+**Leveler** off automatically; the dead TCI **TX-in gain** control is
+gone. No change to IO-board wire traffic, the ham-band J16 pattern, or
+any receive DSP.
+**v0.25.35 Sheliak** is the previous public build (GEN RF1 / Alt + LNA
+per slot, RPT band-change drop). Coming from ≤0.25.31, **turn Drive
+down and walk it up before your first TX on a P2 radio**.
 **v0.25.22** remains the long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.35)
+### Last several builds (0.25.16 → 0.25.36)
 
 | Build | What landed |
 |---|---|
+| **0.25.36** | **Eight transverter slots** (was four; slots 5–8 start disabled and empty, slots 1–4 read unchanged; one row of eight on HL2, wraps 2 × 4 beside the ANT / RX chips). **SWL broadcast rows on J16**: a folded **SWL broadcast rows** section in Settings → Filters / BCD, one row per broadcast band 120 m … 13 m; order Xvtr → ham → broadcast → none, ham wins on overlap (7.200–7.300 is 40 m); CB / GEN still no row. Rows stay empty until you pick **N2ADR** or press **Reload N2ADR HF**, which seeds the RX LPF of the ham band above each (41 m → 40 m, 13 m → 15 m, 120 m no HPF), **TX unticked**; `[oc] SWL rows seeded from N2ADR (12 rows, TX off)`. **DIGU / DIGL: ALC max gain capped at 1.0 (limiter only), Leveler held off** regardless of the toggle — RADE / PSK / OFDM digital waveforms no longer reshaped; voice modes keep operator values. TCI **TX-in gain** control removed (no-op since June). **v0.25.35** is the previous public build |
 | **0.25.35** | **GEN1 / GEN2 / GEN3 remember RF1 / Alt + LNA / Auto-LNA per slot** (GitHub #24; general-coverage frequencies sit outside the per-band memory's tables, so the slot keeps them itself like an Xvtr chip; RF1 default, LNA / Auto remembered once touched; right-click reset clears them). **FM RPT offset drops on a band change**: RPT / SPLIT off, VFO B ← RX1, status bar `RPT off — left ‹band›`, log line; operator **SPLIT** still persists across bands (Thetis / deskHPSDR default). A split left armed by an older RPT session loads as operator split — click SPLIT off once. One-shot `[iob] TX regs follow VFO B (SPLIT on)` verbose-log line; forced-present status line shows TX Hz / REG 11. No wire or DSP changes. **v0.25.34** is the previous public build |
-| **0.25.34** | **HL2 IO board sequencer** (Protocol 1). Registers 0–4 / 11 / 13 / 14 re-sent from one latched snapshot every ~0.35 s (11 slots × 12 EP2 datagrams, deskHPSDR model); IO frames in the second USB frame, slip one datagram next to gateware case 0 / 10. Band hop → reg-4 commit ≈ 0.2 s. **Detection** via PCA9536 at 0x41 (10 × ~1.7 s, then ~30 s); 0x1D written only once it answers. Settings → Filters / BCD → **IO board**: Status, **Transverter bands send** (Hold last HF / On-air RF), **Send RX frequency codes (13 / 14)** (replaces `LYRA_NO_IOBOARD_FCODE`), **Force IO board present**. REG 11 only 0 / 2; never 0 Hz. Verbose `[iob]` log. Fixes mixed-byte TX Hz, REG 11 stuck after 2 m → HF, RF1 / Alt not sticking, J4 not following. Still queued: transverter slot count 4 → 8 and OC Control rows for the broadcast (SWL) bands (per-slot Xvtr OC rows shipped in 0.25.29). **v0.25.33** is the previous public build |
+| **0.25.34** | **HL2 IO board sequencer** (Protocol 1). Registers 0–4 / 11 / 13 / 14 re-sent from one latched snapshot every ~0.35 s (11 slots × 12 EP2 datagrams, deskHPSDR model); IO frames in the second USB frame, slip one datagram next to gateware case 0 / 10. Band hop → reg-4 commit ≈ 0.2 s. **Detection** via PCA9536 at 0x41 (10 × ~1.7 s, then ~30 s); 0x1D written only once it answers. Settings → Filters / BCD → **IO board**: Status, **Transverter bands send** (Hold last HF / On-air RF), **Send RX frequency codes (13 / 14)** (replaces `LYRA_NO_IOBOARD_FCODE`), **Force IO board present**. REG 11 only 0 / 2; never 0 Hz. Verbose `[iob]` log. Fixes mixed-byte TX Hz, REG 11 stuck after 2 m → HF, RF1 / Alt not sticking, J4 not following. Transverter slot count 4 → 8 and OC Control rows for the broadcast (SWL) bands followed in 0.25.36 (per-slot Xvtr OC rows shipped in 0.25.29). **v0.25.33** is the previous public build |
 | **0.25.33** | **Stability upgrade — recommended for all Protocol 2 radios.** P2 TX IQ back at unity (Drive was applied twice since 0.25.16; PureSignal now calibrates at normal drive on Brick2 / Brick3; **same Drive slider = more RF, about +8 dB at 40 % — turn Drive down and walk it up, re-run TUN per band**). CTUN on P2 locks the pan like P1. J4 analog-first (BYTE0 before fcodes; no analog want >54 MHz). PS at 48 kHz on P2. Settings → Apps recommended: **STD**. Experimental PS host-reference path removed. HL2 / P1 unchanged. **v0.25.31** is the previous public build |
 | 0.25.32 | *Tagged, never released* (PureSignal host-replica regression). Its J4 analog-first and STD items shipped in 0.25.33 |
 | **0.25.31** | Minor PureSignal changes for Protocol 2 (FB auto-att; PS ON turns ATT-on-TX on). **v0.25.30** is the previous public build |
@@ -56,9 +60,9 @@ down and walk it up before your first TX on a P2 radio**).
 - ✅ **Stale-IP** guard (won't freeze trying to reach a radio that moved)
 - ✅ Graphics **crash ladder** (OpenGL → software, MSAA off on software) so a bad GPU driver does not leave Lyra with no window
 - ✅ **MSAA** picker **Off / 2× / 4× / 8×** (Settings → Visuals; default 4×; restart)
-- ✅ **Xvtr** band chips — RF dial (ten-digit LED, ~2.147 GHz), IF NCO, Disable PA default on; Shift+click SUB hop; right-click slot editor. Per-chip LNA (HL2) / ATT (P2) / last mode. Protocol 1 **RF1 vs Alt RX** per chip (I2C 0x1D register 11; analog BYTE0–4 unchanged for GPA100). Band-plan **region does not rewrite** slot MHz — set RF low/high/LO for your allocation. Station table: [User Guide → Which Hermes Lite station is mine?](User-Guide#which-hermes-lite-station-is-mine).
+- ✅ **Xvtr** band chips — **eight slots** since v0.25.36 (slots 5–8 start disabled; one row of eight on HL2, 2 × 4 beside the ANT / RX chips); RF dial (ten-digit LED, ~2.147 GHz), IF NCO, Disable PA default on; Shift+click SUB hop; right-click slot editor. Per-chip LNA (HL2) / ATT (P2) / last mode. Protocol 1 **RF1 vs Alt RX** per chip (I2C 0x1D register 11; analog BYTE0–4 unchanged for GPA100). Band-plan **region does not rewrite** slot MHz — set RF low/high/LO for your allocation. Station table: [User Guide → Which Hermes Lite station is mine?](User-Guide#which-hermes-lite-station-is-mine).
 - ✅ HL2 **N2ADR / IO board** — OC LPF (I2C **0x20**) is the **Enable N2ADR / IO board** checkbox. The Pico **IO board** (I2C **0x1D**: TX Hz regs 0–4 for J4 band volts, REG 11 RF1 / Alt, RX codes 13 / 14) is **not** gated on that box: since **v0.25.34** it is written every ~0.35 s from a latched snapshot (deskHPSDR model) **once the board is detected at 0x41**, or when **Force IO board present** is ticked (DIY Pico without PCA9536). **Transverter bands send** holds the last HF frequency by default so a J4 band-volts amp does not hop on a 2 m chip. Settings → Filters / BCD → IO board; [User Guide → HL2 IO board](User-Guide#hl2-io-board-hl2ioboard-pico-i2c-0x1d). Leave **Band Volts on J3** off unless the amp is on the fan header.
-- ✅ **OC Control** — Settings → **Filters / BCD**: HF J16 RX/TX pins (Thetis/DeskHPSDR: emit the ticks you set; no auto Yaesu on the radio DB9), named Xvtr rows (empty = pins off), optional USB-BCD FTDI, J3 fan vs analog. Analog BYTE0–4 / REG 11 untouched. Do not add a second tab.
+- ✅ **OC Control** — Settings → **Filters / BCD**: HF J16 RX/TX pins (Thetis/DeskHPSDR: emit the ticks you set; no auto Yaesu on the radio DB9), named Xvtr rows (empty = pins off), and since **v0.25.36** a folded **SWL broadcast rows** section (120 m … 13 m; Xvtr → ham → broadcast → none, ham wins on overlap; CB / GEN no row; empty until **Reload N2ADR HF** / N2ADR pick seeds them **RX-only** from the ham LPF above each band). Optional USB-BCD FTDI, J3 fan vs analog. Analog BYTE0–4 / REG 11 untouched. Do not add a second tab.
 
 ## Receive (RX)
 
@@ -83,7 +87,7 @@ down and walk it up before your first TX on a P2 radio**).
 - ✅ **Digital** via **TCI** and **VAC1 / VAC2** — WSJT-X / MSHV / JTDX / FLDigi / VarAC, or a logger on a second cable. VAC **Enable** is RX; **Mic source = VAC1 or VAC2** is TX. VAC2 carries **RX2** (turn **SUB** on). TCI audio and VAC TX are mutually exclusive.
 - ✅ TX power / drive, separate **tune drive**, AM carrier level, mic gain + **20 dB mic boost**; Protocol 2 uses analog drive (HP [345]) plus per-band **PA Gain / Full Output / CAP**, including a dedicated **11m** slot
 - ✅ **Separate RX and TX filter lows** (current build) — **RX lo** under **RX BW**, **TX lo** under **TX BW** on the Filters dock (also Settings → Audio). **0–500 Hz**. The lock keeps them equal; unlock and a profile can hold different lows. Older profiles copy the old shared low onto both sides.
-- ✅ Always-on **ALC** + operator **Leveler**, **PHROT** phase rotator
+- ✅ Always-on **ALC** + operator **Leveler**, **PHROT** phase rotator. Since **v0.25.36**, in **DIGU / DIGL** the ALC is a peak limiter only (max gain 1.0) and the Leveler is held off automatically — digital waveforms (RADE, PSK, FT8) go out unshaped; voice modes keep your settings
 - ✅ **PureSignal** — adaptive TX predistortion (HL2 / HL2+ coupler mod; BrickSDR2 ADC0 pad; Brick3 rear **PS** jack). Compact dock: ON / 2-tone / **Voice** / ATT / FB / Reset. Engine chips (st / cal / D0 / D1) on **Amp View**. Auto-att persisted **per TX band** (v0.25.16). Attestation in Settings → TX (default off). **v0.25.33**: Protocol 2 TX IQ stays at unity (watts on the analog drive byte only), so PureSignal calibrates at normal operating drive on Brick2 / Brick3; the reference is the radio's own TX-DAC replica. Same Drive slider now makes more RF on P2 than 0.25.16–0.25.31 — turn Drive down and walk it up.
 - ✅ **Waterfall callsign ID** — paints your call in the SSB passband (ham bands only)
 
