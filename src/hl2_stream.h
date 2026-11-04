@@ -2067,6 +2067,15 @@ private:
     // to the WDSP TX channel.  Called from the operator toggle, every TX
     // mode change, and channel open.  Auto-OFF in DIGU/DIGL (mode 7/9).
     void applyPhrotRun();
+    // Push the EFFECTIVE ALC ceiling and Leveler run.  In DIGU/DIGL (mode
+    // 7/9) the ALC max gain is held at 1.0 or below, so it only limits
+    // peaks over full scale, and the Leveler is off: both ride the gain of
+    // a variable-envelope signal (OFDM digital voice, PSK) and distort it.
+    // This covers any TCI or VAC client, not only a DeskLink digital key.
+    // Voice modes use the operator values (and levelerRunHeldOff_).
+    // Called from those setters, pushLevelerRun, every TX mode change,
+    // and channel open.
+    void applyDigitalTxLevels();
     // #107 — push the EFFECTIVE CTCSS run (ctcssEnabled_ && FM mode) to the
     // WDSP TX channel.  Called from the operator toggle, every setTxMode
     // edge, and channel open.  CTCSS is an FM-only modulator stage (WDSP

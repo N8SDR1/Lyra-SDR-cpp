@@ -5023,12 +5023,7 @@ void HL2Stream::setAlcMaxGainLinear(double linear) {
     alcMaxGainLinear_ = clamped;
     QSettings().setValue(QStringLiteral("tx/alcMaxGainLinear"), clamped);
     emit alcMaxGainLinearChanged(clamped);
-    std::function<void(double)> fwd;
-    {
-        std::lock_guard<std::mutex> lk(txControlMtx_);
-        fwd = txControl_.setAlcMaxGainLinear;
-    }
-    if (fwd) fwd(clamped);
+    applyDigitalTxLevels();
 }
 
 // §15.27 Commit B — ALC decay (operator-tunable wcpagc release tau).
@@ -5060,28 +5055,34 @@ void HL2Stream::setLevelerOn(bool on) {
         QSettings().setValue(QStringLiteral("tx/levelerOn"), on);
     emit levelerOnChanged(on);
     if (levelerRunHeldOff_) return;
-    std::function<void(bool,double)> fwd;
-    double topLinear;
-    {
-        std::lock_guard<std::mutex> lk(txControlMtx_);
-        fwd = txControl_.setLevelerOn;
-        topLinear = levelerMaxGainLinear_;
-    }
-    if (fwd) fwd(on, topLinear);
+    applyDigitalTxLevels();
 }
 
 void HL2Stream::pushLevelerRun(bool on) {
     // Held off so a later max-gain or channel-open push cannot turn
     // the leveler back on in the middle of a digital key.
     levelerRunHeldOff_ = !on;
-    std::function<void(bool,double)> fwd;
-    double topLinear;
+    applyDigitalTxLevels();
+}
+
+void HL2Stream::applyDigitalTxLevels() {
+    const int  m       = txMode_.load(std::memory_order_relaxed);
+    const bool digital = (m == 7 || m == 9);
+    std::function<void(double)>      fwdAlc;
+    std::function<void(bool,double)> fwdLev;
+    double alc;
+    bool   levOn;
+    double levTop;
     {
         std::lock_guard<std::mutex> lk(txControlMtx_);
-        fwd = txControl_.setLevelerOn;
-        topLinear = levelerMaxGainLinear_;
+        fwdAlc = txControl_.setAlcMaxGainLinear;
+        fwdLev = txControl_.setLevelerOn;
+        alc    = digital ? std::min(1.0, alcMaxGainLinear_) : alcMaxGainLinear_;
+        levOn  = levelerOn_ && !digital && !levelerRunHeldOff_;
+        levTop = levelerMaxGainLinear_;
     }
-    if (fwd) fwd(on, topLinear);
+    if (fwdAlc) fwdAlc(alc);
+    if (fwdLev) fwdLev(levOn, levTop);
 }
 
 // #109 — compute the EFFECTIVE PHROT run state and push it to the WDSP
@@ -5841,14 +5842,7 @@ void HL2Stream::setLevelerMaxGainLinear(double linear) {
     if (!lyra::deskApplyQuiet())
         QSettings().setValue(QStringLiteral("tx/levelerMaxGainLinear"), clamped);
     emit levelerMaxGainLinearChanged(clamped);
-    std::function<void(bool,double)> fwd;
-    bool on;
-    {
-        std::lock_guard<std::mutex> lk(txControlMtx_);
-        fwd = txControl_.setLevelerOn;
-        on  = levelerRunHeldOff_ ? false : levelerOn_;
-    }
-    if (fwd) fwd(on, clamped);
+    applyDigitalTxLevels();
 }
 
 // §15.27 Commit B — Leveler decay (exponential-curve tau in ms).
@@ -5922,6 +5916,8 @@ void HL2Stream::setTxMode(int wdspMode) {
     // auto-disables in DIGU/DIGL (digital), re-enables in voice modes if the
     // operator toggle is on.  Must follow the txMode_ store above.
     applyPhrotRun();
+    // Hold the ALC to a limiter and the Leveler off in DIGU/DIGL.
+    applyDigitalTxLevels();
     // #107 — re-derive the CTCSS run state on the mode edge: the FM sub-tone
     // runs only in FM (WDSP mode 5) and only when the operator enabled it.
     applyCtcssRun();
@@ -6079,6 +6075,7 @@ void HL2Stream::registerTxControl(TxControl ctl) {
     std::function<void(bool)>         pushCtcssRun;
     bool   levOn;
     double levTop;
+    double alcLin;
     double amCarLin;
     bool   phrotOn;
     double fmDev;
@@ -6100,13 +6097,17 @@ void HL2Stream::registerTxControl(TxControl ctl) {
         pushFmDev        = txControl_.setFmDeviation;
         pushCtcssFreq    = txControl_.setCtcssFreq;
         pushCtcssRun     = txControl_.setCtcssRun;
-        levOn            = levelerRunHeldOff_ ? false : levelerOn_;
         levTop           = levelerMaxGainLinear_;
         amCarLin         = amPctToCarrierLevel(amCarrierPct_);   // % power → c_level
         // #109 — push the EFFECTIVE run (operator intent gated by mode):
         // auto-OFF in DIGU/DIGL even when the toggle is on.
         const int m      = txMode_.load(std::memory_order_relaxed);
         phrotOn          = phrotEnabled_ && !(m == 7 || m == 9);
+        // Digital modes: ALC as a limiter only, Leveler off (see
+        // applyDigitalTxLevels).
+        const bool digital = (m == 7 || m == 9);
+        alcLin           = digital ? std::min(1.0, alcMaxGainLinear_) : alcMaxGainLinear_;
+        levOn            = levelerOn_ && !digital && !levelerRunHeldOff_;
         // #107 — FM deviation/tone push once; CTCSS run is FM-gated (mode 5).
         fmDev            = fmDeviationHz_;
         ctcssFreq        = ctcssToneHz_;
@@ -6117,7 +6118,7 @@ void HL2Stream::registerTxControl(TxControl ctl) {
     if (noiseEnabled_.load(std::memory_order_relaxed))
         pushCalNoise();
     if (pushMic)          pushMic(micGainParked_ ? 0.0 : micGainDb_);
-    if (pushAlc)          pushAlc(alcMaxGainLinear_);
+    if (pushAlc)          pushAlc(alcLin);
     if (pushAlcDecay)     pushAlcDecay(alcDecayMs_);
     if (pushLeveler)      pushLeveler(levOn, levTop);
     if (pushLevelerDecay) pushLevelerDecay(levelerDecayMs_);
