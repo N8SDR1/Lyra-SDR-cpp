@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lyra — GPU SDR transceiver for HPSDR Protocol 1 and Protocol 2</title>
-<meta name="description" content="Lyra is a GPU-accelerated HPSDR transceiver: Protocol 1 and Protocol 2. Hermes Lite 2 / 2+, BrickSDR2 / Brick3SDR, ANAN-10–200D on-air, G2 dummy-load arm, Orion-class (7000 / 8000 / MkII / Anvelina-Pro3) in tester hands. Public installer is Windows 10 / 11; macOS is a separate tester branch; Linux is planned. SSB, CW, AM/SAM, FM, studio TX chain, PureSignal, TCI.">
+<meta name="description" content="Lyra is a GPU-accelerated HPSDR transceiver: Protocol 1 and Protocol 2. Hermes Lite 2 / 2+, BrickSDR2 / Brick3SDR, ANAN-10–200D on-air, ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 transmit, G2 dummy-load arm. Public installer is Windows 10 / 11; macOS is a separate tester branch; Linux is planned. SSB, CW, AM/SAM, FM, studio TX chain, PureSignal, TCI.">
 <link rel="icon" type="image/png" href="logo.png">
 <style>
   :root {
@@ -171,17 +171,17 @@
       <img class="logo" src="logo.png" alt="Lyra logo">
       <div class="wordmark">LYRA<span class="accent"> SDR</span></div>
       <p class="tagline">A GPU-accelerated HPSDR transceiver — Protocol&nbsp;1 and Protocol&nbsp;2. Hermes&nbsp;Lite&nbsp;2 / 2+, BrickSDR2 / Brick3SDR, and ANAN-class radios.</p>
-      <div><span class="badge">v0.25.36 Sheliak · stability upgrade — recommended for all Protocol 2 radios · GPL v3</span></div>
-      <p class="current-ver">Current version: <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.36">v0.25.36 Sheliak</a> · Lyra-Setup-0.25.36.exe</p>
+      <div><span class="badge">v0.25.37 Sheliak · 7000DLE / 8000DLE TX · Xvtr IO · Stop · GPL v3</span></div>
+      <p class="current-ver">Current version: <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.37">v0.25.37 Sheliak</a> · Lyra-Setup-0.25.37.exe</p>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.36">⬇ Download</a>
+        <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.37">⬇ Download</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki">📖 Docs</a>
         <a class="btn btn-ghost" href="https://discord.gg/BwjsQvjcSc">💬 Discord</a>
         <a class="btn btn-ghost" href="https://www.facebook.com/groups/1994335921523916">Facebook group</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp">★ GitHub</a>
       </div>
       <p class="platforms">HPSDR Protocol 1 + Protocol 2 · Public installer: Windows 10 / 11 · 1600 × 900 display or larger · macOS tester branch · Linux planned</p>
-      <p class="platforms" style="margin-top:8px;">Protocol 1: Hermes Lite 2 / 2+ only. Protocol 2: BrickSDR2, Brick3SDR, ANAN-10 / 10E / 100-series / 200D — pick the marketed model in Settings → Hardware. P1 Brick / ANAN rows Discover but will not Open (flash P2). G2 / G2-1K is dummy-load arm. ANAN-7000DLE / 8000DLE / Orion&nbsp;MkII / Anvelina-Pro3 are in tester hands (TX dummy-load until RF is confirmed).</p>
+      <p class="platforms" style="margin-top:8px;">Protocol 1: Hermes Lite 2 / 2+ only. Protocol 2: BrickSDR2, Brick3SDR, ANAN-10 / 10E / 100-series / 200D, ANAN-7000DLE / 8000DLE / Orion&nbsp;MkII / Anvelina-Pro3 — pick the marketed model in Settings → Hardware. P1 Brick / ANAN rows Discover but will not Open (flash P2). G2 / G2-1K is dummy-load arm.</p>
     </header>
 
     <section class="showcase">
@@ -268,7 +268,7 @@
     <section>
       <h2>What it does</h2>
       <div class="grid">
-        <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on HPSDR Protocol&nbsp;1 and Protocol&nbsp;2. Protocol&nbsp;1 is the Hermes Lite 2 family. Protocol&nbsp;2 is BrickSDR2 / Brick3SDR and ANAN-class (10–200D on-air). Brick3 is beta. G2 is dummy-load arm. 7000 / 8000 / Orion&nbsp;MkII / Anvelina-Pro3 are in tester hands. Pick the marketed model after Discover. See <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Supported-Radios">Supported Radios</a>.</p></div>
+        <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on HPSDR Protocol&nbsp;1 and Protocol&nbsp;2. Protocol&nbsp;1 is the Hermes Lite 2 family. Protocol&nbsp;2 is BrickSDR2 / Brick3SDR and ANAN-class (10–200D and 7000 / 8000 / Orion&nbsp;MkII / Anvelina-Pro3 on-air). Brick3 is beta. G2 is dummy-load arm. Pick the marketed model after Discover. See <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Supported-Radios">Supported Radios</a>.</p></div>
         <div class="card"><h3><span class="ico">📊</span> GPU panadapter</h3><p>A Vulkan-accelerated spectrum and waterfall with click-to-tune, centre-tune (CTUN), RIT / XIT, peak hold and eight colour palettes.</p></div>
         <div class="card"><h3><span class="ico">✨</span> PureSignal</h3><p>Adaptive TX predistortion on coupler-mod HL2 / HL2+, BrickSDR2, and Brick3SDR, with a compact dock and an Amp View plot (Snap / Hold). <a href="#puresignal">See it up close</a>.</p></div>
         <div class="card"><h3><span class="ico">🎚️</span> Studio TX chain</h3><p>8-band parametric EQ, a multiband combinator, tube-plate reverb, speech processing, a voice keyer and VOX — shape your audio like a broadcast desk, saved as recallable profiles.</p></div>
@@ -286,8 +286,8 @@
       <h2>On the roadmap</h2>
       <p class="marquee-sub">Where Lyra is headed &mdash; planned for future releases.</p>
       <div class="grid">
-        <div class="card road-card"><span class="pill-testing">In tester hands</span><h3><span class="ico">📡</span> Orion MkII family</h3><p><strong style="color:var(--head)">ANAN-7000DLE</strong>, <strong style="color:var(--head)">ANAN-8000DLE</strong>, <strong style="color:var(--head)">Orion&nbsp;MkII</strong>, and <strong style="color:var(--head)">Anvelina-Pro3</strong> are on the bench with testers — pick the marketed model in Settings → Hardware. RX and BPF follow are being proven; TX stays dummy-load + drive ceiling until RF is confirmed. <strong style="color:var(--head)">G2 / G2-1K</strong> remains dummy-load arm until on-air validated.</p></div>
-        <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">📡</span> More radios</h3><p>HPSDR <strong style="color:var(--head)">Protocol 2</strong> is live on <strong style="color:var(--head)">BrickSDR2</strong>, <strong style="color:var(--head)">Brick3SDR</strong> (beta), and <strong style="color:var(--head)">ANAN-10 / 10E / 100-series</strong> (on-air). Diversity is already in on two-converter boxes. Next: G2 on-air, then graduate the Orion MkII testers off dummy-load TX.</p></div>
+        <div class="card road-card"><span class="pill-testing">Shipped TX</span><h3><span class="ico">📡</span> Orion MkII family</h3><p><strong style="color:var(--head)">ANAN-7000DLE</strong>, <strong style="color:var(--head)">ANAN-8000DLE</strong>, <strong style="color:var(--head)">Orion&nbsp;MkII</strong>, and <strong style="color:var(--head)">Anvelina-Pro3</strong> transmit like Brick3 — pick the marketed model in Settings → Hardware, Protocol 2, Enable PA, Drive above 0. Dummy load on first TX. You do not tick Arm Protocol 2 TX. <strong style="color:var(--head)">G2 / G2-1K</strong> remains dummy-load arm until on-air validated.</p></div>
+        <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">📡</span> More radios</h3><p>HPSDR <strong style="color:var(--head)">Protocol 2</strong> is live on <strong style="color:var(--head)">BrickSDR2</strong>, <strong style="color:var(--head)">Brick3SDR</strong> (beta), <strong style="color:var(--head)">ANAN-10 / 10E / 100-series</strong>, and the Orion MkII class (on-air). Diversity is already in on two-converter boxes. Next: G2 on-air.</p></div>
         <div class="card road-card"><span class="pill-planned">Planned</span><h3><span class="ico">💻</span> macOS &amp; Linux</h3><p>Native cross-platform builds so Lyra runs beyond Windows.</p></div>
       </div>
     </section>
