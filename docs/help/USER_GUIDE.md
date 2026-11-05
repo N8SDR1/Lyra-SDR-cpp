@@ -24,10 +24,11 @@ not programmers — if you can click a menu, you can use this.
 
 **v0.25.37 Sheliak** — **ANAN-7000DLE / 8000DLE / Orion MkII /
 Anvelina-Pro3 transmit** without **Arm Protocol 2 TX** (Enable PA +
-MOX + Drive, like Brick3 / 100D). **G2 / G2-1K** still use the
-dummy-load arm. On top of v0.25.36 (eight Xvtr slots, SWL J16 rows,
-digital-mode ALC). **v0.25.36** is the previous public build. See
-[What's new in 0.25.37](#whats-new-in-02537).
+MOX + Drive, like Brick3 / 100D). HL2 **Xvtr hops** send on-air RF on
+BYTE0–4; **Stop** sends Metis STOP before the socket closes. **G2 /
+G2-1K** still use the dummy-load arm. On top of v0.25.36 (eight Xvtr
+slots, SWL J16 rows, digital-mode ALC). **v0.25.36** is the previous
+public build. See [What's new in 0.25.37](#whats-new-in-02537).
 
 ## What's new in 0.25.37
 
@@ -37,12 +38,20 @@ digital-mode ALC). **v0.25.36** is the previous public build. See
   tick **Enable PA**, set Drive above 0. You do **not** need
   **Settings → TX → Arm Protocol 2 TX**. First RF on a new box: dummy
   load. See [Supported radios](#supported-radios).
+- **IO board: Xvtr hops send on-air RF on BYTE0–4** (was last HF). Analog
+  J4 / GPA100 / XPA125 band volts follow the RF dial on a hop instead of
+  leftover HF. Same registers on Randy’s analog path. Reported by Mike
+  K7MDL on 0.25.36.
+- **HL2 Stop sends Metis STOP before the socket closes.** Start after
+  Stop should not wait on the ~13 s radio watchdog. Same report.
 - **Unchanged:** **G2 / G2-1K** still use the dummy-load arm. Red
   Pitaya still has no Protocol 2 TX profile. A Brick or classic ANAN
   on Protocol 1 is still **refused on Open** — flash P2. HL2 / Brick /
-  10 / 100-series TX posture is unchanged.
+  10 / 100-series TX posture is otherwise unchanged.
 - **Docs:** FAQ now says Lyra is not Thetis-CMASIO (a Behringer WING /
-  X32 over ASIO will not map the way it does there).
+  X32 over ASIO will not map the way it does there). Ordinary Windows
+  audio still works. See [Audio devices](#audio-devices) and the wiki
+  FAQ.
 - **v0.25.36 Sheliak** is the previous public build. **v0.25.22**
   remains the long return point. Settings stay. If this build
   misbehaves, reinstall **v0.25.36**.

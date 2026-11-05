@@ -12,8 +12,9 @@ on the Xvtr row. Protocol 2 DUC-IQ on its own TX pump. **Eight Xvtr
 slots**, **SWL broadcast rows** in OC Control and an automatic
 digital-mode ALC / Leveler hold-off landed in v0.25.36.
 **v0.25.37** ships **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3
-transmit** (no Arm Protocol 2 TX). **v0.25.36** is the previous public
-build. **v0.25.22** remains the return point.
+transmit** (no Arm Protocol 2 TX), Xvtr on-air RF on BYTE0–4, and
+Metis STOP on Stop. **v0.25.36** is the previous public build.
+**v0.25.22** remains the return point.
 **Next:** G2 on-air validation, then Linux.
 **macOS stays a separate branch** (`macos-port`);
 it is not merged into the Windows tree. Brent tracks trunk into that

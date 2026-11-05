@@ -4,18 +4,16 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
-## 2026-11-05 — v0.25.37 Sheliak RELEASED (7000DLE / 8000DLE transmit)
+## 2026-11-05 — v0.25.37 Sheliak RELEASED (7000DLE / 8000DLE TX, Xvtr IO, Stop)
 
-Ships `e17f42a` already on `feature/wdsp-2.10`: Orion MkII profile
-`txOnAirValidated` so ANAN-7000DLE / 8000DLE / Orion MkII /
-Anvelina-Pro3 key like Brick3 / 100D (Enable PA + MOX + Drive, no Arm
-Protocol 2 TX). G2 / G2-1K still dummy-load arm. Red Pitaya still no
-P2 TX profile. P1 ANAN still refused. Same tag includes `1a2d9c5`
-CMASIO / WING FAQ. Docs: `docs/releases/v0.25.37.md`, USER_GUIDE
-(What's new, Supported radios, P2 TX mapping, PureSignal note),
-README, KNOWN_ISSUES, wiki Feature Status / Home / Supported Radios /
-Roadmap / Installing / FAQ. Tag `v0.25.37`. `main` untouched. Mac
-stays `macos-port`.
+HEAD after `d7433bb` (7000/8000 TX notes), `ae127da` (Xvtr BYTE0-4
+on-air RF latch; K7MDL 0.25.36), `3aff798` (Metis STOP before socket
+close). Same tag includes `e17f42a` Orion MkII `txOnAirValidated` and
+`1a2d9c5` CMASIO / WING FAQ. G2 / G2-1K still dummy-load arm. Red
+Pitaya still no P2 TX profile. P1 ANAN still refused. Docs:
+`docs/releases/v0.25.37.md`, USER_GUIDE What's new, README,
+KNOWN_ISSUES, wiki Feature Status / Home. Tag `v0.25.37`. `main`
+untouched. Mac stays `macos-port`.
 
 ## 2026-11-04 — v0.25.36 Sheliak RELEASED (8 Xvtr slots, SWL J16 rows, digital-mode ALC)
 
