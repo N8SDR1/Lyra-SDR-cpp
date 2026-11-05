@@ -1662,6 +1662,26 @@ void HL2Stream::close() {
     // create_xmtr's PS surface (out[3]/peer/…) is NOT torn down here
     // (that's app-quit destroy_xmtr), so it survives stop/start intact.
     lyra::wire::io_keep_running = 0;                  // ref network.c:1438
+    // Metis STOP (0xEFFE 0x04 0x00) MUST go out while sendto still
+    // works.  shutdown(SD_BOTH) below unblocks EP6 recv, but it also
+    // makes a later sendto fail — the radio then sits until the ~13 s
+    // gateware watchdog, and Start hangs.  Thetis SendStopToMetis
+    // (networkproto1.c) sends this packet on the live listenSock
+    // before the socket is torn down.
+    if (socket_ != kInvalidSocket) {
+        sockaddr_in dest{};
+        dest.sin_family = AF_INET;
+        dest.sin_port   = htons(kRadioPort);
+        ::inet_pton(AF_INET,
+                    targetIp_.toLatin1().constData(),
+                    &dest.sin_addr);
+        const QByteArray stopPkt = buildControlPacket(false);
+        const int sent = ::sendto(static_cast<SOCKET>(socket_),
+                                  stopPkt.constData(), stopPkt.size(), 0,
+                                  reinterpret_cast<sockaddr*>(&dest),
+                                  sizeof(dest));
+        qWarning("[shutdown] HL2Stream::close Metis STOP sendto=%d", sent);
+    }
     // Unblock EP6 recv before join.  close() used to join first and
     // only then closesocket — if WSAWait was infinite and IQ had
     // already stopped, the GUI froze here (lyra-log stuck at
@@ -1703,20 +1723,9 @@ void HL2Stream::close() {
         lyra::wire::prn->hsendEventHandles[1] = nullptr;
     }
 
-    // Both workers stopped — main thread sends STOP, then closes
-    // the socket.  Best-effort; if STOP doesn't reach the gateware
-    // its own watchdog will idle the stream within ~13 sec anyway.
+    // Both workers stopped — STOP already went out above, before
+    // shutdown().  Close the socket now.
     if (socket_ != kInvalidSocket) {
-        sockaddr_in dest{};
-        dest.sin_family = AF_INET;
-        dest.sin_port   = htons(kRadioPort);
-        ::inet_pton(AF_INET,
-                    targetIp_.toLatin1().constData(),
-                    &dest.sin_addr);
-        const QByteArray stopPkt = buildControlPacket(false);
-        ::sendto(static_cast<SOCKET>(socket_),
-                 stopPkt.constData(), stopPkt.size(), 0,
-                 reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
         ::closesocket(static_cast<SOCKET>(socket_));
         socket_ = kInvalidSocket;
     }
