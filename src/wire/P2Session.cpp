@@ -170,12 +170,13 @@ const P2HardwareProfile kSaturnProfile = {
 };
 
 // Two BPF banks. Byte [59] = 0x03 enables both. RX IQ is DDC2/DDC3
-// so the band decoder tracks the dial. TX stays dummy-load armed.
+// so the band decoder tracks the dial. Same P2 DUC / Enable-PA path as
+// ANAN-100D / Brick3SDR — TX keys without the dummy-load arm.
 const P2HardwareProfile kOrionMkiiProfile = {
     "ANAN-7000DLE", "Orion MkII (ANAN-7000/8000)",
     5, 7, 2,
     &orionMkiiAlexRxWord, &saturnAlexTxWord,
-    false, false, 0x03, true,
+    false, true, 0x03, true,
 };
 
 // ANAN-10 / 10E / HERMES: 1 ADC, classic Alex (they have a filter

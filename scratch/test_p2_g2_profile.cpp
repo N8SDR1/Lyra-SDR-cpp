@@ -218,8 +218,12 @@ int main(int argc, char **argv) {
                          a100d->txOnAirValidated && a100d->angeliaRxDdcSlots &&
                          a100d->alexRxWord == a100->alexRxWord,
                      "ANAN-100D / 200D: 2-ADC classic Alex, Brick3 TX");
-        ok &= expect(p2ProfileForModel(QStringLiteral("ANAN-7000DLE")) == nullptr,
-                     "7000DLE stays profile-locked (OrionMkII BPF)");
+        const auto *a7000 = p2ProfileForModel(QStringLiteral("ANAN-7000DLE"));
+        const auto *a8000 = p2ProfileForModel(QStringLiteral("ANAN-8000DLE"));
+        ok &= expect(a7000 != nullptr && a7000 == a8000 &&
+                         a7000->txOnAirValidated && a7000->adcCount == 2 &&
+                         a7000->angeliaRxDdcSlots && !a7000->fixedTxFrontEnd,
+                     "7000DLE / 8000DLE: Orion MkII BPF, on-air TX like 100D");
 
         P2Session classic;
         classic.setProfile(a100);
