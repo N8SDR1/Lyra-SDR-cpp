@@ -6,7 +6,7 @@ for the Hermes Lite 2 / 2+ (Protocol 1) and **BrickSDR2 / Brick3SDR** (Protocol 
 expectations so you know what's a real bug versus a feature that simply
 hasn't landed yet. (Pin or link this in Discord.)
 
-Current tree: **v0.25.36 Sheliak**. **Eight transverter slots** (slots 5–8 start disabled); **SWL broadcast rows** in Settings → Filters / BCD (empty until you press **Reload N2ADR HF** or pick N2ADR; RX-only; ham row wins on overlap; CB / GEN still no row); in **DIGU / DIGL** the ALC is a peak limiter only and the Leveler is held off automatically; the TCI **TX-in gain** control is gone (it had done nothing since June). v0.25.35 Sheliak is the previous public build (GEN RF1 / Alt memory, RPT band-change drop — a split left armed by an RPT session on a build older than 0.25.35 loads as operator split; click SPLIT off once). The v0.25.34 P2 drive warning still applies if you skip from ≤0.25.31: **turn Drive down and walk it up before your first TX on a P2 radio**. v0.25.22 remains the long return point. Always grab the latest from the
+Current tree: **v0.25.37 Sheliak**. **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** transmit without **Arm Protocol 2 TX** (Enable PA + MOX + Drive). **G2 / G2-1K** still need the dummy-load arm. Protocol 1 ANAN is still refused. v0.25.36 Sheliak is the previous public build (eight transverter slots; SWL broadcast rows; DIGU/DIGL ALC limiter + Leveler off). The v0.25.34 P2 drive warning still applies if you skip from ≤0.25.31: **turn Drive down and walk it up before your first TX on a P2 radio**. v0.25.22 remains the long return point. Always grab the latest from the
 [Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases).
 
 > **What already works** (so you don't wonder): full RX DSP, and **transmit

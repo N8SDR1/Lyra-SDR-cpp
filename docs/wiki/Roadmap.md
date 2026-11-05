@@ -4,19 +4,17 @@ Where Lyra is headed. This is a **direction, not a dated schedule** — items la
 when they're solid. Everything shipped today is on the [Feature Status](Feature-Status)
 page.
 
-**Now (v0.25.36 Sheliak):** HL2 / HL2+
+**Now (v0.25.37 Sheliak):** HL2 / HL2+
 P1, BrickSDR2 / Brick3SDR P2, SUB + SPLIT, PureSignal, TX rack. Brick3 /
 ANAN-100D get a second SUB panadapter. **Diversity** (two ADCs, same
 frequency) is in and confirmed on Brick3SDR. Protocol 1 **RF1 / Alt RX**
 on the Xvtr row. Protocol 2 DUC-IQ on its own TX pump. **Eight Xvtr
 slots**, **SWL broadcast rows** in OC Control and an automatic
 digital-mode ALC / Leveler hold-off landed in v0.25.36.
-**Lyra to Lyra (v0.25.25):** desk RX2 picture and audio, CW from the
-desk, on top of v0.25.24 Sheliak. Steps are in the user guide,
-[Lyra to Lyra](User-Guide#lyra-to-lyra). **v0.25.24** is the previous
-public build. **v0.25.22** remains the return point.
-**Next:** graduate Orion MkII testers (ANAN-7000DLE / 8000DLE / Orion MkII /
-Anvelina-Pro3) off dummy-load TX, G2 on-air validation, then Linux.
+**v0.25.37** ships **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3
+transmit** (no Arm Protocol 2 TX). **v0.25.36** is the previous public
+build. **v0.25.22** remains the return point.
+**Next:** G2 on-air validation, then Linux.
 **macOS stays a separate branch** (`macos-port`);
 it is not merged into the Windows tree. Brent tracks trunk into that
 branch. P2 on Mac is untested.
@@ -65,7 +63,7 @@ keyup. Attestation in **Settings → TX** (default off). **2-tone** on the
 TX panel is the usual tune-up carrier.
 Operator detail: **[User Guide → PureSignal](User-Guide#puresignal)**.
 
-### ✅ Protocol 2 on BrickSDR2 / Brick3SDR · 🚧 Classic ANAN P2 on-air (G2 dummy-load · Orion MkII in tester hands)
+### ✅ Protocol 2 on BrickSDR2 / Brick3SDR · 🚧 Classic ANAN P2 on-air (G2 dummy-load · Orion MkII TX shipped)
 
 HPSDR **Protocol 2** is live on **BrickSDR2** and **Brick3SDR** (RX + TX,
 including radio mic → modulator, analog drive, watts-cap, ATT-on-TX).
@@ -75,9 +73,8 @@ still answers **Protocol 1** is **discovered but not opened** — P1 TX in
 Lyra is HL2-only. Flash **P2** (Anton / linoobs for Brick images).
 **ANAN-10 / 10E** = BrickSDR2 TX; **ANAN-100 / 100B / 100D / 200D** =
 Brick3SDR TX. **G2 / G2-1K** still dummy-load arm. **7000DLE / 8000DLE / Orion MkII /
-Anvelina-Pro3** are **in tester hands** (not locked) — RX and BPF follow
-reported on Anvelina PROIII; TX stays dummy-load + drive ceiling until RF
-is confirmed. Boxes that shipped as Protocol 1 should run the **P2 FPGA**
+Anvelina-Pro3** transmit like Brick3 (Enable PA + MOX + Drive; no Arm
+Protocol 2 TX) since v0.25.37. Boxes that shipped as Protocol 1 should run the **P2 FPGA**
 when they can.
 
 ## Platforms

@@ -27,9 +27,9 @@ like Brick3SDR (on-air). **G2** still dummy-load arm. Discovery **Hermes**
 defaults to BrickSDR2 — pick the marketed ANAN model in Settings → Hardware.
 A Brick or classic ANAN still on **Protocol 1** is **refused on Open**.
 Flash **Protocol 2**; Brick FPGA help: **Anton (linoobs)** on Discord.
-**7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** are **in tester hands**
-(not locked; RX/BPF on the bench; TX dummy-load + drive ceiling). See
-**[Supported Radios](Supported-Radios)**.
+**7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** transmit like Brick3
+(Enable PA + MOX + Drive; no Arm Protocol 2 TX). **G2** still dummy-load
+arm. See **[Supported Radios](Supported-Radios)**.
 
 **Does Lyra support MIDI controllers?**
 Not inside the radio. A USB knob that Windows treats as a **mouse wheel**
@@ -182,6 +182,7 @@ headphone jack. Digital apps (STD, WSJT, …) use TCI or a VAC stereo pipe,
 not ASIO channel maps. Lyra cannot park RX on WING channel 17 and TX from
 an arbitrary bus. A Scarlett-style USB interface still works via its
 Windows speaker/mic names. A WING used as a console over ASIO does not.
+Lyra also never put receive audio through Thetis’s ChannelMaster mixer — RX is WDSP into a simple stereo Windows path (or the HL2 jack) — so there is no CMASIO hook on the speaker side to “just port.”
 Some operators find Lyra RX smoother / less fatiguing; the receive audio
 is paced with the radio and played as a simple stereo stream. Native ASIO
 (device + stereo pair pickers) is not a hidden setting today. ASIO is a
@@ -451,6 +452,12 @@ row wins (7.200–7.300 is 40 m); CB and GEN still get no row.
 **I need more than four transverter chips.**
 Install **v0.25.36** — there are eight. Slots 5–8 start disabled; right-
 click a chip to enable and name it. Your first four are unchanged.
+
+**MOX on my 7000DLE / 8000DLE / Orion MkII does nothing (or I was told to Arm Protocol 2 TX).**
+Install **v0.25.37**. Those models (and Anvelina-Pro3) transmit like
+Brick3: pick the marketed model, Protocol 2, **Enable PA**, Drive above
+0. You do **not** need **Arm Protocol 2 TX**. **G2 / G2-1K** still do.
+Dummy load on first TX. Protocol 1 ANAN is still refused — flash P2.
 
 **What do the colours mean?**
 **Orange TUNE A** + **cyan** passband = RX1. **Lime TUNE B** + **green**

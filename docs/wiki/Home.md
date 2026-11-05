@@ -49,7 +49,7 @@ wired Ethernet link to the radio.
 | **ANAN-10 / 10E** (P2) | 🚧 BrickSDR2 TX (on-air, classic Alex). Pick model in Settings. |
 | **ANAN-100 / 100B / 100D / 200D** (P2) | 🚧 Brick3SDR TX (on-air, independent Enable PA). **100D / 200D**: SUB second pane. |
 | ANAN-G2 / G2-1K | 🚧 Dummy-load TX arm (Saturn BPF) |
-| ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 | 🚧 **In tester hands** (not locked). RX/BPF on the bench; TX dummy-load + drive ceiling until RF is confirmed. |
+| ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 | ✅ Protocol 2 TX like Brick3 (Enable PA + MOX + Drive; no Arm Protocol 2 TX). Dummy load on first TX. |
 | Brick / classic ANAN still on **Protocol 1** FPGA | ❌ Refused — HL2 TX layout would be wrong. Flash **P2**. |
 
 Full detail (why Open is refused, what TX would do, Brick flash help) on the **[Supported Radios](Supported-Radios)** page.
@@ -94,13 +94,13 @@ gear — all native, all in front of the WDSP transmitter:
 
 ## Shipped highlights
 
-✅ **v0.25.36 Sheliak** (eight Xvtr slots, SWL J16 rows, digital-mode ALC) · ✅ **v0.25.35 Sheliak** (previous public build — GEN RF1 / Alt + LNA per slot, RPT drops on band change) · ✅ **v0.25.34 Sheliak** (HL2 IO board sequencer + detection) · ✅ **v0.25.33 Sheliak** (stability upgrade for Protocol 2) · ✅ **OC on P2** · ✅ **USB-BCD FTDI** · ✅ **Parked Help balloon** · ✅ **v0.25.28 Sheliak** · ✅ **Pico RX fcodes** (GitHub #23) · ✅ **PureSignal dock ON** · ✅ **VFO LED digit vs Step** (GitHub #22) · ✅ **Helios TX SWR** · ✅ **View → Freq Cal** (GitHub #21) · ✅ **v0.25.22** (long return point) · ✅ **HL2 RF1 / Alt RX** · ✅ **Helios / Sonar / Cluster** meters · ✅ **Lyra Remote** (separate browser desk) · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
+✅ **v0.25.37 Sheliak** (7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 transmit) · ✅ **v0.25.36 Sheliak** (previous public build — eight Xvtr slots, SWL J16 rows, digital-mode ALC) · ✅ **v0.25.35 Sheliak** (GEN RF1 / Alt + LNA per slot, RPT drops on band change) · ✅ **v0.25.34 Sheliak** (HL2 IO board sequencer + detection) · ✅ **v0.25.33 Sheliak** (stability upgrade for Protocol 2) · ✅ **OC on P2** · ✅ **USB-BCD FTDI** · ✅ **Parked Help balloon** · ✅ **v0.25.28 Sheliak** · ✅ **Pico RX fcodes** (GitHub #23) · ✅ **PureSignal dock ON** · ✅ **VFO LED digit vs Step** (GitHub #22) · ✅ **Helios TX SWR** · ✅ **View → Freq Cal** (GitHub #21) · ✅ **v0.25.22** (long return point) · ✅ **HL2 RF1 / Alt RX** · ✅ **Helios / Sonar / Cluster** meters · ✅ **Lyra Remote** (separate browser desk) · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
 Brick3 PS jack) · ✅ **VAC2** · ✅ **SUB / SPLIT** (second pan on Brick3 /
 100D; RX2 jack isolate on TX) · ✅ **Diversity** (Brick3 / 100D / 200D —
 RX2 jack / Ext1, not ANT2; not a second VFO) · ✅ **Band stack** (three
 frequencies per chip) · ✅ **Separate RX / TX filter lows** · 🚧 **ANAN-10…200D** P2
 (10/10E = Brick2 TX; 100-series = Brick3 TX; G2 dummy-load) ·
-🚧 **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** (in tester hands; TX dummy-load) · 🗺️ **Linux, then macOS**.
+✅ **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** (P2 TX, no Arm Protocol 2 TX) · 🗺️ **Linux, then macOS**.
 
 Details, ordering, and status on the **[Roadmap](Roadmap)**.
 

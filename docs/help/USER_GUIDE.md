@@ -22,14 +22,30 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.36 Sheliak** — **eight transverter slots** (was four); **SWL
-broadcast rows** in OC Control (J16 pins for 120 m … 13 m, seeded from
-N2ADR only when you press **Reload N2ADR HF**, RX-only, ham row wins on
-overlap); in **DIGU / DIGL** the **ALC** is a peak limiter only and the
-**Leveler** is held off automatically; the dead TCI **TX-in gain**
-control is gone. No change to the IO-board wire traffic, to the ham-band
-J16 pattern, or to any receive DSP. **v0.25.35** is the previous public
-build. See [What's new in 0.25.36](#whats-new-in-02536).
+**v0.25.37 Sheliak** — **ANAN-7000DLE / 8000DLE / Orion MkII /
+Anvelina-Pro3 transmit** without **Arm Protocol 2 TX** (Enable PA +
+MOX + Drive, like Brick3 / 100D). **G2 / G2-1K** still use the
+dummy-load arm. On top of v0.25.36 (eight Xvtr slots, SWL J16 rows,
+digital-mode ALC). **v0.25.36** is the previous public build. See
+[What's new in 0.25.37](#whats-new-in-02537).
+
+## What's new in 0.25.37
+
+- **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 transmit.** Protocol
+  2 TX on the Orion MkII board class keys like Brick3SDR / ANAN-100D:
+  pick the **marketed model** in Settings → Hardware, run **Protocol 2**,
+  tick **Enable PA**, set Drive above 0. You do **not** need
+  **Settings → TX → Arm Protocol 2 TX**. First RF on a new box: dummy
+  load. See [Supported radios](#supported-radios).
+- **Unchanged:** **G2 / G2-1K** still use the dummy-load arm. Red
+  Pitaya still has no Protocol 2 TX profile. A Brick or classic ANAN
+  on Protocol 1 is still **refused on Open** — flash P2. HL2 / Brick /
+  10 / 100-series TX posture is unchanged.
+- **Docs:** FAQ now says Lyra is not Thetis-CMASIO (a Behringer WING /
+  X32 over ASIO will not map the way it does there).
+- **v0.25.36 Sheliak** is the previous public build. **v0.25.22**
+  remains the long return point. Settings stay. If this build
+  misbehaves, reinstall **v0.25.36**.
 
 ## What's new in 0.25.36
 
@@ -484,9 +500,9 @@ arm). Still **beta testing**: first RF into a dummy load.
 Hardware. **ANAN-10 / 10E** follow BrickSDR2 TX. **ANAN-100 / 100B /
 100D / 200D** follow Brick3SDR TX (on-air, independent **Enable PA**).
 **G2 / G2-1K** still use the dummy-load arm. **7000DLE / 8000DLE /
-Orion MkII / Anvelina-Pro3** are **in tester hands** (not locked) — RX and
-BPF follow on Anvelina PROIII; TX dummy-load + drive ceiling until RF is
-confirmed. Pick the marketed model in Settings → Hardware.
+Orion MkII / Anvelina-Pro3** transmit like Brick3SDR / ANAN-100D
+(Enable PA + MOX + Drive — no Arm Protocol 2 TX). Pick the marketed
+model in Settings → Hardware. First RF: dummy load.
 
 **PureSignal dock** — ON, 2-tone, **Voice** (male-voice shaped noise +
 level), ATT, FB, Reset. Engine chips (st / cal / D0 / D1) live on
@@ -712,6 +728,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.37](#whats-new-in-02537)
 - [What's new in 0.25.36](#whats-new-in-02536)
 - [What's new in 0.25.35](#whats-new-in-02535)
 - [What's new in 0.25.34](#whats-new-in-02534)
@@ -927,7 +944,7 @@ to BrickSDR2). Leftover P1 rows stay refused.
 | **ANAN-100 / 100B** | Like **Brick3SDR** TX (on-air, independent Enable PA). One ADC + classic Alex — SUB overlay, not a second pane. |
 | **ANAN-100D / 200D** | Like **Brick3SDR** TX **and** two converters: **SUB** opens a second panadapter. **Diversity** is the same path as Brick3. **RX2 jack isolate on TX** default on. |
 | **ANAN-G2 / G2-1K** | Dummy-load **Arm P2 TX** until a tester validates RF. Two ADC. |
-| **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** | **In tester hands** (not locked). Pick the marketed model. Anvelina PROIII: filters follow the band. TX dummy-load arm + drive ceiling — dummy load on first TX. |
+| **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** | Like **Brick3SDR** TX (on-air, Enable PA + MOX + Drive — no Arm Protocol 2 TX). Pick the marketed model. Anvelina PROIII: filters follow the band. Dummy load on first TX. |
 
 ---
 
@@ -2369,7 +2386,10 @@ host, so there is no CMASIO and no ASIO channel map. Speaker out is
 ordinary Windows audio (WASAPI): stereo 48 kHz, the device Windows calls
 Speakers. A Scarlett-style USB interface still works via its Windows
 speaker/mic names. A WING used as a console over ASIO does not — Lyra
-cannot park RX on channel 17 and TX from an arbitrary bus. The HL2 can
+cannot park RX on channel 17 and TX from an arbitrary bus. Lyra also
+never put receive audio through Thetis’s ChannelMaster mixer — RX is
+WDSP into a simple stereo Windows path (or the HL2 jack) — so there is
+no CMASIO hook on the speaker side to “just port.” The HL2 can
 also play from its own headphone jack. Digital apps (STD, WSJT, …) use
 TCI or a VAC stereo pipe. Native ASIO (device + stereo pair pickers) is
 not a hidden setting. Online FAQ:
@@ -3169,9 +3189,9 @@ and place** you last used after a chip-close or a restart.
 6. Next keyup should land **near** the previous FB, not a full hunt.
 7. Kill-test once, then antenna when you are ready.
 
-> **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** are in tester
-> hands. TX is not on-air validated (dummy-load arm + drive ceiling). Do
-> not expect PureSignal there yet.
+> **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** transmit
+> without Arm Protocol 2 TX (Enable PA + MOX + Drive). First RF: dummy
+> load. PureSignal on those boxes is still unproven — dummy-load first.
 
 ---
 

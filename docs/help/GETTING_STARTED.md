@@ -22,9 +22,10 @@ Lyra is a native **Windows** application.
   factor in glitch-free audio.
 - A **Hermes Lite 2 / 2+** (HL2 / HL2+, HPSDR Protocol 1), or a **Protocol-2**
   radio — **BrickSDR2**, **Brick3SDR**, **ANAN-10 / 10E / 100 / 100B / 100D /
-  200D**, or **ANAN G2**. Pick the marketed model in Settings. **10 / 10E**
-  TX like BrickSDR2; **100-series** TX like Brick3SDR (on-air). **G2** still
-  uses dummy-load arm. First RF on a new box: dummy load. Lyra keeps
+  200D**, **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3**, or **ANAN G2**. Pick the marketed model in Settings. **10 / 10E**
+  TX like BrickSDR2; **100-series** TX like Brick3SDR (on-air). **7000DLE /
+  8000DLE / Orion MkII / Anvelina-Pro3** TX like Brick3 (no Arm Protocol 2
+  TX). **G2** still uses dummy-load arm. First RF on a new box: dummy load. Lyra keeps
   separate settings for each (see *Multiple radios & switching rigs* in the
   Help guide).
 - **BrickSDR2 is Protocol 2 only.** Discovery may still **list** a Brick (or

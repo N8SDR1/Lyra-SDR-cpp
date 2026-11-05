@@ -1,26 +1,23 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.36 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.37 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.36** brings **eight transverter slots** (was four), **SWL
-broadcast rows** in OC Control (J16 pins for 120 m … 13 m, seeded from
-N2ADR only on **Reload N2ADR HF**, RX-only, ham row wins on overlap),
-and in **DIGU / DIGL** holds the **ALC** to a peak limiter and the
-**Leveler** off automatically; the dead TCI **TX-in gain** control is
-gone. No change to IO-board wire traffic, the ham-band J16 pattern, or
-any receive DSP.
-**v0.25.35 Sheliak** is the previous public build (GEN RF1 / Alt + LNA
-per slot, RPT band-change drop). Coming from ≤0.25.31, **turn Drive
+**v0.25.37** ships **ANAN-7000DLE / 8000DLE / Orion MkII /
+Anvelina-Pro3 transmit** without **Arm Protocol 2 TX** (Enable PA +
+MOX + Drive). **G2 / G2-1K** still use the dummy-load arm.
+**v0.25.36 Sheliak** is the previous public build (eight Xvtr slots,
+SWL J16 rows, digital-mode ALC). Coming from ≤0.25.31, **turn Drive
 down and walk it up before your first TX on a P2 radio**.
 **v0.25.22** remains the long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.36)
+### Last several builds (0.25.16 → 0.25.37)
 
 | Build | What landed |
 |---|---|
+| **0.25.37** | **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 transmit** without **Arm Protocol 2 TX** — same Enable PA + MOX + Drive path as Brick3 / 100D. **G2 / G2-1K** still dummy-load arm. Red Pitaya still no P2 TX profile. Protocol 1 ANAN still refused. FAQ: Lyra is not Thetis-CMASIO; RX is WDSP into a simple stereo Windows path (or the HL2 jack). **v0.25.36** is the previous public build |
 | **0.25.36** | **Eight transverter slots** (was four; slots 5–8 start disabled and empty, slots 1–4 read unchanged; one row of eight on HL2, wraps 2 × 4 beside the ANT / RX chips). **SWL broadcast rows on J16**: a folded **SWL broadcast rows** section in Settings → Filters / BCD, one row per broadcast band 120 m … 13 m; order Xvtr → ham → broadcast → none, ham wins on overlap (7.200–7.300 is 40 m); CB / GEN still no row. Rows stay empty until you pick **N2ADR** or press **Reload N2ADR HF**, which seeds the RX LPF of the ham band above each (41 m → 40 m, 13 m → 15 m, 120 m no HPF), **TX unticked**; `[oc] SWL rows seeded from N2ADR (12 rows, TX off)`. **DIGU / DIGL: ALC max gain capped at 1.0 (limiter only), Leveler held off** regardless of the toggle — RADE / PSK / OFDM digital waveforms no longer reshaped; voice modes keep operator values. TCI **TX-in gain** control removed (no-op since June). **v0.25.35** is the previous public build |
 | **0.25.35** | **GEN1 / GEN2 / GEN3 remember RF1 / Alt + LNA / Auto-LNA per slot** (GitHub #24; general-coverage frequencies sit outside the per-band memory's tables, so the slot keeps them itself like an Xvtr chip; RF1 default, LNA / Auto remembered once touched; right-click reset clears them). **FM RPT offset drops on a band change**: RPT / SPLIT off, VFO B ← RX1, status bar `RPT off — left ‹band›`, log line; operator **SPLIT** still persists across bands (Thetis / deskHPSDR default). A split left armed by an older RPT session loads as operator split — click SPLIT off once. One-shot `[iob] TX regs follow VFO B (SPLIT on)` verbose-log line; forced-present status line shows TX Hz / REG 11. No wire or DSP changes. **v0.25.34** is the previous public build |
 | **0.25.34** | **HL2 IO board sequencer** (Protocol 1). Registers 0–4 / 11 / 13 / 14 re-sent from one latched snapshot every ~0.35 s (11 slots × 12 EP2 datagrams, deskHPSDR model); IO frames in the second USB frame, slip one datagram next to gateware case 0 / 10. Band hop → reg-4 commit ≈ 0.2 s. **Detection** via PCA9536 at 0x41 (10 × ~1.7 s, then ~30 s); 0x1D written only once it answers. Settings → Filters / BCD → **IO board**: Status, **Transverter bands send** (Hold last HF / On-air RF), **Send RX frequency codes (13 / 14)** (replaces `LYRA_NO_IOBOARD_FCODE`), **Force IO board present**. REG 11 only 0 / 2; never 0 Hz. Verbose `[iob]` log. Fixes mixed-byte TX Hz, REG 11 stuck after 2 m → HF, RF1 / Alt not sticking, J4 not following. Transverter slot count 4 → 8 and OC Control rows for the broadcast (SWL) bands followed in 0.25.36 (per-slot Xvtr OC rows shipped in 0.25.29). **v0.25.33** is the previous public build |
@@ -149,7 +146,7 @@ down and walk it up before your first TX on a P2 radio**.
 ## Not yet — see the Roadmap 🗺️
 
 - 🚧 **ANAN-G2 / G2-1K** — Saturn BPF; TX still dummy-load arm until on-air validated. **ANAN-10…200D** already use Brick2 / Brick3 TX (see above).
-- 🚧 **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** — **in tester hands** (not locked). RX/BPF being proven on the bench (Anvelina PROIII: filters follow the band). TX dummy-load arm + drive ceiling until RF is confirmed. Pick the marketed model in Settings → Hardware.
+- ✅ **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** — Protocol 2 TX like Brick3 / 100D (Enable PA + MOX + Drive; no Arm Protocol 2 TX). Pick the marketed model in Settings → Hardware. Dummy load on first TX. G2 / G2-1K still dummy-load arm.
 - 🗺️ **Linux, then macOS** — **hold** (radios first; no Mac bench)
 
 ---

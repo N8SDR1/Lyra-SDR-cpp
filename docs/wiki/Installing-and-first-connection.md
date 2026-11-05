@@ -124,6 +124,10 @@ first:
   limiter only and the Leveler is held off automatically, so you no
   longer need a separate profile just to park the Leveler for FT8 / RADE
   / PSK.
+- **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3:** since
+  **v0.25.37** they transmit like Brick3 (Enable PA + MOX + Drive). You
+  do **not** need **Arm Protocol 2 TX**. **G2 / G2-1K** still do. Dummy
+  load on first TX.
 - **Running an amplifier?** Read
   **[User Guide → Operating with an external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**
   first — Lyra has TR‑sequencing and hot‑switch protection you should
