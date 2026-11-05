@@ -530,10 +530,10 @@ HL2Stream::HL2Stream(QObject *parent) : QObject(parent) {
             s.value(QStringLiteral("hw/ioboardForcePresent"), false).toBool();
         ioboardXvtrAnalog_ =
             s.value(QStringLiteral("hw/ioboardXvtrAnalog"),
-                    QStringLiteral("holdLastHf")).toString()
-                    == QLatin1String("onAirRf")
-                ? lyra::wire::hl2iob::XvtrPolicy::OnAirRf
-                : lyra::wire::hl2iob::XvtrPolicy::HoldLastHf;
+                    QStringLiteral("onAirRf")).toString()
+                    == QLatin1String("holdLastHf")
+                ? lyra::wire::hl2iob::XvtrPolicy::HoldLastHf
+                : lyra::wire::hl2iob::XvtrPolicy::OnAirRf;
         ioboardSendRxFcodes_ =
             s.value(QStringLiteral("hw/ioboardSendRxFcodes"), true).toBool();
         lastHfTxHz_ =
@@ -3241,21 +3241,15 @@ void HL2Stream::pollIoboardSession() {
                                 : QStringLiteral("0 (RF1)")));
         } else if (iob::present()) {
             iobPresentReported_ = true;
-            const iob::Inputs in = ioboardInputs();
             const iob::Snapshot s = iob::unpack(iob::published());
-            const bool held = s.sendTx && in.txInXvtrSlot
-                && in.xvtrPolicy == iob::XvtrPolicy::HoldLastHf;
             const QString tx = !s.sendTx ? QStringLiteral("none")
-                : held ? QStringLiteral("held %1").arg(s.txHz)
-                       : QString::number(s.txHz);
+                                        : QString::number(s.txHz);
             report(QStringLiteral(
                 "[iob] IO board detected at 0x41 (PCA9536 0x%1) — sending 0x1D "
                 "every ≈346 ms: TX %2 Hz (%3), REG11 %4, REG13/14 %5")
                 .arg(unsigned(iob::last_reply_c4()), 2, 16, QLatin1Char('0'))
                 .arg(tx,
-                     in.xvtrPolicy == iob::XvtrPolicy::HoldLastHf
-                         ? QStringLiteral("hold last HF")
-                         : QStringLiteral("on-air RF"),
+                     QStringLiteral("on-air RF"),
                      s.reg11Alt ? QStringLiteral("2 (Alt RX)")
                                 : QStringLiteral("0 (RF1)"),
                      s.sendRxCodes ? QStringLiteral("on")

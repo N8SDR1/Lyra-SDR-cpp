@@ -5735,14 +5735,14 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
             xv->addItem(tr("On-air RF frequency"), true);
             xv->setCurrentIndex(stream_->ioboardXvtrOnAirRf() ? 1 : 0);
             xv->setToolTip(tr(
-                "TX frequency sent to the IO board (registers 0–4) while TX is "
-                "inside a transverter slot.\n\n"
-                "Hold last HF frequency (default): keep sending the last HF TX "
-                "frequency, so an HF-only band-volts amplifier on J4 "
-                "(GPA100 / XPA125B class) stays on its HF band. If no HF "
-                "frequency has been used yet, registers 0–4 are not sent.\n\n"
-                "On-air RF frequency: send the RF frequency on every band "
-                "(for example 144.2 MHz gives the 2 m band volts on J4)."));
+                "TX frequency sent to the IO board (registers 0–4).\n\n"
+                "On-air RF frequency (default): the TX dial in Hertz — the "
+                "same on-air RF the RX frequency codes (registers 13 / 14) "
+                "use on simplex. Analog band volts (J4 / GPA100 / XPA125) "
+                "update on a hop, including transverter chips, and stay put "
+                "between hops.\n\n"
+                "Hold last HF frequency is kept in this list for older "
+                "settings; packing always sends on-air RF."));
             connect(xv, &QComboBox::currentIndexChanged, page, [this, xv](int) {
                 stream_->setIoboardXvtrAnalog(xv->currentData().toBool());
             });

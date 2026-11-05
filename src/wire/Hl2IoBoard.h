@@ -154,8 +154,8 @@ inline std::uint8_t rx_fcode(std::uint64_t hz) noexcept
 // ---- snapshot computation (pure; called on the Qt thread) -----------------
 
 enum class XvtrPolicy : std::uint8_t {
-    HoldLastHf = 0,   // default: transverter slot -> last HF TX Hz, or nothing
-    OnAirRf    = 1,   // opt-in: the RF dial, any band
+    HoldLastHf = 0,   // retained for Settings; BYTE0–4 always use on-air RF
+    OnAirRf    = 1,   // on-air RF dial, any band (the packing path)
 };
 
 struct Inputs {
@@ -177,8 +177,9 @@ constexpr std::uint64_t update_last_hf(const Inputs& in,
     return (in.txHz > 0 && !in.txInXvtrSlot) ? in.txHz : lastHfTxHz;
 }
 
-// The word one cycle sends.  Always valid.  sendTx = 0 when the policy
-// yields no TX value or the value would be 0 Hz.
+// The word one cycle sends.  Always valid.  BYTE0–4 are in.txHz (on-air
+// RF) whenever that value is non-zero; lastHfTxHz is unused.  sendTx = 0
+// only when in.txHz is 0.
 std::uint64_t compute_snapshot(const Inputs& in, std::uint64_t lastHfTxHz) noexcept;
 
 // ---- Qt-thread API --------------------------------------------------------

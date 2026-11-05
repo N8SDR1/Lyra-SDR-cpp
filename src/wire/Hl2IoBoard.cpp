@@ -117,10 +117,15 @@ std::uint64_t compute_snapshot(const Inputs& in, std::uint64_t lastHfTxHz) noexc
     Snapshot s;
     s.valid = true;
 
-    // No TX dial (0 Hz) sends nothing under either policy.
+    // BYTE0–4 = on-air TX RF (the same Hertz f13/f14 encode on simplex).
+    // Never IF/DDS, never last-HF substitution: a transverter hop must
+    // rewrite analog the same way it rewrites the RX codes.  HoldLastHf
+    // used to swap in lastHfTxHz here, which is what latched 40 m (or a
+    // 221.5 MHz out-of-slot leftover) onto 2 m while GPIO already showed
+    // fcode 138.  lastHfTxHz is unused; kept on the signature so callers
+    // and the Settings combo stay source-compatible.
+    (void)lastHfTxHz;
     std::uint64_t tx = in.txHz;
-    if (tx > 0 && in.xvtrPolicy == XvtrPolicy::HoldLastHf && in.txInXvtrSlot)
-        tx = lastHfTxHz;
     tx &= kTxHzMask;
     s.sendTx = tx > 0;
     s.txHz   = s.sendTx ? tx : 0;

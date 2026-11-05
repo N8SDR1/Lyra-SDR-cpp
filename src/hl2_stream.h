@@ -2439,7 +2439,7 @@ private:
     std::atomic<int>     hl2RxPort_{0};  // 0 RF1, 2 Alt RX; P1 IO-board only
     // HL2 IO board (Hl2IoBoard.h).  Qt thread only.
     lyra::wire::hl2iob::XvtrPolicy ioboardXvtrAnalog_ =
-        lyra::wire::hl2iob::XvtrPolicy::HoldLastHf;
+        lyra::wire::hl2iob::XvtrPolicy::OnAirRf;
     bool                 ioboardSendRxFcodes_ = true;
     bool                 ioboardForcePresent_ = false;
     std::uint64_t        lastHfTxHz_ = 0;     // last TX Hz outside a transverter slot

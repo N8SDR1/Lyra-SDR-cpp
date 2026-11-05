@@ -867,11 +867,11 @@ static void t_never_commit_zero(Driver* d)
     Env e(d);
     e.open(true);
     iob::Inputs in;
-    in.txHz = 144200000;
+    in.txHz = 0;
     in.txInXvtrSlot = true;
     in.rx1Hz = 144200000;
     in.xvtrPolicy = iob::XvtrPolicy::HoldLastHf;
-    const std::uint64_t w = iob::compute_snapshot(in, 0);   // no HF history
+    const std::uint64_t w = iob::compute_snapshot(in, 14074000);
     CHECK(!iob::unpack(w).sendTx);
     iob::publish(w);
     e.run(140 * 50);
@@ -880,8 +880,6 @@ static void t_never_commit_zero(Driver* d)
     int r11 = 0;
     for (const auto& x : e.writes()) if (x.c[3] == 11) ++r11;
     CHECK(r11 >= 49);
-    // txHz = 0 under On-air RF as well
-    in.txHz = 0;
     in.xvtrPolicy = iob::XvtrPolicy::OnAirRf;
     CHECK(!iob::unpack(iob::compute_snapshot(in, 14074000)).sendTx);
 }
@@ -1440,6 +1438,7 @@ static int tx_reg_writes_after(const Env& e, long dg)
 
 static void t_xvtr_hold_last_hf(Driver* d)
 {
+    // #24: even with HoldLastHf selected, BYTE0–4 follow the on-air RF.
     g_test = "xvtr_hold_last_hf";
     const auto hold = iob::XvtrPolicy::HoldLastHf;
     const iob::Inputs hf = tx_inputs(14074000, false, hold);
@@ -1448,18 +1447,16 @@ static void t_xvtr_hold_last_hf(Driver* d)
     const iob::Inputs vhf = tx_inputs(144200000, true, hold);
     CHECK(iob::update_last_hf(vhf, last) == 14074000);   // a slot never updates it
     const iob::Snapshot s = iob::unpack(iob::compute_snapshot(vhf, last));
-    CHECK(s.valid && s.sendTx && s.txHz == 14074000);
+    CHECK(s.valid && s.sendTx && s.txHz == 144200000);
+    CHECK(s.fcode13 == iob::rx_fcode(144200000));
 
     Env e(d);
     e.open(true);
     auto c = commits_after(e, iob::compute_snapshot(hf, 0));
     CHECK(!c.empty() && c.back() == 14074000);
-    const double j4_hf = e.pico.j4;
-    CHECK(std::fabs(j4_hf - 1.67) < 1e-9);
     c = commits_after(e, iob::compute_snapshot(vhf, last));
     CHECK(!c.empty());
-    for (std::uint64_t v : c) CHECK(v == 14074000);
-    CHECK(e.pico.j4 == j4_hf);
+    for (std::uint64_t v : c) CHECK(v == 144200000);
 }
 
 static void t_xvtr_hold_no_history(Driver* d)
@@ -1469,17 +1466,14 @@ static void t_xvtr_hold_no_history(Driver* d)
         tx_inputs(144200000, true, iob::XvtrPolicy::HoldLastHf);
     const std::uint64_t w = iob::compute_snapshot(vhf, 0);
     const iob::Snapshot s = iob::unpack(w);
-    CHECK(s.valid && !s.sendTx);
+    CHECK(s.valid && s.sendTx && s.txHz == 144200000);
 
     Env e(d);
     e.open(true);
     const auto c = commits_after(e, w);
-    CHECK(c.empty());
-    CHECK(e.pico.commits.empty());
-    CHECK(tx_reg_writes_after(e, 0) == 0);
-    int n11 = 0;
-    for (const auto& x : e.writes()) if (x.c[3] == 11) ++n11;
-    CHECK(n11 > 10);                                    // the cycle still runs
+    CHECK(!c.empty());
+    for (std::uint64_t v : c) CHECK(v == 144200000);
+    CHECK(tx_reg_writes_after(e, 0) > 0);
 }
 
 static void t_xvtr_onair_rf(Driver* d)
@@ -1506,7 +1500,7 @@ static void t_xvtr_6m_slot_held(Driver* d)
     const iob::Inputs direct6 = tx_inputs(50100000, false, hold);
     const iob::Snapshot a = iob::unpack(iob::compute_snapshot(slot6, 14074000));
     const iob::Snapshot b = iob::unpack(iob::compute_snapshot(direct6, 14074000));
-    CHECK(a.sendTx && a.txHz == 14074000);
+    CHECK(a.sendTx && a.txHz == 50100000);
     CHECK(b.sendTx && b.txHz == 50100000);
     CHECK(iob::update_last_hf(direct6, 14074000) == 50100000);
 
@@ -1514,10 +1508,36 @@ static void t_xvtr_6m_slot_held(Driver* d)
     e.open(true);
     auto c = commits_after(e, iob::compute_snapshot(slot6, 14074000));
     CHECK(!c.empty());
-    for (std::uint64_t v : c) CHECK(v == 14074000);
+    for (std::uint64_t v : c) CHECK(v == 50100000);
     c = commits_after(e, iob::compute_snapshot(direct6, 14074000));
     CHECK(!c.empty() && c.back() == 50100000);
     CHECK(std::fabs(e.pico.j4 - 3.33) < 1e-9);
+}
+
+// K7MDL #24: 40 m DIGU → 2 m USB.  Latch BYTE0–4 must follow the 2 m
+// on-air RF even when lastHf is still 7.074 MHz and HoldLastHf is set.
+// 221.5 MHz leftover (OOB 1.25 m treated as "HF") must not stick.
+static void t_xvtr_hop_onair_not_last_hf()
+{
+    g_test = "xvtr_hop_onair_not_last_hf";
+    iob::Inputs in = tx_inputs(7074000, false, iob::XvtrPolicy::HoldLastHf);
+    std::uint64_t last = iob::update_last_hf(in, 0);
+    CHECK(last == 7074000);
+    in = tx_inputs(144390000, true, iob::XvtrPolicy::HoldLastHf);
+    last = iob::update_last_hf(in, last);
+    CHECK(last == 7074000);
+    const iob::Snapshot s = iob::unpack(iob::compute_snapshot(in, last));
+    CHECK(s.sendTx && s.txHz == 144390000);
+    CHECK(s.fcode13 == iob::rx_fcode(144390000));
+    CHECK(s.fcode13 == 138);
+
+    iob::Inputs oob = tx_inputs(221500000, false, iob::XvtrPolicy::HoldLastHf);
+    last = iob::update_last_hf(oob, last);
+    CHECK(last == 221500000);   // tracker still records it
+    iob::Inputs inband = tx_inputs(223500000, true, iob::XvtrPolicy::HoldLastHf);
+    const iob::Snapshot t = iob::unpack(iob::compute_snapshot(inband, last));
+    CHECK(t.sendTx && t.txHz == 223500000);
+    CHECK(t.txHz != 221500000);
 }
 
 static void t_tx_zero_never_sent(Driver* d)
@@ -1653,6 +1673,7 @@ int main()
     run_sequencer_suite(&composer, false);
 
     t_reg11_from_rx_port();
+    t_xvtr_hop_onair_not_last_hf();
     run_policy_suite(&sim);
     run_policy_suite(&composer);
 
