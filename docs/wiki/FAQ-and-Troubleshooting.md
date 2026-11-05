@@ -171,6 +171,27 @@ for RX2 (enable **SUB** so VAC2 has audio). **TCI** as mic source is
 exclusive — Lyra will not also arm VAC TX. If **Auto-enable for digital**
 is on, switch to **DIGU / DIGL**; USB turns that auto path off.
 
+**Can I use CMASIO or a Behringer WING / X32 with Lyra?**
+No. Lyra does not offer CMASIO because it does not use Thetis’s PC audio
+host. In Thetis (and Thetis-based builds), speaker and mic can go to
+CMASIO / ASIO — exclusive, multi-channel — which is why a Behringer WING
+works there: you pick the driver and which pair is phones vs mic. Lyra’s
+speaker path is ordinary Windows audio (WASAPI): stereo 48 kHz, the
+device Windows calls Speakers. The HL2 can play from the radio’s own
+headphone jack. Digital apps (STD, WSJT, …) use TCI or a VAC stereo pipe,
+not ASIO channel maps. Lyra cannot park RX on WING channel 17 and TX from
+an arbitrary bus. A Scarlett-style USB interface still works via its
+Windows speaker/mic names. A WING used as a console over ASIO does not.
+Some operators find Lyra RX smoother / less fatiguing; the receive audio
+is paced with the radio and played as a simple stereo stream. Native ASIO
+(device + stereo pair pickers) is not a hidden setting today. ASIO is a
+separate Steinberg kit from the radio code, so it is not a copy-paste from
+Thetis even though both programs are GPL.
+
+**Why is there no CMASIO like Thetis?**
+Same answer as **Can I use CMASIO or a Behringer WING / X32 with Lyra?**
+above. Lyra is not Thetis’s PC audio host.
+
 ---
 
 ## Transmit

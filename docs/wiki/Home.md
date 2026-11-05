@@ -74,6 +74,8 @@ keyer, VOX, TX profiles) · ✅ **CW** send + on-screen **CW decode** · ✅
 VAC**, a **session recorder**, backup & restore, and a **dockable** Vulkan UI.
 
 See the full checklist on **[Feature Status](Feature-Status)**.
+Lyra is not Thetis-CMASIO: a Behringer WING / X32 over ASIO will not map
+the way it does there — **[FAQ](FAQ-and-Troubleshooting#can-i-use-cmasio-or-a-behringer-wing--x32-with-lyra)**.
 
 ## A studio rack, inside the radio
 

@@ -2364,6 +2364,17 @@ between them (see *Multiple radios & switching rigs*).
 - Feed RX audio to WSJT-X / FLDigi / a recorder → **PC sound device via
   VAC**, or **TCI** if the app speaks it (see *Digital modes* below).
 
+**Behringer WING / X32 / CMASIO.** Lyra does not use Thetis’s PC audio
+host, so there is no CMASIO and no ASIO channel map. Speaker out is
+ordinary Windows audio (WASAPI): stereo 48 kHz, the device Windows calls
+Speakers. A Scarlett-style USB interface still works via its Windows
+speaker/mic names. A WING used as a console over ASIO does not — Lyra
+cannot park RX on channel 17 and TX from an arbitrary bus. The HL2 can
+also play from its own headphone jack. Digital apps (STD, WSJT, …) use
+TCI or a VAC stereo pipe. Native ASIO (device + stereo pair pickers) is
+not a hidden setting. Online FAQ:
+[Can I use CMASIO or a Behringer WING / X32 with Lyra?](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/FAQ-and-Troubleshooting#can-i-use-cmasio-or-a-behringer-wing--x32-with-lyra).
+
 The HL2 jack is the easy button: the radio and its codec share one clock,
 so there's no drift to correct — glitch-free audio, lowest latency, zero
 setup. The PC path bridges two clocks (the HL2's and your sound card's),

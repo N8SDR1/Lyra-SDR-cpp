@@ -138,6 +138,14 @@ down and walk it up before your first TX on a P2 radio**.
 - ✅ **USB encoder (HID wheel)** — Settings → Hardware → Navigation (Windows); tunes the focused VFO by the Tuning **Step**
 - ✅ **MIDI via TCI sidecar** — not native MIDI; Browse an operator-installed MIDI→TCI program under Settings → Apps (default TCI port **40001**)
 
+## What Lyra does not do
+
+- **No CMASIO / no ASIO channel mapping** — speaker out is ordinary Windows audio (WASAPI, stereo 48 kHz). A Scarlett-style USB interface works by its Windows speaker/mic names. A Behringer WING / X32-class desk used as a console over ASIO does not. See **[FAQ](FAQ-and-Troubleshooting#can-i-use-cmasio-or-a-behringer-wing--x32-with-lyra)**.
+- **No in-radio DIGI menu** — digital modes live in **STD** (or WSJT-X, MSHV, VarAC, …) over **TCI** or a **VAC** stereo pipe, not inside the radio.
+- **No parking RX and TX on arbitrary mixer buses** — Lyra cannot put RX on WING channel 17 and TX from a chosen bus.
+- **No in-app gateware flasher** — flash Protocol 2 / FPGA with the vendor tools (Brick: **Anton (linoobs)** on Discord).
+- **No native in-process MIDI** — a MIDI surface uses the **midi2tci** sidecar you install yourself, then **Settings → Apps**.
+
 ## Not yet — see the Roadmap 🗺️
 
 - 🚧 **ANAN-G2 / G2-1K** — Saturn BPF; TX still dummy-load arm until on-air validated. **ANAN-10…200D** already use Brick2 / Brick3 TX (see above).
