@@ -688,6 +688,7 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     }
     cwPitchHz_ = std::clamp(
         s.value(QStringLiteral("dsp/cwPitchHz"), 600).toInt(), 200, 1500);
+    neuralCw_.setToneHz(cwPitchHz_);   // tone lock stays on the operator's station
     // RX DSP operator state (NR + AGC mode).  Defaults match old Lyra's
     // first-light: NR off, Mode 3 (MMSE-LSA), AEPF on, NPE OSMS, AGC med.
     nrEnabled_   = s.value(QStringLiteral("dsp/nrEnabled"), false).toBool();
@@ -2622,6 +2623,7 @@ void WdspEngine::setCwPitchHz(int hz)
     }
     cwPitchHz_ = static_cast<double>(hz);
     cwDecoder_.setToneHz(cwPitchHz_);   // #173 — bind decoder AFC centre to the pitch
+    neuralCw_.setToneHz(cwPitchHz_);   // neural tone lock follows the pitch too
     zbMarkerHz_.store(cwMarkerOffsetForMode(mode_), std::memory_order_relaxed);
     keepShack(QStringLiteral("dsp/cwPitchHz"), hz);
     recomputePassband();   // CW filter recentres on the new pitch
@@ -2643,6 +2645,7 @@ void WdspEngine::setCwDecodeEnabled(bool on)
     }
     if (on) {
         cwDecoder_.setToneHz(cwPitchHz_);
+        neuralCw_.setToneHz(cwPitchHz_);
         cwDecoder_.reset();
     }
     cwDecodeOn_.store(on, std::memory_order_relaxed);
