@@ -301,6 +301,8 @@ qt_add_executable(lyra
     src/dsp/deepfist/DeepFistConditioner.cpp
     src/dsp/deepfist/DeepFistCtc.h
     src/dsp/deepfist/DeepFistCtc.cpp
+    src/dsp/deepfist/DeepFistCommit.h
+    src/dsp/deepfist/DeepFistCommit.cpp
     src/dsp/deepfist/DeepFistScp.h
     src/dsp/deepfist/DeepFistScp.cpp
     src/dsp/deepfist/DeepFistRescore.h
@@ -1215,6 +1217,36 @@ add_executable(test_cw_decoder EXCLUDE_FROM_ALL
 target_include_directories(test_cw_decoder PRIVATE src)
 if(MSVC)
     target_compile_options(test_cw_decoder PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# DeepFist neural CW decoder offline bench (synthetic CW -> streaming decode
+# -> CER / latency / cost per tone-lock and commit-delay variant).
+# EXCLUDE_FROM_ALL; `cmake --build build --target test_cw_neural_bench`, run
+# from the repo root so it finds models/.
+add_executable(test_cw_neural_bench EXCLUDE_FROM_ALL
+    scratch/test_cw_neural_bench.cpp
+    src/dsp/deepfist/DeepFistResampler.h
+    src/dsp/deepfist/DeepFistResampler.cpp
+    src/dsp/deepfist/DeepFistSpectrogram.h
+    src/dsp/deepfist/DeepFistSpectrogram.cpp
+    src/dsp/deepfist/DeepFistConditioner.h
+    src/dsp/deepfist/DeepFistConditioner.cpp
+    src/dsp/deepfist/DeepFistCtc.h
+    src/dsp/deepfist/DeepFistCtc.cpp
+    src/dsp/deepfist/DeepFistCommit.h
+    src/dsp/deepfist/DeepFistCommit.cpp
+    src/dsp/deepfist/DeepFistModel.h
+    src/dsp/deepfist/DeepFistModel.cpp
+)
+target_include_directories(test_cw_neural_bench PRIVATE src)
+target_link_libraries(test_cw_neural_bench PRIVATE onnxruntime)
+if(MSVC)
+    target_compile_options(test_cw_neural_bench PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+if(WIN32)
+    add_custom_command(TARGET test_cw_neural_bench POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ORT_DIR}/lib/onnxruntime.dll" "$<TARGET_FILE_DIR:test_cw_neural_bench>")
 endif()
 
 # #49 Stage 1 — TX DSP rack save/load round-trip (the four model states the

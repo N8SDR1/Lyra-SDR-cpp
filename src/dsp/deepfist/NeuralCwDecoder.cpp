@@ -4,8 +4,10 @@
 #include "dsp/deepfist/NeuralCwDecoder.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <string>
 
 #include "dsp/deepfist/DeepFistCtc.h"
 
@@ -16,13 +18,34 @@ constexpr int    kSr        = 3200;
 constexpr int    kWindow    = 6 * kSr;      // 19200 samples (6 s), zero-padded
 constexpr double kWindowS   = 6.0;
 constexpr int    kTickMs    = 400;          // re-decode ~2.5x/s (tci_decode tick)
-constexpr double kGuardS    = 1.3;          // commit delay / latency
+constexpr double kGuardS    = 1.3;          // Guard commit delay / Agree hard cap
 constexpr int    kMinSamp   = kSr;          // need >=1 s buffered before decoding
-constexpr float  kKeyingMin = 12.0f;        // min keying ratio (p90/p10) to decode
-                                            // (DeepFist squelch.py, validated on Lyra
-                                            // captures: dead air ~4, keyed CW 12-600+)
-                                            // — gates dead air / steady carriers so we
-                                            // don't hallucinate characters on no signal
+constexpr float  kToneSpanHz = 80.0f;       // tone lock: pitch +/- this
+
+// Defaults below were chosen on the offline bench
+// (scratch/test_cw_neural_bench.cpp, synthetic CW): mean character error
+// 40% -> 3.5%, average display delay 1.4 s -> 1.0 s.  Each can be put back
+// to the original behaviour with an env var for A/B on real signals:
+//   LYRA_CW_TONELOCK=loudest  strongest tone anywhere in 400-1200 Hz
+//   LYRA_CW_GATE=12           original keying gate (p90/p10)
+//   LYRA_CW_MASK=0            no clean-up mask after the conditioner
+//   LYRA_CW_COMMIT=guard      fixed 1.3 s commit delay
+//
+// Keying gate: p90/p10 of the locked tone's envelope.  12 (the DeepFist
+// squelch.py value) also rejected keyed CW at 6 dB SNR (amplitude ratio ~9),
+// which is why weak and fading signals stopped mid-QSO.  6 still printed no
+// false characters on 20 s of pure noise; 4 started to.
+float envFloat(const char* name, float dflt) {
+    const char* e = std::getenv(name);
+    return e ? std::strtof(e, nullptr) : dflt;
+}
+bool envIs(const char* name, const char* value) {
+    const char* e = std::getenv(name);
+    if (!e) return false;
+    std::string s(e);
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s == value;
+}
 }  // namespace
 
 NeuralCwDecoder::NeuralCwDecoder() {
@@ -31,6 +54,15 @@ NeuralCwDecoder::NeuralCwDecoder() {
     // override it live via setBlankPenalty().
     if (const char* e = std::getenv("LYRA_CW_BLANKPEN"))
         blankPen_.store(std::strtof(e, nullptr), std::memory_order_relaxed);
+
+    pinTone_   = !envIs("LYRA_CW_TONELOCK", "loudest");
+    keyingMin_ = envFloat("LYRA_CW_GATE", 6.0f);
+    maskHz_    = envFloat("LYRA_CW_MASK", 150.0f);
+    DeepFistCommit::Config cc;
+    cc.agree  = !envIs("LYRA_CW_COMMIT", "guard");
+    cc.guardS = kGuardS;
+    commit_.setConfig(cc);
+    model_.setOutputMaskHz(maskHz_);
 }
 
 NeuralCwDecoder::~NeuralCwDecoder() {
@@ -59,8 +91,8 @@ void NeuralCwDecoder::reset() {
     decim_.reset();
     std::fill(ring_.begin(), ring_.end(), 0.0f);
     total3200_  = 0;
-    committedT_ = 0.0;
-    ++gen_;                     // discard any in-flight worker result
+    ++gen_;                     // discard any in-flight worker result; the
+                                // worker resets commit_ when it sees the bump
 }
 
 void NeuralCwDecoder::process(const float* mono, int nframes) {
@@ -97,6 +129,7 @@ void NeuralCwDecoder::workerLoop() {
     std::vector<float> window(kWindow);
     std::vector<float> logits;
     long long lastTotal = -1;           // skip decoding when no new audio arrived
+    unsigned  seenGen   = 0;            // last reset generation the commit saw
 
     while (running_.load()) {
         double audioEnd = 0.0;
@@ -114,9 +147,18 @@ void NeuralCwDecoder::workerLoop() {
             audioEnd = static_cast<double>(total3200_) / kSr;
             gen      = gen_;
         }
+        if (gen != seenGen) { commit_.reset(); seenGen = gen; }
 
-        const double winStart = audioEnd - kWindowS;
-        const double settleTo = audioEnd - kGuardS;
+        // Lock the station once per window; the gate, speed estimate and the
+        // model all use the same tone.
+        DeepFistConditioner::ToneSearch search;
+        const float pitch = toneHz_.load(std::memory_order_relaxed);
+        if (pinTone_ && pitch > 0.0f) {
+            search.centerHz    = pitch;
+            search.halfSpanHz  = kToneSpanHz;
+            search.wholeWindow = true;
+        }
+        const float tone = model_.lockTone(window.data(), kWindow, search);
 
         // Keying gate: only decode when the window actually contains keyed CW.
         // A steady carrier / birdie / the CW-AGC artifact tone clears any level
@@ -124,14 +166,14 @@ void NeuralCwDecoder::workerLoop() {
         // No keying -> emit nothing, just advance the commit boundary so silence
         // doesn't back up.  (Mirrors diddle's presence gate; DeepFist HANDOFF
         // §18.23 "no signal energy -> no characters".)
-        const float keyRatio = model_.keyingRatio(window.data(), kWindow);
+        const float keyRatio = model_.keyingRatio(window.data(), kWindow, tone);
         if (onKeying) onKeying(keyRatio);
-        if (keyRatio < kKeyingMin) {
+        if (keyRatio < keyingMin_) {
             {
                 std::lock_guard<std::mutex> lk(mx_);
                 if (gen != gen_) continue;
-                committedT_ = std::max(committedT_, settleTo);
             }
+            commit_.idle(audioEnd);
             // Emit ONE space at the start of a pause so text across the gap
             // doesn't run together (mirrors tci_decode's idle-gap space).
             if (!idleGap_) { idleGap_ = true; if (onText) onText(" "); }
@@ -141,13 +183,13 @@ void NeuralCwDecoder::workerLoop() {
 
         // Estimated RX speed (WPM) from the keying envelope; emit on change.
         if (onWpm) {
-            const int wpm = model_.keyingWpm(window.data(), kWindow);
+            const int wpm = model_.keyingWpm(window.data(), kWindow, tone);
             const int d = wpm > lastWpm_ ? wpm - lastWpm_ : lastWpm_ - wpm;
             if (wpm > 0 && d >= 2) { lastWpm_ = wpm; onWpm(wpm); }
         }
 
         int T = 0, C = 0;
-        if (!model_.infer(window.data(), kWindow, logits, T, C)) continue;
+        if (!model_.inferAt(window.data(), kWindow, tone, logits, T, C)) continue;
         const CtcFrames fr = greedyCtcFrames(logits.data(), T, C,
                                              blankPen_.load(std::memory_order_relaxed));
 
@@ -155,24 +197,16 @@ void NeuralCwDecoder::workerLoop() {
         std::vector<CallRescore> calls;
         if (scp_.ready() && onCalls)
             calls = rescoreCalls(logits.data(), T, C, fr.ids, model_.tokens(), scp_);
-        const int    denom    = std::max(1, fr.T);
-        const auto&  toks     = model_.tokens();
+        const auto& toks = model_.tokens();
 
-        std::string emit;
         {
             std::lock_guard<std::mutex> lk(mx_);
             if (gen != gen_) continue;          // reset() happened mid-decode
-            for (size_t i = 0; i < fr.ids.size(); ++i) {
-                const double ct =
-                    winStart + (static_cast<double>(fr.frames[i]) / denom) * kWindowS;
-                if (ct > committedT_ && ct <= settleTo) {
-                    const int id = fr.ids[i];
-                    if (id > 0 && id < static_cast<int>(toks.size()))
-                        emit += toks[static_cast<size_t>(id)];
-                }
-            }
-            committedT_ = std::max(committedT_, settleTo);
         }
+        std::string emit;
+        for (const DeepFistCommit::Emitted& e : commit_.step(fr, audioEnd, kWindowS))
+            if (e.id > 0 && e.id < static_cast<int>(toks.size()))
+                emit += toks[static_cast<size_t>(e.id)];
         if (!emit.empty() && onText) onText(emit);
 
         if (onCalls && !calls.empty()) {
