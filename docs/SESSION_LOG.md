@@ -4,6 +4,17 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-07 — v0.25.38 Sheliak RELEASED (DeepFist pitch lock + earlier commit)
+
+Cherry-pick `e7c465a` of `edd19a1` (11 DeepFist files: DeepFistCommit,
+conditioner/model/neural decoder, wdsp_engine pitch plumbing, bench)
+onto `feature/wdsp-2.10`. DeepFist searches ±80 Hz of the operator CW
+pitch; characters commit on two agreeing decodes, capped at the old
+1.3 s delay. Classic fldigi decoder untouched. Original decoder:
+Brent Crier (N9BC). Docs: `docs/releases/v0.25.38.md`, USER_GUIDE
+What's new + Reading CW, README, KNOWN_ISSUES, wiki Feature Status /
+Home. Tag `v0.25.38`. `main` untouched. Mac stays `macos-port`.
+
 ## 2026-11-05 — v0.25.37 Sheliak RELEASED (7000DLE / 8000DLE TX, Xvtr IO, Stop)
 
 HEAD after `d7433bb` (7000/8000 TX notes), `ae127da` (Xvtr BYTE0-4

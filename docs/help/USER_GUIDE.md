@@ -22,13 +22,31 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.37 Sheliak** — **ANAN-7000DLE / 8000DLE / Orion MkII /
-Anvelina-Pro3 transmit** without **Arm Protocol 2 TX** (Enable PA +
-MOX + Drive, like Brick3 / 100D). HL2 **Xvtr hops** send on-air RF on
-BYTE0–4; **Stop** sends Metis STOP before the socket closes. **G2 /
-G2-1K** still use the dummy-load arm. On top of v0.25.36 (eight Xvtr
-slots, SWL J16 rows, digital-mode ALC). **v0.25.36** is the previous
-public build. See [What's new in 0.25.37](#whats-new-in-02537).
+**v0.25.38 Sheliak** — **DeepFist** locks to the operator **CW pitch**
+(±80 Hz) and prints a character as soon as two consecutive decodes
+agree (or the old delay). **Classic** is unchanged. Original decoder:
+**Brent Crier (N9BC)**. On top of v0.25.37 (7000DLE / 8000DLE TX, Xvtr
+on-air RF on BYTE0–4, Metis STOP). **v0.25.37** is the previous public
+build. See [What's new in 0.25.38](#whats-new-in-02538).
+
+## What's new in 0.25.38
+
+- **DeepFist locks to your CW pitch.** The neural decoder searches
+  only within **±80 Hz** of the operator **CW Pitch** (the same tone
+  the rest of the radio uses). A louder station nearby is no longer
+  copied instead. Put the beat note on your pitch, same as Classic.
+- **Characters print sooner.** A letter is committed once **two
+  consecutive decodes agree** on it, still capped at the old delay so
+  a disagreement cannot stall the copy.
+- **Classic unchanged.** The **Classic** chip is still the fldigi
+  decoder. **DeepFist** and **Auto** sit beside it on the CW Decoder
+  panel. Original DeepFist decoder: **Brent Crier (N9BC)**.
+- **Unchanged elsewhere:** 7000DLE / 8000DLE / Orion MkII /
+  Anvelina-Pro3 TX, Xvtr BYTE0–4, Metis STOP, G2 dummy-load arm,
+  Protocol 1 ANAN refused. No Protocol 2 wire change.
+- **v0.25.37 Sheliak** is the previous public build. **v0.25.22**
+  remains the long return point. Settings stay. If this build
+  misbehaves, reinstall **v0.25.37**.
 
 ## What's new in 0.25.37
 
@@ -737,6 +755,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.38](#whats-new-in-02538)
 - [What's new in 0.25.37](#whats-new-in-02537)
 - [What's new in 0.25.36](#whats-new-in-02536)
 - [What's new in 0.25.35](#whats-new-in-02535)
@@ -3623,8 +3642,23 @@ to pop open the floating **CW Decoder** (it floats and remembers where you
 put it). It reads **only in CWU/CWL** — outside CW the detector controls
 dim and a "switch to CW to decode" note shows.
 
-The decoder is a faithful port of **fldigi's** CW receiver (the W1HKJ
-open-source Morse engine), so if you know fldigi's CW behaviour, this is it.
+The panel has three **Engine** chips:
+
+- **Classic** — a faithful port of **fldigi's** CW receiver (the W1HKJ
+  open-source Morse engine). If you know fldigi's CW behaviour, this
+  is it. **v0.25.38 does not change Classic.**
+- **DeepFist** — neural decoder by **Brent Crier (N9BC)**. Since
+  **v0.25.38** it searches only within **±80 Hz of your CW Pitch**, so
+  a louder neighbour is not copied instead. Put the beat note on your
+  pitch (same as Classic). Characters **print sooner**: a letter is
+  committed once **two consecutive decodes agree**, still capped at
+  the old delay so a disagreement cannot stall the copy.
+- **Auto** — uses DeepFist while the keying is solid and falls back
+  to Classic through a fade.
+
+If DeepFist's model is missing, the panel stays on Classic and shows
+"model not found". The detector knobs below are Classic (fldigi)
+controls; they hide while DeepFist is selected.
 
 > **Quick copy — the 60-second recipe.** The one thing that matters is
 > putting the signal *on your pitch*; the rest is defaults.

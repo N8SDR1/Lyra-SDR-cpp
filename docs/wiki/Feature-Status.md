@@ -1,23 +1,24 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.37 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.38 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.37** ships **ANAN-7000DLE / 8000DLE / Orion MkII /
-Anvelina-Pro3 transmit** without **Arm Protocol 2 TX** (Enable PA +
-MOX + Drive), HL2 **Xvtr on-air RF** on BYTE0–4, and Metis **STOP**
-before the socket closes. **G2 / G2-1K** still use the dummy-load arm.
-**v0.25.36 Sheliak** is the previous public build (eight Xvtr slots,
-SWL J16 rows, digital-mode ALC). Coming from ≤0.25.31, **turn Drive
+**v0.25.38** ships **DeepFist pitch lock** (±80 Hz of the operator CW
+pitch) and **earlier character commit** (two agreeing decodes, or the
+old delay). **Classic** is unchanged. Original decoder: **Brent Crier
+(N9BC)**. **v0.25.37** remains the previous public build (7000DLE /
+8000DLE TX, Xvtr on-air RF on BYTE0–4, Metis STOP). **G2 / G2-1K**
+still use the dummy-load arm. Coming from ≤0.25.31, **turn Drive
 down and walk it up before your first TX on a P2 radio**.
 **v0.25.22** remains the long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.37)
+### Last several builds (0.25.16 → 0.25.38)
 
 | Build | What landed |
 |---|---|
+| **0.25.38** | **DeepFist locks to the operator CW pitch** (±80 Hz) so a louder neighbour is not copied instead. **Earlier character commit:** a letter prints once two consecutive decodes agree, still capped at the old delay. **Classic** (fldigi) unchanged. Original decoder: **Brent Crier (N9BC)**. No Protocol 2 / HL2 wire change. **v0.25.37** is the previous public build |
 | **0.25.37** | **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 transmit** without **Arm Protocol 2 TX** — same Enable PA + MOX + Drive path as Brick3 / 100D. **Xvtr hops send on-air RF on BYTE0–4** (was last HF; analog J4 / GPA100 / XPA125). **HL2 Stop** sends Metis STOP before the socket closes (Start should not wait ~13 s). **G2 / G2-1K** still dummy-load arm. Red Pitaya still no P2 TX profile. Protocol 1 ANAN still refused. FAQ: Lyra is not Thetis-CMASIO; RX is WDSP into a simple stereo Windows path (or the HL2 jack). **v0.25.36** is the previous public build |
 | **0.25.36** | **Eight transverter slots** (was four; slots 5–8 start disabled and empty, slots 1–4 read unchanged; one row of eight on HL2, wraps 2 × 4 beside the ANT / RX chips). **SWL broadcast rows on J16**: a folded **SWL broadcast rows** section in Settings → Filters / BCD, one row per broadcast band 120 m … 13 m; order Xvtr → ham → broadcast → none, ham wins on overlap (7.200–7.300 is 40 m); CB / GEN still no row. Rows stay empty until you pick **N2ADR** or press **Reload N2ADR HF**, which seeds the RX LPF of the ham band above each (41 m → 40 m, 13 m → 15 m, 120 m no HPF), **TX unticked**; `[oc] SWL rows seeded from N2ADR (12 rows, TX off)`. **DIGU / DIGL: ALC max gain capped at 1.0 (limiter only), Leveler held off** regardless of the toggle — RADE / PSK / OFDM digital waveforms no longer reshaped; voice modes keep operator values. TCI **TX-in gain** control removed (no-op since June). **v0.25.35** is the previous public build |
 | **0.25.35** | **GEN1 / GEN2 / GEN3 remember RF1 / Alt + LNA / Auto-LNA per slot** (GitHub #24; general-coverage frequencies sit outside the per-band memory's tables, so the slot keeps them itself like an Xvtr chip; RF1 default, LNA / Auto remembered once touched; right-click reset clears them). **FM RPT offset drops on a band change**: RPT / SPLIT off, VFO B ← RX1, status bar `RPT off — left ‹band›`, log line; operator **SPLIT** still persists across bands (Thetis / deskHPSDR default). A split left armed by an older RPT session loads as operator split — click SPLIT off once. One-shot `[iob] TX regs follow VFO B (SPLIT on)` verbose-log line; forced-present status line shows TX Hz / REG 11. No wire or DSP changes. **v0.25.34** is the previous public build |
@@ -120,7 +121,7 @@ down and walk it up before your first TX on a P2 radio**.
 
 ## Tools &amp; extras
 
-- ✅ **RX CW decoder** — prints what it hears on-screen
+- ✅ **RX CW decoder** — **Classic** (fldigi) and **DeepFist** (neural; original decoder **N9BC**). Since **v0.25.38** DeepFist locks to the operator **CW pitch** (±80 Hz) and commits a character on two agreeing decodes (or the old delay). Classic unchanged.
 - ✅ **DX spots** — cluster / RBN / TCI sources, filters, panadapter overlay, click-to-tune
 - ✅ **Tuner memory** — manual-ATU settings per band and per antenna
 - ✅ **Frequency calibration** against WWV / time stations
