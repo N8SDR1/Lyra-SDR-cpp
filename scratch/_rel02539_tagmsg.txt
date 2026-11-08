@@ -1,0 +1,7 @@
+v0.25.39 Sheliak — HiDPI display, ANAN model, log on-screen
+
+Spectrum trace and waterfall stay sharp on high-DPI screens (4K at 150% Windows scale). Use Windows Display scale; do not set QT_SCALE_FACTOR. A Protocol 2 ANAN with a blank saved model now gets its filter-board profile. Help → Show Log keeps Copy all / Save / Open log folder on screen. DeepFist pitch lock already in 0.25.38.
+
+Install Lyra-Setup-0.25.39.exe over 0.25.38; settings stay. If it misbehaves, reinstall v0.25.38; v0.25.22 remains the long return point.
+
+SHA256 Lyra-Setup-0.25.39.exe: 318D59A8F376782904C98E7BCC918ECEA4E5C2D242B2065364BD59E1003C2A75

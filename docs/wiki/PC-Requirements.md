@@ -21,7 +21,7 @@ typical desktop app — but Lyra runs comfortably on modest hardware, and
 | **Memory** | 4 GB (8 GB comfortable) | 16 GB | 32 GB |
 | **Storage** | ~300 MB free (SSD recommended) | SSD, ~500 MB free | NVMe Gen4 SSD |
 | **Network** | 100 Mbit **wired** Ethernet to the radio | Gigabit Ethernet, ideally a dedicated NIC | Dedicated Gigabit / 2.5 GbE NIC, wired straight to the radio |
-| **Display** | 1600 × 900 | 1920 × 1080 | Dual / triple monitor; 1440p or 4K |
+| **Display** | 1600 × 900 | 1920 × 1080 | Dual / triple monitor; 1440p or 4K. Use **Windows Display scale** (e.g. 150% on 4K). Do **not** set `QT_SCALE_FACTOR`. |
 
 ## Display — what the minimum actually buys you
 

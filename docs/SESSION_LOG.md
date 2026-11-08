@@ -4,6 +4,18 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-08 — v0.25.39 Sheliak RELEASED (HiDPI display, ANAN model, log on-screen)
+
+Cherry-pick `f909000` of `e516762` (panadapter ribbon + waterfall
+history 512→pane height, cap 1024) onto `feature/wdsp-2.10` already
+holding `4eac6aa` (ANAN blank model → filter profile) and `dffa47a`
+(Log window fit-to-screen). 4K @ 150%: use Windows Display scale, no
+`QT_SCALE_FACTOR`. DeepFist already in 0.25.38. Docs:
+`docs/releases/v0.25.39.md`, USER_GUIDE What's new + Display +
+Diagnostics, README, KNOWN_ISSUES, wiki Feature Status / Home / FAQ /
+PC Requirements. Tag `v0.25.39`. `main` untouched. Mac stays
+`macos-port`.
+
 ## 2026-11-07 — v0.25.38 Sheliak RELEASED (DeepFist pitch lock + earlier commit)
 
 Cherry-pick `e7c465a` of `edd19a1` (11 DeepFist files: DeepFistCommit,

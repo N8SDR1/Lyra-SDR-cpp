@@ -1,23 +1,24 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.38 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.39 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.38** ships **DeepFist pitch lock** (±80 Hz of the operator CW
-pitch) and **earlier character commit** (two agreeing decodes, or the
-old delay). **Classic** is unchanged. Original decoder: **Brent Crier
-(N9BC)**. **v0.25.37** remains the previous public build (7000DLE /
-8000DLE TX, Xvtr on-air RF on BYTE0–4, Metis STOP). **G2 / G2-1K**
-still use the dummy-load arm. Coming from ≤0.25.31, **turn Drive
-down and walk it up before your first TX on a P2 radio**.
+**v0.25.39** ships **HiDPI display** (spectrum ribbon + waterfall
+history on 4K @ 150%), **ANAN blank model → filter profile**, and
+**Log window on-screen**. **DeepFist pitch lock** already shipped in
+**v0.25.38**. **Classic** is unchanged. Original decoder: **Brent
+Crier (N9BC)**. **v0.25.38** remains the previous public build.
+**G2 / G2-1K** still use the dummy-load arm. Coming from ≤0.25.31,
+**turn Drive down and walk it up before your first TX on a P2 radio**.
 **v0.25.22** remains the long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.38)
+### Last several builds (0.25.16 → 0.25.39)
 
 | Build | What landed |
 |---|---|
+| **0.25.39** | **HiDPI display:** spectrum / peak-hold as a 1-logical-pixel ribbon (was one screen pixel, faint at 4K @ 150%); waterfall history grows 512 → pane height, cap 1024. Use **Windows Display scale**; do not set `QT_SCALE_FACTOR`. **Auto-fit** is the waterfall dB colour map, not DPI. **ANAN blank model → filter profile** (Orion → ANAN-200D). **Log window** keeps Copy all / Save on screen. DeepFist already in 0.25.38. **v0.25.38** is the previous public build |
 | **0.25.38** | **DeepFist locks to the operator CW pitch** (±80 Hz) so a louder neighbour is not copied instead. **Earlier character commit:** a letter prints once two consecutive decodes agree, still capped at the old delay. **Classic** (fldigi) unchanged. Original decoder: **Brent Crier (N9BC)**. No Protocol 2 / HL2 wire change. **v0.25.37** is the previous public build |
 | **0.25.37** | **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 transmit** without **Arm Protocol 2 TX** — same Enable PA + MOX + Drive path as Brick3 / 100D. **Xvtr hops send on-air RF on BYTE0–4** (was last HF; analog J4 / GPA100 / XPA125). **HL2 Stop** sends Metis STOP before the socket closes (Start should not wait ~13 s). **G2 / G2-1K** still dummy-load arm. Red Pitaya still no P2 TX profile. Protocol 1 ANAN still refused. FAQ: Lyra is not Thetis-CMASIO; RX is WDSP into a simple stereo Windows path (or the HL2 jack). **v0.25.36** is the previous public build |
 | **0.25.36** | **Eight transverter slots** (was four; slots 5–8 start disabled and empty, slots 1–4 read unchanged; one row of eight on HL2, wraps 2 × 4 beside the ANT / RX chips). **SWL broadcast rows on J16**: a folded **SWL broadcast rows** section in Settings → Filters / BCD, one row per broadcast band 120 m … 13 m; order Xvtr → ham → broadcast → none, ham wins on overlap (7.200–7.300 is 40 m); CB / GEN still no row. Rows stay empty until you pick **N2ADR** or press **Reload N2ADR HF**, which seeds the RX LPF of the ham band above each (41 m → 40 m, 13 m → 15 m, 120 m no HPF), **TX unticked**; `[oc] SWL rows seeded from N2ADR (12 rows, TX off)`. **DIGU / DIGL: ALC max gain capped at 1.0 (limiter only), Leveler held off** regardless of the toggle — RADE / PSK / OFDM digital waveforms no longer reshaped; voice modes keep operator values. TCI **TX-in gain** control removed (no-op since June). **v0.25.35** is the previous public build |
@@ -110,7 +111,7 @@ down and walk it up before your first TX on a P2 radio**.
 
 ## Panadapter, waterfall &amp; UI
 
-- ✅ **Vulkan / RHI** scene-graph spectrum — glassy fill/glow, peak-hold, noise-floor line, palettes
+- ✅ **Vulkan / RHI** scene-graph spectrum — glassy fill/glow, peak-hold, noise-floor line, palettes. Since **v0.25.39** the trace is a 1-logical-pixel ribbon and the waterfall history matches the pane height (512…1024) so 4K @ 150% stays sharp. Use Windows Display scale; do not set `QT_SCALE_FACTOR`.
 - ✅ Click / drag / wheel tuning; draggable passband edges; **click-to-tune on the waterfall**; collapsible waterfall. Display **Panafall** is the pan wheel step; **Exact / 100 Hz** is how a pan click/drag lands. Tuning **Step** is the VFO LED (empty of a digit) and USB encoder. Wheel on a LED **digit** is that place. **Snap VFO wheel to Step** (Settings → Hardware → Navigation) lands empty-LED / encoder / pan wheel on that surface's grid.
 - ✅ **Dockable UI** — snap to edge / split / tab / float, four named layout slots + factory default, lock panels; optional **SUB layout** recall (Visuals) that restores the pre-SUB arrangement when SUB goes off
 - ✅ **Windows per-app mixer** volume remembered across Stop / Start

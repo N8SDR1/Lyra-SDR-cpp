@@ -22,12 +22,42 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.38 Sheliak** — **DeepFist** locks to the operator **CW pitch**
-(±80 Hz) and prints a character as soon as two consecutive decodes
-agree (or the old delay). **Classic** is unchanged. Original decoder:
-**Brent Crier (N9BC)**. On top of v0.25.37 (7000DLE / 8000DLE TX, Xvtr
-on-air RF on BYTE0–4, Metis STOP). **v0.25.37** is the previous public
-build. See [What's new in 0.25.38](#whats-new-in-02538).
+**v0.25.39 Sheliak** — **HiDPI display** (spectrum and waterfall stay
+sharp at 4K @ 150% Windows scale), **ANAN blank model → filter
+profile**, **Log window stays on screen**. **DeepFist** pitch lock
+already shipped in v0.25.38. **v0.25.38** is the previous public
+build. See [What's new in 0.25.39](#whats-new-in-02539).
+
+## What's new in 0.25.39
+
+- **HiDPI display.** The spectrum trace and peak-hold line are a
+  ribbon one **logical** pixel thick. GPU lines always draw one
+  **screen** pixel wide, so at 150% / 4K the trace used to look
+  thinner and fainter than on 1080p. Waterfall history grows from 512
+  rows to the pane's on-screen height (capped at 1024), so a tall pane
+  is no longer a 512-row image stretched into a soft blur.
+- **4K / scaling.** Use **Windows Display scale** (Settings → System →
+  Display). Do **not** set `QT_SCALE_FACTOR`. **Auto-fit the waterfall
+  dB range** (Settings → Visuals / the Display panel) is the
+  colour-map control — it does not replace Windows scale.
+- **ANAN blank model → filter profile.** A Protocol 2 ANAN whose
+  saved record had a blank model now fills one from the reported
+  board (Orion → **ANAN-200D**) or from Settings, so BPF/LPF relays
+  follow Lyra instead of the last program. Brick and any radio that
+  already has a model are untouched.
+- **Log window stays on screen.** **Help → Show Log…** shrinks and
+  moves so **Copy all** / **Save** / **Open log folder** sit inside
+  the visible area (inside the taskbar) at 4K @ 150%. A window that
+  already fits is left alone.
+- **DeepFist** pitch lock (±80 Hz) and earlier commit stay from
+  **v0.25.38**. Original decoder: **Brent Crier (N9BC)**. **Classic**
+  unchanged.
+- **Unchanged elsewhere:** 7000DLE / 8000DLE / Orion MkII /
+  Anvelina-Pro3 TX, Xvtr BYTE0–4, Metis STOP, G2 dummy-load arm,
+  Protocol 1 ANAN refused. No Protocol 2 wire change.
+- **v0.25.38 Sheliak** is the previous public build. **v0.25.22**
+  remains the long return point. Settings stay. If this build
+  misbehaves, reinstall **v0.25.38**.
 
 ## What's new in 0.25.38
 
@@ -755,6 +785,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.39](#whats-new-in-02539)
 - [What's new in 0.25.38](#whats-new-in-02538)
 - [What's new in 0.25.37](#whats-new-in-02537)
 - [What's new in 0.25.36](#whats-new-in-02536)
@@ -1028,7 +1059,7 @@ graphics are fine.
 | &nbsp;&nbsp;• Intel | HD Graphics 4000 (Ivy Bridge) or newer / UHD / Iris | UHD 620 / Iris Xe / Arc | Arc A-series or newer |
 | **Storage** | ~300 MB free (SSD recommended) | SSD, ~500 MB free | NVMe Gen4 SSD |
 | **Network** | 100 Mbit **wired** Ethernet to the radio | Gigabit Ethernet, ideally a dedicated NIC | Dedicated Gigabit / 2.5 GbE NIC, wired straight to the radio |
-| **Display** | 1600 × 900 | 1920 × 1080 | Dual / triple monitor; 1440p or 4K |
+| **Display** | 1600 × 900 | 1920 × 1080 | Dual / triple monitor; 1440p or 4K. Use **Windows Display scale** (e.g. 150% on 4K). Do **not** set `QT_SCALE_FACTOR`. |
 
 **About the display minimum — what you get at 1600 × 900.** Lyra's front panel
 is a set of dockable panels, and they need real estate, so it's worth being
@@ -2766,7 +2797,13 @@ is laid out in old Lyra's three-row arrangement:
   Tuning panel's fine step.)
 - **Spec** — spectrum frame rate (how many times per second the panadapter
   redraws).
-- **WF** — waterfall scroll rate (history rows per second).
+- **WF** — waterfall scroll rate (history rows per second). On a
+  high-DPI screen (4K at 150% Windows scale) the waterfall keeps as
+  many history rows as the pane is tall on screen (512…1024), so a
+  tall pane is not a stretched 512-row smear. Use **Windows Display
+  scale** — do not set `QT_SCALE_FACTOR`. **Auto-fit** (below, and in
+  Settings → Visuals) is the waterfall **dB colour map**, not a DPI
+  substitute.
 - **Peak Hold** — how the [peak markers](#peak-markers) behave:
   - **Off** — no peak markers.
   - **Live** — markers ride the current spectrum.
@@ -4622,7 +4659,9 @@ log** you can read, copy, and send to us.
 
 - **Help → Show Log…** opens the log viewer — a scrolling view of this
   session's diagnostic messages with **Copy all**, **Save…**, and **Open
-  log folder** buttons. It updates live while open.
+  log folder** buttons. It updates live while open. On a 4K screen at
+  150% Windows scale the window shrinks and moves so that button row
+  stays on screen (inside the taskbar).
 - **Enable verbose debug logging** (here in Diagnostics, also a checkbox
   in the log viewer) turns on detailed capture. Leave it **off** for
   normal use — the log then keeps only warnings and errors and stays

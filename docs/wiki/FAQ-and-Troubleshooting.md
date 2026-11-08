@@ -318,6 +318,20 @@ does not arm the mix.
 
 ## Settings &amp; layout
 
+**The spectrum looks thin / the waterfall looks dim or smeared on 4K at 150%.**
+Install **v0.25.39**. GPU lines used to draw one **screen** pixel, so the
+trace went faint at 150% scale; the waterfall was a 512-row image
+stretched to a tall pane. The trace is now a one-logical-pixel ribbon,
+and waterfall history grows with the pane (capped at 1024). Use
+**Windows Display scale** — do **not** set `QT_SCALE_FACTOR`. **Auto-fit
+the waterfall dB range** (Settings → Visuals) is the colour map, not a
+DPI fix. See [User Guide → Display panel](User-Guide#display-panel).
+
+**Help → Show Log… hides Copy all / Save at the bottom of a 4K screen.**
+Install **v0.25.39**. The Log window now shrinks and moves so the whole
+frame, including **Copy all** / **Save** / **Open log folder**, sits
+inside the visible area (inside the taskbar).
+
 **How do I rearrange / lock the panels?**
 Drag a panel by its title bar — a cyan zone previews where it lands (edge /
 split / tab / float). Drag the cyan separators to resize. **View → Layouts**

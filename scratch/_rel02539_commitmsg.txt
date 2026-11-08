@@ -1,0 +1,7 @@
+Release v0.25.39 Sheliak — HiDPI display, ANAN model, log on-screen.
+
+Spectrum and waterfall stay sharp on 4K at 150% Windows scale. A
+Protocol 2 ANAN with a blank model gets its filter profile. The Log
+window keeps Copy all / Save on screen. DeepFist already in 0.25.38.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
