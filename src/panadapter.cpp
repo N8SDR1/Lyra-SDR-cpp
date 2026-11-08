@@ -47,7 +47,39 @@ constexpr int kGridVLines = 10;    // vertical (frequency) divisions
 constexpr int kFillTopA  = 110;   // translucent fill body at the curve
 constexpr int kFillBotA  = 0;     // fill fades to nothing at baseline
 constexpr int kLineA     = 245;   // bright trace stroke
-constexpr float kLineWidth = 1.6f;
+// Trace / peak-line thickness in LOGICAL pixels.  Drawn as a triangle
+// ribbon, not a GPU line: Vulkan / Direct3D draw every line exactly one
+// SCREEN pixel wide whatever width is asked for, so on a 150 % / 200 %
+// display the trace came out thinner and fainter than on 1080p.  A
+// ribbon keeps the same apparent thickness at any scaling (1.0 = the
+// 1-pixel look 1080p always had).
+constexpr float kLineWidth = 1.0f;
+
+// Fill `v[0 .. 2*n)` with a triangle-strip ribbon `width` logical px
+// thick along the polyline (xs[i], ys[i]).  Each point is pushed out
+// both ways along the normal of its neighbours' chord, so steep spikes
+// stay as thick as flat stretches.  `rgba` holds 4 premultiplied bytes
+// per point.
+inline void buildRibbon(QSGGeometry::ColoredPoint2D *v, const float *xs,
+                        const float *ys, const unsigned char *rgba, int n,
+                        float width) {
+    const float hw = 0.5f * width;
+    for (int i = 0; i < n; ++i) {
+        const int a = std::max(0, i - 1);
+        const int b = std::min(n - 1, i + 1);
+        float dx = xs[b] - xs[a];
+        float dy = ys[b] - ys[a];
+        const float len = std::sqrt(dx * dx + dy * dy);
+        float nx = 0.0f, ny = hw;   // flat default: straight up/down
+        if (len > 1e-6f) {
+            nx = -dy / len * hw;
+            ny =  dx / len * hw;
+        }
+        const unsigned char *c = rgba + 4 * i;
+        v[2 * i + 0].set(xs[i] + nx, ys[i] + ny, c[0], c[1], c[2], c[3]);
+        v[2 * i + 1].set(xs[i] - nx, ys[i] - ny, c[0], c[1], c[2], c[3]);
+    }
+}
 // Peak-hold overlay alpha (old-Lyra used 230 so it stays distinct over
 // any hue).  Premultiplied like the rest of the scene.
 constexpr int kPeakA = 230;
@@ -548,8 +580,7 @@ QSGNode *Panadapter::updatePaintNode(QSGNode *oldNode,
         lineNode = new QSGGeometryNode;
         auto *lineGeo = new QSGGeometry(
             QSGGeometry::defaultAttributes_ColoredPoint2D(), 0);
-        lineGeo->setDrawingMode(QSGGeometry::DrawLineStrip);
-        lineGeo->setLineWidth(kLineWidth);
+        lineGeo->setDrawingMode(QSGGeometry::DrawTriangleStrip);
         lineNode->setGeometry(lineGeo);
         lineNode->setFlag(QSGNode::OwnsGeometry);
         lineNode->setMaterial(new QSGVertexColorMaterial);
@@ -562,8 +593,7 @@ QSGNode *Panadapter::updatePaintNode(QSGNode *oldNode,
         peakNode = new QSGGeometryNode;
         auto *peakGeo = new QSGGeometry(
             QSGGeometry::defaultAttributes_ColoredPoint2D(), 0);
-        peakGeo->setDrawingMode(QSGGeometry::DrawLineStrip);
-        peakGeo->setLineWidth(1.4f);
+        peakGeo->setDrawingMode(QSGGeometry::DrawTriangleStrip);
         peakNode->setGeometry(peakGeo);
         peakNode->setFlag(QSGNode::OwnsGeometry);
         peakNode->setMaterial(new QSGVertexColorMaterial);
@@ -692,9 +722,12 @@ QSGNode *Panadapter::updatePaintNode(QSGNode *oldNode,
             fillGeo->allocate(wantFill);
         }
         QSGGeometry *lineGeo = lineNode->geometry();
-        if (lineGeo->vertexCount() != W) {
-            lineGeo->allocate(W);
+        if (lineGeo->vertexCount() != 2 * W) {
+            lineGeo->allocate(2 * W);
         }
+        lineXs_.resize(static_cast<size_t>(W));
+        lineYs_.resize(static_cast<size_t>(W));
+        lineRgba_.resize(static_cast<size_t>(W) * 4);
         auto *fv = fillEnabled_ ? fillGeo->vertexDataAsColoredPoint2D()
                                 : nullptr;
         auto *lv = lineGeo->vertexDataAsColoredPoint2D();
@@ -745,11 +778,17 @@ QSGNode *Panadapter::updatePaintNode(QSGNode *oldNode,
                                   fbl * kFillTopA / 255, kFillTopA);
                 fv[2 * x + 1].set(xf, static_cast<float>(H), 0, 0, 0, kFillBotA);
             }
-            // Bright stroke on the curve.
-            lv[x].set(xf, yTop,
-                      rr * kLineA / 255, gg * kLineA / 255,
-                      bb * kLineA / 255, kLineA);
+            // Bright stroke on the curve (ribbon built after the loop).
+            lineXs_[static_cast<size_t>(x)] = xf;
+            lineYs_[static_cast<size_t>(x)] = yTop;
+            unsigned char *c = &lineRgba_[static_cast<size_t>(x) * 4];
+            c[0] = static_cast<unsigned char>(rr * kLineA / 255);
+            c[1] = static_cast<unsigned char>(gg * kLineA / 255);
+            c[2] = static_cast<unsigned char>(bb * kLineA / 255);
+            c[3] = static_cast<unsigned char>(kLineA);
         }
+        buildRibbon(lv, lineXs_.data(), lineYs_.data(), lineRgba_.data(),
+                    W, kLineWidth);
         ribNode->markDirty(QSGNode::DirtyGeometry);
         lineNode->markDirty(QSGNode::DirtyGeometry);
     }
@@ -801,13 +840,24 @@ QSGNode *Panadapter::updatePaintNode(QSGNode *oldNode,
                 return static_cast<float>(H - t * H);
             };
             if (peakStyle_ == 0) {                     // Line (passband span)
-                pg->setDrawingMode(QSGGeometry::DrawLineStrip);
-                pg->setLineWidth(1.4f);
-                if (pg->vertexCount() != pw) pg->allocate(pw);
+                pg->setDrawingMode(QSGGeometry::DrawTriangleStrip);
+                if (pg->vertexCount() != 2 * pw) pg->allocate(2 * pw);
                 auto *v = pg->vertexDataAsColoredPoint2D();
+                lineXs_.resize(static_cast<size_t>(pw));
+                lineYs_.resize(static_cast<size_t>(pw));
+                lineRgba_.resize(static_cast<size_t>(pw) * 4);
                 int k = 0;
-                for (int x = pbLo; x < pbHi; ++x)
-                    v[k++].set(static_cast<float>(x), yOf(x), pr, pgc, pb, A);
+                for (int x = pbLo; x < pbHi; ++x, ++k) {
+                    lineXs_[static_cast<size_t>(k)] = static_cast<float>(x);
+                    lineYs_[static_cast<size_t>(k)] = yOf(x);
+                    unsigned char *c = &lineRgba_[static_cast<size_t>(k) * 4];
+                    c[0] = static_cast<unsigned char>(pr);
+                    c[1] = static_cast<unsigned char>(pgc);
+                    c[2] = static_cast<unsigned char>(pb);
+                    c[3] = static_cast<unsigned char>(A);
+                }
+                buildRibbon(v, lineXs_.data(), lineYs_.data(),
+                            lineRgba_.data(), pw, kLineWidth);
             } else if (peakStyle_ == 2) {              // Triangles (every 4 px)
                 pg->setDrawingMode(QSGGeometry::DrawTriangles);
                 const int step = 4;

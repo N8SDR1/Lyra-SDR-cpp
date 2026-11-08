@@ -284,6 +284,11 @@ private:
     // Per-frame scratch (reused to avoid per-frame allocation): the
     // peak-per-column curve, then the spatially-smoothed curve.
     std::vector<float>     colDb_;
+    // Scratch for the trace / peak-line ribbon (points + premultiplied
+    // RGBA per point) — see buildRibbon in panadapter.cpp.
+    std::vector<float>         lineXs_;
+    std::vector<float>         lineYs_;
+    std::vector<unsigned char> lineRgba_;
     std::vector<float>     smoothDb_;
 };
 
