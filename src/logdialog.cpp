@@ -13,6 +13,12 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
+#include <QGuiApplication>
+#include <QScreen>
+#include <QShowEvent>
+#include <QTimer>
+
+#include <algorithm>
 #include <QProcess>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -100,6 +106,48 @@ LogDialog::LogDialog(Prefs *prefs, QWidget *parent)
     // Live updates while the dialog is open.
     connect(&LogBuffer::instance(), &LogBuffer::lineAppended,
             this, &LogDialog::appendLine);
+}
+
+void LogDialog::showEvent(QShowEvent *e) {
+    QDialog::showEvent(e);
+    fitToScreen();
+    // The title-bar size is only known once Windows has drawn the frame;
+    // check again then.
+    QTimer::singleShot(0, this, &LogDialog::fitToScreen);
+}
+
+// Keep the whole window — title bar to button row — on the visible part
+// of the screen it opens on (inside the taskbar).  On some high-DPI setups
+// the window opened with its bottom edge off-screen, hiding the Copy /
+// Save / Open log folder row.  Only shrinks or moves; a window that
+// already fits is left alone.
+void LogDialog::fitToScreen() {
+    QScreen *scr = screen();
+    if (!scr && parentWidget()) scr = parentWidget()->screen();
+    if (!scr) scr = QGuiApplication::primaryScreen();
+    if (!scr) return;
+    const QRect avail = scr->availableGeometry();
+
+    // Frame (title bar + borders) around the client area.
+    const QRect frame = frameGeometry();
+    const QRect inner = geometry();
+    const int extraW = std::max(0, frame.width()  - inner.width());
+    const int extraH = std::max(0, frame.height() - inner.height());
+
+    QSize sz = size();
+    sz.setWidth(std::min(sz.width(),   avail.width()  - extraW));
+    sz.setHeight(std::min(sz.height(), avail.height() - extraH));
+    sz = sz.expandedTo(minimumSizeHint().boundedTo(
+        QSize(avail.width() - extraW, avail.height() - extraH)));
+    if (sz != size()) resize(sz);
+
+    QRect f = frameGeometry();
+    QPoint tl = f.topLeft();
+    if (f.right()  > avail.right())  tl.rx() -= f.right()  - avail.right();
+    if (f.bottom() > avail.bottom()) tl.ry() -= f.bottom() - avail.bottom();
+    tl.setX(std::max(tl.x(), avail.left()));
+    tl.setY(std::max(tl.y(), avail.top()));
+    if (tl != f.topLeft()) move(tl);
 }
 
 void LogDialog::appendLine(const QString &line) {
