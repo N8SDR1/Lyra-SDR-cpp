@@ -4324,6 +4324,38 @@ QWidget *SettingsDialog::buildHardwareTab() {
         // the live P2 reply (deskHPSDR reads the same bytes [13]/[20]/[23]).
         if (discovery_ && p2_ && p2_->isOpen())
             discovery_->probe(p2_->targetIp());
+        // Selecting a Protocol 2 radio shows THAT radio's saved model, so
+        // the box never displays a model the radio isn't actually using.
+        connect(list, &QListWidget::currentRowChanged, radioBox,
+                [list, modelCombo, status](int) {
+                    auto *it = list->currentItem();
+                    if (!it || it->data(Qt::UserRole + 7).toInt() != 2) return;
+                    auto p = lyra::rig::registry::rig(
+                        lyra::rig::registry::rigIdForMac(
+                            it->data(Qt::UserRole + 1).toString()));
+                    if (!p.isValid()) return;
+                    // Blank model on an ANAN: fill it from the board the
+                    // radio reported (Orion → ANAN-200D) and save it.
+                    if (p.hardwareModelKey.isEmpty() &&
+                        p.family == lyra::rig::RadioFamily::AnanP2) {
+                        if (const auto *dm =
+                                lyra::hardware::defaultModelForBoardName(
+                                    it->data(Qt::UserRole + 2).toString(),
+                                    true)) {
+                            p.hardwareModelKey = QLatin1String(dm->key);
+                            lyra::rig::registry::upsertRig(p);
+                        }
+                    }
+                    if (p.hardwareModelKey.isEmpty()) {
+                        status->setText(tr("This radio has no model saved — "
+                                           "pick its model so Lyra can "
+                                           "drive its filters."));
+                        return;
+                    }
+                    const int i = modelCombo->findData(p.hardwareModelKey);
+                    if (i >= 0 && i != modelCombo->currentIndex())
+                        modelCombo->setCurrentIndex(i);
+                });
         connect(list, &QListWidget::currentRowChanged, radioBox,
                 [refresh](int) { refresh(); });
         connect(modelCombo,

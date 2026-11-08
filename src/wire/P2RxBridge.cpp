@@ -1229,12 +1229,35 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
                 prof.hardwareModelKey = QStringLiteral("BRICK-SDR");
                 seeded = true;
             } else if (prof.family == lyra::rig::RadioFamily::AnanP2) {
+                // Without a model the filter board is never driven: the
+                // relays stay where the last program left them.  Use the
+                // board the radio reported, else the model the operator
+                // picked in Settings (stored globally when no radio row
+                // was selected).
+                // ANAN rigs only (Brick rigs are handled above and never
+                // reach here).  Only fills a BLANK model.
                 const auto *dm =
                     lyra::hardware::defaultModelForBoardName(boardName, true);
+                QSettings gs;
+                const QString picked =
+                    gs.value(QStringLiteral("radio/hardwareModel")).toString();
                 if (dm) {
                     prof.hardwareModelKey = QLatin1String(dm->key);
                     seeded = true;
+                } else if (gs.contains(QStringLiteral("radio/hardwareModel")) &&
+                           !picked.startsWith(QLatin1String("BRICK"),
+                                              Qt::CaseInsensitive) &&
+                           lyra::hardware::modelByKey(picked) &&
+                           lyra::wire::p2ProfileForModel(picked)) {
+                    prof.hardwareModelKey = picked;
+                    seeded = true;
                 }
+                if (seeded)
+                    emit logLine(QStringLiteral(
+                        "P2: radio had no saved model — using %1 (%2)")
+                        .arg(prof.hardwareModelKey,
+                             dm ? QStringLiteral("board %1").arg(boardName)
+                                : QStringLiteral("Settings model")));
             }
         }
         if (prof.audioRoute.isEmpty()) {

@@ -5039,7 +5039,18 @@ void MainWindow::beginConnect(const QString &preferIp) {
                         rp.label.isEmpty() ? target : rp.label));
                 qWarning("[wire] Protocol 2 open %s (%s)",
                          qPrintable(target), qPrintable(rp.label));
-                p2Bridge_->open(target, rp.mac);
+                // Pass the board name discovery remembered for this radio
+                // so a blank model can be filled from it (Orion →
+                // ANAN-200D); without it the filter board is never driven.
+                QString board;
+                if (d) {
+                    const auto saved = d->savedRadio();
+                    if (saved.value(QStringLiteral("mac")).toString()
+                            .compare(rp.mac, Qt::CaseInsensitive) == 0)
+                        board = saved.value(QStringLiteral("boardName"))
+                                    .toString();
+                }
+                p2Bridge_->open(target, rp.mac, board);
                 connectInFlight_ = false;
                 return;
             }
