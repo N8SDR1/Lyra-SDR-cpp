@@ -298,9 +298,43 @@ const char *ivacLastOpenErrorText()
 	return Pa_GetErrorText(g_ivacLastPaError);
 }
 
+// [Lyra] ASIO ring re-centre (see ivacRecenterRings).
+static unsigned long g_ivacStreamGen[MAX_EXT_VACS];
+unsigned long ivacStreamGeneration(int id)
+{
+	if (id < 0 || id >= MAX_EXT_VACS) return 0;
+	return g_ivacStreamGen[id];
+}
+
+// The rate matcher starts each ring half full, but after one overflow it
+// holds the ring at full (one underflow: nearly empty).  With the ratio
+// pinned at 1.0 nothing walks it back, so a startup burst leaves the ring
+// at an edge for the whole session.  Rebuilding the ring (setRMatchRingsize
+// at the same size) restarts it half full and clears its counters; the
+// held ratio is kept.  Called once, a couple of seconds into an ASIO
+// stream, after the startup transients.
+void ivacRecenterRings(int id)
+{
+	if (id < 0 || id >= MAX_EXT_VACS) return;
+	IVAC a = pvac[id];
+	if (!a || !a->rmatchIN || !a->rmatchOUT) return;
+	int unf = 0, ovf = 0, rs = 0, nr = 0; double var = 0;
+	int unf2 = 0, ovf2 = 0, rs2 = 0, nr2 = 0; double var2 = 0;
+	getRMatchDiags(a->rmatchOUT, &unf, &ovf, &var, &rs, &nr);
+	getRMatchDiags(a->rmatchIN, &unf2, &ovf2, &var2, &rs2, &nr2);
+	EnterCriticalSection(&a->cs_ivac);
+	setRMatchRingsize(a->rmatchOUT, a->OUTringsize);
+	setRMatchRingsize(a->rmatchIN, a->INringsize);
+	LeaveCriticalSection(&a->cs_ivac);
+	qInfo("[asio] VAC%d: rings re-centred to half (were: TO VAC %d of %d, "
+	      "%d ovf / %d unf; FROM VAC %d of %d, %d ovf / %d unf)",
+	      id + 1, nr, rs, ovf, unf, nr2, rs2, ovf2, unf2);
+}
+
 PORT int StartAudioIVAC(int id)
 {
 	IVAC a = pvac[id];
+	if (id >= 0 && id < MAX_EXT_VACS) ++g_ivacStreamGen[id];
 	int error = 0;
 	int in_dev = Pa_HostApiDeviceIndexToDeviceIndex(a->host_api_index, a->input_dev_index);
 	int out_dev = Pa_HostApiDeviceIndexToDeviceIndex(a->host_api_index, a->output_dev_index);

@@ -15,6 +15,7 @@
 
 #include "wire/AAMix.h"  // P0.c direct port (reference aamix.h verbatim)
 #include "wire/ObBuffs.h" // P4.b — OutBound(0,…): RX audio → r1 ring → ob_main → sendOutbound (the asioOUT-pattern tee, cmasio.c:137-145)
+#include <QTimer>
 #include "wire/Ivac.h"   // #158 — create_ivac / destroy_ivac / xvacOUT / xvacIN / ivacGet
 #include "dsp/ParamEq.h"     // #59 — RX EQ engine (processMonoDup / bypassed)
 #include "dsp/EqAnalyzer.h"  // #59 — RX EQ analyzer feed (pre/post)
@@ -1851,6 +1852,18 @@ void WdspEngine::rebuildVac(int id)
                         .arg(tag).arg(rate, 0, 'f', 0)
                         .arg(inLat * 1000.0, 0, 'f', 1)
                         .arg(outLat * 1000.0, 0, 'f', 1).arg(asio));
+            if (aPref >= 0) {
+                // ASIO: re-centre the rings once the startup transients are
+                // over (they settle at an edge otherwise).  Skipped if this
+                // VAC was rebuilt or torn down in the meantime.
+                const auto gen = lyra::wire::ivacStreamGeneration(id);
+                const auto inst = lyra::wire::ivacGet(id);
+                QTimer::singleShot(2000, this, [id, gen, inst]() {
+                    if (lyra::wire::ivacGet(id) == inst &&
+                        lyra::wire::ivacStreamGeneration(id) == gen)
+                        lyra::wire::ivacRecenterRings(id);
+                });
+            }
         }
     }
 }
