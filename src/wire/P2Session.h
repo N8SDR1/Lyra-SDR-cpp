@@ -146,12 +146,34 @@ struct P2HardwareProfile {
     // (deskHPSDR p2_angelia_ddc0_map). Without DDC2 tracking the dial the
     // PA LPF stays on the 14.1 MHz seed and Drive cannot raise watts.
     bool angeliaRxDdcSlots = false;
+    // Alex1 upper halfword ([1428..1429]) carries the TX-state image —
+    // TX LPF + TX antenna + T/R relay (when the PA is enabled) — in
+    // receive as well as transmit, as deskHPSDR does for every radio
+    // (its "Jan 2023 protocol update" note: newer Orion MkII firmware
+    // reads the transmit relay state from this word).  Parity only:
+    // NOT shown to be required — the Cyclone V ("MKIII") 7000 that
+    // prompted it turned out to be blocked by TX Inhibit, and keys with
+    // or without this.  Older firmware ignores it in receive.
+    bool alex1TxImageInRx = false;
 };
 
 // The selected/saved marketed model chooses runtime front-end policy.
 // Discovery board id remains validation metadata; it cannot distinguish
 // every product variant that shares a wire-compatible board.
 const P2HardwareProfile *p2ProfileForModel(const QString &modelKey);
+
+// Operator-readable summary of the filters this profile's front-end
+// words select — decoded from the SAME alexRxWord / alexTxWord the HP
+// packet sends, so the display cannot disagree with the wire.  E.g.
+// "RX 20-15 m BPF  ·  TX 30/20 m LPF  ·  ANT1".  Display only.
+// nullptr profile → empty string; onboard-filter radios (BrickSDR) →
+// "Onboard filters (automatic)".
+QString describeP2FrontEnd(const P2HardwareProfile *profile, quint32 rxHz,
+                           quint32 txHz, P2RxInput input, bool hpfBypass,
+                           int trxAntenna);
+// True when the profile's RX filters are classic-Alex HIGH-pass filters
+// (ANAN-10..200D, Brick3); false = band-pass board (Orion MkII, Saturn).
+bool p2ProfileHasClassicHpf(const P2HardwareProfile *profile);
 
 class P2Session : public QObject {
     Q_OBJECT
@@ -490,6 +512,9 @@ private:
     P2TxIntent       txIntent_;
     P2TxSafetyInputs txSafety_;
     bool             paHold_ = false;
+    // General packet [58] PA-enable state (also gates the Alex1 TX
+    // image's T/R relay bit while receiving).
+    bool paEnableBit() const;
     std::function<int()> wireDriveProvider_;
     P2DucConfig      ducConfig_;
     QString          txStateDetail_;

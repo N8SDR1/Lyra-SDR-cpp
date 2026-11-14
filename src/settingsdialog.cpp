@@ -5256,6 +5256,29 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         }
     }
 
+    // Protocol 2 ANAN / Brick3: the radio's OWN band filters (Alex HPF/BPF
+    // + TX LPF) are switched by the per-packet Alex words, not the J16 OC
+    // pins — so they are shown read-only right next to the J16 pins: a
+    // lamp row under "Live pins" and ticked columns in the per-band grid.
+    // Display only.  {Alex halfword bit, band-pass label, high-pass label}
+    // — the RX bits are band-pass filters on the Orion MkII / Saturn board
+    // and high-pass filters on classic Alex.
+    struct RadioLamp { int bit; const char *bpf; const char *hpf; };
+    static const RadioLamp kRadioRx[] = {
+        {6, "160", "1.5M"}, {5, "80/60", "6.5M"}, {4, "40/30", "9.5M"},
+        {1, "20-15", "13M"}, {2, "12/10", "20M"}, {3, "6m", "6m pre"},
+        {12, "Byp", "Byp"}};
+    static const RadioLamp kRadioTx[] = {
+        {7, "160", nullptr}, {6, "80", nullptr}, {5, "60/40", nullptr},
+        {4, "30/20", nullptr}, {15, "17/15", nullptr}, {14, "12/10", nullptr},
+        {13, "6m", nullptr}};
+    const QString radioLampOn = QStringLiteral(
+        "QLabel{background:#9acd32;color:#0b1116;border-radius:4px;"
+        "font-weight:bold;padding:0 4px;}");
+    const QString radioLampOff = QStringLiteral(
+        "QLabel{background:#26333c;color:#5b6b78;border-radius:4px;"
+        "padding:0 4px;}");
+
     if (oc) {
         auto *ocBox = section(tr("Filter board — OC Control (J16 pins)"));
         auto *ocv = new QVBoxLayout(ocBox);
@@ -5328,6 +5351,66 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         refreshPins(stream_->ocBits());
         connect(stream_, &lyra::ipc::HL2Stream::ocBitsChanged, page, refreshPins);
         ocv->addLayout(topRow);
+
+        // Radio's own filters (P2 ANAN / Brick3) — lamps right under the
+        // J16 Live pins.  Hidden unless such a radio is open.
+        QWidget *radioLampHost = nullptr;
+        if (p2_) {
+            radioLampHost = new QWidget;
+            auto *rl = new QGridLayout(radioLampHost);
+            rl->setContentsMargins(0, 0, 0, 0);
+            rl->setHorizontalSpacing(4);
+            rl->setVerticalSpacing(3);
+            auto *rxName = new QLabel;
+            rl->addWidget(rxName, 0, 0);
+            rl->addWidget(new QLabel(tr("Radio TX low-pass:")), 1, 0);
+            QVector<QLabel *> rxL, txL;
+            for (int i = 0; i < 7; ++i) {
+                auto *r = new QLabel(QString::fromLatin1(kRadioRx[i].bpf));
+                auto *t = new QLabel(QString::fromLatin1(kRadioTx[i].bpf));
+                for (QLabel *c : {r, t}) {
+                    c->setAlignment(Qt::AlignCenter);
+                    c->setMinimumSize(44, 22);
+                }
+                rl->addWidget(r, 0, 1 + i);
+                rl->addWidget(t, 1, 1 + i);
+                rxL.append(r);
+                txL.append(t);
+            }
+            auto *antL = new QLabel;
+            antL->setStyleSheet(QStringLiteral(
+                "QLabel{color:#7fd4a0;font-weight:bold;padding-left:8px;}"));
+            rl->addWidget(antL, 1, 8);
+            rl->setColumnStretch(9, 1);
+            ocv->addWidget(radioLampHost);
+            auto refreshRadioLamps = [this, radioLampHost, rxName, rxL, txL,
+                                      antL, radioLampOn, radioLampOff]() {
+                const int rxw = p2_->frontEndRxWord();
+                const int txw = p2_->frontEndTxWord();
+                const bool show = !p2_->frontEndFilters().isEmpty() &&
+                                  !p2_->frontEndOnboard();
+                radioLampHost->setVisible(show);
+                if (!show) return;
+                const bool hpf = p2_->frontEndClassicHpf();
+                rxName->setText(hpf ? tr("Radio RX high-pass:")
+                                    : tr("Radio RX band-pass:"));
+                for (int i = 0; i < 7; ++i) {
+                    rxL[i]->setText(QString::fromLatin1(
+                        hpf ? kRadioRx[i].hpf : kRadioRx[i].bpf));
+                    rxL[i]->setStyleSheet(((rxw >> kRadioRx[i].bit) & 1)
+                                              ? radioLampOn : radioLampOff);
+                    txL[i]->setStyleSheet(((txw >> kRadioTx[i].bit) & 1)
+                                              ? radioLampOn : radioLampOff);
+                }
+                antL->setText(((txw >> 8) & 1)    ? tr("ANT1")
+                              : ((txw >> 9) & 1)  ? tr("ANT2")
+                              : ((txw >> 10) & 1) ? tr("ANT3")
+                                                  : QString());
+            };
+            refreshRadioLamps();
+            connect(p2_, &lyra::wire::P2RxBridge::frontEndFiltersChanged,
+                    radioLampHost, refreshRadioLamps);
+        }
 
         auto *pinHelp = new QLabel(tr(
             "<b>N2ADR example (stock board)</b> — column 1–7 mean this on that "
@@ -5418,6 +5501,89 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
                             stream_->noteOcGridEdited();
                         });
             }
+        }
+
+        // Radio's own filters per band (P2 ANAN / Brick3): read-only ticks
+        // in columns to the right of the J16 pins, computed from the same
+        // functions that build the radio's filter words (band centre).
+        // Hidden unless such a radio is open.
+        if (p2_) {
+            constexpr int kRxCol0 = 17;          // after the TX pins + gap
+            constexpr int kTxCol0 = kRxCol0 + 8;
+            grid->setColumnMinimumWidth(16, 14);
+            QVector<QWidget *> radioCells;
+            auto *rdiv = new QFrame;
+            rdiv->setFrameShape(QFrame::VLine);
+            rdiv->setStyleSheet(QStringLiteral("QFrame{color:#5a7c94;}"));
+            grid->addWidget(rdiv, 0, 16, 2 + nB, 1);
+            radioCells.append(rdiv);
+            auto *rxHdr = colHdr(QString(), QStringLiteral("#9acd32"));
+            auto *txHdr = colHdr(tr("Radio TX low-pass"),
+                                 QStringLiteral("#9acd32"));
+            grid->addWidget(rxHdr, 0, kRxCol0, 1, 7, Qt::AlignCenter);
+            grid->addWidget(txHdr, 0, kTxCol0, 1, 7, Qt::AlignCenter);
+            radioCells << rxHdr << txHdr;
+            QVector<QLabel *> rxColHdr;
+            for (int i = 0; i < 7; ++i) {
+                auto *rh = colHdr(QString(), QStringLiteral("#9acd32"));
+                auto *th = colHdr(QString::fromLatin1(kRadioTx[i].bpf),
+                                  QStringLiteral("#9acd32"));
+                grid->addWidget(rh, 1, kRxCol0 + i);
+                grid->addWidget(th, 1, kTxCol0 + i);
+                rxColHdr.append(rh);
+                radioCells << rh << th;
+            }
+            QVector<QVector<QCheckBox *>> rRx(nB), rTx(nB);
+            for (int b = 0; b < nB; ++b) {
+                for (int i = 0; i < 7; ++i) {
+                    auto *r = new QCheckBox;
+                    auto *t = new QCheckBox;
+                    for (QCheckBox *c : {r, t}) {
+                        // Read-only: the radio picks its own filters.
+                        c->setAttribute(Qt::WA_TransparentForMouseEvents);
+                        c->setFocusPolicy(Qt::NoFocus);
+                        c->setToolTip(tr("Chosen by the radio — not editable"));
+                    }
+                    grid->addWidget(r, 2 + b, kRxCol0 + i, Qt::AlignCenter);
+                    grid->addWidget(t, 2 + b, kTxCol0 + i, Qt::AlignCenter);
+                    rRx[b].append(r);
+                    rTx[b].append(t);
+                    radioCells << r << t;
+                }
+            }
+            const auto *bandList = &bands;   // static table
+            auto refreshRadioGrid = [this, radioCells, rxHdr, rxColHdr, rRx,
+                                     rTx, nB, bandList]() {
+                const bool show = !p2_->frontEndFilters().isEmpty() &&
+                                  !p2_->frontEndOnboard();
+                for (QWidget *w : radioCells) w->setVisible(show);
+                if (!show) return;
+                const bool hpf = p2_->frontEndClassicHpf();
+                rxHdr->setText(hpf ? tr("Radio RX high-pass")
+                                   : tr("Radio RX band-pass"));
+                for (int i = 0; i < 7; ++i)
+                    rxColHdr[i]->setText(QString::fromLatin1(
+                        hpf ? kRadioRx[i].hpf : kRadioRx[i].bpf));
+                for (int b = 0; b < nB; ++b) {
+                    const auto &bd = (*bandList)[static_cast<size_t>(b)];
+                    const quint32 mid = static_cast<quint32>(
+                        (static_cast<qint64>(bd.low) + bd.high) / 2);
+                    const int rxw = p2_->frontEndRxWordFor(mid);
+                    const int txw = p2_->frontEndTxWordFor(mid);
+                    for (int i = 0; i < 7; ++i) {
+                        rRx[b][i]->setChecked(
+                            rxw >= 0 && ((rxw >> kRadioRx[i].bit) & 1));
+                        rTx[b][i]->setChecked(
+                            txw >= 0 && ((txw >> kRadioTx[i].bit) & 1));
+                    }
+                }
+            };
+            // Only hide at build (a show() before the grid is parented would
+            // float the widget); the deferred refresh runs once it is.
+            for (QWidget *w : radioCells) w->hide();
+            QTimer::singleShot(0, page, refreshRadioGrid);
+            connect(p2_, &lyra::wire::P2RxBridge::frontEndFiltersChanged,
+                    page, refreshRadioGrid);
         }
 
         auto *xvHdr = new QLabel(tr("Xvtr chips (empty = pins off)"));

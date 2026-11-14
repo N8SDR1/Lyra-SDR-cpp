@@ -225,6 +225,42 @@ int main(int argc, char **argv) {
                          a7000->angeliaRxDdcSlots && !a7000->fixedTxFrontEnd,
                      "7000DLE / 8000DLE: Orion MkII BPF, on-air TX like 100D");
 
+        // Alex1 TX image in RECEIVE ([1428..1429]) — deskHPSDR parity:
+        // TX LPF + TX antenna (+ T/R relay when the PA is enabled).
+        ok &= expect(a7000->alex1TxImageInRx && !a100d->alex1TxImageInRx &&
+                         !g2->alex1TxImageInRx,
+                     "Alex1 TX image in RX: Orion MkII only");
+        {
+            P2Session mk;
+            mk.setProfile(a7000);
+            mk.setDucFrequencyHz(14'200'000u);
+            mk.setTrxAntenna(1);
+            const auto alex1Hi = [&mk](bool run) {
+                const QByteArray p = mk.diagnosticHighPriorityPacket(run);
+                return static_cast<quint16>(
+                    (static_cast<quint8>(p[1428]) << 8) |
+                    static_cast<quint8>(p[1429]));
+            };
+            const quint16 txw = a7000->alexTxWord(14'200'000u, 1);
+            ok &= expect(alex1Hi(true) == txw,
+                         "RX, PA off: Alex1 carries TX LPF+ANT, no T/R relay");
+            mk.diagnosticArmHealthyTx(false, false, 0);
+            mk.setPaHold(true);
+            ok &= expect(alex1Hi(true) == (txw | 0x0800),
+                         "RX, PA on: Alex1 TX image adds the T/R relay");
+            mk.diagnosticArmHealthyTx(true, true, 64);
+            const QByteArray keyed = mk.diagnosticHighPriorityPacket(true);
+            ok &= expect(keyed[1428] == keyed[1432] && keyed[1429] == keyed[1433],
+                         "keyed: Alex1 upper still mirrors Alex0 TX");
+
+            P2Session d100;
+            d100.setProfile(a100d);
+            d100.setDucFrequencyHz(14'200'000u);
+            const QByteArray rx100 = d100.diagnosticHighPriorityPacket(true);
+            ok &= expect(rx100[1428] == 0 && rx100[1429] == 0,
+                         "100D receive: Alex1 upper unchanged (zero)");
+        }
+
         P2Session classic;
         classic.setProfile(a100);
         classic.setRxInput(P2RxInput::Ext1);
@@ -241,6 +277,37 @@ int main(int argc, char **argv) {
                      "classic RX 7.1 MHz uses the 6.5 MHz HPF (not Saturn 9.5)");
         ok &= expect(classicRx(11'000'000u) == 0x0210,
                      "classic RX 11 MHz uses the 9.5 MHz HPF");
+    }
+
+    // Front-end filter readout (display only) — decoded from the same
+    // words the HP packet sends.
+    {
+        const auto *mk = p2ProfileForModel(QStringLiteral("ANAN-7000DLE"));
+        const auto *cl = p2ProfileForModel(QStringLiteral("ANAN-200D"));
+        const auto *br = p2ProfileForModel(QStringLiteral("BRICK-SDR"));
+        const QString mk20 = describeP2FrontEnd(
+            mk, 14'200'000u, 14'200'000u, P2RxInput::Trx, false, 1);
+        ok &= expect(mk20.contains(QStringLiteral("20-15 m BPF")) &&
+                         mk20.contains(QStringLiteral("30/20 m LPF")) &&
+                         mk20.contains(QStringLiteral("ANT1")),
+                     "7000 @ 20 m: 20-15 m BPF, 30/20 m LPF, ANT1");
+        const QString cl40 = describeP2FrontEnd(
+            cl, 7'100'000u, 7'100'000u, P2RxInput::Trx, false, 2);
+        ok &= expect(cl40.contains(QStringLiteral("6.5 MHz HPF")) &&
+                         cl40.contains(QStringLiteral("60/40 m LPF")) &&
+                         cl40.contains(QStringLiteral("ANT2")),
+                     "200D @ 40 m: 6.5 MHz HPF, 60/40 m LPF, ANT2");
+        ok &= expect(describeP2FrontEnd(cl, 7'100'000u, 7'100'000u,
+                                        P2RxInput::Trx, true, 1)
+                         .contains(QStringLiteral("HPF bypassed")),
+                     "HPF bypass shows as bypassed");
+        ok &= expect(describeP2FrontEnd(br, 7'100'000u, 7'100'000u,
+                                        P2RxInput::Trx, false, 1) ==
+                         QStringLiteral("Onboard filters (automatic)"),
+                     "BrickSDR: onboard filters (automatic)");
+        ok &= expect(describeP2FrontEnd(nullptr, 1u, 1u,
+                                        P2RxInput::Trx, false, 1).isEmpty(),
+                     "no profile: empty readout");
     }
 
     std::printf(ok ? "PASS: P2 G2 golden packets\n"
