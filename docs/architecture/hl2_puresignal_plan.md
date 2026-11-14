@@ -219,12 +219,13 @@ HL2-first design honors three P2 axes from the start:
 3. **Replace `P2RxBridge`'s `if (ddc != 0) return`** (single-DDC
    consumer) with a DDC→consumer dispatch table (RX2 needs this too).
 
-**Hardware gate (bench, same class as the HL2 mod):** deskHPSDR has
-**zero Brick PS precedent**, and Lyra's Brick path uses a fixed
-captured TX front-end constant with **no ADC-mux / PA-coupler control
-surface**. Whether the BrickSDR2 can present a PA-coupler sample to a
-feedback DDC is **UNVERIFIED** and must be answered on hardware before
-any Brick-specific PS work. HL2 PS is fully designable now regardless.
+**Hardware gate:** first RF is HL2/HL2+ with the coupler mod, dummy
+load. DeskHPSDR **does** ship PureSignal for Brick (generic P2:
+`HERMES_MODE_BRICK`, DDC0+DDC1 lock to DUC, `ALEX_PS_BIT`). The old
+“zero Brick PS precedent” line was wrong — it meant “no unique Brick
+mux,” not “no PS menu.” Brick implementation still waits until HL2
+dummy-load PS works. Thetis mux is fallback only if DeskHPSDR and
+hardware disagree. See `docs/architecture/puresignal_hl2.md`.
 
 ---
 
@@ -330,10 +331,12 @@ any Brick-specific PS work. HL2 PS is fully designable now regardless.
 
 **deskHPSDR P2 + Lyra P2 layer** (`new_protocol.c` / `P2Session.cpp` /
 `P2RxBridge.cpp`):
-- P2 run flag = `ALEX_PS_BIT` in HP Alex0/1 (`:1276-1279`); feedback on
-  DDC0/DDC1 synced via `[1363]=0x02`, **fixed 192k ps_rate**
-  (`:1852-1870`); coupler via `PS_RX_FEEDBACK->alex_antenna`
-  (`:1468-1469`). No Brick device in deskHPSDR.
+- P2 run flag = `ALEX_PS_BIT` (bit 18) in HP Alex0 (keyed) / Alex1
+  (whenever PS on); feedback DDC0+DDC1 lock to DUC when
+  `xmit && puresignal` (`new_protocol.c` ~1580–1591, ~1744–1747).
+  Brick is first-class (`HERMES_MODE_BRICK`, MAC 02:B2/02:B3). Same
+  `pscc` path as other Hermes P2 boxes. Thetis mux only if a capture
+  shows DeskHPSDR Alex/DDC words do not engage that Brick’s coupler.
 - Lyra P2: all 10 DDCs addressable (`P2Session.cpp:271`); PS bit
   reserved off (`:265`); interleave sync word left zero (`:242`);
   `P2RxBridge` consumes DDC0 only (`:64`); Brick uses fixed TX

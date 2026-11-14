@@ -30,6 +30,7 @@
 #include <thread>
 #include <vector>
 
+#include "dsp/deepfist/DeepFistCommit.h"
 #include "dsp/deepfist/DeepFistModel.h"
 #include "dsp/deepfist/DeepFistResampler.h"
 #include "dsp/deepfist/DeepFistRescore.h"
@@ -65,6 +66,13 @@ public:
     const std::string& lastError() const { return model_.lastError(); }
 
     void setSampleRate(double hz);      // input rate (default 48 kHz)
+
+    // Operator's CW pitch (Hz).  The tone lock searches only +/- 80 Hz around
+    // it, so a louder station elsewhere in the passband is never decoded
+    // instead.  0 = search the whole 400-1200 Hz band for the loudest tone
+    // (the original behaviour; also forced by LYRA_CW_TONELOCK=loudest).
+    void setToneHz(double hz) { toneHz_.store(static_cast<float>(hz),
+                                              std::memory_order_relaxed); }
 
     // Explicitly stop the worker thread and join it.  Idempotent (thin
     // wrapper over the private stopWorker(), which no-ops via
@@ -108,12 +116,19 @@ private:
     DeepFistScp       scp_;             // callsign DB for the lattice rescorer
     DeepFistResampler decim_{48000.0, 3200.0};
     std::atomic<float> blankPen_{0.0f}; // CTC blank penalty (live, UI↔worker)
+    std::atomic<float> toneHz_{0.0f};   // operator CW pitch (0 = loudest tone)
+
+    // Tuning, fixed at construction (env overrides for A/B against the
+    // original behaviour — see the .cpp).
+    bool   pinTone_   = true;
+    float  keyingMin_ = 6.0f;
+    float  maskHz_    = 150.0f;
+    DeepFistCommit commit_;             // worker-only
 
     // Shared rolling window (audio thread writes, worker reads), under mx_.
     std::mutex          mx_;
     std::vector<float>  ring_;          // fixed 6 s @ 3200 Hz, zero-padded
     long long           total3200_ = 0; // cumulative 3200 Hz samples seen
-    double              committedT_ = 0.0; // audio time already emitted (s)
     unsigned            gen_ = 0;       // bumped on reset() to discard in-flight
     bool                idleGap_ = false; // worker-only: in a keyed-CW pause
     int                 lastWpm_ = 0;     // worker-only: last emitted WPM

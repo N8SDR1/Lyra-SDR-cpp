@@ -333,7 +333,7 @@ noted as a possible future Lyra RX feature.
 ### 11.1 Handshake (`sendInit`, tci_server.cpp ~923-981) — present vs gap
 Advertises: `protocol Lyra,1.9` · `device HermesLite2` · `receive_only false`
 · `trx_count 1` · `channel_count 1` (+legacy `channels_count`) · `vfo_limits
-10000,55000000` · `if_limits ±rate/2` · `modulations_list
+10000,2147483647` (RF dial / Xvtr; not native-HL2 IF) · `if_limits ±rate/2` · `modulations_list
 USB,LSB,CWU,CWL,AM,SAM,DSB,FM,DIGU,DIGL(,CW)` · audio-stream params · `ready`.
 **Gaps:** advertises **1.9** though it speaks v2.0 binary streams (consider
 2.0); **no CW params echoed** at connect (`cw_macros_speed`/`_delay`/
@@ -343,8 +343,8 @@ TX); **`vfo_limits` hardcoded** (not band/HL2-derived).
 
 ### 11.2 Network-tab TCI settings (settingsdialog.cpp ~638-827)
 Present: bind host, port, rate-limit, send-initial-state, "add CW to
-modulations", emulate-ExpertSDR3, emulate-SunSDR2, RX-out gain, TX-in gain,
-master enable + status. **Missing (the operator's "settings we still need"):**
+modulations", emulate-ExpertSDR3, emulate-SunSDR2, RX-out gain (the
+TX-in gain spinner was retired as a no-op), master enable + status. **Missing (the operator's "settings we still need"):**
 - **CW group** (lands with the keyer): keyer WPM default, keyer mode
   (straight / iambic A / B), reverse paddles, weight, strict-spacing,
   break-in OFF/SEMI, hang/PTT-delay, HW-sidetone enable+level, CWX speed +

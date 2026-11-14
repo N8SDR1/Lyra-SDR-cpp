@@ -2,10 +2,13 @@
 // Lyra's led_freq.py (FrequencyDisplay) — same look + interactions.
 
 #include "freqdisplay.h"
+#include "vfo_snap.h"
 
 #include <QColor>
+#include <QCursor>
 #include <QFont>
 #include <QFontMetricsF>
+#include <QHoverEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -23,17 +26,39 @@ const QColor kAmberDim {60, 40, 15};      // unlit-segment ghost
 const QColor kSelect  {0, 229, 255};      // cyan selected-digit
 const QColor kFaint   {185, 202, 220};    // unit labels (MHz/kHz/Hz) — bright + readable
 
-int placeStep(int idx) {   // 10^idx, idx in [0, 8]
+int placeStep(int idx) {   // 10^idx, idx in [0, 9]
     int s = 1;
     for (int i = 0; i < idx; ++i) s *= 10;
     return s;
 }
+
+int wheelTicks(int angleDeltaY, int pixelDeltaY) {
+    if (angleDeltaY <= -120 || angleDeltaY >= 120)
+        return angleDeltaY / 120;
+    if (angleDeltaY != 0)
+        return angleDeltaY > 0 ? 1 : -1;
+    if (pixelDeltaY != 0)
+        return pixelDeltaY > 0 ? 1 : -1;
+    return 0;
+}
+
+FreqDisplay *g_ledUnderMouse = nullptr;
 } // namespace
+
+FreqDisplay *FreqDisplay::ledUnderMouse() {
+    return g_ledUnderMouse;
+}
 
 FreqDisplay::FreqDisplay(QQuickItem *parent) : QQuickPaintedItem(parent) {
     setAcceptedMouseButtons(Qt::LeftButton);
+    setAcceptHoverEvents(true);
     setFlag(ItemAcceptsInputMethod, false);
     setAntialiasing(true);
+}
+
+FreqDisplay::~FreqDisplay() {
+    if (g_ledUnderMouse == this)
+        g_ledUnderMouse = nullptr;
 }
 
 void FreqDisplay::setFreqHz(int hz) {
@@ -53,6 +78,13 @@ void FreqDisplay::setExternalStepHz(int hz) {
     }
     externalStepHz_ = hz;
     emit externalStepHzChanged();
+}
+
+void FreqDisplay::setStickyWheel(bool on) {
+    if (on == stickyWheel_)
+        return;
+    stickyWheel_ = on;
+    emit stickyWheelChanged();
 }
 
 void FreqDisplay::changeFreq(int deltaHz) {
@@ -78,23 +110,30 @@ int FreqDisplay::parseFreqInput(const QString &text) const {
         digits.remove(QLatin1Char(',')).remove(QLatin1Char('.'));
         bool ok = false;
         const qlonglong v = digits.toLongLong(&ok);
-        return ok ? static_cast<int>(v) : -1;
+        if (!ok) return -1;
+        return static_cast<int>(std::clamp(v, qlonglong(0),
+                                           qlonglong(FreqDisplay::kMaxHz)));
     }
     // Single separator = decimal point (MHz); comma is the Euro decimal.
     s.replace(QLatin1Char(','), QLatin1Char('.'));
     if (s.contains(QLatin1Char('.'))) {
         bool ok = false;
         const double mhz = s.toDouble(&ok);
-        return ok ? static_cast<int>(qRound64(mhz * 1.0e6)) : -1;
+        if (!ok) return -1;
+        const qlonglong hz = qRound64(mhz * 1.0e6);
+        return static_cast<int>(std::clamp(hz, qlonglong(0),
+                                           qlonglong(FreqDisplay::kMaxHz)));
     }
     bool ok = false;
     const qlonglong n = s.toLongLong(&ok);
     if (!ok) {
         return -1;
     }
-    if (n < 100)        return static_cast<int>(n * 1'000'000);   // MHz
-    if (n < 100'000)    return static_cast<int>(n * 1'000);       // kHz
-    return static_cast<int>(n);                                   // Hz
+    qlonglong hz = n;
+    if (n < 100)        hz = n * 1'000'000;   // MHz
+    else if (n < 100'000) hz = n * 1'000;     // kHz
+    return static_cast<int>(std::clamp(hz, qlonglong(0),
+                                       qlonglong(FreqDisplay::kMaxHz)));
 }
 
 void FreqDisplay::paint(QPainter *p) {
@@ -127,8 +166,11 @@ void FreqDisplay::paint(QPainter *p) {
     for (int i = 0; i < kNDigits; ++i) {
         const QChar ch = freqStr[i];
         const int placeIdx = kNDigits - 1 - i;   // leftmost char = highest place
+        // Include the cyan underline and a little slop so wheel/click on
+        // the mark still counts as that digit.
         digitRects_.emplace_back(
-            placeIdx, QRectF(x, baseY - fm.ascent(), digitW, fm.height()));
+            placeIdx,
+            QRectF(x - 1, baseY - fm.ascent() - 2, digitW + 2, fm.height() + 8));
 
         // Ghost "8" behind the digit.
         p->setPen(QPen(kAmberDim, 1));
@@ -152,14 +194,14 @@ void FreqDisplay::paint(QPainter *p) {
         }
 
         x += digitW;
-        if (i == 2 || i == 5) {                  // MHz.kHz.Hz separators
+        if (i == 3 || i == 6) {                  // MMMM.kkk.hhh separators
             p->setPen(QPen(kAmber, 1));
             p->drawText(QPointF(x, baseY), QStringLiteral("."));
             x += dotW;
         }
     }
 
-    // Group unit labels (MHz / kHz / Hz).
+    // Group unit labels (MHz / kHz / Hz).  MHz group is four digits.
     QFont unitFont;
     unitFont.setFamilies({QStringLiteral("Consolas")});
     unitFont.setPixelSize(std::max(11, static_cast<int>(h * 0.19)));
@@ -170,13 +212,14 @@ void FreqDisplay::paint(QPainter *p) {
     const qreal xs = (w - totalW) / 2.0;
     const qreal groupStarts[3] = {
         xs,
-        xs + 3 * digitW + dotW,
-        xs + 6 * digitW + 2 * dotW,
+        xs + 4 * digitW + dotW,
+        xs + 7 * digitW + 2 * dotW,
     };
+    const qreal groupWidths[3] = {4 * digitW, 3 * digitW, 3 * digitW};
     const char *labels[3] = {"MHz", "kHz", "Hz"};
     p->setPen(QPen(kFaint, 1));
     for (int g = 0; g < 3; ++g) {
-        const qreal center = groupStarts[g] + (3 * digitW) / 2.0;
+        const qreal center = groupStarts[g] + groupWidths[g] / 2.0;
         const QString lab = QString::fromLatin1(labels[g]);
         const qreal tw = ufm.horizontalAdvance(lab);
         p->drawText(QPointF(center - tw / 2.0, unitY), lab);
@@ -188,6 +231,7 @@ void FreqDisplay::mousePressEvent(QMouseEvent *e) {
         e->ignore();
         return;
     }
+    g_ledUnderMouse = this;
     for (const auto &[idx, rect] : digitRects_) {
         if (rect.contains(e->position())) {
             selected_ = idx;
@@ -210,24 +254,61 @@ void FreqDisplay::mouseDoubleClickEvent(QMouseEvent *e) {
     e->ignore();
 }
 
+void FreqDisplay::hoverEnterEvent(QHoverEvent *e) {
+    g_ledUnderMouse = this;
+    QQuickPaintedItem::hoverEnterEvent(e);
+}
+
+void FreqDisplay::hoverLeaveEvent(QHoverEvent *e) {
+    if (g_ledUnderMouse == this)
+        g_ledUnderMouse = nullptr;
+    QQuickPaintedItem::hoverLeaveEvent(e);
+}
+
+void FreqDisplay::handleWheel(int angleDeltaY, int pixelDeltaY, qreal x, qreal y) {
+    g_ledUnderMouse = this;
+    const int ticks = wheelTicks(angleDeltaY, pixelDeltaY);
+    if (ticks == 0)
+        return;
+    applyWheelAt(ticks, QPointF(x, y));
+}
+
+void FreqDisplay::nudgeByTicks(int ticks) {
+    if (ticks == 0)
+        return;
+    applyWheelAt(ticks, mapFromGlobal(QCursor::pos()));
+}
+
 void FreqDisplay::wheelEvent(QWheelEvent *e) {
-    const int units = e->angleDelta().y() / 120;
-    if (units == 0) {
+    g_ledUnderMouse = this;
+    const int ticks = wheelTicks(e->angleDelta().y(), e->pixelDelta().y());
+    if (ticks == 0) {
         e->ignore();
         return;
     }
+    applyWheelAt(ticks, e->position());
+    e->accept();
+}
+
+void FreqDisplay::applyWheelAt(int ticks, QPointF pos) {
     int hover = -1;
     for (const auto &[idx, rect] : digitRects_) {
-        if (rect.contains(e->position())) { hover = idx; selected_ = idx; break; }
+        if (rect.contains(pos)) {
+            hover = idx;
+            selected_ = idx;
+            update();
+            break;
+        }
     }
-    int step;
-    if (hover >= 0)              step = placeStep(hover);
-    else if (externalStepHz_ > 0) step = externalStepHz_;
-    else if (selected_ >= 0)      step = placeStep(selected_);
-    else { e->ignore(); return; }
-
-    changeFreq(units * step);
-    e->accept();
+    if (hover >= 0) {
+        changeFreq(ticks * placeStep(hover));
+        return;
+    }
+    if (externalStepHz_ <= 0)
+        return;
+    const int next = nextWheelHz(
+        freqHz_, externalStepHz_, ticks, stickyWheel_);
+    changeFreq(next - freqHz_);
 }
 
 void FreqDisplay::keyPressEvent(QKeyEvent *e) {

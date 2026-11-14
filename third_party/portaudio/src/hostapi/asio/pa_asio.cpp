@@ -1271,21 +1271,11 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
         IsDebuggerPresent_ = (IsDebuggerPresentPtr)GetProcAddress( LoadLibraryA( "Kernel32.dll" ), "IsDebuggerPresent" );
 
-        //[2.10.3.11]MW0LGE portaudio W4WMT
-        // check to see if cmASIO will be using a driver
-        const LPCSTR subKey = "SOFTWARE\\OpenHPSDR\\Thetis-x64";
-        const LPCSTR valueName = "ASIOdrivername";
-        char szData[32] = { 0 };
-        DWORD szDataSize = 32;  //length of ASIO driver names are limited to 32 bytes, including the zero terminator
-        // check Current User first
-        HKEY hKeyPath = HKEY_CURRENT_USER;
-        LSTATUS status = RegGetValueA(hKeyPath, subKey, valueName, RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, NULL, szData, &szDataSize);
-        if (*(char*)szData == 0)
-        {
-            // not found under current user, try local machine
-            hKeyPath = HKEY_LOCAL_MACHINE;
-            status = RegGetValueA(hKeyPath, subKey, valueName, RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, NULL, szData, &szDataSize);
-        }
+        // [Lyra local patch] Removed the inherited block that read another
+        // application's registry setting (its ASIO driver name) and hid
+        // that driver from this list.  Lyra must list every ASIO driver —
+        // a station may use the same interface in both programs.  See
+        // docs/architecture/asio_vac_plan.md §0.2.
         for( int i=0; i < driverCount; ++i )
         {
             PA_DEBUG(("ASIO names[%d]:%s\n",i,names[i]));
@@ -1301,7 +1291,6 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
                 || strcmp (names[i],"ASIO Multimedia Driver")          == 0
                 || strncmp(names[i],"Premiere",8)                      == 0   //"Premiere Elements Windows Sound 1.0"
                 || strncmp(names[i],"Adobe",5)                         == 0   //"Adobe Default Windows Sound 1.5"
-                || strcmp (names[i], szData)                           == 0   //driver that cmASIO is using, if there is one //[2.10.3.11]MW0LGE portaudio W4WMT
                )
             {
                 PA_DEBUG(("BLACKLISTED!!!\n"));

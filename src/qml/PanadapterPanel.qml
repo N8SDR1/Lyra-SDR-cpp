@@ -147,6 +147,7 @@ Item {
             Stream.setCtuneEnabled(false)
         var a = Stream.rx1FreqHz
         if (Stream.splitEnabled) {
+            Stream.setRptActive(false)   // a swap ends the RPT relation (as TuningPanel.swapAB)
             var bSplit = Stream.vfoBHz
             Stream.setVfoBHz(a)
             Stream.setRx1FreqHz(bSplit)
@@ -663,7 +664,7 @@ Item {
                     var carrier = root.vfoBHz
                     var mode = (Prefs.mode || "").toUpperCase()
                     var hi = Prefs.txBandwidth
-                    var lo = Prefs.filterLow
+                    var lo = Prefs.txFilterLow
                     if (mode === "CWU" || mode === "CWL" || mode === "CW")
                         return [carrier - 150, carrier + 150]
                     if (mode === "USB" || mode === "DIGU")
@@ -1022,6 +1023,25 @@ Item {
                 //                      1k… land on that grid).
                 // Then offset by the CW pitch so the DDS lands the signal in
                 // the filter.  rx 1 = VFO A / RX1; rx 2 = VFO B / RX2.
+                function applyWheelCarrier(carrierHz, rx) {
+                    // Wheel already used nextWheelHz on this surface's step.
+                    // Do not run click snapCarrier (nearest 100 Hz / Panafall)
+                    // — that is not directional and undoes sticky snap.
+                    if (rx === undefined)
+                        rx = root.panTuneRx
+                    var c = Math.round(carrierHz)
+                    if (rx === 2) {
+                        if (root.splitOn)
+                            Stream.setVfoBHz(c)
+                        else
+                            Stream.setRx2FreqHz(Math.round(
+                                c - WdspEngine.markerOffsetHzRx2))
+                        return
+                    }
+                    var ritOff = Stream.ritEnabled ? Stream.ritOffsetHz : 0
+                    Stream.setRx1FreqHz(Math.round(
+                        c - WdspEngine.markerOffsetHz - ritOff))
+                }
                 function tuneCarrier(carrierHz, rx) {
                     if (rx === undefined)
                         rx = root.panTuneRx
@@ -1211,8 +1231,9 @@ Item {
                     } else {
                         var dir = wheel.angleDelta.y > 0 ? 1 : -1
                         var rx = root.panTuneRx
-                        tuneCarrier(currentCarrierHz(rx)
-                                    + dir * Prefs.panScrollStepHz, rx)
+                        applyWheelCarrier(Prefs.nextWheelHz(
+                            Math.round(currentCarrierHz(rx)),
+                            Prefs.panScrollStepHz, dir), rx)
                     }
                     wheel.accepted = true
                 }
@@ -1646,7 +1667,7 @@ Item {
                         return { out: false, text: "" }
                     var mode = (Prefs.mode || "").toUpperCase()
                     var hi = Prefs.txBandwidth       // TX high edge (Hz)
-                    var lo = Prefs.filterLow         // TX low edge (Hz)
+                    var lo = Prefs.txFilterLow         // TX low edge (Hz)
                     var minF, maxF
                     if (mode === "CWU" || mode === "CWL" || mode === "CW") {
                         minF = carrier - 150; maxF = carrier + 150
@@ -1659,6 +1680,26 @@ Item {
                         minF = carrier - half; maxF = carrier + half
                     } else {   // AM / DSB / SAM — symmetric ±hi
                         minF = carrier - hi; maxF = carrier + hi
+                    }
+                    // HF amateur allocations don't cover 2 m / 70 cm / 23 cm.
+                    // An enabled Xvtr slot matching the TX carrier is the
+                    // operator's RF window — skip the HF out-of-band nag.
+                    // Still warn if occupied bandwidth walks off the slot.
+                    var _xvDep = Xvtr.activeSlot + Xvtr.activeSlotRx2
+                    var xv = Xvtr.matchingSlot(carrier)
+                    if (xv >= 0) {
+                        var slo = Xvtr.slotRfLoHz(xv)
+                        var shi = Xvtr.slotRfHiHz(xv)
+                        if (minF >= slo && maxF <= shi)
+                            return { out: false, text: "" }
+                        var xedge = (minF < slo) ? minF : maxF
+                        return { out: true,
+                                 text: "⚠  TX BANDWIDTH OVER THE EDGE\nyour "
+                                       + mode + " signal reaches "
+                                       + (xedge / 1e6).toFixed(3)
+                                       + " MHz — past the "
+                                       + (Xvtr.slotName(xv) || "Xvtr")
+                                       + " slot" }
                     }
                     var bMin = BandPlan.bandContaining(minF)
                     var bMax = BandPlan.bandContaining(maxF)
@@ -1698,7 +1739,7 @@ Item {
 
                 // CB channel markers — only when the 11m/CB band is enabled.
                 readonly property var cbChans:
-                    Prefs.cbBandEnabled
+                    (Prefs.cbBandEnabled && BandPlan.region.length)
                     ? BandPlan.cbChannels(root.centerHz, bandPlan.spanHz) : []
 
                 // EiBi shortwave broadcasters active in this span.  Eibi
@@ -1913,13 +1954,17 @@ Item {
                     }
                 }
 
-                // CB channel ticks + numbers (Ch1…Ch40) — click to QSY (AM).
+                // CB channel ticks + numbers (Ch1…Ch40) — click to QSY
+                // (AM / USB / LSB from Hardware band-plan region).
                 Repeater {
                     model: bandPlan.cbChans
                     delegate: Item {
                         id: cbItem
                         required property var modelData
                         readonly property real cx: bandPlan.xOf(modelData.freq)
+                        readonly property string md:
+                            (modelData.mode && modelData.mode.length)
+                            ? modelData.mode : "AM"
                         Rectangle {
                             x: cbItem.cx - 0.5; y: 14; width: 1; height: 9
                             color: "#b0c4d4"; opacity: 0.6
@@ -1948,16 +1993,16 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
-                                Prefs.mode = "AM"
+                                Prefs.mode = cbItem.md
                                 Stream.setRx1FreqHz(Math.round(cbItem.modelData.freq))
                                 Status.show(qsTr("Tuned to CB ") + cbItem.modelData.label
                                     + " — " + (cbItem.modelData.freq / 1.0e6).toFixed(4)
-                                    + " MHz AM", 2000)
+                                    + " MHz " + cbItem.md, 2000)
                             }
                             ToolTip.visible: (containsMouse) && Prefs.tooltipsEnabled
                             ToolTip.text: "CB " + cbItem.modelData.label + "  "
                                 + (cbItem.modelData.freq / 1.0e6).toFixed(3)
-                                + qsTr(" MHz AM")
+                                + " MHz " + cbItem.md
                                 + (cbItem.modelData.note !== ""
                                    ? "\n" + cbItem.modelData.note : "")
                                 + qsTr("\nClick to tune")
@@ -2086,11 +2131,14 @@ Item {
                 }
 
                 // #182 — colour legend (top-right) for by-mode / by-region.
+                // Sit left of the right-edge dB scale (DbLabels: width + 5 px)
+                // so CW/Phone/FT8/RTTY does not cover the upper tick numbers.
                 Rectangle {
                     visible: bandPlan.legendList.length > 0
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.margins: 6
+                    anchors.topMargin: 6
+                    anchors.rightMargin: 48
                     width: legendCol.width + 12
                     height: legendCol.height + 8
                     radius: 4
@@ -2226,9 +2274,9 @@ Item {
                     } else {
                         var dir = wheel.angleDelta.y > 0 ? 1 : -1
                         var rx = root.panTuneRx
-                        specMouse.tuneCarrier(
-                            specMouse.currentCarrierHz(rx)
-                            + dir * Prefs.panScrollStepHz, rx)
+                        specMouse.applyWheelCarrier(Prefs.nextWheelHz(
+                            Math.round(specMouse.currentCarrierHz(rx)),
+                            Prefs.panScrollStepHz, dir), rx)
                     }
                     wheel.accepted = true
                 }

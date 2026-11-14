@@ -9,6 +9,7 @@
 #include "timesync.h"
 #include "bandmemory.h"
 #include "genslots.h"
+#include "xvtrslots.h"
 #include "time_stations.h"
 #include "memorystore.h"
 #include "eibistore.h"
@@ -19,6 +20,9 @@
 // is being ripped along with the rest of the TX DSP subsystem and
 // rebuilt from empty files per docs/TX_ARCHITECTURAL_MAPPING.md §10.3.
 #include "tci_server.h"
+#include "tci/TciTxBridge.h"
+#include "desk_link.h"
+#include "desk_session.h"
 #include "cat/SerialPtt.h"
 #include "cat/SerialCwKey.h" // #171 serial CW key input
 #include "cat/CatServer.h"
@@ -26,6 +30,7 @@
 #include "tunermemory.h"
 #include "profile/ProfileManager.h"  // complete type for setContextProperty(QObject*)
 #include "profile/CompanionLauncher.h" // #193 launch digital app on explicit profile pick
+#include "appsstore.h"
 #include "eqmodel.h"                  // complete type for new EqModel + context property
 #include "speechmodel.h"              // complete type for new SpeechModel + context property
 #include "combinatormodel.h"          // complete type for new CombinatorModel + context property
@@ -33,10 +38,13 @@
 #include "profileui.h"                // native Save-Profile dialog (front panel)
 #include "wdsp_engine.h"
 #include "help.h"
+#include "helphint.h"
+#include "helpcard.h"
 #include "helpdialog.h"
 #include "logdialog.h"
 #include "hl2_discovery.h"
 #include "hl2_stream.h"
+#include "freqdisplay.h"
 #include "rig/RigRegistry.h"   // multi-rig — the Rig menu (switch active rig)
 #include "wdsp_engine.h"
 #include "prefs.h"
@@ -50,6 +58,7 @@
 #include "tx/VoiceKeyer.h"
 #include "wire/Ep6RecvThread.h"       // #89 B1 — ep6Thread().set_tx_clip_source(...)
 #include "wire/P2RxBridge.h"          // Saturn / ANAN G2 Protocol 2 RX path
+#include "wire/RadioNet.h"            // prn — refuse Start until create_rnet
 #include "hardware/ActiveFrontEndModel.h"
 #include "settingsdialog.h"
 #include "dockdragcontroller.h"
@@ -77,6 +86,8 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QKeyEvent>
+#include <QAbstractItemView>
+#include <QComboBox>
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPlainTextEdit>
@@ -93,17 +104,25 @@
 #include <QQuickWidget>
 #include <QQuickWindow>   // frameSwapped — crash-guard first-frame sentinel clear
 #include <QQuickItem>
+#include <QQuickItemGrabResult>
+#include <QScreen>
+#include <vector>
+#include <QRandomGenerator>
 #include <QSettings>
 #include <QVariant>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <algorithm>
+#include <cmath>
 #include <QStyle>
 #include <QToolBar>
 #include <QStatusBar>
 #include <QToolButton>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QDesktopServices>
 #include <QPushButton>
@@ -230,7 +249,48 @@ inline bool isChipSummonedPanel(const QString &objectName) {
         || objectName == QLatin1String("voicekeyer")
         || objectName == QLatin1String("tuner")
         || objectName == QLatin1String("freqcal")
-        || objectName == QLatin1String("recorder");
+        || objectName == QLatin1String("recorder")
+        || objectName == QLatin1String("ps")
+        || objectName == QLatin1String("ampview")
+        || objectName == QLatin1String("diversity");
+}
+
+// Qt restoreState() will not *hide* a dock that is already visible
+// (QTBUG-44935). Named-slot recall from factory therefore left
+// Profiles / Display open even though the saved slot had closed them.
+QVariantMap captureMainDockVis(
+        const QHash<QString, QDockWidget *> &docks) {
+    QVariantMap m;
+    for (auto it = docks.cbegin(); it != docks.cend(); ++it) {
+        QDockWidget *d = it.value();
+        if (!d || isChipSummonedPanel(it.key()))
+            continue;
+        m.insert(it.key(), d->isVisible());
+    }
+    return m;
+}
+
+void hideMainDocksForRestore(const QHash<QString, QDockWidget *> &docks) {
+    for (auto it = docks.cbegin(); it != docks.cend(); ++it) {
+        QDockWidget *d = it.value();
+        if (!d || isChipSummonedPanel(it.key()))
+            continue;
+        d->hide();
+    }
+}
+
+void applyMainDockVis(const QHash<QString, QDockWidget *> &docks,
+                      const QVariantMap &vis) {
+    if (vis.isEmpty())
+        return;
+    for (auto it = vis.cbegin(); it != vis.cend(); ++it) {
+        if (isChipSummonedPanel(it.key()))
+            continue;
+        QDockWidget *d = docks.value(it.key());
+        if (!d)
+            continue;
+        d->setVisible(it.value().toBool());
+    }
 }
 
 // Diagnostic: LYRA_TEST_SIZE=WxH opens the window at exactly that LOGICAL size.
@@ -274,6 +334,126 @@ inline QSize testWindowSize() {
 inline bool safeBootLayout() {
     return qEnvironmentVariableIsSet("LYRA_SAFE");
 }
+
+// A floating chip dock loses its frame the moment it is hidden: the next
+// show comes back at the size hint, wherever Qt drops it. Remember the last
+// on-screen position and size while the window is still floating, and put
+// that frame back on the next show. Reads happen on Move/Resize/Hide, before
+// Qt folds the float back into the dock area.
+class FloatingDockMemory : public QObject {
+public:
+    FloatingDockMemory(QDockWidget *dock, const QString &settingsKey,
+                       const bool *layoutRestoring, QObject *parent)
+        : QObject(parent), dock_(dock), key_(settingsKey),
+          layoutRestoring_(layoutRestoring), debounce_(this) {
+        QSettings s;
+        pos_ = s.value(key_ + QStringLiteral("/pos")).toPoint();
+        size_ = s.value(key_ + QStringLiteral("/size")).toSize();
+        have_ = size_.isValid() && size_.width() >= 160 && size_.height() >= 40;
+        dock_->installEventFilter(this);
+        debounce_.setSingleShot(true);
+        debounce_.setInterval(150);
+        connect(&debounce_, &QTimer::timeout, this, [this]() { persist(); });
+        connect(dock_, &QDockWidget::visibilityChanged, this, [this](bool vis) {
+            if (!vis)
+                return;
+            // Qt resizes a float back to its size hint before this signal.
+            // tracking_ stays false across that, so the hint cannot replace
+            // the frame we stored on the way down.
+            if (!layoutBusy() && have_)
+                armRecall();
+            else
+                QTimer::singleShot(80, this, [this]() {
+                    tracking_ = dock_->isVisible();
+                });
+        });
+    }
+
+protected:
+    bool eventFilter(QObject *o, QEvent *e) override {
+        if (o != dock_ || recalling_ || !tracking_)
+            return QObject::eventFilter(o, e);
+        const bool live = dock_->isFloating()
+                          && (dock_->isVisible() || e->type() == QEvent::Hide);
+        if (live && (e->type() == QEvent::Move || e->type() == QEvent::Resize
+                     || e->type() == QEvent::Hide)) {
+            const QSize sz = dock_->size();
+            if (sz.width() >= 160 && sz.height() >= 40) {
+                pos_ = dock_->pos();
+                size_ = sz;
+                have_ = true;
+                if (e->type() == QEvent::Hide) {
+                    tracking_ = false;
+                    persist();
+                } else if (!layoutBusy()) {
+                    debounce_.start();
+                }
+            } else if (e->type() == QEvent::Hide) {
+                tracking_ = false;
+            }
+        }
+        return QObject::eventFilter(o, e);
+    }
+
+private:
+    bool layoutBusy() const {
+        return (layoutRestoring_ && *layoutRestoring_)
+               || safeBootLayout()
+               || testWindowSize().isValid();
+    }
+
+    void persist() {
+        if (!have_ || layoutBusy())
+            return;
+        QSettings s;
+        s.setValue(key_ + QStringLiteral("/pos"), pos_);
+        s.setValue(key_ + QStringLiteral("/size"), size_);
+    }
+
+    void armRecall() {
+        if (!have_ || layoutBusy())
+            return;
+        recalling_ = true;
+        QTimer::singleShot(0, this, [this]() { apply(); });
+        QTimer::singleShot(60, this, [this]() {
+            apply();
+            recalling_ = false;
+            tracking_ = dock_->isVisible();
+        });
+    }
+
+    void apply() {
+        if (!have_ || !dock_->isVisible())
+            return;
+        if (!dock_->isFloating())
+            dock_->setFloating(true);
+        dock_->resize(size_);
+        dock_->move(clampPos(pos_, size_));
+    }
+
+    static QPoint clampPos(QPoint p, const QSize &sz) {
+        QScreen *scr = QGuiApplication::screenAt(p + QPoint(sz.width() / 2, 24));
+        if (!scr)
+            scr = QGuiApplication::primaryScreen();
+        if (!scr)
+            return p;
+        const QRect a = scr->availableGeometry();
+        const QRect frame(p, sz);
+        if (a.intersects(frame.adjusted(0, 0, -sz.width() + 80, -sz.height() + 48)))
+            return p;
+        return a.topLeft() + QPoint(48, 48);
+    }
+
+    QDockWidget *dock_ = nullptr;
+    QString key_;
+    const bool *layoutRestoring_ = nullptr;
+    QTimer debounce_;
+    QPoint pos_;
+    QSize size_;
+    bool have_ = false;
+    bool recalling_ = false;
+    bool tracking_ = false;
+};
 
 // The session layout is stored per DISPLAY SETUP, not in one global slot.
 //
@@ -352,6 +532,21 @@ public:
 private:
     Prefs *prefs_;
 };
+
+int protocolHintForIp(lyra::ipc::HL2Discovery *disc, const QString &ip) {
+    if (ip.isEmpty()) return 0;
+    if (disc) {
+        const auto saved = disc->savedRadio();
+        if (saved.value(QStringLiteral("ip")).toString() == ip)
+            return saved.value(QStringLiteral("protocol"), 1).toInt();
+    }
+    for (const auto &r : lyra::rig::registry::rigs()) {
+        if (r.lastIp == ip)
+            return lyra::rig::capabilitiesFor(r.family).protocol;
+    }
+    return 0;
+}
+
 } // namespace
 
 MainWindow::MainWindow(QObject *discovery, QObject *stream,
@@ -364,7 +559,12 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
       wdsp_(wdsp), wdspEngine_(wdspEngine), prefs_(prefs), wx_(wx),
       profiles_(profiles) {
     setWindowTitle(QStringLiteral(
-        "Lyra — v" LYRA_VERSION " (C++23 / Qt 6)"));
+        "Lyra — v" LYRA_VERSION " " LYRA_VERSION_NAME " (C++23 / Qt 6)"));
+    // A side-by-side test build (own settings key) says so in the title.
+    if (QCoreApplication::applicationName() != QLatin1String("Lyra-cpp"))
+        setWindowTitle(windowTitle() + QStringLiteral("  [")
+                       + QCoreApplication::applicationName()
+                       + QStringLiteral("]"));
     setObjectName(QStringLiteral("LyraMainWindow"));
     resize(1100, 760);
 
@@ -493,7 +693,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     connect(recorder_, &lyra::recorder::RecorderEngine::error, this,
             [this](const QString &m) { statusBar()->showMessage(m, 8000); });
     connect(recorder_, &lyra::recorder::RecorderEngine::snapshotDue, this,
-            [this] { captureRecorderSnapshot(); });
+            [this] { captureRecorderSnapshot(); }, Qt::QueuedConnection);
     // Panel ⚙ shortcut → open Settings → Recording.
     connect(recorder_, &lyra::recorder::RecorderEngine::settingsRequested, this,
             [this] { openSettingsTopic(QStringLiteral("recorder")); });
@@ -503,10 +703,12 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         const qint64 f = stream_ ? stream_->property("rx1FreqHz").toLongLong() : 0;
         return qMakePair(f, prefs_ ? prefs_->mode() : QString());
     });
-    // Refuse to record while the stream is stopped (would just capture silence).
+    // Refuse to record while the radio is stopped (would just capture silence).
     recorder_->setCanRecordProbe([this]() -> bool {
-        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-        return st && st->isRunning();
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+            if (st->isRunning()) return true;
+        if (p2Bridge_ && p2Bridge_->isRunning()) return true;
+        return stream_ && stream_->property("running").toBool();
     });
 
     // #201 Stage 5 — offline MP4 converter.  Runs a below-normal-priority
@@ -571,6 +773,14 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     // GEN1/2/3 general-coverage slots (shortwave / MW quick-tune).
     gen_ = new GenSlots(
         prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_), this);
+
+    xvtr_ = new XvtrSlots(
+        qobject_cast<lyra::ipc::HL2Stream *>(stream_), prefs_, this);
+    xvtr_->setAttApply([this](int db) {
+        if (p2Bridge_)
+            p2Bridge_->setRxAttenuationDb(db);
+    });
+    xvtr_->reapplyStoredGain();
 
     // HF time-station TIME cycle (TIME button on the GEN row).
     time_ = new TimeStations(
@@ -639,6 +849,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
             if (doc.isObject()) eqModel_->loadState(doc.object());
         }
         auto save = [this]() {
+            if (lyra::deskApplyQuiet()) return;
             QSettings st;
             st.setValue(QStringLiteral("txeq/state"),
                         QString::fromUtf8(QJsonDocument(eqModel_->saveState())
@@ -690,23 +901,27 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
                 if (!player->active()) return false;   // no lock on the idle path
                 return player->fillBlock(n, buf);
             });
-        // #89 Stage C — mic-record tap: read-only observer of the real mic
-        // (before injection), feeds the recorder while a voice message records.
+        // #89 Stage C — mic-record tap: HL2 EP6 jack (before VAC/TCI select).
+        // PARKED: follow the live mic source (see VoiceKeyer.h).
         auto *recorder = voiceKeyer_->recorder();
         st->ep6Thread().set_mic_record_tap(
             [recorder](int n, const double *iq) { recorder->feedMicPairs(iq, n); });
-        // #89 C2 — RX-record tap: the post-RX-DSP "what you heard" audio feeds
-        // the voice-keyer clip recorder while an RX clip records AND the #201
-        // session recorder while a session records (both lock-free no-ops
-        // otherwise — each gates on its own atomic).  One tap, two consumers.
-        if (auto *we = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
-            auto *sessionRec = recorder_;
-            we->setRxRecordTap(
-                [recorder, sessionRec](const double *audio, int n) {
-                    recorder->feedRxStereoDup(audio, n);
-                    if (sessionRec) sessionRec->feedAudioDoubles(audio, n, 2);
-                });
-        }
+        // #89 C2 — mic-path voice-keyer recorder is HL2-only (EP6 mic).
+        // The RX session-recorder tap is installed below for both P1 and P2.
+    }
+
+    // #201 session recorder + #89 RX-clip tap: post-RX-DSP "what you heard".
+    // Must live on WdspEngine regardless of Protocol 1 vs 2 — gating this
+    // behind HL2Stream left Protocol 2 with empty WAVs (and a silent tap
+    // if the stream object is not an HL2Stream).
+    if (auto *we = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
+        auto *clipRec = voiceKeyer_ ? voiceKeyer_->recorder() : nullptr;
+        auto *sessionRec = recorder_;
+        we->setRxRecordTap(
+            [clipRec, sessionRec](const double *audio, int n) {
+                if (clipRec) clipRec->feedRxStereoDup(audio, n);
+                if (sessionRec) sessionRec->feedAudioDoubles(audio, n, 2);
+            });
     }
 
     // #59 RX parametric EQ model (drives RxEqPanel.qml, "RxEq" context
@@ -752,6 +967,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
             if (doc.isObject()) speechModel_->loadState(doc.object());
         }
         connect(speechModel_, &SpeechModel::changed, this, [this]() {
+            if (lyra::deskApplyQuiet()) return;
             QSettings st;
             st.setValue(QStringLiteral("txspeech/state"),
                         QString::fromUtf8(QJsonDocument(speechModel_->saveState())
@@ -774,6 +990,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
             if (doc.isObject()) combinatorModel_->loadState(doc.object());
         }
         auto save = [this]() {
+            if (lyra::deskApplyQuiet()) return;
             QSettings st;
             st.setValue(QStringLiteral("txcombinator/state"),
                         QString::fromUtf8(QJsonDocument(combinatorModel_->saveState())
@@ -796,6 +1013,7 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
             if (doc.isObject()) plateModel_->loadState(doc.object());
         }
         auto save = [this]() {
+            if (lyra::deskApplyQuiet()) return;
             QSettings st;
             st.setValue(QStringLiteral("txplate/state"),
                         QString::fromUtf8(QJsonDocument(plateModel_->saveState())
@@ -841,8 +1059,9 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     });
 
     // TCI server — lets loggers/cluster apps drive + read Lyra over a
-    // WebSocket (Settings → Network).  START/STOP from a client route
-    // through onStartStop, guarded so they only act when state differs.
+    // WebSocket (Settings → Network).  START may open a stopped radio;
+    // STOP must not close it or drop MOX (clients send STOP on silent
+    // TCI RX audio during TX).
     tci_ = new TciServer(prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_),
                          qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_),
                          spots_, this);
@@ -855,6 +1074,1067 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     // contact row (CwMacros, created above) with a linked logger.  Same
     // lifetime story — both parented to this window.
     tci_->setCwMacros(cwMacros_);
+    desk_ = new DeskLink(this);
+    tci_->setDeskLink(desk_);
+    desk_->setRxTap([this](const qint16 *pcm, int n) {
+        if (tci_) tci_->offerDeskRx(pcm, n);
+    });
+    desk_->setMicSink([this](const qint16 *pcm, int n) {
+        if (!pcm || n <= 0 || !tci_ || !tci_->deskOwnsVoice()) return;
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (!st || !st->moxActive()) return;
+        // The laptop applies its own mic gain before packing MIC1.
+        // These samples enter the modulator at unity. The host Mic
+        // slider, Leveler, and Drive stay on the rack after this.
+        std::vector<float> mono(static_cast<size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            const float s = pcm[i] / 32768.0f;
+            mono[static_cast<size_t>(i)] = std::clamp(s, -1.0f, 1.0f);
+        }
+        lyra::tci::TciTxBridge::instance().pushMono(mono);
+    });
+    connect(desk_, &DeskLink::statusMessage, this,
+            [this](const QString &msg) {
+                if (!msg.isEmpty()) statusBar()->showMessage(msg, 6000);
+            });
+    connect(desk_, &DeskLink::changed, this, &MainWindow::updateConnState);
+    if (auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
+        rx->setDeskAudioTap([this](const double *lr, int nframes) {
+            if (desk_) desk_->offerRxAudio(lr, nframes);
+        });
+        auto syncDeskLevel = [this, rx]() {
+            if (!desk_ || !desk_->attached() || desk_->isHost()) return;
+            desk_->setPlayPos(rx->volume());
+            desk_->setPlayMuted(rx->muted());
+            desk_->setPlayPosRx2(rx->volumeRx2());
+            desk_->setPlayMutedRx2(rx->mutedRx2());
+            desk_->setSidetoneHz(rx->cwPitchHz());
+        };
+        connect(rx, &lyra::dsp::WdspEngine::volumeChanged, this, syncDeskLevel);
+        connect(rx, &lyra::dsp::WdspEngine::mutedChanged, this, syncDeskLevel);
+        connect(rx, &lyra::dsp::WdspEngine::volumeRx2Changed, this, syncDeskLevel);
+        connect(rx, &lyra::dsp::WdspEngine::mutedRx2Changed, this, syncDeskLevel);
+        connect(rx, &lyra::dsp::WdspEngine::cwPitchChanged, this, syncDeskLevel);
+        connect(rx, &lyra::dsp::WdspEngine::cwPitchChanged, this, [this, rx]() {
+            // Host only. The desk applies this pitch; it does not send
+            // its own number back.
+            if (desk_ && desk_->attached() && desk_->isHost())
+                desk_->sendPitch(rx->cwPitchHz());
+        });
+        connect(desk_, &DeskLink::changed, this, syncDeskLevel);
+        desk_->setSpectrumSource([this](float *dst, int maxN, int *center, int *span) {
+            auto *engine = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+            auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+            if (!engine || !st || !center || !span) return 0;
+            *center = int(st->rx1FreqHz());
+            return engine->copyHostSpectrumForDesk(dst, maxN, span);
+        });
+        desk_->setRx2SpectrumSource([this](float *dst, int maxN, int *center, int *span) {
+            auto *engine = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+            auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+            if (!engine || !st || !center || !span) return 0;
+            *center = int(st->rx2FreqHz());
+            return engine->copyRx2SpectrumCache(dst, maxN, span);
+        });
+        connect(desk_, &DeskLink::spectrumFrame, this, [this](int span) {
+            if (auto *engine = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_))
+                engine->postDeskSpectrum(desk_->spectrumDb(),
+                                         desk_->spectrumCount(), span);
+        });
+        connect(desk_, &DeskLink::spectrumRx2Frame, this, [this](int span) {
+            if (auto *engine = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_))
+                engine->postDeskSpectrumRx2(desk_->spectrumRx2Db(),
+                                            desk_->spectrumRx2Count(), span);
+        });
+        desk_->setCwAudioTap([this](const qint16 *left, const qint16 *right, int n) {
+            auto *engine = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+            auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+            if (!engine || !left || n <= 0) return;
+            const qint16 *pcm = left;
+            if (right && st && st->subEnabled() && st->focusedRx() == 2)
+                pcm = right;
+            engine->feedRemoteCwAudio(pcm, n);
+        });
+    }
+    connect(desk_, &DeskLink::remoteFreq, this, [this](quint32 hz) {
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+            st->setRx1FreqHz(hz);
+    });
+    connect(desk_, &DeskLink::remotePitch, this, [this](int hz) {
+        // The freq line is the DDS. The host VFO shows DDS + this pitch
+        // in CWU/CWL. Apply it here so the desk LED and spectrum marker
+        // use the same offset. The host keeps its own pitch.
+        if (!desk_ || desk_->isHost()) return;
+        if (auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_))
+            rx->setCwPitchHz(hz);
+    });
+    connect(desk_, &DeskLink::remoteMode, this, [this](const QString &mode) {
+        if (prefs_) prefs_->setMode(mode);
+    });
+    connect(desk_, &DeskLink::remoteBandwidth, this, [this](int hz) {
+        if (!prefs_) return;
+        if (desk_ && desk_->isHost()) {
+            if (prefs_->rxBandwidth() != hz) noteDeskFilters();
+            lyra::setDeskApplyQuiet(true);
+            prefs_->setRxBandwidth(hz);
+            lyra::setDeskApplyQuiet(false);
+            return;
+        }
+        prefs_->setRxBandwidth(hz);
+    });
+    connect(desk_, &DeskLink::remoteRit, this, [this](bool on, int offset) {
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (!st) return;
+        if (desk_ && desk_->isHost()) {
+            if (st->ritEnabled() != on) noteDeskRx();
+            lyra::setDeskApplyQuiet(true);
+            st->setRitEnabled(on);
+            lyra::setDeskApplyQuiet(false);
+            st->setRitOffsetHz(offset);
+            return;
+        }
+        st->setRitEnabled(on);
+        st->setRitOffsetHz(offset);
+    });
+    connect(desk_, &DeskLink::remoteSplit, this, [this](bool on) {
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+            st->setSplitEnabled(on);
+    });
+    connect(desk_, &DeskLink::remoteAgc, this, [this](const QString &mode) {
+        auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+        if (!rx) return;
+        const QString m = mode.toLower();
+        if (desk_ && desk_->isHost()) {
+            if (rx->agcMode() == m) return;
+            noteDeskRx();
+            lyra::setDeskApplyQuiet(true);
+            rx->setAgcMode(m);
+            lyra::setDeskApplyQuiet(false);
+            return;
+        }
+        rx->setAgcMode(m);
+    });
+    connect(desk_, &DeskLink::remoteNr, this, [this](bool on) {
+        auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+        if (!rx) return;
+        if (desk_ && desk_->isHost()) {
+            if (rx->nrEnabled() == on) return;
+            noteDeskRx();
+            lyra::setDeskApplyQuiet(true);
+            rx->setNrEnabled(on);
+            lyra::setDeskApplyQuiet(false);
+            return;
+        }
+        rx->setNrEnabled(on);
+    });
+    connect(desk_, &DeskLink::remoteNnr, this, [this](bool on) {
+        auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+        if (!rx) return;
+        if (desk_ && desk_->isHost()) {
+            if (rx->nnrEnabled() == on) return;
+            noteDeskRx();
+            lyra::setDeskApplyQuiet(true);
+            rx->setNnrEnabled(on);
+            lyra::setDeskApplyQuiet(false);
+            return;
+        }
+        rx->setNnrEnabled(on);
+    });
+    connect(desk_, &DeskLink::remoteNb, this, [this](bool on, double strength) {
+        auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+        if (!rx) return;
+        if (desk_ && desk_->isHost()) {
+            const bool same = rx->nbEnabled() == on
+                && std::lround(rx->nbStrength() * 1000.0)
+                       == std::lround(strength * 1000.0);
+            if (same) return;
+            noteDeskRx();
+            lyra::setDeskApplyQuiet(true);
+            rx->setNbEnabled(on);
+            rx->setNbStrength(strength);
+            lyra::setDeskApplyQuiet(false);
+            return;
+        }
+        rx->setNbEnabled(on);
+        rx->setNbStrength(strength);
+    });
+    connect(desk_, &DeskLink::remoteBin, this, [this](bool on, double depth) {
+        if (auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
+            rx->setBinEnabled(on);
+            rx->setBinDepth(depth);
+        }
+    });
+    connect(desk_, &DeskLink::remoteAnf, this, [this](bool on) {
+        auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+        if (!rx) return;
+        if (desk_ && desk_->isHost()) {
+            if (rx->anfEnabled() == on) return;
+            noteDeskRx();
+            lyra::setDeskApplyQuiet(true);
+            rx->setAnfEnabled(on);
+            lyra::setDeskApplyQuiet(false);
+            return;
+        }
+        rx->setAnfEnabled(on);
+    });
+    connect(desk_, &DeskLink::remoteLms, this, [this](bool on, double strength) {
+        auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+        if (!rx) return;
+        if (desk_ && desk_->isHost()) {
+            const bool same = rx->lmsEnabled() == on
+                && std::lround(rx->lmsStrength() * 1000.0)
+                       == std::lround(strength * 1000.0);
+            if (same) return;
+            noteDeskRx();
+            lyra::setDeskApplyQuiet(true);
+            rx->setLmsEnabled(on);
+            rx->setLmsStrength(strength);
+            lyra::setDeskApplyQuiet(false);
+            return;
+        }
+        rx->setLmsEnabled(on);
+        rx->setLmsStrength(strength);
+    });
+    connect(desk_, &DeskLink::remoteApf, this, [this](bool on, double gainDb) {
+        auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+        if (!rx) return;
+        if (desk_ && desk_->isHost()) {
+            const bool same = rx->apfEnabled() == on
+                && std::lround(rx->apfGainDb() * 10.0)
+                       == std::lround(gainDb * 10.0);
+            if (same) return;
+            noteDeskRx();
+            lyra::setDeskApplyQuiet(true);
+            rx->setApfEnabled(on);
+            rx->setApfGainDb(gainDb);
+            lyra::setDeskApplyQuiet(false);
+            return;
+        }
+        rx->setApfEnabled(on);
+        rx->setApfGainDb(gainDb);
+    });
+    connect(desk_, &DeskLink::remoteTxBandwidth, this, [this](int hz) {
+        if (!prefs_) return;
+        if (desk_ && desk_->isHost()) {
+            if (prefs_->txBandwidth() != hz) noteDeskFilters();
+            lyra::setDeskApplyQuiet(true);
+            prefs_->setTxBandwidth(hz);
+            lyra::setDeskApplyQuiet(false);
+            return;
+        }
+        prefs_->setTxBandwidth(hz);
+    });
+    connect(desk_, &DeskLink::remoteTxLow, this, [this](int hz) {
+        if (!prefs_) return;
+        if (desk_ && desk_->isHost()) {
+            if (prefs_->txFilterLow() != hz) noteDeskFilters();
+            lyra::setDeskApplyQuiet(true);
+            prefs_->setTxFilterLow(hz);
+            lyra::setDeskApplyQuiet(false);
+            return;
+        }
+        prefs_->setTxFilterLow(hz);
+    });
+    connect(desk_, &DeskLink::remoteRxLow, this, [this](int hz) {
+        if (!prefs_) return;
+        if (desk_ && desk_->isHost()) {
+            if (prefs_->filterLow() != hz) noteDeskFilters();
+            lyra::setDeskApplyQuiet(true);
+            prefs_->setFilterLow(hz);
+            lyra::setDeskApplyQuiet(false);
+            return;
+        }
+        prefs_->setFilterLow(hz);
+    });
+    connect(desk_, &DeskLink::remoteDeskProfile, this, [this](const QByteArray &json) {
+        applyDeskProfile(json);
+    });
+    connect(desk_, &DeskLink::remotePs, this,
+            [this](int live, int fb, int att, int correcting, int cal, int fsm,
+                   int d0, int d1, int spr) {
+        if (!desk_ || desk_->isHost()) return;
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+            st->postDeskPureSignal(live != 0, fb, att, correcting != 0,
+                                   cal, fsm, d0, d1, spr);
+    });
+    connect(desk_, &DeskLink::remotePsPlot, this, [this](const QByteArray &raw) {
+        if (!desk_ || desk_->isHost()) return;
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (!st || raw.size() != 64 * 4 * 2) return;
+        const auto unpack = [&raw](int off) {
+            QVariantList out;
+            const auto *p = reinterpret_cast<const qint16 *>(raw.constData() + off);
+            out.reserve(64);
+            for (int i = 0; i < 64; ++i)
+                out.append(double(p[i]) / 1000.0);
+            return out;
+        };
+        st->postDeskPsPlot(unpack(0), unpack(128), unpack(256), unpack(384));
+    });
+    connect(desk_, &DeskLink::remotePsReset, this, [this]() {
+        if (!desk_ || !desk_->isHost()) return;
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+            st->resetPureSignal();
+    });
+    connect(desk_, &DeskLink::remotePsArm, this, [this](bool on) {
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (!st || !desk_ || !desk_->isHost()) return;
+        if (on) {
+            const bool radioUp = st->isRunning()
+                || (p2Bridge_ && p2Bridge_->isRunning());
+            if (st->txInhibit() || !radioUp
+                || st->psDigitalLockout()) {
+                deskPsMs_ = 0;
+                pushDeskPs();
+                return;
+            }
+        }
+        st->setPsArmed(on);
+        deskPsMs_ = 0;
+        pushDeskPs();
+    });
+    connect(desk_, &DeskLink::sessionEnded, this, [this](bool wasHost) {
+        if (wasHost) {
+            restoreDeskSession();
+            // The desk key path can latch the Brick TX transport. That
+            // latch is in memory and survives Drop / Detach. Re-prime
+            // once the unkey has finished so the shack can key locally.
+            QTimer::singleShot(500, this, [this]() {
+                if (p2Bridge_)
+                    p2Bridge_->recoverLocalTx();
+            });
+            return;
+        }
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+            st->clearDeskPureSignal();
+            st->refreshDualAdcFromSettings();
+            st->setSuppressLocalTxBadge(false);
+        }
+        if (auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_))
+            rx->clearDeskSpectrumRx2();
+        if (desk_) desk_->setLocalSidetone(false);
+    });
+    connect(desk_, &DeskLink::remoteRig, this, [this](int protocol, const QString &) {
+        if (frontEnd_) frontEnd_->setDeskProtocol(protocol);
+        if (p2Bridge_ && protocol != 2 && !p2Bridge_->isRunning())
+            p2Bridge_->postDeskAntenna(false, 0, 0, {});
+        updateConnState();
+    });
+    connect(desk_, &DeskLink::remoteAntenna, this,
+            [this](bool alex, int count, int mask, int trx, int rx,
+                   const QString &ext) {
+        if (!p2Bridge_) return;
+        if (p2Bridge_->isRunning()) {
+            if (!alex) return;
+            p2Bridge_->setTrxAntenna(trx);
+            p2Bridge_->setRxInput(rx);
+            return;
+        }
+        p2Bridge_->postDeskAntenna(alex, count, mask, ext);
+        if (!alex) return;
+        p2Bridge_->setTrxAntenna(trx);
+        p2Bridge_->setRxInput(rx);
+    });
+    connect(desk_, &DeskLink::remoteBandAntenna, this,
+            [this](const QString &band, int ant, int rx) {
+        if (!p2Bridge_) return;
+        p2Bridge_->setAntennaForBand(band, ant);
+        p2Bridge_->setRxInputForBand(band, rx);
+    });
+    connect(desk_, &DeskLink::remoteSub, this, [this](bool on) {
+        if (desk_ && !desk_->isHost() && !on) {
+            if (auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_))
+                rx->clearDeskSpectrumRx2();
+        }
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+            st->setSubEnabled(on);
+    });
+    connect(desk_, &DeskLink::remoteAdc, this, [this](int n) {
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (!st || !desk_ || desk_->isHost()) return;
+        if (n <= 0) st->refreshDualAdcFromSettings();
+        else st->setDualAdc(n > 1);
+    });
+    connect(desk_, &DeskLink::remoteRx2, this, [this](quint32 hz) {
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+            st->setRx2FreqHz(hz);
+    });
+    auto deskTxLimit = [this]() {
+        const QString mode = prefs_ ? prefs_->mode().toUpper() : QString();
+        if (mode == QLatin1String("CWU") || mode == QLatin1String("CWL")
+            || mode == QLatin1String("CW"))
+            return 150;
+        return 200;
+    };
+    auto deskTxRefuse = [this, deskTxLimit]() -> QString {
+        if (!desk_ || !desk_->voiceHeld()) return QStringLiteral("voice");
+        if (tci_ && tci_->browserOwnsVoice()) return QStringLiteral("busy");
+        const QString mode = prefs_ ? prefs_->mode().toUpper() : QString();
+        if (mode == QLatin1String("DIGU") || mode == QLatin1String("DIGL")
+            || mode == QLatin1String("DRM"))
+            return QStringLiteral("mode");
+        const int rtt = desk_->rttMs();
+        if (rtt < 0 || rtt >= deskTxLimit()) return QStringLiteral("rtt");
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+            if (st->txInhibit()) return QStringLiteral("inhibit");
+        }
+        return {};
+    };
+    auto unkeyDesk = [this]() {
+        if (desk_) {
+            if (desk_->digitalWanted()) {
+                desk_->setDigitalWanted(false);
+                desk_->sendDigitalState(false);
+            }
+            desk_->setKeying(false);
+        }
+        if (tci_) tci_->releaseDeskDigitalInput();
+        if (deskCwLatched_) {
+            deskCwLatched_ = false;
+            if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+                st->applyRemoteCw(false, false);
+        }
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+            st->setTuneEnabled(false);
+            st->setTwoToneEnabled(false);
+            st->requestMox(false);
+        }
+    };
+    connect(desk_, &DeskLink::voiceRequested, this, [this, deskTxLimit]() {
+        if (!desk_ || !desk_->isHost()) return;
+        if (tci_ && tci_->browserOwnsVoice()) {
+            desk_->sendVoiceDeny(QStringLiteral("busy"));
+            return;
+        }
+        if (!prefs_ || !prefs_->remotePasswordSet()) {
+            desk_->sendVoiceDeny(QStringLiteral("no_password"));
+            return;
+        }
+        if (desk_->rttMs() < 0 || desk_->rttMs() >= deskTxLimit()) {
+            desk_->sendVoiceDeny(QStringLiteral("rtt"));
+            return;
+        }
+        QString word;
+        int sec = 0;
+        if (!desk_->voiceGateOpen(&word, &sec)) {
+            desk_->sendVoiceHold(word, sec);
+            return;
+        }
+        QByteArray nonce(32, 0);
+        auto *rng = QRandomGenerator::system();
+        for (int i = 0; i < nonce.size(); ++i)
+            nonce[i] = char(rng->generate() & 0xff);
+        QByteArray salt;
+        int iters = 0;
+        prefs_->remotePasswordChallenge(&salt, &iters);
+        desk_->sendVoiceChallenge(nonce, salt, iters);
+    });
+    connect(desk_, &DeskLink::voiceProof, this, [this](const QByteArray &mac) {
+        if (!desk_ || !prefs_) return;
+        const QByteArray nonce = desk_->takeVoiceNonce();
+        if (nonce.isEmpty() || !prefs_->remoteVoiceProofMatches(nonce, mac)) {
+            desk_->noteVoiceFail();
+            return;
+        }
+        if (tci_ && !tci_->setDeskOwnsVoice(true)) {
+            desk_->sendVoiceDeny(QStringLiteral("busy"));
+            return;
+        }
+        desk_->noteVoiceGrant();
+    });
+    connect(desk_, &DeskLink::voiceEnded, this, [this]() {
+        if (desk_) {
+            desk_->setDigitalWanted(false);
+            desk_->dropVoiceHold();
+            desk_->setKeying(false);
+        }
+        if (tci_) tci_->setDeskOwnsVoice(false);
+        if (tci_) tci_->releaseDeskDigitalInput();
+        if (deskCwLatched_) {
+            deskCwLatched_ = false;
+            if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+                st->applyRemoteCw(false, false);
+        }
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+            st->setTuneEnabled(false);
+            st->setTwoToneEnabled(false);
+            st->requestMox(false);
+        }
+        restoreDeskSession();
+    });
+    connect(desk_, &DeskLink::forceUnkey, this, unkeyDesk);
+    connect(desk_, &DeskLink::remoteMox, this, [this, deskTxRefuse](bool on) {
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (!st || !desk_) return;
+        if (!on) {
+            if (!desk_->keying()) return;
+            desk_->setKeying(false);
+            st->setTuneEnabled(false);
+            st->setTwoToneEnabled(false);
+            st->requestMox(false);
+            return;
+        }
+        const QString why = deskTxRefuse();
+        if (!why.isEmpty()) {
+            if (why != QLatin1String("voice"))
+                desk_->sendVoiceDeny(why);
+            desk_->sendMox(st->moxActive(), false);
+            return;
+        }
+        desk_->setKeying(true);
+        // Voice power is the Drive slider. Drop a leftover Tune-only
+        // override so this key cannot go out at the Tune level, or at
+        // 0 if that override was cleared without rewriting the slider.
+        if (!st->tuneEnabled())
+            st->setTuneDriveOverride(-1);
+        st->requestMox(true);
+    });
+    connect(desk_, &DeskLink::remoteTune, this, [this, deskTxRefuse](bool on) {
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (!st || !desk_) return;
+        if (!on) {
+            if (!desk_->keying() && !st->tuneEnabled()) return;
+            desk_->setKeying(false);
+            st->setTuneEnabled(false);
+            st->setTwoToneEnabled(false);
+            st->requestMox(false);
+            return;
+        }
+        const QString why = deskTxRefuse();
+        if (!why.isEmpty()) {
+            if (why != QLatin1String("voice"))
+                desk_->sendVoiceDeny(why);
+            return;
+        }
+        desk_->setKeying(true);
+        st->setTuneEnabled(true);
+        st->requestMox(true);
+    });
+    connect(desk_, &DeskLink::remoteTwoTone, this, [this, deskTxRefuse](bool on) {
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (!st || !desk_) return;
+        if (!on) {
+            if (!desk_->keying() && !st->twoToneEnabled()) return;
+            desk_->setKeying(false);
+            st->setTwoToneEnabled(false);
+            st->requestMox(false);
+            return;
+        }
+        const QString why = deskTxRefuse();
+        if (!why.isEmpty()) {
+            if (why != QLatin1String("voice"))
+                desk_->sendVoiceDeny(why);
+            desk_->sendTwoToneOn(false);
+            return;
+        }
+        desk_->setKeying(true);
+        st->setTwoToneEnabled(true);
+        st->requestMox(true);
+    });
+    connect(desk_, &DeskLink::remoteDigital, this, [this, deskTxLimit](bool on) {
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (!st || !desk_) return;
+        if (!on) {
+            desk_->setDigitalWanted(false);
+            if (tci_) tci_->releaseDeskDigitalInput();
+            if (!desk_->keying()) return;
+            desk_->setKeying(false);
+            st->setTuneEnabled(false);
+            st->setTwoToneEnabled(false);
+            st->requestMox(false);
+            return;
+        }
+        // Same voice, busy, RTT, and inhibit gates as MOX. The DIGU
+        // block stays on the laptop microphone. Digital audio uses
+        // deskTxLimit: 150 ms in CW/CWU/CWL, 200 ms otherwise.
+        QString why;
+        if (!desk_->voiceHeld())
+            why = QStringLiteral("voice");
+        else if (tci_ && tci_->browserOwnsVoice())
+            why = QStringLiteral("busy");
+        else if (desk_->rttMs() < 0 || desk_->rttMs() >= deskTxLimit())
+            why = QStringLiteral("rtt");
+        else if (st->txInhibit())
+            why = QStringLiteral("inhibit");
+        if (!why.isEmpty()) {
+            if (why != QLatin1String("voice"))
+                desk_->sendVoiceDeny(why);
+            desk_->sendDigitalState(false);
+            return;
+        }
+        desk_->setDigitalWanted(true);
+        desk_->setKeying(true);
+        if (tci_) tci_->armDeskDigitalInput();
+        if (!st->tuneEnabled())
+            st->setTuneDriveOverride(-1);
+        st->requestMox(true);
+        if (st->moxActive())
+            desk_->sendDigitalState(true);
+    });
+    connect(desk_, &DeskLink::remoteCwEdge, this, [this, deskTxRefuse](bool key, bool ptt) {
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (!st || !desk_ || !desk_->isHost()) return;
+        auto dropDeskCw = [this, st]() {
+            if (!deskCwLatched_) return;
+            deskCwLatched_ = false;
+            st->applyRemoteCw(false, false);
+        };
+        if (!key && !ptt) {
+            dropDeskCw();
+            return;
+        }
+        const QString mode = prefs_ ? prefs_->mode().toUpper() : QString();
+        const bool cw = mode == QLatin1String("CW")
+                        || mode == QLatin1String("CWU")
+                        || mode == QLatin1String("CWL");
+        if (!cw) {
+            dropDeskCw();
+            return;
+        }
+        const QString why = deskTxRefuse();
+        if (!why.isEmpty()) {
+            dropDeskCw();
+            if (why != QLatin1String("voice"))
+                desk_->sendVoiceDeny(why);
+            return;
+        }
+        st->applyRemoteCw(key, ptt);
+        deskCwLatched_ = key || ptt;
+    });
+    connect(desk_, &DeskLink::changed, this, [this, deskTxLimit]() {
+        if (!desk_ || !desk_->isHost()) return;
+        const int rtt = desk_->rttMs();
+        if (rtt >= deskTxLimit() && deskCwLatched_) {
+            deskCwLatched_ = false;
+            if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+                st->applyRemoteCw(false, false);
+        }
+        if (!desk_->keying()) return;
+        if (rtt >= deskTxLimit()) {
+            if (desk_->digitalWanted()) {
+                desk_->setDigitalWanted(false);
+                desk_->sendDigitalState(false);
+                if (tci_) tci_->releaseDeskDigitalInput();
+            }
+            desk_->setKeying(false);
+            if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+                st->setTuneEnabled(false);
+                st->setTwoToneEnabled(false);
+                st->requestMox(false);
+            }
+            desk_->sendVoiceDeny(QStringLiteral("rtt"));
+        }
+    });
+    connect(desk_, &DeskLink::remoteFrontEnd, this, [this](int value, bool autoOn, int adc) {
+        if (!frontEnd_) return;
+        frontEnd_->setValue(value);
+        frontEnd_->setAutoEnabled(autoOn);
+        if (frontEnd_->p2Active()) frontEnd_->setAdcIndex(adc);
+    });
+    connect(desk_, &DeskLink::remoteSquelch, this, [this](bool on, double th) {
+        auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+        if (!rx) return;
+        if (desk_ && desk_->isHost()) {
+            const bool same = rx->squelchEnabled() == on
+                && std::lround(rx->squelchThreshold() * 1000.0)
+                       == std::lround(th * 1000.0);
+            if (same) return;
+            noteDeskRx();
+            lyra::setDeskApplyQuiet(true);
+            rx->setSquelchEnabled(on);
+            rx->setSquelchThreshold(th);
+            lyra::setDeskApplyQuiet(false);
+            return;
+        }
+        rx->setSquelchEnabled(on);
+        rx->setSquelchThreshold(th);
+    });
+    connect(desk_, &DeskLink::remoteDrive, this, [this](int level) {
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+            st->setTxDriveLevel(level);
+    });
+    connect(desk_, &DeskLink::remoteTuneDrive, this,
+            [this](int mode, int tunePct, int fixedPct) {
+        if (!prefs_ || !desk_) return;
+        if (desk_->isHost()) {
+            const bool differ = prefs_->tuneDriveMode() != mode
+                || prefs_->tuneDrivePct() != tunePct
+                || prefs_->fixedTuneDrivePct() != fixedPct;
+            if (differ && !deskUndoTuneDrive_) {
+                deskUndoTuneMode_ = prefs_->tuneDriveMode();
+                deskUndoTunePct_ = prefs_->tuneDrivePct();
+                deskUndoFixedTune_ = prefs_->fixedTuneDrivePct();
+                deskUndoTuneDrive_ = true;
+            }
+            lyra::setDeskApplyQuiet(true);
+            prefs_->setTuneDriveMode(mode);
+            prefs_->setTuneDrivePct(tunePct);
+            prefs_->setFixedTuneDrivePct(fixedPct);
+            lyra::setDeskApplyQuiet(false);
+            auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+            if (!st || !st->tuneEnabled()) return;
+            int pct = -1;
+            if (mode == lyra::ui::Prefs::TuneDriveTune) pct = tunePct;
+            else if (mode == lyra::ui::Prefs::TuneDriveFixed) pct = fixedPct;
+            if (pct < 0)
+                st->setTuneDriveOverride(-1);
+            else
+                st->setTuneDriveOverride(std::clamp(
+                    int(std::lround(pct * 255.0 / 100.0)), 0, 255));
+            return;
+        }
+        prefs_->setTuneDriveMode(mode);
+        prefs_->setTuneDrivePct(tunePct);
+        prefs_->setFixedTuneDrivePct(fixedPct);
+    });
+    connect(desk_, &DeskLink::remoteMeters, this, [this](double dbm, double fwd, double rev) {
+        if (auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_))
+            rx->postDeskMeter(dbm);
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+            st->postDeskPower(fwd, rev);
+    });
+    connect(desk_, &DeskLink::peerReady, this, [this]() {
+        if (!desk_ || !desk_->isHost()) return;
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+        // Pitch before the DDS, so the desk's first carrier paint
+        // already uses the host offset.
+        if (rx) desk_->sendPitch(rx->cwPitchHz());
+        if (st) desk_->sendTune(st->rx1FreqHz());
+        if (prefs_) {
+            desk_->sendTuneDrive(prefs_->tuneDriveMode(),
+                                 prefs_->tuneDrivePct(),
+                                 prefs_->fixedTuneDrivePct());
+            desk_->sendMode(prefs_->mode());
+            desk_->sendBandwidth(prefs_->rxBandwidth());
+            desk_->sendTxBandwidth(prefs_->txBandwidth());
+            desk_->sendTxLow(prefs_->txFilterLow());
+            desk_->sendRxLow(prefs_->filterLow());
+        }
+        if (st) {
+            desk_->sendAdcCount(st->dualAdc() ? 2 : 1);
+            desk_->setSendRx2Audio(st->subEnabled());
+            desk_->setSendRx2Spectrum(st->subEnabled() && st->dualAdc());
+            desk_->sendRit(st->ritEnabled(), st->ritOffsetHz());
+            desk_->sendSplit(st->splitEnabled());
+            desk_->sendSub(st->subEnabled());
+            desk_->sendRx2(st->rx2FreqHz());
+            desk_->sendDrive(st->txDriveLevel());
+            desk_->sendMox(st->moxActive(), false);
+            desk_->sendTuneOn(st->tuneEnabled());
+            desk_->sendTwoToneOn(st->twoToneEnabled());
+        }
+        if (rx) {
+            desk_->sendAgc(rx->agcMode());
+            desk_->sendNr(rx->nrEnabled());
+            desk_->sendNnr(rx->nnrEnabled());
+            desk_->sendNb(rx->nbEnabled(), rx->nbStrength());
+            desk_->sendBin(rx->binEnabled(), rx->binDepth());
+            desk_->sendAnf(rx->anfEnabled());
+            desk_->sendLms(rx->lmsEnabled(), rx->lmsStrength());
+            desk_->sendApf(rx->apfEnabled(), rx->apfGainDb());
+            desk_->sendSquelch(rx->squelchEnabled(), rx->squelchThreshold());
+        }
+        if (p2Bridge_ && p2Bridge_->isRunning()) {
+            const QString label = p2Bridge_->modelLabel().isEmpty()
+                ? QStringLiteral("Protocol 2") : p2Bridge_->modelLabel();
+            desk_->sendRig(2, label);
+            desk_->sendFrontEnd(p2Bridge_->rxAttenuationDb(),
+                                p2Bridge_->autoStep(), p2Bridge_->ddcAdc());
+            if (p2Bridge_->hasAlexAntennaSelect())
+                desk_->sendAntenna(true, p2Bridge_->trxAntennaCount(),
+                                   p2Bridge_->rxJackMask(),
+                                   p2Bridge_->trxAntenna(),
+                                   p2Bridge_->rxInput(),
+                                   p2Bridge_->rxExt1Label());
+            else
+                desk_->sendAntenna(false, 0, 0, 1, 0, {});
+        } else if (st && st->isRunning()) {
+            const auto rp = lyra::rig::registry::rig(
+                lyra::rig::registry::activeRigId());
+            const QString label = rp.label.isEmpty()
+                ? lyra::rig::capabilitiesFor(rp.family).familyName : rp.label;
+            desk_->sendRig(1, label.isEmpty() ? QStringLiteral("Protocol 1") : label);
+            desk_->sendFrontEnd(st->lnaGainDb(), st->autoLna(), 0);
+            desk_->sendAntenna(false, 0, 0, 1, 0, {});
+        } else {
+            desk_->sendRig(0, {});
+            desk_->sendAntenna(false, 0, 0, 1, 0, {});
+        }
+        deskPsMs_ = 0;
+        deskPlotMs_ = 0;
+        pushDeskPs();
+        pushDeskPlot();
+    });
+    connect(desk_, &DeskLink::metersTick, this, [this]() {
+        if (!desk_ || !desk_->isHost()) return;
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+        const double dbm = meter_ ? meter_->rxSMeterDbm()
+                                  : (rx ? rx->sMeterDbm() : -200.0);
+        const double fwd = st ? st->fwdPowerCalW() : 0.0;
+        const double rev = st ? st->revPowerW() : 0.0;
+        desk_->sendMeters(dbm, fwd, rev);
+    });
+    if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+        connect(st, &lyra::ipc::HL2Stream::rx1FreqChanged, this, [this, st]() {
+            if (desk_ && desk_->attached())
+                desk_->sendTune(st->rx1FreqHz());
+        });
+        connect(st, &lyra::ipc::HL2Stream::ritChanged, this, [this, st]() {
+            if (desk_ && desk_->attached())
+                desk_->sendRit(st->ritEnabled(), st->ritOffsetHz());
+        });
+        connect(st, &lyra::ipc::HL2Stream::splitEnabledChanged, this, [this, st]() {
+            if (desk_ && desk_->attached())
+                desk_->sendSplit(st->splitEnabled());
+        });
+        connect(st, &lyra::ipc::HL2Stream::txDriveLevelChanged, this,
+                [this, st](int) {
+            if (desk_ && desk_->attached())
+                desk_->sendDrive(st->txDriveLevel());
+        });
+    }
+    if (prefs_) {
+        connect(prefs_, &Prefs::modeChanged, this, [this]() {
+            if (desk_ && desk_->attached())
+                desk_->sendMode(prefs_->mode());
+        });
+        auto pushTuneDrive = [this]() {
+            if (!desk_ || !desk_->attached() || !prefs_) return;
+            desk_->sendTuneDrive(prefs_->tuneDriveMode(),
+                                 prefs_->tuneDrivePct(),
+                                 prefs_->fixedTuneDrivePct());
+        };
+        connect(prefs_, &Prefs::tuneDriveModeChanged, this, pushTuneDrive);
+        connect(prefs_, &Prefs::tuneDrivePctChanged, this, pushTuneDrive);
+        connect(prefs_, &Prefs::fixedTuneDrivePctChanged, this, pushTuneDrive);
+        connect(prefs_, &Prefs::rxBandwidthChanged, this, [this]() {
+            if (desk_ && desk_->attached())
+                desk_->sendBandwidth(prefs_->rxBandwidth());
+        });
+        connect(prefs_, &Prefs::txBandwidthChanged, this, [this]() {
+            if (desk_ && desk_->attached())
+                desk_->sendTxBandwidth(prefs_->txBandwidth());
+        });
+        connect(prefs_, &Prefs::txFilterLowChanged, this, [this]() {
+            if (desk_ && desk_->attached())
+                desk_->sendTxLow(prefs_->txFilterLow());
+        });
+        connect(prefs_, &Prefs::filterLowChanged, this, [this]() {
+            if (desk_ && desk_->attached())
+                desk_->sendRxLow(prefs_->filterLow());
+        });
+    }
+    if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+        const auto push = [this]() { pushDeskPs(); };
+        connect(st, &lyra::ipc::HL2Stream::psLiveArmedChanged, this, push);
+        connect(st, &lyra::ipc::HL2Stream::psFeedbackLevelChanged, this, push);
+        connect(st, &lyra::ipc::HL2Stream::psAutoAttDbChanged, this, push);
+        connect(st, &lyra::ipc::HL2Stream::psCorrectingChanged, this, push);
+        connect(st, &lyra::ipc::HL2Stream::psCalCountChanged, this, push);
+        connect(st, &lyra::ipc::HL2Stream::psFsmStateChanged, this, push);
+        connect(st, &lyra::ipc::HL2Stream::psAmpPlotChanged, this, [this]() {
+            pushDeskPlot();
+        });
+    }
+    if (auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
+        connect(rx, &lyra::dsp::WdspEngine::agcModeChanged, this, [this, rx]() {
+            if (desk_ && desk_->attached())
+                desk_->sendAgc(rx->agcMode());
+        });
+        connect(rx, &lyra::dsp::WdspEngine::nrChanged, this, [this, rx]() {
+            if (desk_ && desk_->attached()) {
+                desk_->sendNr(rx->nrEnabled());
+                desk_->sendNnr(rx->nnrEnabled());
+            }
+        });
+        connect(rx, &lyra::dsp::WdspEngine::nbChanged, this, [this, rx]() {
+            if (desk_ && desk_->attached())
+                desk_->sendNb(rx->nbEnabled(), rx->nbStrength());
+        });
+        connect(rx, &lyra::dsp::WdspEngine::binChanged, this, [this, rx]() {
+            if (desk_ && desk_->attached())
+                desk_->sendBin(rx->binEnabled(), rx->binDepth());
+        });
+        connect(rx, &lyra::dsp::WdspEngine::anfChanged, this, [this, rx]() {
+            if (desk_ && desk_->attached())
+                desk_->sendAnf(rx->anfEnabled());
+        });
+        connect(rx, &lyra::dsp::WdspEngine::lmsChanged, this, [this, rx]() {
+            if (desk_ && desk_->attached())
+                desk_->sendLms(rx->lmsEnabled(), rx->lmsStrength());
+        });
+        connect(rx, &lyra::dsp::WdspEngine::apfChanged, this, [this, rx]() {
+            if (desk_ && desk_->attached())
+                desk_->sendApf(rx->apfEnabled(), rx->apfGainDb());
+        });
+        connect(rx, &lyra::dsp::WdspEngine::squelchChanged, this, [this, rx]() {
+            if (desk_ && desk_->attached())
+                desk_->sendSquelch(rx->squelchEnabled(), rx->squelchThreshold());
+        });
+    }
+    auto pushDeskRig = [this]() {
+        if (!desk_ || !desk_->attached() || !desk_->isHost()) return;
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        if (p2Bridge_ && p2Bridge_->isRunning()) {
+            const QString label = p2Bridge_->modelLabel().isEmpty()
+                ? QStringLiteral("Protocol 2") : p2Bridge_->modelLabel();
+            desk_->sendRig(2, label);
+            desk_->sendFrontEnd(p2Bridge_->rxAttenuationDb(),
+                                p2Bridge_->autoStep(), p2Bridge_->ddcAdc());
+            if (p2Bridge_->hasAlexAntennaSelect())
+                desk_->sendAntenna(true, p2Bridge_->trxAntennaCount(),
+                                   p2Bridge_->rxJackMask(),
+                                   p2Bridge_->trxAntenna(),
+                                   p2Bridge_->rxInput(),
+                                   p2Bridge_->rxExt1Label());
+            else
+                desk_->sendAntenna(false, 0, 0, 1, 0, {});
+        } else if (st && st->isRunning()) {
+            const auto rp = lyra::rig::registry::rig(
+                lyra::rig::registry::activeRigId());
+            const QString label = rp.label.isEmpty()
+                ? lyra::rig::capabilitiesFor(rp.family).familyName : rp.label;
+            desk_->sendRig(1, label.isEmpty() ? QStringLiteral("Protocol 1") : label);
+            desk_->sendFrontEnd(st->lnaGainDb(), st->autoLna(), 0);
+            desk_->sendAntenna(false, 0, 0, 1, 0, {});
+        } else {
+            desk_->sendRig(0, {});
+            desk_->sendAntenna(false, 0, 0, 1, 0, {});
+        }
+    };
+    if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+        st->setCwEdgeHook([this](bool key, bool ptt) {
+            QMetaObject::invokeMethod(this, [this, key, ptt]() {
+                if (!desk_ || !desk_->attached() || desk_->isHost()) return;
+                desk_->sendCwEdge(key, ptt);
+            }, Qt::QueuedConnection);
+        });
+        connect(st, &lyra::ipc::HL2Stream::txTimeoutFired, this, [this]() {
+            if (!desk_ || !desk_->isHost() || !deskCwLatched_) return;
+            deskCwLatched_ = false;
+            if (auto *s = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+                s->applyRemoteCw(false, false);
+        });
+        connect(st, &lyra::ipc::HL2Stream::txInhibitChanged, this, [this](bool on) {
+            if (!on || !desk_ || !desk_->isHost() || !deskCwLatched_) return;
+            deskCwLatched_ = false;
+            if (auto *s = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+                s->applyRemoteCw(false, false);
+        });
+        connect(st, &lyra::ipc::HL2Stream::runningChanged, this, pushDeskRig);
+        connect(st, &lyra::ipc::HL2Stream::subEnabledChanged, this, [this, st]() {
+            if (!desk_ || !desk_->attached()) return;
+            if (desk_->isHost()) {
+                desk_->sendAdcCount(st->dualAdc() ? 2 : 1);
+                desk_->setSendRx2Audio(st->subEnabled());
+                desk_->setSendRx2Spectrum(st->subEnabled() && st->dualAdc());
+            }
+            desk_->sendSub(st->subEnabled());
+        });
+        connect(st, &lyra::ipc::HL2Stream::dualAdcChanged, this, [this, st]() {
+            if (!desk_ || !desk_->attached() || !desk_->isHost()) return;
+            desk_->sendAdcCount(st->dualAdc() ? 2 : 1);
+            desk_->setSendRx2Spectrum(st->subEnabled() && st->dualAdc());
+        });
+        connect(st, &lyra::ipc::HL2Stream::rx2FreqChanged, this, [this, st]() {
+            if (desk_ && desk_->attached()) desk_->sendRx2(st->rx2FreqHz());
+        });
+        connect(st, &lyra::ipc::HL2Stream::moxActiveChanged, this, [this, st](bool on) {
+            if (!desk_ || !desk_->attached() || !desk_->isHost()) return;
+            if (!on) {
+                const bool dig = desk_->digitalWanted();
+                desk_->setKeying(false);
+                if (dig) {
+                    desk_->setDigitalWanted(false);
+                    desk_->sendDigitalState(false);
+                    if (tci_) tci_->releaseDeskDigitalInput();
+                }
+            } else if (desk_->digitalWanted()) {
+                desk_->sendDigitalState(true);
+            }
+            desk_->sendMox(on, on && desk_->keying());
+        });
+        connect(st, &lyra::ipc::HL2Stream::tuneEnabledChanged, this, [this, st](bool on) {
+            if (!desk_ || !desk_->attached() || !desk_->isHost()) return;
+            if (!on && !st->moxActive())
+                desk_->setKeying(false);
+            desk_->sendTuneOn(on);
+        });
+        connect(st, &lyra::ipc::HL2Stream::twoToneEnabledChanged, this, [this, st](bool on) {
+            if (!desk_ || !desk_->attached() || !desk_->isHost()) return;
+            if (!on && !st->moxActive())
+                desk_->setKeying(false);
+            desk_->sendTwoToneOn(on);
+        });
+        connect(st, &lyra::ipc::HL2Stream::lnaGainChanged, this, [this, st]() {
+            if (!desk_ || !desk_->attached()) return;
+            if (desk_->isHost()) {
+                if ((p2Bridge_ && p2Bridge_->isRunning()) || !st->isRunning()) return;
+                desk_->sendFrontEnd(st->lnaGainDb(), st->autoLna(), 0);
+                return;
+            }
+            if (frontEnd_ && !frontEnd_->p2Active())
+                desk_->sendFrontEnd(frontEnd_->value(), frontEnd_->autoEnabled(), 0);
+        });
+        connect(st, &lyra::ipc::HL2Stream::autoLnaChanged, this, [this, st]() {
+            if (!desk_ || !desk_->attached()) return;
+            if (desk_->isHost()) {
+                if ((p2Bridge_ && p2Bridge_->isRunning()) || !st->isRunning()) return;
+                desk_->sendFrontEnd(st->lnaGainDb(), st->autoLna(), 0);
+                return;
+            }
+            if (frontEnd_ && !frontEnd_->p2Active())
+                desk_->sendFrontEnd(frontEnd_->value(), frontEnd_->autoEnabled(), 0);
+        });
+    }
+    if (p2Bridge_) {
+        connect(p2Bridge_, &lyra::wire::P2RxBridge::runningChanged, this, pushDeskRig);
+        connect(p2Bridge_, &lyra::wire::P2RxBridge::frontEndChanged, this, [this]() {
+            if (!desk_ || !desk_->attached() || !p2Bridge_) return;
+            if (desk_->isHost()) {
+                if (!p2Bridge_->isRunning()) return;
+                desk_->sendFrontEnd(p2Bridge_->rxAttenuationDb(),
+                                    p2Bridge_->autoStep(), p2Bridge_->ddcAdc());
+                if (p2Bridge_->hasAlexAntennaSelect())
+                    desk_->sendAntenna(true, p2Bridge_->trxAntennaCount(),
+                                       p2Bridge_->rxJackMask(),
+                                       p2Bridge_->trxAntenna(),
+                                       p2Bridge_->rxInput(),
+                                       p2Bridge_->rxExt1Label());
+                return;
+            }
+            if (frontEnd_ && frontEnd_->p2Active()) {
+                desk_->sendFrontEnd(frontEnd_->value(), frontEnd_->autoEnabled(),
+                                    frontEnd_->adcIndex());
+                if (desk_->hostProtocol() == 2 && p2Bridge_->hasAlexAntennaSelect())
+                    desk_->sendAntenna(true, p2Bridge_->trxAntennaCount(),
+                                       p2Bridge_->rxJackMask(),
+                                       p2Bridge_->trxAntenna(),
+                                       p2Bridge_->rxInput(),
+                                       p2Bridge_->rxExt1Label());
+            }
+        });
+        connect(p2Bridge_, &lyra::wire::P2RxBridge::bandAntennaEdited, this,
+                [this](const QString &band, int ant, int rx) {
+            if (!desk_ || !desk_->attached() || !p2Bridge_) return;
+            if (desk_->isHost()) {
+                if (p2Bridge_->isRunning())
+                    desk_->sendBandAntenna(band, ant, rx);
+                return;
+            }
+            if (desk_->hostProtocol() == 2)
+                desk_->sendBandAntenna(band, ant, rx);
+        });
+    }
+    connect(tci_, &TciServer::remoteLockChanged, this,
+            [this](const QString &text) {
+                if (!text.isEmpty())
+                    statusBar()->showMessage(
+                        text, Prefs::kRemoteLockoutSec * 1000);
+                updateTciStatus();
+            });
     // Serial PTT input — a digital app (WSJT-X / VarAC / fldigi) asserts
     // RTS/DTR on a (virtual) COM port → crosses to our CTS/DSR → keys Lyra
     // (which keys the rig downstream).  Default-OFF; configured in
@@ -899,10 +2179,9 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
         if (st && !st->isRunning()) onStartStop();
     });
-    connect(tci_, &TciServer::stopRequested, this, [this]() {
-        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-        if (st && st->isRunning()) onStartStop();
-    });
+    // TCI STOP must not close the radio. WSJT-X sends STOP when TCI
+    // RX audio drops (MOX zeros the tap). Mapping that to onStartStop
+    // closed the HL2 session and TCI never recovered.
     if (tci_->enabled()) tci_->start();
 
     // Solar / HF-propagation service — fetches HamQSL, derives per-band
@@ -934,13 +2213,29 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     qInfo("[startup] USB-BCD ctor finished");
     if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
         connect(st, &lyra::ipc::HL2Stream::rx1FreqChanged, usbBcd_,
-                [this, st]() { usbBcd_->applyForFreq(st->rx1FreqHz()); });
-        usbBcd_->applyForFreq(st->rx1FreqHz());   // assert current band now
+                [this, st]() {
+                    usbBcd_->applyForFreq(
+                        static_cast<quint32>(st->ddsHzForRf(st->rx1FreqHz())));
+                });
+        usbBcd_->applyForFreq(
+            static_cast<quint32>(st->ddsHzForRf(st->rx1FreqHz())));
         qInfo("[startup] USB-BCD applyForFreq done");
 
         // Band-plan in/out-of-band advisory: on a band-state transition
         // post a status message (gated like old Lyra on the edge-warning
         // layer + a real region).  The red edge lines are the visual half.
+        connect(st, &lyra::ipc::HL2Stream::txBandChangeBlocked, this,
+                [this]() {
+            statusBar()->showMessage(
+                tr("Frequency change ignored while transmitting."), 4000);
+        });
+        // RPT (FM repeater offset) dropped because RX1 crossed a band
+        // edge — the stream already turned split off and parked VFO B on
+        // the new band; this is the operator-visible half (DL1VE).
+        connect(st, &lyra::ipc::HL2Stream::rptDropped, this,
+                [this](const QString &leftBand) {
+            statusBus_->show(tr("RPT off — left %1").arg(leftBand), 4000);
+        });
         connect(st, &lyra::ipc::HL2Stream::rx1FreqChanged, this,
                 [this, st]() {
             if (!prefs_->bandPlanEdges()
@@ -949,11 +2244,16 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
                 return;
             }
             const double f = double(st->rx1FreqHz());
-            const QString name = bandPlan_->bandContaining(f);
+            const int xv = xvtr_ ? xvtr_->matchingSlot(static_cast<qint64>(st->rx1FreqHz()))
+                                 : -1;
+            const QString name = xv >= 0 ? xvtr_->slotName(xv)
+                                         : bandPlan_->bandContaining(f);
             const int inb = name.isEmpty() ? 0 : 1;
             if (inb == lastBandState_) return;
             lastBandState_ = inb;
-            if (inb)
+            if (inb && xv >= 0)
+                statusBus_->show(tr("Xvtr: %1").arg(name), 2500);
+            else if (inb)
                 statusBus_->show(tr("In band: %1  (%2)")
                                      .arg(name, prefs_->bandPlanRegion()), 2500);
             else
@@ -1000,13 +2300,46 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     connect(dragController_, &DockDragController::layoutChanged,
             this, &MainWindow::saveLayout);
 
+    helpHint_ = new HelpHint(prefs_, this);
+
     qWarning("[startup] building dock shells (QML deferred until window shown)");
     buildDocks();      // populate docks_ (so the View menu can list them)
+    helpCard_ = new HelpCard(this, helpHint_, prefs_, &docks_);
     qWarning("[startup] dock shells ready");
     buildMenus();      // File / View (dock toggles + Lock) / Help
     buildToolbar();
     qInfo("[startup] restoring layout");
     restoreLayout();   // geometry + dock state + lock state
+    // QML min-heights land after show.  Keep restore/factory quiet until
+    // then so 0.25.20 float-memory and layout-undo do not treat load as
+    // an operator drag (GitHub #20).
+    connect(this, &MainWindow::docksReady, this, [this]() {
+        QTimer::singleShot(500, this, [this]() {
+            if (layoutUseFactory_)
+                layoutCurrent_ = saveState();
+            layoutRestoring_ = false;
+        });
+    });
+    QTimer::singleShot(4000, this, [this]() {
+        if (!layoutRestoring_)
+            return;
+        if (layoutUseFactory_)
+            layoutCurrent_ = saveState();
+        layoutRestoring_ = false;
+    });
+    if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+        connect(st, &lyra::ipc::HL2Stream::subEnabledChanged,
+                this, &MainWindow::syncRx2Pan);
+        connect(st, &lyra::ipc::HL2Stream::dualAdcChanged,
+                this, &MainWindow::syncRx2Pan);
+    }
+    if (prefs_) {
+        connect(prefs_, &Prefs::subLayoutEnabledChanged,
+                this, &MainWindow::syncRx2Pan);
+        connect(prefs_, &Prefs::subLayoutSlotChanged,
+                this, &MainWindow::syncRx2Pan);
+    }
+    syncRx2Pan();
     qInfo("[startup] layout restored");
     if (const QSize ts = testWindowSize(); ts.isValid()) {
         // Un-maximize first: restoreLayout() may have set WindowMaximized, and
@@ -1126,6 +2459,8 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
     qw->rootContext()->setContextProperty(
         QStringLiteral("Stream"), stream_);
     qw->rootContext()->setContextProperty(
+        QStringLiteral("DeskLink"), desk_);
+    qw->rootContext()->setContextProperty(
         QStringLiteral("FrontEnd"), frontEnd_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("P2Bridge"), p2Bridge_);
@@ -1138,6 +2473,8 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
     qw->rootContext()->setContextProperty(
         QStringLiteral("Help"), help_);
     qw->rootContext()->setContextProperty(
+        QStringLiteral("HelpHint"), helpHint_);
+    qw->rootContext()->setContextProperty(
         QStringLiteral("Bands"), bands_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("BandPlan"), bandPlan_);
@@ -1147,6 +2484,8 @@ QQuickWidget *MainWindow::makeQuick(const QString &qmlFile) {
         QStringLiteral("BandMemory"), bandMemory_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("Gen"), gen_);
+    qw->rootContext()->setContextProperty(
+        QStringLiteral("Xvtr"), xvtr_);
     qw->rootContext()->setContextProperty(
         QStringLiteral("Time"), time_);
     qw->rootContext()->setContextProperty(
@@ -1313,31 +2652,127 @@ void MainWindow::loadDeferredQuickSources() {
         if (isChipSummonedPanel(name)) loadDock(name);
     }
     qWarning("[startup] docks ready");
+    docksReadyEmitted_ = true;
+    emit docksReady();
 }
 
 void MainWindow::showEvent(QShowEvent *event) {
     QMainWindow::showEvent(event);
     if (quickSourcesPending_)
         QTimer::singleShot(0, this, &MainWindow::loadDeferredQuickSources);
+    // 1 Hz GUI-thread heartbeat.  Healthy ticks stay silent so the
+    // operator log is not a WARN every second.  If a tick is late,
+    // `[hb] gui stall N ms` is the gap; copy the log while frozen —
+    // later lines from other threads still flush.
+    static bool hbArmed = false;
+    if (!hbArmed) {
+        hbArmed = true;
+        auto *hb = new QTimer(this);
+        hb->setInterval(1000);
+        connect(hb, &QTimer::timeout, this, [last = QElapsedTimer()]() mutable {
+            if (!last.isValid()) {
+                last.start();
+                return;
+            }
+            const qint64 ms = last.restart();
+            if (ms >= 1500)
+                qWarning("[hb] gui stall %lld ms", static_cast<long long>(ms));
+        });
+        hb->start();
+    }
 }
 
+void MainWindow::saveRecorderSnapshotImage(const QImage &img)
+{
+    if (!recorder_ || !recorder_->isRecording()) return;
+    if (img.isNull() || img.size().isEmpty()) return;
+    const QString path = recorder_->reserveSnapshotFile();
+    if (!img.save(path, "PNG")) {
+        statusBar()->showMessage(tr("Couldn't write the panadapter snapshot."), 4000);
+        return;
+    }
+    const qint64 freq = stream_ ? stream_->property("rx1FreqHz").toLongLong() : 0;
+    recorder_->noteSnapshot(path, freq, prefs_ ? prefs_->mode() : QString());
+}
+
+namespace {
+// QWidget::grab() / leftover OpenGL FBOs on a Vulkan QQuickWidget often
+// return a correctly-sized all-black image — not null.  Treat that as a
+// failed grab so we fall through to RHI readback / compositor capture.
+bool recorderSnapshotLooksLive(const QImage &img)
+{
+    if (img.isNull() || img.width() < 8 || img.height() < 8)
+        return false;
+    const int stepX = qMax(1, img.width() / 32);
+    const int stepY = qMax(1, img.height() / 32);
+    int lit = 0, n = 0;
+    for (int y = 0; y < img.height(); y += stepY) {
+        for (int x = 0; x < img.width(); x += stepX) {
+            ++n;
+            const QRgb p = img.pixel(x, y);
+            if (qRed(p) + qGreen(p) + qBlue(p) > 24)
+                ++lit;
+        }
+    }
+    return n > 0 && lit * 20 > n;
+}
+} // namespace
+
 void MainWindow::captureRecorderSnapshot() {
-    // #201 — fired by RecorderEngine::snapshotDue while recording.  Grabs the
-    // panadapter dock's QQuickWidget framebuffer (the spectrum + waterfall as
-    // displayed — RX signal on receive, TX on transmit) to a PNG in the
-    // session folder, then records the manifest entry.  A no-op if the panel
-    // is hidden / not yet rendered (grabFramebuffer returns a null image).
     if (!recorder_ || !recorder_->isRecording()) return;
     QDockWidget *dock = docks_.value(QStringLiteral("panadapter"));
     if (!dock) return;
     auto *qw = dock->findChild<QQuickWidget *>();
     if (!qw) return;
-    const QImage img = qw->grabFramebuffer();
-    if (img.isNull()) return;
-    const QString path = recorder_->reserveSnapshotFile();
-    if (!img.save(path, "PNG")) return;
-    const qint64 freq = stream_ ? stream_->property("rx1FreqHz").toLongLong() : 0;
-    recorder_->noteSnapshot(path, freq, prefs_ ? prefs_->mode() : QString());
+
+    QImage img;
+    if (QQuickWindow *win = qw->quickWindow())
+        img = win->grabWindow();
+    if (recorderSnapshotLooksLive(img)) {
+        saveRecorderSnapshotImage(img);
+        return;
+    }
+
+    // Compositor capture of the dock's on-screen pixels — works when the
+    // panadapter is Vulkan/RHI (no OpenGL FBO for grabFramebuffer()).
+    if (QScreen *scr = qw->screen() ? qw->screen()
+                                    : (window() ? window()->screen() : nullptr)) {
+        const QRect geo = scr->geometry();
+        const QPoint g = qw->mapToGlobal(QPoint(0, 0));
+        const QPixmap px = scr->grabWindow(0,
+                                           g.x() - geo.x(), g.y() - geo.y(),
+                                           qw->width(), qw->height());
+        img = px.toImage();
+        if (recorderSnapshotLooksLive(img)) {
+            saveRecorderSnapshotImage(img);
+            return;
+        }
+    }
+
+    QQuickItem *root = qw->rootObject();
+    if (!root) {
+        statusBar()->showMessage(tr("Couldn't capture a panadapter snapshot."), 4000);
+        return;
+    }
+    QSize sz = qw->size();
+    if (sz.width() < 8 || sz.height() < 8)
+        sz = QSize(qMax(8, int(root->width())), qMax(8, int(root->height())));
+    auto grab = root->grabToImage(sz);
+    if (!grab) {
+        statusBar()->showMessage(tr("Couldn't capture a panadapter snapshot."), 4000);
+        return;
+    }
+    connect(grab.data(), &QQuickItemGrabResult::ready, this,
+            [this, grab]() {
+                const QImage grabbed = grab ? grab->image() : QImage();
+                if (!recorderSnapshotLooksLive(grabbed)) {
+                    statusBar()->showMessage(
+                        tr("Couldn't capture a panadapter snapshot."), 4000);
+                    return;
+                }
+                saveRecorderSnapshotImage(grabbed);
+            },
+            Qt::SingleShotConnection);
 }
 
 void MainWindow::syncCollapsibleDock() {
@@ -1529,6 +2964,15 @@ void MainWindow::buildDocks() {
     addQuickDock(QStringLiteral("panadapter"), tr("Panadapter"),
                  QStringLiteral("PanadapterPanel.qml"),
                  QStringLiteral("panadapter"), Qt::TopDockWidgetArea);
+    addQuickDock(QStringLiteral("panadapter2"), tr("RX2"),
+                 QStringLiteral("Rx2PanadapterPanel.qml"),
+                 QStringLiteral("panadapter"), Qt::TopDockWidgetArea);
+    if (auto *mainPan = docks_.value(QStringLiteral("panadapter"))) {
+        if (auto *rx2Pan = docks_.value(QStringLiteral("panadapter2"))) {
+            splitDockWidget(mainPan, rx2Pan, Qt::Vertical);
+            rx2Pan->hide();
+        }
+    }
     // Tuning + Audio — ordinary QML control panels (bottom by default).
     // Proves the dock pattern works for non-Vulkan panels too; the
     // operator can drag/float/snap/tab any of them anywhere.
@@ -1553,6 +2997,18 @@ void MainWindow::buildDocks() {
     addQuickDock(QStringLiteral("tx"), tr("TX"),
                  QStringLiteral("TxPanel.qml"),
                  QStringLiteral("tx"), Qt::BottomDockWidgetArea);
+    addQuickDock(QStringLiteral("ps"), tr("PureSignal"),
+                 QStringLiteral("PsPanel.qml"),
+                 QStringLiteral("ps"), Qt::BottomDockWidgetArea,
+                 /*resizable=*/true);
+    addQuickDock(QStringLiteral("ampview"), tr("Amp View"),
+                 QStringLiteral("AmpViewPanel.qml"),
+                 QStringLiteral("ampview"), Qt::BottomDockWidgetArea,
+                 /*resizable=*/true);
+    addQuickDock(QStringLiteral("diversity"), tr("Diversity"),
+                 QStringLiteral("DiversityPanel.qml"),
+                 QStringLiteral("diversity"), Qt::BottomDockWidgetArea,
+                 /*resizable=*/true);
     // TX Speech (#88) — Noise Gate + Auto-AGC + De-esser, the pre-EQ mic
     // rack stage.  Its OWN dock so it moves / resizes / floats / collapses
     // like every Lyra panel; drag it onto the TX EQ dock to tab the two into
@@ -1598,6 +3054,8 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("cwconsole"))) {
         d->setFloating(true);
         d->hide();
+        new FloatingDockMemory(d, QStringLiteral("ui/cwConsoleDock"),
+                               &layoutRestoring_, d);
     }
     // CW Decoder (#173 CW-5b) — separate from the CW console so a user can run
     // the decoder alone, the keyer alone, or both.  Own floating dock + "CW
@@ -1610,6 +3068,8 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("cwdecoder"))) {
         d->setFloating(true);
         d->hide();
+        new FloatingDockMemory(d, QStringLiteral("ui/cwDecoderDock"),
+                               &layoutRestoring_, d);
     }
     // Voice Keyer (#89 Build 1) — floating clip-message panel (labelled clips,
     // ▶ OTA / ▶ Review / F-keys), chip-summoned like the CW console.  Own dock;
@@ -1621,6 +3081,8 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("voicekeyer"))) {
         d->setFloating(true);
         d->hide();
+        new FloatingDockMemory(d, QStringLiteral("ui/voiceKeyerDock"),
+                               &layoutRestoring_, d);
     }
     // Tuner — native manual-ATU memory (the "Tuner Reminder" idea built in):
     // tracks the dial vs the active antenna's stored Input/Output/Inductor
@@ -1633,6 +3095,9 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("tuner"))) {
         d->setFloating(true);
         d->hide();
+        // Same as Diversity: hide/show drops the float, so remember the frame.
+        new FloatingDockMemory(d, QStringLiteral("ui/tunerDock"),
+                               &layoutRestoring_, d);
     }
     // Frequency Calibration — chip-launched floating instrument: tap a time
     // station, it auto-tunes USB + measures the carrier offset and suggests a
@@ -1645,6 +3110,11 @@ void MainWindow::buildDocks() {
     if (QDockWidget *d = docks_.value(QStringLiteral("freqcal"))) {
         d->setFloating(true);
         d->hide();
+        // Same as Tuner: hide/show drops the float, so remember the frame.
+        // View → Freq Cal uses toggleViewAction and would otherwise re-dock
+        // into the bottom strip (or bounce closed via the chip).
+        new FloatingDockMemory(d, QStringLiteral("ui/freqcalDock"),
+                               &layoutRestoring_, d);
     }
     // #201 Session recorder — opt-in floating tool window (View → Recorder),
     // hidden by default so it never clutters the front panel.  REC/⏹ + timer
@@ -1666,10 +3136,21 @@ void MainWindow::buildDocks() {
     // remembers what's open + where.  restoreLayout() below overrides this
     // with the operator's saved arrangement when one exists.
     for (const char *nm : {"txspeech", "txeq", "txcombinator", "txplate",
-                           "rxeq"}) {
+                           "rxeq", "ps", "ampview", "diversity"}) {
         if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
             d->setFloating(true);
             d->hide();
+        }
+    }
+    // Chip floats lose their frame on hide: Qt shows them at the QML
+    // size-hint next time. Position often survived; size did not
+    // (PureSignal is a short strip, Amp View a tall plot). Same helper
+    // Diversity already used.
+    for (const char *nm : {"ps", "ampview", "diversity"}) {
+        if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
+            new FloatingDockMemory(
+                d, QStringLiteral("ui/%1Dock").arg(QLatin1String(nm)),
+                &layoutRestoring_, d);
         }
     }
     // Profiles — front-facing quick recall of a saved TX/RX profile
@@ -1696,7 +3177,9 @@ void MainWindow::buildDocks() {
     // A plain QtWidgets strip (not QML); docks at the bottom like the
     // other control panels.
     addWidgetDock(QStringLiteral("propagation"), tr("Solar / Propagation"),
-                  new SolarPanel(solar_, ncdxfFollow_, this),
+                  new SolarPanel(solar_, ncdxfFollow_,
+                                 qobject_cast<lyra::ipc::HL2Stream *>(stream_),
+                                 bandMemory_, gen_, this),
                   QStringLiteral("propagation"), Qt::BottomDockWidgetArea);
 }
 
@@ -1745,6 +3228,33 @@ void MainWindow::buildMenus() {
     // View — one show/hide toggle per dock + Lock panels.
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
     for (auto it = docks_.cbegin(); it != docks_.cend(); ++it) {
+        // Amp View is a header chip only — not a View-menu item.
+        if (it.key() == QLatin1String("ampview")
+            || it.key() == QLatin1String("diversity"))
+            continue;
+        // Freq Cal is a float-only chip. toggleViewAction re-docks it and
+        // re-enters visibilityChanged; that path crashed (GitHub #21).
+        if (it.key() == QLatin1String("freqcal")) {
+            QDockWidget *d = it.value();
+            QAction *act = viewMenu->addAction(tr("Freq Cal"));
+            act->setCheckable(true);
+            act->setChecked(d->isVisible());
+            connect(act, &QAction::toggled, this, [d](bool on) {
+                if (on) {
+                    d->setFloating(true);
+                    d->show();
+                    d->raise();
+                    d->activateWindow();
+                } else {
+                    d->hide();
+                }
+            });
+            connect(d, &QDockWidget::visibilityChanged, act, [act](bool vis) {
+                const QSignalBlocker block(act);
+                act->setChecked(vis);
+            });
+            continue;
+        }
         viewMenu->addAction(it.value()->toggleViewAction());
     }
     viewMenu->addSeparator();
@@ -1793,6 +3303,7 @@ void MainWindow::buildMenus() {
             tr("Slot %1").arg(slot), this,
             [this, slot]() { saveNamedLayout(slot); });
     }
+    layoutsMenu->addSeparator();
     // Refresh slot labels (names + empty/enabled state) whenever the menu opens.
     connect(layoutsMenu, &QMenu::aboutToShow,
             this, &MainWindow::refreshLayoutMenus);
@@ -1827,72 +3338,38 @@ void MainWindow::buildMenus() {
         box.setWindowTitle(tr("About Lyra"));
         box.setTextFormat(Qt::RichText);
         box.setIcon(QMessageBox::Information);
-        box.setText(
-            tr("<h2 style='margin-bottom:2px'>Lyra "
-               "<span style='color:#00e5ff'>v%1</span></h2>"
-               "<p style='color:#8a9aac;margin-top:0'>"
-               "HPSDR transceivers — native C++23 / Qt 6 rebuild</p>"
-               "<p>A desktop SDR transceiver for HPSDR radios — the "
-               "Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 "
-               "(Protocol 2) — rebuilt in native C++ (Qt Quick + "
-               "Vulkan/RHI) — no Python, no GIL anywhere.</p>"
-               "<p style='color:#8a9aac'><i>Named for Apollo's lyre and "
-               "the constellation Lyra — home of Vega. (See the User "
-               "Guide for the full story.)</i></p>"
-               "<p>Author: <b>Rick Langford (N8SDR)</b><br>"
-               "With <b>Brent Crier (N9BC)</b> and "
-               "<b>Timmy Davis (KC8TYK)</b><br>"
-               "Development assistance: <b>Cursor Grok 4.6</b> "
-               "(SpaceXAI / Cursor)<br>"
-               "Repository: <a href='https://github.com/N8SDR1/Lyra-SDR-cpp'>"
-               "github.com/N8SDR1/Lyra-SDR-cpp</a><br>"
-               "License: <b>GPL v3 or later</b></p>"
-               "<p>Lyra is <b>free</b> and ad-free, built by a fellow ham "
-               "for the community. If it's useful to you, consider buying "
-               "the developer a coffee — 73 de N8SDR. ☕</p>"
-               "<hr style='border-color:#1a2632'>"
-               "<p style='color:#8a9aac;font-size:11px'>"
-               "<b>Inspiration and references</b> — these projects were "
-               "studied for conventions, ballistics, and protocol "
-               "structure while building Lyra.  No source code was "
-               "copied; each was a reference for \"how the standard "
-               "idiom works.\":<br>"
-               "Thetis SDR (openHPSDR) · PowerSDR · HermesLite 2 wiki "
-               "and ak4951v4 gateware · pihpsdr · Quisk · linHPSDR · "
-               "EESDR V3 · Behringer X-Air mixer series · SparkSDR.<br>"
-               "Full credits and reference notes: see the "
-               "<i>Credits and References</i> section in the User Guide.</p>"
-               "<p style='color:#8a9aac;font-size:11px'>"
-               "<b>Licensed components (GPL v3+)</b><br>"
-               "• DSP engine: <b>WDSP</b> by Warren Pratt (NR0V).  Lyra "
-               "links to the WDSP shared library and calls its public "
-               "API; no source modifications.<br>"
-               "• RX CW decoder: faithful source port of <b>fldigi</b>'s "
-               "CW receive chain by Dave Freese (W1HKJ), with adaptive "
-               "speed tracking by Lawrence Glaister (VE7IT).<br>"
-               "• TCI server protocol — Expert Electronics public "
-               "specification (EESDR).  Lyra implements a TCI server "
-               "compatible with the v1.9 / v2.0 spec."
-               "</p>"
-               "<hr style='border-color:#1a2632'>"
-               "<p style='color:#8a9aac;font-size:11px'>"
-               "<b>Disclaimer — use at your own risk.</b>  Lyra is provided "
-               "<b>“as is”</b>, with <b>no warranty</b> of any kind, express "
-               "or implied (see the GPL v3+ for the full terms).  It "
-               "controls a radio transmitter and drives external equipment; "
-               "<b>you, the licensed operator, are solely responsible</b> "
-               "for legal, correct, and safe operation — including staying "
-               "within your licence privileges, band and power limits, and "
-               "RF-exposure rules, and for protecting your amplifier, "
-               "antenna, and other gear.  The authors accept "
-               "<b>no liability</b> for any damage, interference, injury, "
-               "loss, or violation arising from the use, misuse, "
-               "misconfiguration, or malfunction of this software or any "
-               "equipment connected to it.  Amplifier-protection features "
-               "(watts cap, SWR fold, TX timeout, etc.) are aids, "
-               "<b>not guarantees</b> — always verify with a dummy load and "
-               "your own instruments before trusting them on the air."
-               "</p>").arg(ver));
+        const QString starName = QLatin1String(LYRA_VERSION_NAME);
+        // Raw string: MSVC /Zc:preprocessor + Qt tr() will not parse a
+        // multi-line HTML tr() that also has a second % placeholder.
+        const QString aboutHtml = QString::fromUtf8(R"HTML(
+<h2 style='margin-bottom:2px'>Lyra <span style='color:#00e5ff'>v%1</span></h2>
+<p style='color:#e8c477;margin:0;letter-spacing:2px;text-transform:uppercase;font-size:13px'>%2</p>
+<p style='color:#8a9aac;margin-top:8px'>HPSDR transceivers — native C++23 / Qt 6 rebuild</p>
+<p>A desktop SDR transceiver for HPSDR radios — the Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 (Protocol 2) — rebuilt in native C++ (Qt Quick + Vulkan/RHI) — no Python, no GIL anywhere.</p>
+<p style='color:#8a9aac'><i>Named for Apollo's lyre and the constellation Lyra — home of Vega. (See the User Guide for the full story.)</i></p>
+<p>Author: <b>Rick Langford (N8SDR)</b><br>
+With <b>Brent Crier (N9BC)</b> and <b>Timmy Davis (KC8TYK)</b><br>
+Development assistance: <b>Cursor Grok 4.6</b> (SpaceXAI / Cursor)<br>
+Repository: <a href='https://github.com/N8SDR1/Lyra-SDR-cpp'>github.com/N8SDR1/Lyra-SDR-cpp</a><br>
+License: <b>GPL v3 or later</b></p>
+<p>Lyra is <b>free</b> and ad-free, built by a fellow ham for the community. If it's useful to you, consider buying the developer a coffee — 73 de N8SDR. ☕</p>
+<hr style='border-color:#1a2632'>
+<p style='color:#8a9aac;font-size:11px'>
+<b>Inspiration and references</b> — these projects were studied for conventions, ballistics, and protocol structure while building Lyra.  No source code was copied; each was a reference for "how the standard idiom works.":<br>
+Thetis SDR (openHPSDR) · PowerSDR · HermesLite 2 wiki and ak4951v4 gateware · pihpsdr · Quisk · linHPSDR · EESDR V3 · Behringer X-Air mixer series · SparkSDR.<br>
+Full credits and reference notes: see the <i>Credits and References</i> section in the User Guide.</p>
+<p style='color:#8a9aac;font-size:11px'>
+<b>Licensed components (GPL v3+)</b><br>
+• DSP engine: <b>WDSP</b> by Warren Pratt (NR0V).  Lyra links to the WDSP shared library and calls its public API; no source modifications.<br>
+• RX CW decoder: faithful source port of <b>fldigi</b>'s CW receive chain by Dave Freese (W1HKJ), with adaptive speed tracking by Lawrence Glaister (VE7IT).<br>
+• TCI server protocol — Expert Electronics public specification (EESDR).  Lyra implements a TCI server compatible with the v1.9 / v2.0 spec.
+</p>
+<hr style='border-color:#1a2632'>
+<p style='color:#8a9aac;font-size:11px'>
+<b>Disclaimer — use at your own risk.</b>  Lyra is provided <b>“as is”</b>, with <b>no warranty</b> of any kind, express or implied (see the GPL v3+ for the full terms).  It controls a radio transmitter and drives external equipment; <b>you, the licensed operator, are solely responsible</b> for legal, correct, and safe operation — including staying within your licence privileges, band and power limits, and RF-exposure rules, and for protecting your amplifier, antenna, and other gear.  The authors accept <b>no liability</b> for any damage, interference, injury, loss, or violation arising from the use, misuse, misconfiguration, or malfunction of this software or any equipment connected to it.  Amplifier-protection features (watts cap, SWR fold, TX timeout, etc.) are aids, <b>not guarantees</b> — always verify with a dummy load and your own instruments before trusting them on the air.
+</p>
+)HTML").arg(ver).arg(starName);
+        box.setText(aboutHtml);
         QPushButton *donate =
             box.addButton(tr("☕ Donate via PayPal"), QMessageBox::ActionRole);
         box.addButton(QMessageBox::Close);
@@ -1912,7 +3389,7 @@ void MainWindow::ensureSettingsDialog() {
             wx_, memory_, eibi_, tci_, spots_, spotHole_, dxCluster_, meter_, tuner_,
             voiceKeyer_, recorder_, converter_,
             profiles_, companion_, serialPtt_, serialCwKey_, catServers_,
-            p2Bridge_, this);
+            p2Bridge_, desk_, this);
         // Opening a radio whose per-rig profile differs from the active rig
         // offers to switch to it.  QUEUED so switchRig's modal (and its
         // "Restart now" teardown) runs AFTER the Settings Open click handler
@@ -1939,24 +3416,542 @@ void MainWindow::showHelp(const QString &topic) {
     helpDlg_->showTopic(topic);
 }
 
+namespace {
+
+bool nearMilli(double a, double b)
+{
+    return std::lround(a * 1000.0) == std::lround(b * 1000.0);
+}
+
+bool jsonSubsetDiffers(const QJsonValue &incoming, const QJsonValue &current)
+{
+    if (incoming.isDouble() && current.isDouble())
+        return !nearMilli(incoming.toDouble(), current.toDouble());
+    if (incoming.isBool() && current.isBool())
+        return incoming.toBool() != current.toBool();
+    if (incoming.isDouble() && current.isBool())
+        return (incoming.toInt() != 0) != current.toBool();
+    if (incoming.isArray() && current.isArray()) {
+        const QJsonArray a = incoming.toArray();
+        const QJsonArray b = current.toArray();
+        if (a.size() != b.size()) return true;
+        for (int i = 0; i < a.size(); ++i)
+            if (jsonSubsetDiffers(a.at(i), b.at(i))) return true;
+        return false;
+    }
+    if (incoming.isObject() && current.isObject()) {
+        const QJsonObject in = incoming.toObject();
+        const QJsonObject cur = current.toObject();
+        for (auto it = in.constBegin(); it != in.constEnd(); ++it) {
+            if (!cur.contains(it.key())
+                || jsonSubsetDiffers(it.value(), cur.value(it.key())))
+                return true;
+        }
+        return false;
+    }
+    return incoming != current;
+}
+
+bool bandsDiffer(const QJsonArray &bands, const QJsonArray &cur, int from)
+{
+    for (int i = 0; i < bands.size(); ++i) {
+        const int idx = from + i;
+        if (idx < 0 || idx >= cur.size()) return true;
+        if (jsonSubsetDiffers(bands.at(i), cur.at(idx))) return true;
+    }
+    return false;
+}
+
+bool flagOf(const QJsonValue &v)
+{
+    return v.isBool() ? v.toBool() : v.toInt() != 0;
+}
+
+} // namespace
+
+void MainWindow::noteDeskFilters()
+{
+    if (deskUndoFilters_ || !prefs_ || !desk_ || !desk_->isHost()) return;
+    deskUndoRxBw_ = prefs_->rxBandwidth();
+    deskUndoTxBw_ = prefs_->txBandwidth();
+    deskUndoRxLo_ = prefs_->filterLow();
+    deskUndoTxLo_ = prefs_->txFilterLow();
+    deskUndoFilters_ = true;
+}
+
+void MainWindow::noteDeskRack()
+{
+    if (deskUndoRack_ || !desk_ || !desk_->isHost()) return;
+    const auto pack = [](const QJsonObject &o) {
+        return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
+    };
+    if (eqModel_) deskUndoEq_ = pack(eqModel_->saveState());
+    if (speechModel_) deskUndoSpeech_ = pack(speechModel_->saveState());
+    if (combinatorModel_) deskUndoComb_ = pack(combinatorModel_->saveState());
+    if (plateModel_) deskUndoPlate_ = pack(plateModel_->saveState());
+    if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+        deskUndoLevelerOn_ = st->levelerOn();
+        deskUndoLevelerMax_ = st->levelerMaxGainLinear();
+        deskUndoLevelerDecay_ = st->levelerDecayMs();
+    }
+    deskUndoRack_ = true;
+}
+
+void MainWindow::noteDeskRx()
+{
+    if (deskUndoRx_ || !desk_ || !desk_->isHost()) return;
+    if (auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
+        deskUndoAgc_ = rx->agcMode();
+        deskUndoNr_ = rx->nrEnabled();
+        deskUndoNrMode_ = rx->nrMode();
+        deskUndoAepf_ = rx->aepfEnabled();
+        deskUndoNpe_ = rx->npeMethod();
+        deskUndoNnr_ = rx->nnrEnabled();
+        deskUndoNnrModel_ = rx->nnrModel();
+        deskUndoNnrMask_ = rx->nnrMaskFloorDb();
+        deskUndoNb_ = rx->nbEnabled();
+        deskUndoNbSt_ = rx->nbStrength();
+        deskUndoAnf_ = rx->anfEnabled();
+        deskUndoLms_ = rx->lmsEnabled();
+        deskUndoLmsSt_ = rx->lmsStrength();
+        deskUndoApf_ = rx->apfEnabled();
+        deskUndoApfDb_ = rx->apfGainDb();
+        deskUndoSq_ = rx->squelchEnabled();
+        deskUndoSqTh_ = rx->squelchThreshold();
+        deskUndoCw_ = rx->cwPitchHz();
+    }
+    if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+        deskUndoRitOn_ = st->ritEnabled();
+    deskUndoRx_ = true;
+}
+
+void MainWindow::restoreDeskSession()
+{
+    if (!deskUndoFilters_ && !deskUndoRack_ && !deskUndoTuneDrive_
+        && !deskUndoRx_) return;
+    lyra::setDeskApplyQuiet(true);
+    if (deskUndoFilters_ && prefs_) {
+        prefs_->setRxBandwidth(deskUndoRxBw_);
+        prefs_->setTxBandwidth(deskUndoTxBw_);
+        prefs_->setFilterLow(deskUndoRxLo_);
+        prefs_->setTxFilterLow(deskUndoTxLo_);
+    }
+    if (deskUndoRack_) {
+        const auto load = [](const QString &js) {
+            const auto doc = QJsonDocument::fromJson(js.toUtf8());
+            return doc.isObject() ? doc.object() : QJsonObject();
+        };
+        if (eqModel_) eqModel_->loadState(load(deskUndoEq_));
+        if (speechModel_) speechModel_->loadState(load(deskUndoSpeech_));
+        if (combinatorModel_) combinatorModel_->loadState(load(deskUndoComb_));
+        if (plateModel_) plateModel_->loadState(load(deskUndoPlate_));
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+            st->setLevelerDecayMs(deskUndoLevelerDecay_);
+            st->setLevelerMaxGainLinear(deskUndoLevelerMax_);
+            st->setLevelerOn(deskUndoLevelerOn_);
+        }
+    }
+    if (deskUndoTuneDrive_ && prefs_) {
+        prefs_->setTuneDriveMode(deskUndoTuneMode_);
+        prefs_->setTuneDrivePct(deskUndoTunePct_);
+        prefs_->setFixedTuneDrivePct(deskUndoFixedTune_);
+    }
+    if (deskUndoRx_) {
+        if (auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
+            rx->setAgcMode(deskUndoAgc_);
+            rx->setNrEnabled(false);
+            rx->setNnrEnabled(false);
+            if (deskUndoNr_) rx->setNrEnabled(true);
+            else if (deskUndoNnr_) rx->setNnrEnabled(true);
+            rx->setNrMode(deskUndoNrMode_);
+            rx->setAepfEnabled(deskUndoAepf_);
+            rx->setNpeMethod(deskUndoNpe_);
+            rx->setNnrModel(deskUndoNnrModel_);
+            rx->setNnrMaskFloorDb(deskUndoNnrMask_);
+            rx->setNbEnabled(deskUndoNb_);
+            rx->setNbStrength(deskUndoNbSt_);
+            rx->setAnfEnabled(deskUndoAnf_);
+            rx->setLmsEnabled(deskUndoLms_);
+            rx->setLmsStrength(deskUndoLmsSt_);
+            rx->setApfEnabled(deskUndoApf_);
+            rx->setApfGainDb(deskUndoApfDb_);
+            rx->setSquelchEnabled(deskUndoSq_);
+            rx->setSquelchThreshold(deskUndoSqTh_);
+            rx->setCwPitchHz(deskUndoCw_);
+        }
+        if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_))
+            st->setRitEnabled(deskUndoRitOn_);
+    }
+    lyra::setDeskApplyQuiet(false);
+    deskUndoFilters_ = false;
+    deskUndoRack_ = false;
+    deskUndoTuneDrive_ = false;
+    deskUndoRx_ = false;
+}
+
+void MainWindow::applyDeskProfile(const QByteArray &json)
+{
+    if (!desk_ || !desk_->isHost()) return;
+    const auto doc = QJsonDocument::fromJson(json);
+    if (!doc.isObject()) return;
+    const QJsonObject o = doc.object();
+    const bool filtersDiffer = prefs_ && (
+        (o.contains(QStringLiteral("rxBw"))
+            && o.value(QStringLiteral("rxBw")).toInt() != prefs_->rxBandwidth())
+        || (o.contains(QStringLiteral("txBw"))
+            && o.value(QStringLiteral("txBw")).toInt() != prefs_->txBandwidth())
+        || (o.contains(QStringLiteral("rxLo"))
+            && o.value(QStringLiteral("rxLo")).toInt() != prefs_->filterLow())
+        || (o.contains(QStringLiteral("txLo"))
+            && o.value(QStringLiteral("txLo")).toInt() != prefs_->txFilterLow()));
+    if (filtersDiffer) noteDeskFilters();
+    auto *rx = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+    auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+    bool rackDiffer = false;
+    if (st) {
+        if (o.contains(QStringLiteral("levelerOn"))
+            && o.value(QStringLiteral("levelerOn")).toBool() != st->levelerOn())
+            rackDiffer = true;
+        if (o.contains(QStringLiteral("levelerMax"))
+            && !nearMilli(o.value(QStringLiteral("levelerMax")).toDouble(),
+                          st->levelerMaxGainLinear()))
+            rackDiffer = true;
+        if (o.contains(QStringLiteral("levelerDecay"))
+            && o.value(QStringLiteral("levelerDecay")).toInt() != st->levelerDecayMs())
+            rackDiffer = true;
+    }
+    const auto objectDiffers = [](const QJsonObject &in, const QJsonObject &cur,
+                                   const QString &fromKey, const QJsonObject &wrap) {
+        if (wrap.contains(fromKey)) {
+            const QJsonArray bands = in.value(QStringLiteral("bands")).toArray();
+            const QJsonArray curBands = cur.value(QStringLiteral("bands")).toArray();
+            if (bandsDiffer(bands, curBands, wrap.value(fromKey).toInt()))
+                return true;
+            QJsonObject scalars = in;
+            scalars.remove(QStringLiteral("bands"));
+            return jsonSubsetDiffers(scalars, cur);
+        }
+        return jsonSubsetDiffers(in, cur);
+    };
+    if (eqModel_ && o.contains(QStringLiteral("eq"))
+        && objectDiffers(o.value(QStringLiteral("eq")).toObject(),
+                         eqModel_->saveState(), QStringLiteral("eqFrom"), o))
+        rackDiffer = true;
+    if (speechModel_ && o.contains(QStringLiteral("speech"))
+        && jsonSubsetDiffers(o.value(QStringLiteral("speech")),
+                             speechModel_->saveState()))
+        rackDiffer = true;
+    if (combinatorModel_ && o.contains(QStringLiteral("combinator"))
+        && objectDiffers(o.value(QStringLiteral("combinator")).toObject(),
+                         combinatorModel_->saveState(),
+                         QStringLiteral("combinatorFrom"), o))
+        rackDiffer = true;
+    if (plateModel_ && o.contains(QStringLiteral("plate"))
+        && jsonSubsetDiffers(o.value(QStringLiteral("plate")),
+                             plateModel_->saveState()))
+        rackDiffer = true;
+    if (rackDiffer) noteDeskRack();
+    bool rxDiffer = false;
+    if (rx) {
+        if (o.contains(QStringLiteral("agc"))
+            && o.value(QStringLiteral("agc")).toString().toLower() != rx->agcMode())
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("nr"))
+            && flagOf(o.value(QStringLiteral("nr"))) != rx->nrEnabled())
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("nrm"))
+            && o.value(QStringLiteral("nrm")).toInt() != rx->nrMode())
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("aepf"))
+            && flagOf(o.value(QStringLiteral("aepf"))) != rx->aepfEnabled())
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("npe"))
+            && o.value(QStringLiteral("npe")).toInt() != rx->npeMethod())
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("nnr"))
+            && flagOf(o.value(QStringLiteral("nnr"))) != rx->nnrEnabled())
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("nnm"))
+            && o.value(QStringLiteral("nnm")).toInt() != rx->nnrModel())
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("nnf"))
+            && std::lround(o.value(QStringLiteral("nnf")).toDouble())
+                   != std::lround(rx->nnrMaskFloorDb()))
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("nb"))
+            && flagOf(o.value(QStringLiteral("nb"))) != rx->nbEnabled())
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("nbs"))
+            && o.value(QStringLiteral("nbs")).toInt()
+                   != int(std::lround(rx->nbStrength() * 1000.0)))
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("anf"))
+            && flagOf(o.value(QStringLiteral("anf"))) != rx->anfEnabled())
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("lms"))
+            && flagOf(o.value(QStringLiteral("lms"))) != rx->lmsEnabled())
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("lmsv"))
+            && o.value(QStringLiteral("lmsv")).toInt()
+                   != int(std::lround(rx->lmsStrength() * 1000.0)))
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("apf"))
+            && flagOf(o.value(QStringLiteral("apf"))) != rx->apfEnabled())
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("apfv"))
+            && o.value(QStringLiteral("apfv")).toInt()
+                   != int(std::lround(rx->apfGainDb() * 10.0)))
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("sq"))
+            && flagOf(o.value(QStringLiteral("sq"))) != rx->squelchEnabled())
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("sqv"))
+            && o.value(QStringLiteral("sqv")).toInt()
+                   != int(std::lround(rx->squelchThreshold() * 1000.0)))
+            rxDiffer = true;
+        if (o.contains(QStringLiteral("cw"))
+            && o.value(QStringLiteral("cw")).toInt() != rx->cwPitchHz())
+            rxDiffer = true;
+    }
+    if (st && o.contains(QStringLiteral("rit"))
+        && flagOf(o.value(QStringLiteral("rit"))) != st->ritEnabled())
+        rxDiffer = true;
+    if (rxDiffer) noteDeskRx();
+    lyra::setDeskApplyQuiet(true);
+    if (prefs_) {
+        if (o.contains(QStringLiteral("rxBw")))
+            prefs_->setRxBandwidth(o.value(QStringLiteral("rxBw")).toInt());
+        if (o.contains(QStringLiteral("txBw")))
+            prefs_->setTxBandwidth(o.value(QStringLiteral("txBw")).toInt());
+        if (o.contains(QStringLiteral("rxLo")))
+            prefs_->setFilterLow(o.value(QStringLiteral("rxLo")).toInt());
+        if (o.contains(QStringLiteral("txLo")))
+            prefs_->setTxFilterLow(o.value(QStringLiteral("txLo")).toInt());
+    }
+    if (st) {
+        if (o.contains(QStringLiteral("levelerDecay")))
+            st->setLevelerDecayMs(o.value(QStringLiteral("levelerDecay")).toInt());
+        if (o.contains(QStringLiteral("levelerMax")))
+            st->setLevelerMaxGainLinear(o.value(QStringLiteral("levelerMax")).toDouble());
+        if (o.contains(QStringLiteral("levelerOn")))
+            st->setLevelerOn(o.value(QStringLiteral("levelerOn")).toBool());
+        if (o.contains(QStringLiteral("rit")))
+            st->setRitEnabled(flagOf(o.value(QStringLiteral("rit"))));
+    }
+    if (eqModel_ && o.contains(QStringLiteral("eq"))) {
+        const QJsonObject eq = o.value(QStringLiteral("eq")).toObject();
+        if (o.contains(QStringLiteral("eqFrom"))) {
+            if (eq.contains(QStringLiteral("bypass")))
+                eqModel_->setBypass(eq.value(QStringLiteral("bypass")).toBool());
+            if (eq.contains(QStringLiteral("makeupDb")))
+                eqModel_->setMakeupDb(eq.value(QStringLiteral("makeupDb")).toDouble());
+            const int from = o.value(QStringLiteral("eqFrom")).toInt();
+            const QJsonArray bands = eq.value(QStringLiteral("bands")).toArray();
+            for (int i = 0; i < bands.size(); ++i) {
+                const QJsonObject b = bands.at(i).toObject();
+                const int idx = from + i;
+                if (b.contains(QStringLiteral("type")))
+                    eqModel_->setBandType(idx, b.value(QStringLiteral("type")).toInt());
+                if (b.contains(QStringLiteral("f")))
+                    eqModel_->setBandFreq(idx, b.value(QStringLiteral("f")).toDouble());
+                if (b.contains(QStringLiteral("g")))
+                    eqModel_->setBandGain(idx, b.value(QStringLiteral("g")).toDouble());
+                if (b.contains(QStringLiteral("q")))
+                    eqModel_->setBandQ(idx, b.value(QStringLiteral("q")).toDouble());
+                if (b.contains(QStringLiteral("en")))
+                    eqModel_->setBandEnabled(idx, b.value(QStringLiteral("en")).toBool());
+            }
+        } else {
+            eqModel_->loadState(eq);
+        }
+    }
+    if (speechModel_ && o.contains(QStringLiteral("speech")))
+        speechModel_->loadState(o.value(QStringLiteral("speech")).toObject());
+    if (combinatorModel_ && o.contains(QStringLiteral("combinator"))) {
+        const QJsonObject cmb = o.value(QStringLiteral("combinator")).toObject();
+        if (o.contains(QStringLiteral("combinatorFrom"))) {
+            if (cmb.contains(QStringLiteral("bypass")))
+                combinatorModel_->setBypass(cmb.value(QStringLiteral("bypass")).toBool());
+            if (cmb.contains(QStringLiteral("mix")))
+                combinatorModel_->setMix(cmb.value(QStringLiteral("mix")).toDouble());
+            if (cmb.contains(QStringLiteral("attackMs")))
+                combinatorModel_->setAttackMs(cmb.value(QStringLiteral("attackMs")).toDouble());
+            if (cmb.contains(QStringLiteral("releaseMs")))
+                combinatorModel_->setReleaseMs(cmb.value(QStringLiteral("releaseMs")).toDouble());
+            if (cmb.contains(QStringLiteral("ratio")))
+                combinatorModel_->setRatio(cmb.value(QStringLiteral("ratio")).toDouble());
+            if (cmb.contains(QStringLiteral("threshDb")))
+                combinatorModel_->setThreshDb(cmb.value(QStringLiteral("threshDb")).toDouble());
+            if (cmb.contains(QStringLiteral("makeupDb")))
+                combinatorModel_->setMakeupDb(cmb.value(QStringLiteral("makeupDb")).toDouble());
+            if (cmb.contains(QStringLiteral("xover")))
+                combinatorModel_->setXover(cmb.value(QStringLiteral("xover")).toDouble());
+            if (cmb.contains(QStringLiteral("sbcSpeed")))
+                combinatorModel_->setSbcSpeed(cmb.value(QStringLiteral("sbcSpeed")).toDouble());
+            if (cmb.contains(QStringLiteral("sbcOn")))
+                combinatorModel_->setSbcEnabled(cmb.value(QStringLiteral("sbcOn")).toBool());
+            const int from = o.value(QStringLiteral("combinatorFrom")).toInt();
+            const QJsonArray bands = cmb.value(QStringLiteral("bands")).toArray();
+            for (int i = 0; i < bands.size(); ++i) {
+                const QJsonObject b = bands.at(i).toObject();
+                const int idx = from + i;
+                if (b.contains(QStringLiteral("thr")))
+                    combinatorModel_->setBandThreshDb(idx, b.value(QStringLiteral("thr")).toDouble());
+                if (b.contains(QStringLiteral("gain")))
+                    combinatorModel_->setBandGainDb(idx, b.value(QStringLiteral("gain")).toDouble());
+                if (b.contains(QStringLiteral("en")))
+                    combinatorModel_->setBandEnabled(idx, b.value(QStringLiteral("en")).toBool());
+            }
+        } else {
+            combinatorModel_->loadState(cmb);
+        }
+    }
+    if (plateModel_ && o.contains(QStringLiteral("plate")))
+        plateModel_->loadState(o.value(QStringLiteral("plate")).toObject());
+    if (rx) {
+        if (o.contains(QStringLiteral("agc")))
+            rx->setAgcMode(o.value(QStringLiteral("agc")).toString());
+        if (o.contains(QStringLiteral("nr")) || o.contains(QStringLiteral("nnr"))) {
+            const bool nr = o.contains(QStringLiteral("nr"))
+                ? flagOf(o.value(QStringLiteral("nr"))) : rx->nrEnabled();
+            const bool nnr = o.contains(QStringLiteral("nnr"))
+                ? flagOf(o.value(QStringLiteral("nnr"))) : rx->nnrEnabled();
+            rx->setNrEnabled(false);
+            rx->setNnrEnabled(false);
+            if (nr) rx->setNrEnabled(true);
+            else if (nnr) rx->setNnrEnabled(true);
+        }
+        if (o.contains(QStringLiteral("nrm")))
+            rx->setNrMode(o.value(QStringLiteral("nrm")).toInt());
+        if (o.contains(QStringLiteral("aepf")))
+            rx->setAepfEnabled(flagOf(o.value(QStringLiteral("aepf"))));
+        if (o.contains(QStringLiteral("npe")))
+            rx->setNpeMethod(o.value(QStringLiteral("npe")).toInt());
+        if (o.contains(QStringLiteral("nnm")))
+            rx->setNnrModel(o.value(QStringLiteral("nnm")).toInt());
+        if (o.contains(QStringLiteral("nnf")))
+            rx->setNnrMaskFloorDb(o.value(QStringLiteral("nnf")).toDouble());
+        if (o.contains(QStringLiteral("nb")))
+            rx->setNbEnabled(flagOf(o.value(QStringLiteral("nb"))));
+        if (o.contains(QStringLiteral("nbs")))
+            rx->setNbStrength(o.value(QStringLiteral("nbs")).toInt() / 1000.0);
+        if (o.contains(QStringLiteral("anf")))
+            rx->setAnfEnabled(flagOf(o.value(QStringLiteral("anf"))));
+        if (o.contains(QStringLiteral("lms")))
+            rx->setLmsEnabled(flagOf(o.value(QStringLiteral("lms"))));
+        if (o.contains(QStringLiteral("lmsv")))
+            rx->setLmsStrength(o.value(QStringLiteral("lmsv")).toInt() / 1000.0);
+        if (o.contains(QStringLiteral("apf")))
+            rx->setApfEnabled(flagOf(o.value(QStringLiteral("apf"))));
+        if (o.contains(QStringLiteral("apfv")))
+            rx->setApfGainDb(o.value(QStringLiteral("apfv")).toInt() / 10.0);
+        if (o.contains(QStringLiteral("sq")))
+            rx->setSquelchEnabled(flagOf(o.value(QStringLiteral("sq"))));
+        if (o.contains(QStringLiteral("sqv")))
+            rx->setSquelchThreshold(o.value(QStringLiteral("sqv")).toInt() / 1000.0);
+        if (o.contains(QStringLiteral("cw")))
+            rx->setCwPitchHz(o.value(QStringLiteral("cw")).toInt());
+    }
+    lyra::setDeskApplyQuiet(false);
+}
+
+void MainWindow::pushDeskPs()
+{
+    auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+    if (!st || !desk_ || !desk_->isHost() || !desk_->attached()) return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (deskPsMs_ != 0 && now - deskPsMs_ < 200) return;
+    deskPsMs_ = now;
+    desk_->sendPs(st->psLiveArmed() ? 1 : 0, st->psFeedbackLevel(),
+                  st->psAutoAttDb(), st->psCorrecting() ? 1 : 0,
+                  st->psCalCount(), st->psFsmState(),
+                  st->psDdc0Dbfs(), st->psDdc1Dbfs(), st->psFeedSpr());
+}
+
+void MainWindow::pushDeskPlot()
+{
+    auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+    if (!st || !desk_ || !desk_->isHost() || !desk_->attached()) return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (deskPlotMs_ != 0 && now - deskPlotMs_ < 200) return;
+    deskPlotMs_ = now;
+    const auto pack = [](const QVariantList &xs) {
+        QByteArray out(64 * static_cast<int>(sizeof(qint16)), '\0');
+        auto *p = reinterpret_cast<qint16 *>(out.data());
+        const int src = xs.size();
+        for (int i = 0; i < 64; ++i) {
+            double v = 0.0;
+            if (src > 0) {
+                const int j = (src == 1) ? 0 : (i * (src - 1)) / 63;
+                v = xs.at(j).toDouble();
+            }
+            int q = qRound(v * 1000.0);
+            if (q < 0) q = 0;
+            if (q > 2000) q = 2000;
+            p[i] = static_cast<qint16>(q);
+        }
+        return out;
+    };
+    const QByteArray raw = pack(st->psAmpMagX()) + pack(st->psAmpMagY())
+                         + pack(st->psAmpCorrX()) + pack(st->psAmpCorrY());
+    desk_->sendPsPlot(raw);
+}
+
 // ── Multi-rig: the "Rig" menu ──────────────────────────────────────────────
 
 void MainWindow::rebuildRigMenu() {
     rigMenu_->clear();
+    const bool deskRole = desk_ && desk_->attached() && !desk_->isHost();
     const QString active = lyra::rig::registry::activeRigId();
     const auto rigs = lyra::rig::registry::rigs();
     if (rigs.isEmpty()) {
         QAction *none = rigMenu_->addAction(tr("(no rigs yet)"));
         none->setEnabled(false);
     }
-    for (const auto &r : rigs) {
+    for (auto r : rigs) {
+        // A P2 rig can still be stored under the coarse family name
+        // after the operator picked a model.  Use that rig's own model
+        // key, or the active rig's saved model, then persist the
+        // marketed name (Brick3SDR, ANAN-100D, …).  A custom rename
+        // is left alone.
+        if (r.hardwareModelKey.isEmpty() && r.rigId == active
+            && (r.family == lyra::rig::RadioFamily::AnanP2
+                || r.family == lyra::rig::RadioFamily::AnanP1)) {
+            QSettings s;
+            if (s.contains(QStringLiteral("radio/hardwareModel"))) {
+                const QString key =
+                    s.value(QStringLiteral("radio/hardwareModel")).toString();
+                if (!key.isEmpty())
+                    r.hardwareModelKey = key;
+            }
+        }
+        if (lyra::rig::registry::adoptHardwareLabel(r))
+            lyra::rig::registry::upsertRig(r);
         const QString label = r.label.isEmpty() ? r.rigId : r.label;
         QAction *a = rigMenu_->addAction(label);
         a->setCheckable(true);
-        a->setChecked(r.rigId == active);
+        a->setChecked(!deskRole && r.rigId == active);
         const QString id = r.rigId;
-        connect(a, &QAction::triggered, this, [this, id]() { switchRig(id); });
+        connect(a, &QAction::triggered, this, [this, id]() {
+            if (desk_ && desk_->attached() && !desk_->isHost()) {
+                statusBar()->showMessage(
+                    tr("Detach before using a radio on this computer."), 6000);
+                rebuildRigMenu();
+                return;
+            }
+            switchRig(id);
+        });
     }
+    QAction *remoteAct = rigMenu_->addAction(tr("Remote"));
+    remoteAct->setCheckable(true);
+    remoteAct->setChecked(deskRole);
+    connect(remoteAct, &QAction::triggered, this, [this]() {
+        if (desk_ && desk_->attached() && !desk_->isHost()) {
+            rebuildRigMenu();
+            return;
+        }
+        openSettingsTopic(QStringLiteral("remote"));
+    });
     rigMenu_->addSeparator();
     rigMenu_->addAction(tr("Add rig…"), this, &MainWindow::addRigInteractive);
     if (!active.isEmpty())
@@ -1964,9 +3959,19 @@ void MainWindow::rebuildRigMenu() {
                             &MainWindow::renameActiveRig);
     rigMenu_->addAction(tr("Manage rigs (Settings → Hardware)…"),
                         this, &MainWindow::openSettings);
+    rigMenu_->addSeparator();
+    rigMenu_->addAction(tr("Remote…"), this, [this]() {
+        openSettingsTopic(QStringLiteral("remote"));
+    });
 }
 
 void MainWindow::switchRig(const QString &rigId) {
+    if (desk_ && desk_->attached() && !desk_->isHost()) {
+        statusBar()->showMessage(
+            tr("Detach before using a radio on this computer."), 6000);
+        rebuildRigMenu();
+        return;
+    }
     if (rigId.isEmpty() || rigId == lyra::rig::registry::activeRigId())
         return;   // already active — nothing to do
 
@@ -2280,6 +4285,7 @@ void MainWindow::buildToolbar() {
                                                 QStringLiteral("rxeq") });
             dspRack_ = dr.first; dspRackChip_ = dr.second;
         }
+        tb->addSeparator();
         // #201 Session recorder — ONE always-visible header chip between RX DSP
         // and Options.  Idle: a "Recorder" launcher chip (click pops the panel
         // out / hides it, same idiom as the DSP chips).  While recording: it
@@ -2328,8 +4334,9 @@ void MainWindow::buildToolbar() {
         auto *optsLabel = new QLabel(tr("Options:"), tb);
         optsLabel->setContentsMargins(8, 0, 4, 0);
         optsLabel->setToolTip(tr("Operating tools — center-tune lock (CTUN), the "
-                                 "Tuner memory, the CW console / decoder, and the "
-                                 "waterfall callsign ID (WF-ID)."));
+                                 "Tuner memory, the CW console / decoder, "
+                                 "waterfall callsign ID (WF-ID), PureSignal, "
+                                 "and Amp View."));
         tb->addWidget(optsLabel);
         // CTUN (#174) — Center-tune lock.  NOT a dock; a state toggle on the
         // stream (lock the panadapter/DDC centre, tune the VFO within the
@@ -2436,6 +4443,7 @@ void MainWindow::buildToolbar() {
         // dock's visibility directly.
         if (QDockWidget *d = docks_.value(QStringLiteral("freqcal"))) {
             auto *fc = new QToolButton(tb);
+            freqCalBtn_ = fc;
             fc->setText(tr("Freq Cal"));
             fc->setCheckable(true);
             fc->setChecked(d->isVisible());
@@ -2455,9 +4463,13 @@ void MainWindow::buildToolbar() {
                     d->hide();
                 }
             });
+            // Do not emit toggled(false) on a visibility flicker: View →
+            // Freq Cal (toggleViewAction) reparents the dock, Qt fires
+            // visibilityChanged(false) then (true), and setChecked(false)
+            // would hide it again — "aborts every time" on that menu path.
             connect(d, &QDockWidget::visibilityChanged, fc, [fc](bool vis) {
-                if (fc->isChecked() != vis)
-                    fc->setChecked(vis);
+                const QSignalBlocker block(fc);
+                fc->setChecked(vis);
             });
             attachChipHelp(fc, QStringLiteral("freqcal"));  // right-click → guide
         }
@@ -2518,9 +4530,13 @@ void MainWindow::buildToolbar() {
             // WaterfallIdController; this greys + disarms the chip.
             auto *wfStream = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
             auto inHamBand = [this, wfStream]() {
-                return wfStream && lyra::ui::amateurBandContains(
-                           prefs_->bandPlanRegion(), prefs_->bandPlanCountry(),
-                           static_cast<double>(wfStream->rx1FreqHz()));
+                if (!wfStream) return false;
+                const auto hz = static_cast<qint64>(wfStream->rx1FreqHz());
+                if (xvtr_ && xvtr_->matchingSlot(hz) >= 0)
+                    return true;
+                return lyra::ui::amateurBandContains(
+                    prefs_->bandPlanRegion(), prefs_->bandPlanCountry(),
+                    static_cast<double>(wfStream->rx1FreqHz()));
             };
             auto armable = [isSsbMode, inHamBand]() {
                 return isSsbMode() && inHamBand();
@@ -2562,6 +4578,88 @@ void MainWindow::buildToolbar() {
             connect(prefs_, &Prefs::bandPlanRegionChanged, wfid, onPlanChanged);
             connect(prefs_, &Prefs::bandPlanCountryChanged, wfid, onPlanChanged);
         }
+        // PureSignal + Amp View sit at the end of Options (not TX DSP).
+        // Stay individual chips even when Options is grouped — they are
+        // not rack members.
+        auto addOptDockChip = [&](const char *nm, const QString &label) {
+            if (QDockWidget *d = docks_.value(QString::fromLatin1(nm))) {
+                QAction *act = d->toggleViewAction();
+                act->setText(label);
+                tb->addAction(act);
+                if (auto *btn = qobject_cast<QToolButton *>(
+                        tb->widgetForAction(act))) {
+                    btn->setObjectName(QStringLiteral("txDspChip"));
+                    btn->setStyleSheet(QString::fromLatin1(kTxDspChipQss));
+                }
+            }
+        };
+        addOptDockChip("ps", tr("PureSignal"));
+        addOptDockChip("ampview", tr("Amp View"));
+        addOptDockChip("diversity", tr("DIV"));
+        if (QDockWidget *divDock = docks_.value(QStringLiteral("diversity"))) {
+            if (QAction *act = divDock->toggleViewAction()) {
+                if (auto *btn = qobject_cast<QToolButton *>(
+                        tb->widgetForAction(act))) {
+                    auto *divSt = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+                    btn->setToolTip(tr(
+                        "Two converters, same frequency. Second RF is the "
+                        "RX2 jack (Ext1), not ANT2. Off while transmitting "
+                        "or PureSignal is live."));
+                    auto syncDivChip = [btn, divDock, divSt]() {
+                        const bool show = divSt && divSt->diversityCapable();
+                        btn->setVisible(show);
+                        if (!show)
+                            divDock->hide();
+                    };
+                    if (divSt) {
+                        connect(divSt,
+                                &lyra::ipc::HL2Stream::diversityCapableChanged,
+                                btn, syncDivChip);
+                    }
+                    syncDivChip();
+                }
+            }
+        }
+
+        auto *appsBtn = new QToolButton(tb);
+        appsBtn->setObjectName(QStringLiteral("txDspChip"));
+        appsBtn->setText(tr("Apps"));
+        appsBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        appsBtn->setPopupMode(QToolButton::InstantPopup);
+        appsBtn->setStyleSheet(QString::fromLatin1(kTxDspChipQss));
+        appsBtn->setToolTip(tr(
+            "Launch named programs (FLDigi, SSTV, …).\n"
+            "Add them in Settings → Apps. Auto-start is optional and off "
+            "unless you tick it."));
+        auto *appsMenu = new QMenu(appsBtn);
+        appsBtn->setMenu(appsMenu);
+        connect(appsMenu, &QMenu::aboutToShow, this, [this, appsMenu]() {
+            appsMenu->clear();
+            int n = 0;
+            for (const auto &e : lyra::AppShortcuts::load()) {
+                if (e.path.trimmed().isEmpty()) continue;
+                const QString label = lyra::AppShortcuts::displayName(e);
+                if (label.isEmpty()) continue;
+                QAction *a = appsMenu->addAction(label);
+                connect(a, &QAction::triggered, this, [this, e]() {
+                    QString msg;
+                    lyra::AppShortcuts::launch(e, &msg);
+                    if (!msg.isEmpty())
+                        statusBar()->showMessage(msg, 5000);
+                });
+                ++n;
+            }
+            if (n == 0) {
+                QAction *empty = appsMenu->addAction(
+                    tr("No apps yet — add them in Settings → Apps"));
+                empty->setEnabled(false);
+            }
+            appsMenu->addSeparator();
+            appsMenu->addAction(tr("Edit in Settings…"), this, [this]() {
+                openSettingsTopic(QStringLiteral("apps"));
+            });
+        });
+        tb->addWidget(appsBtn);
     }
 
     // #94 External TX Inhibit — prominent always-visible indicator.  Hidden
@@ -2826,17 +4924,57 @@ void MainWindow::onStartStop() {
         st->close();
         return;
     }
-    // Stopped → connect.  Prefer the remembered radio (probe-verified by
-    // beginConnect, NOT opened blind); if none / not there, scan.
+    // Stopped → connect.  Prefer the ACTIVE rig's lastIp (family-matched).
+    // lastRadio is discovery's most recent reply — with Brick2 powered it
+    // is often the Brick, which then got opened as P1 and locked the HL2.
     QString ip;
-    if (auto *disc = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_))
-        ip = disc->savedRadio().value(QStringLiteral("ip")).toString();
+    const auto rp = lyra::rig::registry::rig(
+        lyra::rig::registry::activeRigId());
+    if (!rp.lastIp.isEmpty())
+        ip = rp.lastIp;
+    if (auto *disc = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_)) {
+        if (ip.isEmpty()) {
+            const auto saved = disc->savedRadio();
+            const QString sip =
+                saved.value(QStringLiteral("ip")).toString();
+            const int proto =
+                saved.value(QStringLiteral("protocol"), 1).toInt();
+            const int want =
+                lyra::rig::capabilitiesFor(rp.family).protocol;
+            if (!sip.isEmpty() && (want == 0 || proto == want))
+                ip = sip;
+        }
+    }
     beginConnect(ip);
 }
 
 void MainWindow::beginConnect(const QString &preferIp) {
     auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-    if (!st || st->isRunning()) return;
+    if (!st || st->isRunning() || connectInFlight_) return;
+    if (desk_ && desk_->attached() && !desk_->isHost()) {
+        const QString who = desk_->peerName().isEmpty()
+            ? desk_->savedHostName() : desk_->peerName();
+        if (connStatus_) {
+            const QString rig = desk_->hostRigLabel();
+            connStatus_->setText(rig.isEmpty()
+                ? tr("Host rig · %1").arg(who)
+                : tr("Host rig · %1 · %2").arg(who, rig));
+            connStatus_->setStyleSheet(
+                QStringLiteral("QLabel{color:#7ec8e3;font-weight:bold;}"));
+        }
+        statusBar()->showMessage(
+            tr("This desk uses the shack radio. Start that radio on the shack computer."),
+            6000);
+        return;
+    }
+    // FFTW / WDSP init calls create_rnet() after ensureWisdom(). A TCI
+    // START (or lastRadio) during that nested loop used to open() with
+    // prn still null.
+    if (!lyra::wire::prn) {
+        qWarning("[wire] beginConnect: radio layer not ready yet");
+        return;
+    }
+    connectInFlight_ = true;
     // Arm the "radio never answered" watchdog for this attempt. It's cancelled
     // by updateConnState() the moment either wire path reports running, or by
     // a manual Stop; on timeout it tells the operator the radio wasn't found
@@ -2869,12 +5007,58 @@ void MainWindow::beginConnect(const QString &preferIp) {
             lyra::rig::registry::activeRigId());
         const bool isP2 =
             lyra::rig::capabilitiesFor(rp.family).protocol == 2;
-        if (rp.isValid() && isP2 && !rp.lastIp.isEmpty()) {
-            if (connStatus_)
-                connStatus_->setText(tr("Opening %1…").arg(
-                    rp.label.isEmpty() ? rp.lastIp : rp.label));
-            p2Bridge_->open(rp.lastIp, rp.mac);
-            return;
+        // A P1 open used to stamp radio/lastIp onto whichever rig was
+        // *active* — including a Brick/Saturn profile. Next Start then
+        // sent Protocol 2 at the HL2 (operator: "trying to use the HL2
+        // as a p2 unit"). Never P2-open an address last seen as P1/HL2.
+        bool ipIsP1 = (rp.family == lyra::rig::RadioFamily::Hl2);
+        if (auto *d = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_)) {
+            const auto saved = d->savedRadio();
+            const QString sip = saved.value(QStringLiteral("ip")).toString();
+            const int proto =
+                saved.value(QStringLiteral("protocol"), 1).toInt();
+            const QString board =
+                saved.value(QStringLiteral("boardName")).toString();
+            if (!sip.isEmpty() && sip == rp.lastIp &&
+                (proto == 1 ||
+                 board.contains(QLatin1String("HermesLite"),
+                                Qt::CaseInsensitive))) {
+                ipIsP1 = true;
+                qWarning("[wire] lastRadio %s is P1/HL2 — not opening as P2",
+                         qPrintable(sip));
+            }
+        }
+        if (rp.isValid() && isP2 && !rp.lastIp.isEmpty() && !ipIsP1) {
+            auto *d = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_);
+            const int prefHint = protocolHintForIp(d, preferIp);
+            if (!preferIp.isEmpty() && prefHint == 1) {
+                qWarning("[wire] active rig is P2 but Start IP %s is P1 — "
+                         "not opening Brick as P2",
+                         qPrintable(preferIp));
+            } else {
+                const QString target =
+                    (!preferIp.isEmpty() && prefHint == 2)
+                        ? preferIp : rp.lastIp;
+                if (connStatus_)
+                    connStatus_->setText(tr("Opening %1…").arg(
+                        rp.label.isEmpty() ? target : rp.label));
+                qWarning("[wire] Protocol 2 open %s (%s)",
+                         qPrintable(target), qPrintable(rp.label));
+                // Pass the board name discovery remembered for this radio
+                // so a blank model can be filled from it (Orion →
+                // ANAN-200D); without it the filter board is never driven.
+                QString board;
+                if (d) {
+                    const auto saved = d->savedRadio();
+                    if (saved.value(QStringLiteral("mac")).toString()
+                            .compare(rp.mac, Qt::CaseInsensitive) == 0)
+                        board = saved.value(QStringLiteral("boardName"))
+                                    .toString();
+                }
+                p2Bridge_->open(target, rp.mac, board);
+                connectInFlight_ = false;
+                return;
+            }
         }
     }
     // Leaving Disconnected — show the connect attempt in amber (not the
@@ -2882,41 +5066,22 @@ void MainWindow::beginConnect(const QString &preferIp) {
     if (connStatus_)
         connStatus_->setStyleSheet(
             QStringLiteral("QLabel{color:#f0c040;font-weight:bold;}"));
-    auto *disc = qobject_cast<lyra::ipc::HL2Discovery *>(discovery_);
-    if (!disc) {
-        // No discovery service — best effort: open the saved IP directly.
-        if (!preferIp.isEmpty()) {
-            if (connStatus_) connStatus_->setText(tr("Connecting to %1…").arg(preferIp));
-            st->open(preferIp);
-        } else if (connStatus_) {
-            connStatus_->setText(tr("No saved radio"));
-            disarmConnWatchdog();  // nothing was attempted — no "not found" popup
-        }
+    // Thetis-style: the chosen radio is an IP, not a LAN sweep.
+    // DeskHPSDR mixed P1+P2 discovery on GUI sockets (probe/scan at Start)
+    // is what started the Brick-on / HL2-Start freeze-crash. Scan stays
+    // on Settings → Hardware → Scan only; after that, Start opens the
+    // saved HL2 address and does not keep discovering.
+    QObject::disconnect(probeConn_);
+    if (preferIp.isEmpty()) {
+        if (connStatus_) connStatus_->setText(tr("No saved radio — Scan in Settings"));
+        disarmConnWatchdog();
+        connectInFlight_ = false;
         return;
     }
-    if (preferIp.isEmpty()) { scanAndOpenFirst(); return; }
-    // Probe the remembered IP first (fast unicast, ~1 s).  Open it only on
-    // a reply; on no reply the radio isn't there (DHCP lease changed, moved
-    // subnets, powered off) → scan and self-heal to its real address instead
-    // of opening a dead IP and sitting frozen on "Connecting…".
-    if (connStatus_) connStatus_->setText(tr("Locating %1…").arg(preferIp));
-    QObject::disconnect(probeConn_);
-    probeConn_ = connect(
-        disc, &lyra::ipc::HL2Discovery::probeFinished, this,
-        [this, st, preferIp](bool found, const QString &ip) {
-            if (ip != preferIp) return;           // a different probe
-            QObject::disconnect(probeConn_);
-            if (st->isRunning()) return;          // raced with another open
-            if (found) {
-                if (connStatus_) connStatus_->setText(tr("Connecting to %1…").arg(preferIp));
-                st->open(preferIp);
-            } else {
-                if (connStatus_)
-                    connStatus_->setText(tr("Saved radio not at %1 — scanning…").arg(preferIp));
-                scanAndOpenFirst();
-            }
-        });
-    disc->probe(preferIp, 1.5);
+    if (connStatus_)
+        connStatus_->setText(tr("Connecting to %1…").arg(preferIp));
+    st->open(preferIp);
+    connectInFlight_ = false;
 }
 
 void MainWindow::scanAndOpenFirst() {
@@ -2972,7 +5137,7 @@ void MainWindow::scanAndOpenFirst() {
                 connStatus_->setText(tr("No radio found"));
             }
         });
-    disc->scan(1.5, 2);
+    disc->scan(1.5, 2, 1);
 }
 
 void MainWindow::armConnWatchdog() {
@@ -3022,9 +5187,20 @@ void MainWindow::updateConnState() {
         startStopAction_->setText(anyRunning ? tr("■  Stop")
                                              : tr("▶  Start"));
     }
+    const bool deskRole = desk_ && desk_->attached() && !desk_->isHost();
+    const bool hideLocalStart = deskRole && !anyRunning;
+    if (startStopAction_) {
+        startStopAction_->setEnabled(!hideLocalStart);
+        startStopAction_->setVisible(!hideLocalStart);
+    }
     if (startStopBtn_) {
         // Green when stopped (the button says "Start"); red when running
         // (it says "Stop") — the colour signals the ACTION the click does.
+        startStopBtn_->setVisible(!hideLocalStart);
+        startStopBtn_->setEnabled(!hideLocalStart);
+        startStopBtn_->setToolTip(deskRole
+            ? tr("This desk uses the shack radio. Detach to start a radio here.")
+            : QString());
         startStopBtn_->setStyleSheet(
             anyRunning
                 ? QStringLiteral("QToolButton{color:#e53935;font-weight:bold;}")
@@ -3044,13 +5220,38 @@ void MainWindow::updateConnState() {
                 ? tr("Connected to %1 (P2)").arg(p2Bridge_->targetIp())
                 : tr("Connected to %1 (%2, P2)").arg(p2Bridge_->targetIp(), m));
         }
+        else if (deskRole) {
+            const QString who = desk_->peerName().isEmpty()
+                ? desk_->savedHostName() : desk_->peerName();
+            const QString rig = desk_->hostRigLabel();
+            connStatus_->setText(rig.isEmpty()
+                ? tr("Host rig · %1").arg(who)
+                : tr("Host rig · %1 · %2").arg(who, rig));
+        }
         else
             connStatus_->setText(tr("Disconnected"));
-        // Green = connected, red = disconnected.
+        // Green = connected, cyan = the shack's radio, red = disconnected.
         connStatus_->setStyleSheet(
             (running || p2Running)
                 ? QStringLiteral("QLabel{color:#4caf50;font-weight:bold;}")
-                : QStringLiteral("QLabel{color:#e53935;font-weight:bold;}"));
+                : deskRole
+                    ? QStringLiteral("QLabel{color:#7ec8e3;font-weight:bold;}")
+                    : QStringLiteral("QLabel{color:#e53935;font-weight:bold;}"));
+    }
+    if (freqCalBtn_)
+        freqCalBtn_->setVisible(!deskRole);
+    if (deskRole) {
+        if (QDockWidget *d = docks_.value(QStringLiteral("freqcal"))) {
+            if (d->isVisible()) d->hide();
+        }
+    }
+    if (st)
+        st->setSuppressLocalTxBadge(deskRole);
+    if (settingsDlg_)
+        settingsDlg_->setRemoteDesk(deskRole);
+    if (deskMenuShown_ != deskRole) {
+        deskMenuShown_ = deskRole;
+        rebuildRigMenu();
     }
 }
 
@@ -3063,6 +5264,7 @@ void MainWindow::updateTciStatus() {
     }
     const int n = tci_->clientCount();
     tciStatus_->setVisible(true);
+    const QString lock = tci_->remoteLockText();
     if (n > 0) {
         tciStatus_->setText(tr("● TCI: %1").arg(n));
         tciStatus_->setStyleSheet(QStringLiteral("color:#4caf50;font-weight:bold;"));
@@ -3072,6 +5274,8 @@ void MainWindow::updateTciStatus() {
         tciStatus_->setStyleSheet(QStringLiteral("color:#f0c040;"));
         tciStatus_->setToolTip(tr("TCI server listening — no clients connected"));
     }
+    if (!lock.isEmpty())
+        tciStatus_->setToolTip(tciStatus_->toolTip() + QLatin1Char('\n') + lock);
 }
 
 bool MainWindow::event(QEvent *e) {
@@ -3201,18 +5405,45 @@ void MainWindow::fitWindowToScreen() {
           avail.width(), avail.height());
 }
 
+void MainWindow::setLayoutUseFactory(bool on) {
+    if (testWindowSize().isValid() || safeBootLayout())
+        return;
+    layoutUseFactory_ = on;
+    QSettings s;
+    const QString p = layoutSlotPrefix();
+    s.setValue(p + QStringLiteral("useFactory"), on);
+    if (on)
+        s.remove(p + QStringLiteral("windowState"));
+}
+
 void MainWindow::saveLayout() {
     if (testWindowSize().isValid()) return;   // diagnostic run — see testWindowSize()
     if (safeBootLayout()) return;             // safe boot is READ-ONLY — see safeBootLayout()
+    // While SUB is showing the second pan, keep the session slot as the
+    // pre-SUB arrangement so launch / SUB-off do not inherit the SUB docks.
+    if (auto *rx2 = docks_.value(QStringLiteral("panadapter2"));
+        rx2 && rx2->isVisible())
+        return;
     QSettings s;
     const QString p = layoutSlotPrefix();     // this display setup's own slot
     // Grouped-rack panels are children of their rack window, not the main
     // window, so main-window saveState() naturally omits them; each rack
     // persists its own geometry/state separately.
     s.setValue(p + QStringLiteral("geometry"), saveGeometry());
-    s.setValue(p + QStringLiteral("windowState"), saveState());
     if (prefs_)
         s.setValue(p + QStringLiteral("panadapterSplit"), prefs_->panadapterSplit());
+    // Factory is rebuilt on launch, not photographed.  Writing saveState()
+    // here was GitHub #20: Recall factory looked fine, close saved a bad
+    // blob, restart restored the corruption.
+    if (layoutUseFactory_) {
+        s.setValue(p + QStringLiteral("useFactory"), true);
+        s.remove(p + QStringLiteral("windowState"));
+        s.remove(p + QStringLiteral("dockVis"));
+    } else {
+        s.setValue(p + QStringLiteral("useFactory"), false);
+        s.setValue(p + QStringLiteral("windowState"), saveState());
+        s.setValue(p + QStringLiteral("dockVis"), captureMainDockVis(docks_));
+    }
     saveLayoutUndoStack();
 }
 
@@ -3283,6 +5514,7 @@ void MainWindow::restoreLayout() {
               qUtf8Printable(layoutSlotKey()));
     }
 
+    layoutRestoring_ = true;
     const QByteArray geo = s.value(p + QStringLiteral("geometry")).toByteArray();
     if (!geo.isEmpty()) {
         restoreGeometry(geo);   // includes the maximized/normal flag
@@ -3293,17 +5525,23 @@ void MainWindow::restoreLayout() {
         // maximize and close, saveGeometry() persists it for THIS setup.
         setWindowState(windowState() | Qt::WindowMaximized);
     }
+    const bool wantFactory =
+        s.value(p + QStringLiteral("useFactory"), false).toBool();
     const QByteArray st = s.value(p + QStringLiteral("windowState")).toByteArray();
-    if (!st.isEmpty()) {
-        restoreState(st);
-        layoutSource_ = QStringLiteral("restored slot '%1'").arg(layoutSlotKey());
-    } else {
-        // No session for this display setup: come up in the factory layout
-        // rather than the raw dock-creation order.  Built, not restored from a
-        // snapshot — see applyDefaultLayout().
+    if (wantFactory || st.isEmpty()) {
+        // Rebuild factory (GitHub #20).  Do not restoreState a photograph
+        // of factory — that blob is what scrambled laptops after restart.
         applyDefaultLayout();
-        layoutSource_ = QStringLiteral("FACTORY (slot '%1' was empty)")
-                            .arg(layoutSlotKey());
+        layoutSource_ = wantFactory
+            ? QStringLiteral("FACTORY (sticky, slot '%1')").arg(layoutSlotKey())
+            : QStringLiteral("FACTORY (slot '%1' was empty)").arg(layoutSlotKey());
+    } else {
+        hideMainDocksForRestore(docks_);
+        restoreState(st);
+        applyMainDockVis(docks_,
+                         s.value(p + QStringLiteral("dockVis")).toMap());
+        layoutUseFactory_ = false;
+        layoutSource_ = QStringLiteral("restored slot '%1'").arg(layoutSlotKey());
     }
     qInfo("[layout] %s", qUtf8Printable(layoutSource_));
     // The panadapter/waterfall divider lives inside the panadapter dock's QML,
@@ -3332,6 +5570,7 @@ void MainWindow::saveUserLayout() {
     QSettings s;
     s.setValue(QStringLiteral("ui/userGeometry"), saveGeometry());
     s.setValue(QStringLiteral("ui/userWindowState"), saveState());
+    s.setValue(QStringLiteral("ui/userDockVis"), captureMainDockVis(docks_));
     // The panadapter/waterfall divider isn't part of saveState() — it's
     // a QML SplitView inside the dock — so snapshot it alongside.
     if (prefs_) {
@@ -3358,25 +5597,8 @@ void MainWindow::restoreUserLayout() {
                "default\"."));
         return;
     }
-    const QByteArray geo =
-        s.value(QStringLiteral("ui/userGeometry")).toByteArray();
-    if (!geo.isEmpty()) {
-        restoreGeometry(geo);
-        fitWindowToScreen();   // saved on a bigger screen? don't go off-desktop
-    }
-    restoreState(st);
-    // Trust restoreState() for each dock's saved visibility — do NOT force-show
-    // (that re-opened panels the operator had closed when saving this layout;
-    // see #189).
-    // Re-apply the saved divider position (QML re-applies on the
-    // panadapterSplit change).
-    if (prefs_) {
-        const QVariant sp =
-            s.value(QStringLiteral("ui/userPanadapterSplit"));
-        if (sp.isValid()) {
-            prefs_->setPanadapterSplit(sp);
-        }
-    }
+    applyLiveDockState(st, s.value(QStringLiteral("ui/userPanadapterSplit")),
+                       s.value(QStringLiteral("ui/userDockVis")).toMap());
 }
 
 // The machine-specific-key filter + the export/restore engine now live in
@@ -3530,21 +5752,11 @@ void MainWindow::importLayoutFromFile() {
         != QMessageBox::Yes)
         return;
 
-    if (!restoreState(st)) {
-        QMessageBox::warning(this, tr("Import failed"),
-            tr("Lyra couldn't apply that layout (it may be from a much "
-               "newer or older version)."));
-        return;
-    }
-    if (prefs_) {
-        const QJsonValue sp = o.value(QStringLiteral("panadapterSplit"));
-        if (!sp.isUndefined() && !sp.isNull())
-            prefs_->setPanadapterSplit(sp.toVariant());
-    }
-    // Re-apply the current lock state to the restored arrangement + persist,
-    // exactly as recallNamedLayout() does.
-    applyPanelLock(
-        QSettings().value(QStringLiteral("ui/panelsLocked"), false).toBool());
+    QVariant split;
+    const QJsonValue spv = o.value(QStringLiteral("panadapterSplit"));
+    if (!spv.isUndefined() && !spv.isNull())
+        split = spv.toVariant();
+    applyLiveDockState(st, split);
     flushLayoutToSettings();
     QMessageBox::information(this, tr("Layout applied"),
         tr("Now using the layout \"%1\".\n\nTo keep it in a slot for quick "
@@ -3578,8 +5790,202 @@ void MainWindow::refreshLayoutMenus() {
     refreshLayoutUndoAction();
 }
 
+void MainWindow::applyLiveDockState(const QByteArray &st, const QVariant &split,
+                                   const QVariantMap &dockVis) {
+    layoutRestoring_ = true;
+    if (layoutSnapTimer_)
+        layoutSnapTimer_->stop();
+    // restoreGeometry() on a visible window crushes docks. restoreState()
+    // will not hide a dock that is already open (QTBUG-44935) — that is
+    // why Recall test1 left Profiles/Display up after factory. Hide the
+    // main docks first, restore the blob, then apply the saved vis map.
+    hideMainDocksForRestore(docks_);
+    if (!restoreState(st))
+        qWarning("[layout] restoreState rejected the saved dock blob");
+    applyMainDockVis(docks_, dockVis);
+    if (prefs_ && split.isValid())
+        prefs_->setPanadapterSplit(split);
+    applyPanelLock(
+        QSettings().value(QStringLiteral("ui/panelsLocked"), false).toBool());
+    setLayoutUseFactory(false);
+    layoutCurrent_ = saveState();
+    QTimer::singleShot(600, this, [this]() { layoutRestoring_ = false; });
+}
+
+void MainWindow::applyDockLayout(const QByteArray &geo, const QByteArray &st,
+                                const QVariant &split, bool persistSession) {
+    layoutRestoring_ = true;
+    if (!geo.isEmpty() && !isVisible()) {
+        restoreGeometry(geo);
+        fitWindowToScreen();
+    }
+    if (!st.isEmpty()) {
+        hideMainDocksForRestore(docks_);
+        restoreState(st);
+    }
+    if (prefs_ && split.isValid())
+        prefs_->setPanadapterSplit(split);
+    applyPanelLock(
+        QSettings().value(QStringLiteral("ui/panelsLocked"), false).toBool());
+    QTimer::singleShot(600, this, [this, persistSession]() {
+        layoutRestoring_ = false;
+        if (persistSession)
+            saveLayout();
+    });
+}
+
+void MainWindow::capturePreSubLayout() {
+    QSettings s;
+    s.setValue(QStringLiteral("ui/subOff/geometry"), saveGeometry());
+    s.setValue(QStringLiteral("ui/subOff/windowState"), saveState());
+    if (prefs_)
+        s.setValue(QStringLiteral("ui/subOff/panadapterSplit"),
+                   prefs_->panadapterSplit());
+}
+
+bool MainWindow::restorePreSubLayout(QDockWidget *rx2) {
+    QSettings s;
+    const QByteArray st =
+        s.value(QStringLiteral("ui/subOff/windowState")).toByteArray();
+    if (st.isEmpty())
+        return false;
+    applyDockLayout(s.value(QStringLiteral("ui/subOff/geometry")).toByteArray(),
+                    st,
+                    s.value(QStringLiteral("ui/subOff/panadapterSplit")),
+                    true);
+    if (rx2)
+        rx2->setVisible(false);
+    s.remove(QStringLiteral("ui/subOff/geometry"));
+    s.remove(QStringLiteral("ui/subOff/windowState"));
+    s.remove(QStringLiteral("ui/subOff/panadapterSplit"));
+    return true;
+}
+
+void MainWindow::applySubOnArrangement(QDockWidget *rx2) {
+    layoutRestoring_ = true;
+    if (prefs_ && prefs_->subLayoutEnabled()) {
+        const int slot = prefs_->subLayoutSlot();
+        QSettings s;
+        const QString base = QStringLiteral("layouts/%1/").arg(slot);
+        const QByteArray st =
+            s.value(base + QStringLiteral("windowState")).toByteArray();
+        if (!st.isEmpty()) {
+            applyDockLayout(
+                s.value(base + QStringLiteral("geometry")).toByteArray(),
+                st,
+                s.value(base + QStringLiteral("panadapterSplit")),
+                false);
+            rx2->setVisible(true);
+            QTimer::singleShot(0, this, [this, rx2]() {
+                if (rx2 && !rx2->isVisible())
+                    showRx2KeepingControlHeights(rx2);
+                else
+                    layoutRestoring_ = false;
+            });
+            return;
+        }
+    }
+    if (!rx2->isVisible())
+        showRx2KeepingControlHeights(rx2);
+    else
+        layoutRestoring_ = false;
+}
+
+void MainWindow::syncRx2Pan() {
+    auto *rx2 = docks_.value(QStringLiteral("panadapter2"));
+    if (!rx2) return;
+    auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+    const bool dual = st && st->dualAdc();
+    if (QAction *a = rx2->toggleViewAction()) {
+        a->setVisible(dual);
+        a->setEnabled(dual);
+    }
+    const bool want = dual && st->subEnabled();
+    const bool was = rx2->isVisible();
+
+    if (want) {
+        if (!was)
+            capturePreSubLayout();
+        applySubOnArrangement(rx2);
+        return;
+    }
+    if (was || !QSettings().value(QStringLiteral("ui/subOff/windowState"))
+                    .toByteArray().isEmpty()) {
+        if (!restorePreSubLayout(rx2)) {
+            layoutRestoring_ = true;
+            hideRx2ReturningHeight(rx2);
+        }
+    }
+}
+
+void MainWindow::showRx2KeepingControlHeights(QDockWidget *rx2) {
+    auto *mainPan = docks_.value(QStringLiteral("panadapter"));
+    const int winH = height();
+    const int topH = mainPan ? mainPan->height() : 0;
+    QList<QDockWidget *> bottoms;
+    QList<int> bottomHs;
+    for (auto it = docks_.cbegin(); it != docks_.cend(); ++it) {
+        QDockWidget *d = it.value();
+        if (!d || d == rx2 || d == mainPan) continue;
+        if (!d->isVisible() || d->isFloating()) continue;
+        if (dockWidgetArea(d) == Qt::BottomDockWidgetArea) {
+            bottoms.append(d);
+            bottomHs.append(qMax(1, d->height()));
+        }
+    }
+    rx2->show();
+    QTimer::singleShot(0, this, [this, rx2, mainPan, winH, topH, bottoms,
+                                 bottomHs]() {
+        if (mainPan && topH > 160) {
+            const int rx2H = qBound(120, topH / 3, topH - 120);
+            resizeDocks({mainPan, rx2}, {topH - rx2H, rx2H}, Qt::Vertical);
+        }
+        if (!bottoms.isEmpty())
+            resizeDocks(bottoms, bottomHs, Qt::Vertical);
+        if (height() > winH)
+            resize(width(), winH);
+        layoutRestoring_ = false;
+        saveLayout();
+    });
+}
+
+void MainWindow::hideRx2ReturningHeight(QDockWidget *rx2) {
+    auto *mainPan = docks_.value(QStringLiteral("panadapter"));
+    const int winH = height();
+    int give = rx2->height();
+    if (mainPan) give += mainPan->height();
+    QList<QDockWidget *> bottoms;
+    QList<int> bottomHs;
+    for (auto it = docks_.cbegin(); it != docks_.cend(); ++it) {
+        QDockWidget *d = it.value();
+        if (!d || d == rx2 || d == mainPan) continue;
+        if (!d->isVisible() || d->isFloating()) continue;
+        if (dockWidgetArea(d) == Qt::BottomDockWidgetArea) {
+            bottoms.append(d);
+            bottomHs.append(qMax(1, d->height()));
+        }
+    }
+    rx2->hide();
+    QTimer::singleShot(0, this, [this, mainPan, winH, give, bottoms, bottomHs]() {
+        if (mainPan && give > 80)
+            resizeDocks({mainPan}, {give}, Qt::Vertical);
+        if (!bottoms.isEmpty())
+            resizeDocks(bottoms, bottomHs, Qt::Vertical);
+        if (height() != winH)
+            resize(width(), winH);
+        layoutRestoring_ = false;
+        saveLayout();
+    });
+}
+
 void MainWindow::saveNamedLayout(int slot) {
     if (testWindowSize().isValid() || safeBootLayout()) return refuseLayoutWrite();
+    // Photograph BEFORE the name dialog. Closing that dialog must not
+    // be what we save.
+    const QByteArray geo = saveGeometry();
+    const QByteArray st = saveState();
+    const QVariantMap vis = captureMainDockVis(docks_);
+    const QVariant split = prefs_ ? prefs_->panadapterSplit() : QVariant();
     QSettings s;
     const QString base = QStringLiteral("layouts/%1/").arg(slot);
     QString cur = s.value(base + QStringLiteral("name")).toString();
@@ -3591,13 +5997,12 @@ void MainWindow::saveNamedLayout(int slot) {
     if (!ok) return;
     if (name.isEmpty()) name = tr("Layout %1").arg(slot);
     s.setValue(base + QStringLiteral("name"), name);
-    s.setValue(base + QStringLiteral("geometry"), saveGeometry());
-    s.setValue(base + QStringLiteral("windowState"), saveState());
-    // The panadapter/waterfall divider is a QML SplitView inside the dock —
-    // not part of saveState() — so snapshot it alongside.
-    if (prefs_)
-        s.setValue(base + QStringLiteral("panadapterSplit"),
-                   prefs_->panadapterSplit());
+    s.setValue(base + QStringLiteral("geometry"), geo);
+    s.setValue(base + QStringLiteral("windowState"), st);
+    s.setValue(base + QStringLiteral("dockVis"), vis);
+    if (split.isValid())
+        s.setValue(base + QStringLiteral("panadapterSplit"), split);
+    setLayoutUseFactory(false);
     statusBar()->showMessage(
         tr("Saved layout \"%1\" to slot %2.").arg(name).arg(slot), 4000);
 }
@@ -3615,30 +6020,13 @@ void MainWindow::recallNamedLayout(int slot) {
                 .arg(slot));
         return;
     }
-    const QByteArray geo =
-        s.value(base + QStringLiteral("geometry")).toByteArray();
-    if (!geo.isEmpty()) {
-        restoreGeometry(geo);
-        fitWindowToScreen();   // saved on a bigger screen? don't go off-desktop
-    }
-    restoreState(st);
-    // Trust restoreState() for each dock's saved open/closed state.  An earlier
-    // force-show of every non-chip panel here re-opened ANY panel the operator
-    // had closed when saving this slot — the Solar panel was the visible victim
-    // (#189), but it hit meter/audio/tx/band equally.  A faithful recall must
-    // reproduce exactly what was saved, so no force-show.
-    if (prefs_) {
-        const QVariant sp = s.value(base + QStringLiteral("panadapterSplit"));
-        if (sp.isValid()) prefs_->setPanadapterSplit(sp);
-    }
-    // Re-apply the current lock state to the freshly-restored arrangement
-    // (restoreState resets dock features the same way restoreLayout handles).
-    applyPanelLock(
-        QSettings().value(QStringLiteral("ui/panelsLocked"), false).toBool());
+    applyLiveDockState(st, s.value(base + QStringLiteral("panadapterSplit")),
+                       s.value(base + QStringLiteral("dockVis")).toMap());
     statusBar()->showMessage(tr("Recalled layout slot %1.").arg(slot), 4000);
 }
 
 void MainWindow::applyDefaultLayout() {
+    layoutRestoring_ = true;
     // The factory arrangement — BUILT, not restored from a captured blob.
     //
     // It used to be a QMainWindow::saveState() snapshot embedded in the source.
@@ -3725,6 +6113,16 @@ void MainWindow::applyDefaultLayout() {
     // would remove the persisted ui/panadapterSplit key, so skip it (the operator's
     // real slot keeps its own split, restored on the next normal launch).
     if (prefs_ && !safeBootLayout()) prefs_->setPanadapterSplit(QVariant());
+    setLayoutUseFactory(true);
+    layoutCurrent_ = saveState();
+    // Menu recall: docks are already live.  Startup waits for docksReady.
+    if (docksReadyEmitted_) {
+        QTimer::singleShot(800, this, [this]() {
+            if (layoutUseFactory_)
+                layoutCurrent_ = saveState();
+            layoutRestoring_ = false;
+        });
+    }
 }
 
 // ── Layout undo (randol request) ─────────────────────────────────────────
@@ -3793,6 +6191,7 @@ void MainWindow::commitLayoutSnapshot() {
     while (layoutUndoStack_.size() > kLayoutUndoMax)
         layoutUndoStack_.removeFirst();            // drop the oldest
     layoutCurrent_ = now;
+    setLayoutUseFactory(false);                    // operator moved a dock
     saveLayoutUndoStack();                         // survives a restart
     refreshLayoutUndoAction();
 }
@@ -3808,6 +6207,7 @@ void MainWindow::undoLayoutChange() {
     const QByteArray prev = layoutUndoStack_.takeLast();
     restoreState(prev);
     layoutCurrent_ = prev;
+    setLayoutUseFactory(false);
     // restoreState resets each dock's features — re-apply the lock state, as
     // recallNamedLayout does.
     applyPanelLock(
@@ -4005,6 +6405,21 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             }
             // First (non-repeat) press: toggle MOX exactly as the MOX button
             // does — flip the one shared wire-MOX truth.
+            if (desk_ && desk_->deskSide()) {
+                if (desk_->voiceHeld() && desk_->moxLit() && desk_->deskOwnsKey()) {
+                    desk_->requestRemoteMox(false);
+                    spaceConsumedPress_ = true;
+                    return true;
+                }
+                QWidget *fw = QApplication::focusWidget();
+                const bool inDialog = fw && qobject_cast<QDialog *>(fw->window());
+                if (desk_->voiceHeld() && !isEditableFocus(fw) && !inDialog
+                    && !QApplication::activePopupWidget()) {
+                    desk_->requestRemoteMox(true);
+                    spaceConsumedPress_ = true;
+                    return true;
+                }
+            }
             if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
                 if (st->moxActive()) {
                     st->requestMox(false);       // un-key: ALWAYS allowed
@@ -4027,7 +6442,53 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             }
         }
     }
+    if (t == QEvent::KeyPress) {
+        auto *ke = static_cast<QKeyEvent *>(event);
+        const int k = ke->key();
+        int delta = 0;
+        if (k == Qt::Key_Left)       delta = -1000;
+        else if (k == Qt::Key_Right) delta =  1000;
+        else if (k == Qt::Key_Up)    delta =    10;
+        else if (k == Qt::Key_Down)  delta =   -10;
+        if (delta != 0) {
+            QWidget *fw = QApplication::focusWidget();
+            const bool inDialog = fw && qobject_cast<QDialog *>(fw->window());
+            const bool comboOrList = fw && (qobject_cast<QComboBox *>(fw)
+                || qobject_cast<QAbstractItemView *>(fw));
+            auto *fo = QGuiApplication::focusObject();
+            const bool onLed = qobject_cast<lyra::ui::FreqDisplay *>(fo);
+            if (!isEditableFocus(fw) && !inDialog && !comboOrList && !onLed
+                && !QApplication::activePopupWidget()) {
+                if (nudgeFocusedVfoHz(delta))
+                    return true;
+            }
+        }
+    }
     return QMainWindow::eventFilter(watched, event);
+}
+
+bool MainWindow::nudgeFocusedVfoHz(int deltaHz) {
+    auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+    if (!st) return false;
+    auto *eng = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+    const int off1 = eng ? eng->markerOffsetHz() : 0;
+    const int off2 = eng ? eng->markerOffsetHzRx2() : 0;
+    auto clampCarrier = [](qint64 hz) {
+        return quint32(std::clamp(hz, qint64(0), qint64(2'147'483'647)));
+    };
+    const bool rx2 = st->subEnabled() && st->focusedRx() == 2;
+    if (rx2) {
+        if (st->splitEnabled() || !st->subEnabled()) {
+            st->setVfoBHz(clampCarrier(qint64(st->vfoBHz()) + deltaHz));
+        } else {
+            const qint64 carrier = qint64(st->rx2FreqHz()) + off2 + deltaHz;
+            st->setRx2FreqHz(clampCarrier(carrier - off2));
+        }
+    } else {
+        const qint64 carrier = qint64(st->rx1FreqHz()) + off1 + deltaHz;
+        st->setRx1FreqHz(clampCarrier(carrier - off1));
+    }
+    return true;
 }
 
 void MainWindow::keyPressEvent(QKeyEvent *event) {

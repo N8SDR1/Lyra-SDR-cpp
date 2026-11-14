@@ -102,7 +102,10 @@ const QVector<Section> &catalogue() {
           QStringLiteral("ui/geometry"),
           QStringLiteral("ui/windowState"), QStringLiteral("ui/userGeometry"),
           QStringLiteral("ui/userWindowState"), QStringLiteral("ui/panadapterSplit"),
-          QStringLiteral("ui/userPanadapterSplit"), QStringLiteral("ui/panelsLocked")},
+          QStringLiteral("ui/userPanadapterSplit"), QStringLiteral("ui/panelsLocked"),
+          QStringLiteral("visuals/subLayoutEnabled"),
+          QStringLiteral("visuals/subLayoutSlot"),
+          QStringLiteral("ui/subOff/")},
          true},
     };
     return kS;
@@ -118,6 +121,7 @@ bool isMachineSpecificKey(const QString &k) {
     // Mirror of the old MainWindow helper — hardware / connection identity and
     // per-PC launch paths never travel in a backup.
     if (k == QStringLiteral("ui/graphicsBackend")) return true;
+    if (k == QStringLiteral("ui/msaaSamples")) return true;
     // Graphics crash-recovery state (ui/gfxStartupPending / gfxSafeMode /
     // gfxSafeDepth) is per-machine + transient — never carry it in a backup.
     if (k.startsWith(QStringLiteral("ui/gfx"))) return true;
@@ -131,6 +135,8 @@ bool isMachineSpecificKey(const QString &k) {
     if (k == QStringLiteral("radio/lastIp"))       return true;
     if (k.startsWith(QStringLiteral("lastRadio/"))) return true;
     if (k.startsWith(QStringLiteral("profileLaunch/"))) return true;
+    if (k.startsWith(QStringLiteral("autostart/")))     return true;
+    if (k.startsWith(QStringLiteral("apps/")))          return true;
     return false;
 }
 

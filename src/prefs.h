@@ -12,7 +12,9 @@
 
 #pragma once
 
+#include <QByteArray>
 #include <QHash>
+#include <QHostAddress>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -66,16 +68,9 @@ class Prefs : public QObject {
     // gain profile bundles.
     Q_PROPERTY(double tciRxGainDb READ tciRxGainDb WRITE setTciRxGainDb
                NOTIFY tciRxGainDbChanged)
-    // Task #108 — symmetric mirror of Task #75 on the INBOUND side.
-    // MSHV / JTDX / WSJT-X often send TX audio at levels that overdrive
-    // Lyra's TXA ALC — operator-flagged 2026-06-03 ("looks like it
-    // might be overdriving it slightly").  Applied in TciServer at
-    // audio-block ingress, AFTER decode + resample and BEFORE handing
-    // samples to TciMicSource.  Range -40..+10 dB, default 0 dB =
-    // unity = byte-identical to pre-#108 behaviour.  Stopgap until
-    // per-profile TCI gain ships under #49 + #55.
-    Q_PROPERTY(double tciTxGainDb READ tciTxGainDb WRITE setTciTxGainDb
-               NOTIFY tciTxGainDbChanged)
+    // (The #108 inbound mirror, tciTxGainDb, was retired: its sample
+    // multiply was dropped in the TX-rip refactor and never restored.
+    // The persisted "tci/tx_gain_db" key is left as a harmless orphan.)
     // #175 — waterfall-ID controls.  wfIdLevel = burst level (0..0.065;
     // deliberately low — a full-duty multitone ID is effectively full-power
     // digital into the finals, so a hot level splatters/IMDs and stresses an
@@ -90,6 +85,20 @@ class Prefs : public QObject {
                NOTIFY wfIdIntervalMinChanged)
     // Auto-fit the panadapter dB range (ignores dbMin/dbMax).
     Q_PROPERTY(bool dbAuto READ dbAuto WRITE setDbAuto NOTIFY dbAutoChanged)
+    // Independent SUB (second pan) scale. Live keys are per-rig; band
+    // recall is BandMemory dbMinRx2 / dbMaxRx2 / wfMinRx2 / wfMaxRx2.
+    Q_PROPERTY(double rx2DbMin READ rx2DbMin WRITE setRx2DbMin
+               NOTIFY rx2DbMinChanged)
+    Q_PROPERTY(double rx2DbMax READ rx2DbMax WRITE setRx2DbMax
+               NOTIFY rx2DbMaxChanged)
+    Q_PROPERTY(bool rx2DbAuto READ rx2DbAuto WRITE setRx2DbAuto
+               NOTIFY rx2DbAutoChanged)
+    Q_PROPERTY(double rx2WaterfallDbMin READ rx2WaterfallDbMin
+               WRITE setRx2WaterfallDbMin NOTIFY rx2WaterfallDbMinChanged)
+    Q_PROPERTY(double rx2WaterfallDbMax READ rx2WaterfallDbMax
+               WRITE setRx2WaterfallDbMax NOTIFY rx2WaterfallDbMaxChanged)
+    Q_PROPERTY(bool rx2WaterfallDbAuto READ rx2WaterfallDbAuto
+               WRITE setRx2WaterfallDbAuto NOTIFY rx2WaterfallDbAutoChanged)
     Q_PROPERTY(int traceMode READ traceMode WRITE setTraceMode
                NOTIFY traceModeChanged)
     Q_PROPERTY(QString traceColor READ traceColor WRITE setTraceColor
@@ -216,6 +225,13 @@ class Prefs : public QObject {
                NOTIFY dspPanelsGroupedChanged)
     Q_PROPERTY(bool optionsPanelsGrouped READ optionsPanelsGrouped
                WRITE setOptionsPanelsGrouped NOTIFY optionsPanelsGroupedChanged)
+    // Two-converter radios: optional named layout while SUB is on.
+    // Off = split the panadapter in place. On = recall layouts/<slot>.
+    // SUB off always returns to the arrangement that was running before.
+    Q_PROPERTY(bool subLayoutEnabled READ subLayoutEnabled
+               WRITE setSubLayoutEnabled NOTIFY subLayoutEnabledChanged)
+    Q_PROPERTY(int subLayoutSlot READ subLayoutSlot
+               WRITE setSubLayoutSlot NOTIFY subLayoutSlotChanged)
     // Panadapter zoom: 1.0 = full IQ span, higher magnifies the centre.
     // Drives WdspEngine.zoom (display-side crop, old-Lyra method).
     Q_PROPERTY(double zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
@@ -247,15 +263,13 @@ class Prefs : public QObject {
     // touches the CURRENT mode's pair.
     Q_PROPERTY(bool bwLocked READ bwLocked WRITE setBwLocked
                NOTIFY bwLockedChanged)
-    // Task #53 — shared RX+TX filter low edge (Hz, single global
-    // value).  Replaces the previously-hardcoded 0 (RX SSB low)
-    // and 200 (TX SSB low).  Operator-tunable for ESSB-profile
-    // low-end body (50-70 Hz) vs narrow-comms mains rejection
-    // (100-200 Hz).  Interim — when TX Profile Manager (#49) lands,
-    // each named profile carries its own (rx_lo, rx_hi, tx_lo,
-    // tx_hi) tuple that overrides this default on profile load.
+    // RX filter low (Hz, 0..500).  txFilterLow is the transmit low.
+    // When bwLocked is on, the two lows track.  Turning the lock on
+    // copies this RX low into the TX low.
     Q_PROPERTY(int filterLow READ filterLow WRITE setFilterLow
                NOTIFY filterLowChanged)
+    Q_PROPERTY(int txFilterLow READ txFilterLow WRITE setTxFilterLow
+               NOTIFY txFilterLowChanged)
     // IQ sample rate (Hz): 96000 / 192000 / 384000.  Drives the HL2 wire
     // speed bits + the WDSP channel rate (panadapter span follows).
     Q_PROPERTY(int sampleRate READ sampleRate WRITE setSampleRate
@@ -314,6 +328,15 @@ class Prefs : public QObject {
     // Show the 11m / CB band row on the Band panel (Settings → Hardware).
     Q_PROPERTY(bool cbBandEnabled READ cbBandEnabled
                WRITE setCbBandEnabled NOTIFY cbBandEnabledChanged)
+    // Show the FM 1750 Hz tone-burst chip on Tuning.  With no saved
+    // override, follows IARU Region 1 (EU/Africa); Region 2/3 default
+    // hide it (CTCSS is the usual access).  Hardware checkbox writes
+    // an explicit override so a Region 2 station can still show it.
+    Q_PROPERTY(bool fmShow1750Burst READ fmShow1750Burst
+               WRITE setFmShow1750Burst NOTIFY fmShow1750BurstChanged)
+    // Optional Mem chip on the Tuning dock (also always on the Band GEN row).
+    Q_PROPERTY(bool memoryOnTuning READ memoryOnTuning
+               WRITE setMemoryOnTuning NOTIFY memoryOnTuningChanged)
     // Panadapter mouse-wheel "Panafall" scroll step (Hz) — distinct from
     // the fine VFO step on the Tuning panel; this skims across a band.
     Q_PROPERTY(int panScrollStepHz READ panScrollStepHz
@@ -322,6 +345,9 @@ class Prefs : public QObject {
     // resulting (operator-facing) frequency to the nearest 100 Hz.
     Q_PROPERTY(bool panRound100 READ panRound100
                WRITE setPanRound100 NOTIFY panRound100Changed)
+    // VFO / panadapter / HID wheel snaps to the step grid (Volker sticky).
+    Q_PROPERTY(bool vfoStickyWheel READ vfoStickyWheel
+               WRITE setVfoStickyWheel NOTIFY vfoStickyWheelChanged)
     // Verbose diagnostic logging (Settings → Hardware → Diagnostics).
     // OFF (default) keeps only warnings/errors in the log; ON also
     // captures Debug/Info for when we need the full picture.
@@ -360,6 +386,18 @@ class Prefs : public QObject {
     // startup + on change.  Persisted: hw/processPriority.
     Q_PROPERTY(int processPriority READ processPriority
                WRITE setProcessPriority NOTIFY processPriorityChanged)
+    // USB encoder that shows up as a HID mouse.  Wheel ticks the focused
+    // VFO by the Tuning-panel Step.  Off until a device is chosen.
+    // Persisted: hw/hidVfoWheelEnabled, hw/hidVfoDeviceId,
+    // hw/hidVfoListenUnfocused, hw/hidVfoWheelOnly.
+    Q_PROPERTY(bool hidVfoWheelEnabled READ hidVfoWheelEnabled
+               WRITE setHidVfoWheelEnabled NOTIFY hidVfoWheelEnabledChanged)
+    Q_PROPERTY(QString hidVfoDeviceId READ hidVfoDeviceId
+               WRITE setHidVfoDeviceId NOTIFY hidVfoDeviceIdChanged)
+    Q_PROPERTY(bool hidVfoListenUnfocused READ hidVfoListenUnfocused
+               WRITE setHidVfoListenUnfocused NOTIFY hidVfoListenUnfocusedChanged)
+    Q_PROPERTY(bool hidVfoWheelOnly READ hidVfoWheelOnly
+               WRITE setHidVfoWheelOnly NOTIFY hidVfoWheelOnlyChanged)
     // Reduce TX drive in the digital data modes (DIGU/DIGL).  Opt-in
     // (digitalDriveEnabled, default OFF).  digitalDrivePct is the fraction
     // of the band's set drive to transmit at while in DIGU/DIGL (10..100,
@@ -410,6 +448,12 @@ public:
     Q_INVOKABLE int  splitShiftHz(const QString &mode) const;
     Q_INVOKABLE void setSplitShiftHz(const QString &mode, int hz);
 
+    // VFO click/wheel step (Hz), last value per demod mode.  Default 1 kHz.
+    Q_INVOKABLE int  vfoStepHz(const QString &mode) const;
+    Q_INVOKABLE void setVfoStepHz(const QString &mode, int hz);
+    Q_INVOKABLE int  vfoStepHzRx2(const QString &mode) const;
+    Q_INVOKABLE void setVfoStepHzRx2(const QString &mode, int hz);
+
     // Fire-and-forget "clear the peak-hold buffer" request from the
     // Display panel's Clear button — the panadapter (a different dock)
     // listens on peakClearRequested and calls clearPeaks().
@@ -434,6 +478,12 @@ public:
     void   setRxDbMin(double v);
     double rxDbMax() const { return rxDbMax_; }
     void   setRxDbMax(double v);
+    double rx2DbMin() const { return rx2DbMin_; }
+    void   setRx2DbMin(double v);
+    double rx2DbMax() const { return rx2DbMax_; }
+    void   setRx2DbMax(double v);
+    bool   rx2DbAuto() const { return rx2DbAuto_; }
+    void   setRx2DbAuto(bool v);
     double txDbMin() const { return txDbMin_; }
     void   setTxDbMin(double v);
     double txDbMax() const { return txDbMax_; }
@@ -450,8 +500,33 @@ public:
     void   setFixedTuneDrivePct(int v);
     double tciRxGainDb() const { return tciRxGainDb_; }
     void   setTciRxGainDb(double v);
-    double tciTxGainDb() const { return tciTxGainDb_; }
-    void   setTciTxGainDb(double v);
+    // Remote access (TCI remote and the later IP remote share these).
+    // The password is a one-way hash; the clear phrase is never stored.
+    // A blank password means remote transmit stays off once a session
+    // asks for proof. Address lists apply at accept time.
+    static constexpr int kRemoteMaxAttempts = 5;
+    static constexpr int kRemoteLockoutSec  = 15 * 60;
+    bool    remotePasswordSet() const { return !remotePwHash_.isEmpty(); }
+    QString remotePasswordProblem(const QString &password) const;
+    QString setRemotePassword(const QString &password); // empty = saved
+    bool    remotePasswordMatches(const QString &password) const;
+    // Salt and iteration count for one voice-session challenge. The
+    // stored hash is not returned.
+    void    remotePasswordChallenge(QByteArray *salt, int *iters) const;
+    // HMAC-SHA256(stored hash, nonce), compared in constant time.
+    bool    remoteVoiceProofMatches(const QByteArray &nonce,
+                                    const QByteArray &mac) const;
+    void    clearRemotePassword();
+    bool    remoteListenRequiresPassword() const {
+        return remoteListenRequiresPassword_;
+    }
+    void    setRemoteListenRequiresPassword(bool on);
+    QString remoteAcceptIps() const { return remoteAcceptIps_; }
+    QString remoteRefuseIps() const { return remoteRefuseIps_; }
+    static QString remoteIpListProblem(const QString &text);
+    QString setRemoteAcceptIps(const QString &text); // empty = saved
+    QString setRemoteRefuseIps(const QString &text);
+    bool    remotePeerAllowed(const QHostAddress &addr) const;
     double wfIdLevel() const { return wfIdLevel_; }       // #175
     void   setWfIdLevel(double v);                        // #175 (clamps 0..0.065)
     bool   wfIdEnabled() const { return wfIdEnabled_; }   // #175 (non-persist)
@@ -556,6 +631,12 @@ public:
     void   setTxWaterfallDbMax(double v);
     bool waterfallDbAuto() const { return waterfallDbAuto_; }
     void setWaterfallDbAuto(bool v);
+    double rx2WaterfallDbMin() const { return rx2WaterfallDbMin_; }
+    void   setRx2WaterfallDbMin(double v);
+    double rx2WaterfallDbMax() const { return rx2WaterfallDbMax_; }
+    void   setRx2WaterfallDbMax(double v);
+    bool   rx2WaterfallDbAuto() const { return rx2WaterfallDbAuto_; }
+    void   setRx2WaterfallDbAuto(bool v);
     QVariant panadapterSplit() const { return panadapterSplit_; }
     void     setPanadapterSplit(const QVariant &v);
     bool cursorReadout() const { return cursorReadout_; }
@@ -572,6 +653,10 @@ public:
     void setDspPanelsGrouped(bool v);
     bool optionsPanelsGrouped() const { return optionsPanelsGrouped_; }
     void setOptionsPanelsGrouped(bool v);
+    bool subLayoutEnabled() const { return subLayoutEnabled_; }
+    void setSubLayoutEnabled(bool v);
+    int  subLayoutSlot() const { return subLayoutSlot_; }
+    void setSubLayoutSlot(int slot);
     double zoom() const { return zoom_; }
     void   setZoom(double v);
     QString mode() const { return mode_; }
@@ -587,9 +672,11 @@ public:
     void setTxBandwidth(int hz);
     bool bwLocked() const { return bwLocked_; }
     void setBwLocked(bool v);
-    // Task #53 — shared RX+TX filter low edge.
+    // RX filter low.  Transmit uses txFilterLow.
     int  filterLow() const { return filterLow_; }
     void setFilterLow(int hz);
+    int  txFilterLow() const { return txFilterLow_; }
+    void setTxFilterLow(int hz);
     int  sampleRate() const { return sampleRate_; }
     void setSampleRate(int hz);
     bool waterfallCollapsed() const { return waterfallCollapsed_; }
@@ -624,10 +711,17 @@ public:
     void setBandPlanTxWarn(bool v);
     bool cbBandEnabled() const { return cbBandEnabled_; }
     void setCbBandEnabled(bool v);
+    bool fmShow1750Burst() const;
+    void setFmShow1750Burst(bool v);
+    bool memoryOnTuning() const { return memoryOnTuning_; }
+    void setMemoryOnTuning(bool v);
     int  panScrollStepHz() const { return panScrollStepHz_; }
     void setPanScrollStepHz(int hz);
     bool panRound100() const { return panRound100_; }
     void setPanRound100(bool v);
+    bool vfoStickyWheel() const { return vfoStickyWheel_; }
+    void setVfoStickyWheel(bool on);
+    Q_INVOKABLE int nextWheelHz(int freqHz, int stepHz, int ticks) const;
     // Per-mode-kind band-plan segment colour (override of the defaults).
     // kind = "CW"/"DIG"/"SSB"/"FM"/"MIX"/"BC".  Always returns a colour.
     QString bandPlanColor(const QString &kind) const;
@@ -647,6 +741,14 @@ public:
     void setAutoStartOnLaunch(bool on);
     int  processPriority() const { return processPriority_; }
     void setProcessPriority(int level);
+    bool hidVfoWheelEnabled() const { return hidVfoWheelEnabled_; }
+    void setHidVfoWheelEnabled(bool on);
+    QString hidVfoDeviceId() const { return hidVfoDeviceId_; }
+    void    setHidVfoDeviceId(const QString &id);
+    bool hidVfoListenUnfocused() const { return hidVfoListenUnfocused_; }
+    void setHidVfoListenUnfocused(bool on);
+    bool hidVfoWheelOnly() const { return hidVfoWheelOnly_; }
+    void setHidVfoWheelOnly(bool on);
     bool digitalDriveEnabled() const { return digitalDriveEnabled_; }
     void setDigitalDriveEnabled(bool on);
     int  digitalDrivePct() const { return digitalDrivePct_; }
@@ -679,13 +781,22 @@ signals:
     void targetFpsChanged();
     void dbMinChanged();
     void dbMaxChanged();
+    void rx2DbMinChanged();
+    void rx2DbMaxChanged();
+    void rx2DbAutoChanged();
+    void rx2WaterfallDbMinChanged();
+    void rx2WaterfallDbMaxChanged();
+    void rx2WaterfallDbAutoChanged();
     void txDbMinChanged();
     void txDbMaxChanged();
     void tuneDriveModeChanged();
     void tuneDrivePctChanged();
     void fixedTuneDrivePctChanged();
     void tciRxGainDbChanged();
-    void tciTxGainDbChanged();
+    void remotePasswordChanged();
+    void remoteListenRequiresPasswordChanged();
+    void remoteAcceptIpsChanged();
+    void remoteRefuseIpsChanged();
     void wfIdLevelChanged();   // #175
     void wfIdEnabledChanged();
     void wfIdIntervalMinChanged();
@@ -738,6 +849,8 @@ signals:
     void zeroBeatMarkersChanged();
     void dspPanelsGroupedChanged();
     void optionsPanelsGroupedChanged();
+    void subLayoutEnabledChanged();
+    void subLayoutSlotChanged();
     void zoomChanged();
     void modeChanged();
     void rxBandwidthChanged();
@@ -746,6 +859,7 @@ signals:
     void txBandwidthChanged();
     void bwLockedChanged();
     void filterLowChanged();
+    void txFilterLowChanged();
     void sampleRateChanged();
     void waterfallCollapsedChanged();
     void callsignChanged();
@@ -761,13 +875,20 @@ signals:
     void bandPlanTxWarnChanged();
     void bandPlanColorsChanged();
     void cbBandEnabledChanged();
+    void fmShow1750BurstChanged();
+    void memoryOnTuningChanged();
     void panScrollStepHzChanged();
     void panRound100Changed();
+    void vfoStickyWheelChanged();
     void debugLoggingChanged();
     void hwPttEnabledChanged();
     void spaceBarPttEnabledChanged();
     void autoStartOnLaunchChanged();
     void processPriorityChanged();
+    void hidVfoWheelEnabledChanged();
+    void hidVfoDeviceIdChanged();
+    void hidVfoListenUnfocusedChanged();
+    void hidVfoWheelOnlyChanged();
     void digitalDriveEnabledChanged();
     void digitalDrivePctChanged();
     void micSourceChanged();
@@ -784,6 +905,9 @@ private:
     double  rxDbMax_;
     double  txDbMin_;
     double  txDbMax_;
+    double  rx2DbMin_ = -130.0;
+    double  rx2DbMax_ = -20.0;
+    bool    rx2DbAuto_ = false;
     bool    moxActive_ = false;
     // Task #74 — TUN separate-drive state (defaults applied in ctor).
     int     tuneDriveMode_ = 0;   // 0 slider / 1 tune / 2 fixed
@@ -793,7 +917,12 @@ private:
     double  tciRxGainDb_ = 0.0;
     // Task #108 — symmetric INBOUND TCI gain (MSHV → Lyra TXA).
     // Default 0 dB = unity = byte-identical to pre-#108 behaviour.
-    double  tciTxGainDb_ = 0.0;
+    QByteArray remotePwSalt_;
+    QByteArray remotePwHash_;
+    int     remotePwIters_ = 0;
+    bool    remoteListenRequiresPassword_ = false;
+    QString remoteAcceptIps_;
+    QString remoteRefuseIps_;
     double  wfIdLevel_       = 0.06;   // #175 — waterfall-ID burst level (0..0.065)
     bool    wfIdEnabled_     = false;  // #175 — NON-persist; OFF every session
     int     wfIdIntervalMin_ = 0;      // #175 — auto-cadence 0..20 (0 = once)
@@ -844,6 +973,9 @@ private:
     double  txWaterfallDbMin_;
     double  txWaterfallDbMax_;
     bool    waterfallDbAuto_;
+    double  rx2WaterfallDbMin_ = -120.0;
+    double  rx2WaterfallDbMax_ = -20.0;
+    bool    rx2WaterfallDbAuto_ = false;
     QVariant panadapterSplit_;
     bool    cursorReadout_;
     bool    panafallCrosshair_ = false;
@@ -851,10 +983,16 @@ private:
     int     crosshairStyle_ = 0;
     bool    zeroBeatMarkers_ = false;
     int     processPriority_ = 0;   // 0 Normal / 1 Above Normal / 2 High
+    bool    hidVfoWheelEnabled_ = false;
+    QString hidVfoDeviceId_;
+    bool    hidVfoListenUnfocused_ = false;
+    bool    hidVfoWheelOnly_ = true;
     bool    digitalDriveEnabled_ = false;
     int     digitalDrivePct_ = 100;   // 10..100 % of set drive in DIGU/DIGL
     bool    dspPanelsGrouped_ = false;
     bool    optionsPanelsGrouped_ = false;
+    bool    subLayoutEnabled_ = false;
+    int     subLayoutSlot_ = 1;
     double  zoom_;
     QString mode_;
     QString modeRx2_;
@@ -869,9 +1007,10 @@ private:
     // operator hasn't picked a TX BW for that family yet (fresh install).
     QHash<QString, int> txBwByMode_;
     bool                bwLocked_ = false;
-    // Task #53 — shared RX+TX filter low edge.  Default 100 Hz
-    // (safe mains-rejection middle ground).
+    // RX low edge.  Default 100 Hz.  txFilterLow_ defaults to the same
+    // until the operator (or a profile) sets them apart.
     int                 filterLow_ = 100;
+    int                 txFilterLow_ = 100;
     int     sampleRate_;
     bool    waterfallCollapsed_;
     QString callsign_;
@@ -888,8 +1027,12 @@ private:
     bool    bandPlanTxWarn_    = true;     // TX out-of-band advisory, on
     QHash<QString, QString> bandPlanColors_;   // kind → override hex (sparse)
     bool    cbBandEnabled_ = false;
+    bool    fmShow1750Burst_ = false;
+    bool    fmShow1750BurstExplicit_ = false;
+    bool    memoryOnTuning_ = false;
     int     panScrollStepHz_ = 1000;
     bool    panRound100_ = false;
+    bool    vfoStickyWheel_ = false;
     bool    debugLogging_ = false;
     // Task #36 — HW PTT opt-in.  Default false; gated forwarder in
     // HL2Stream's RX loop reads the mirrored atomic.
@@ -903,6 +1046,8 @@ private:
     QString micSource_   = QStringLiteral("mic1");
     bool    tooltipsEnabled_ = true;   // Settings → Visuals; ui/tooltips_enabled
     QHash<QString, int> splitShiftHz_;
+    QHash<QString, int> vfoStepHz_;
+    QHash<QString, int> vfoStepHzRx2_;
 };
 
 } // namespace lyra::ui

@@ -13,6 +13,7 @@
 
 #include <QObject>
 #include <QString>
+#include <optional>
 
 namespace lyra::ipc { class HL2Stream; }
 
@@ -46,12 +47,27 @@ signals:
 private:
     void onFreqChanged();
     void onModeChanged();
+    // Per-slot RF1/Alt + LNA memory (#24).  GEN freqs fall outside the
+    // ham/BC/CB tables, so BandMemory never saves or recalls these for a
+    // GEN slot — the slot remembers them itself, as XvtrSlots does.
+    void onHl2RxPortChanged();
+    void onLnaSetByOperator(int db);
+    void onAutoLnaChanged();
+    void applyStoredGain(int n);
     void persist(int n) const;
     static bool valid(int n) { return n >= 1 && n <= 3; }
 
-    struct Slot { int freq; QString mode; QString label; };
+    struct Slot {
+        int     freq = 0;
+        QString mode;
+        QString label;
+        int     rxPort = 0;              // HL2 IO-board: 0 RF1 (default), 2 Alt RX
+        std::optional<int>  lnaDb;       // HL2 PGA, set after first operator/auto write
+        std::optional<bool> autoLna;     // unset = leave the live Auto state alone
+    };
     Slot                  slots_[4];     // index 1..3
     int                   active_ = 0;
+    bool                  applying_ = false;   // recall() re-entrancy guard
     Prefs                *prefs_  = nullptr;
     lyra::ipc::HL2Stream *stream_ = nullptr;
 };

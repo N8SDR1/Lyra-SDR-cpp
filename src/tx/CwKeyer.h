@@ -32,6 +32,7 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <vector>
 #include <thread>
 #include <vector>
 
@@ -80,6 +81,26 @@ public:
     bool backspacePending();     // drop the last staged (uncommitted) char; false if none
     void clearPending();         // clear the editable tail (does not stop in-flight keying)
 
+    // Terminal mode (default off). While on, a finished message keeps
+    // cwx_ptt up so the TR relay stays in TX between letters. Turning
+    // it off mid-message finishes the letters already queued, then
+    // drops the line — it does not chop a dit. A 30 s idle with no
+    // new text drops the line on its own.
+    void setHoldAfter(bool on);
+    using DrainFn = std::function<void()>;
+    using CallFn  = std::function<void(const std::string&)>;
+    void setDrainFn(DrainFn fn);          // queue just drained into the hold
+    void setHoldTimeoutFn(DrainFn fn);    // 30 s idle dropped the hold
+    void setCallsignFn(CallFn fn);        // last callsign letter just started
+
+    // One staged message: prefix and suffix are ordinary text, the
+    // callsign stays editable until its letters leave the tail.
+    // A 1-arg correction replaces only the not-yet-keyed callsign.
+    // Returns false when that callsign is already on the air.
+    void queueMessage(const std::string& prefix, const std::string& call,
+                      const std::string& suffix, int wpm, int weightPct = 50);
+    bool correctCall(const std::string& call, int wpm, int weightPct = 50);
+
     // Immediately abort: flush the queue + the staging tail, drop key
     // + cwx_ptt, end the message (CWX Esc). Safe to call from any
     // thread (a paddle interrupt or operator Stop). Thread-safe.
@@ -94,19 +115,33 @@ private:
     // re-enters the keyer — so calling it under the lock is safe and
     // keeps the display snapshots strictly in mutation order).
     void emitTextLocked();
+    struct PendingChar {
+        std::string glyph;
+        int  wpm = 20;
+        int  weight = 50;
+        bool callsign = false;
+        bool prosign = false;
+    };
+    std::vector<PendingChar> parseAtoms(const std::string& text, bool callsign,
+                                        int wpm, int weight) const;
 
     BitFn   keyFn_;
     BitFn   pttFn_;
     StateFn onStateFn_;
     TextFn  onTextFn_;
-
-    struct PendingChar { char c; int wpm; int weight; };
+    DrainFn onDrainFn_;
+    DrainFn onHoldTimeoutFn_;
+    CallFn  onCallFn_;
 
     std::mutex              m_;
     std::condition_variable cv_;
     std::vector<CwElement>  queue_;         // pending elements (guarded by m_)
     std::deque<PendingChar> pending_;       // editable type-ahead tail (guarded by m_)
     std::string             committedText_; // chars keyed this run, for display (guarded by m_)
+    std::string             callSent_;       // callsign letters already committed
+    bool                    callWindowDone_ = true;
+    bool                    holdAfter_ = false;
+    bool                    holdAnnounced_ = false;
     bool                    abort_ = false;
     bool                    stop_  = false;  // thread-exit request
     std::atomic<bool>       busy_{false};

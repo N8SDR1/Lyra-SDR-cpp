@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include "xvtr_math.h"   // lyra::xvtr::kSlotCount — shared with XvtrSlots
+
 #include <QObject>
 #include <QVector>
 
@@ -45,15 +47,47 @@ enum class TxPinAction : int {
 // VFO-B-TX picks; the generic branch does not.
 enum class Family { HermesLite, GenericP1 };
 
+// Operator-facing accessory (Settings Filters / BCD). Not the DeskHPSDR
+// Alex/Apollo/Charly list — Alex is the P2 hardware profile, not J16.
+enum class OcAccessory { Off = 0, N2adr = 1, Custom = 2 };
+
 class OcControl : public QObject {
     Q_OBJECT
 public:
-    static constexpr int kPins   = 7;   // J16 open-collector pins 1..7
-    static constexpr int kGroups = 3;   // 0=HF (live v1), 1=VHF, 2=SWL (reserved)
+    static constexpr int kPins      = 7;   // J16 open-collector pins 1..7
+    static constexpr int kGroups    = 3;   // 0=HF (amateur rows), 1=VHF (reserved), 2=SWL (broadcast rows)
+    static constexpr int kXvtrSlots = lyra::xvtr::kSlotCount;   // == XvtrSlots::kCount — DeskHPSDR appends named xvtr rows
 
     explicit OcControl(QObject *parent = nullptr);
 
-    // ---- per-band 7-bit J16 masks (band = amateur-band index 0..nBands-1) ----
+    // ---- OC row index space ------------------------------------------------
+    // Rows 0..nBands()-1 are the amateur bands (amateurBands() order — the
+    // pre-existing index space, unchanged).  Rows nBands()..nRows()-1 are
+    // the shortwave broadcast bands (broadcastBands() order) and route to
+    // pin-action group 2 (SWL).  CB (11 m) and GEN1-3 have NO rows: they
+    // resolve to -1 = all pins off, as before.
+    int nBcBands() const { return nBc_; }
+    int nRows() const    { return nBands_ + nBc_; }
+    int bcRow(int bc) const;            // broadcast-band index -> row, or -1
+    static bool isBcRow(int row);
+    static int  bcIndexOfRow(int row);  // row -> broadcast-band index, or -1
+
+    // Lookup precedence (pure, LOCKED): Xvtr slot -> amateur -> broadcast
+    // -> none.  `xvtrSlot` >= 0 means an enabled Xvtr chip owns the dial
+    // (J16 then comes from computeXvtr, so this returns -1).  Where a
+    // broadcast band overlaps an amateur edge (75 m BC inside 80 m, 41 m
+    // BC 7.2-7.3 vs 40 m, 13 m BC 21.45 vs 15 m) the AMATEUR row wins —
+    // zero change to HF behaviour.  Pass the radio-side Hz (post-Xvtr IF).
+    static int rowForHz(int hz, int xvtrSlot = -1);
+
+    // N2ADR seed for broadcast row <bc> (pure).  RX: the mask of the
+    // amateur row whose N2ADR LPF covers the BC band (the ham band directly
+    // above it; 41 m / 13 m straddle overrides borrow the adjacent ham
+    // row).  TX: always 0 — RX-only rows.  Bands entirely below 160 m seed
+    // EMPTY.  Table + rationale in OcControl.cpp.
+    static quint8 n2adrBroadcastSeed(int bc, bool tx);
+
+    // ---- per-row 7-bit J16 masks (row = see "OC row index space") ----------
     // A = VFO-A path; B = VFO-B / split path (reserved until RX2, §7.3).
     void   setRxMaskA(int band, quint8 mask);
     void   setTxMaskA(int band, quint8 mask);
@@ -64,8 +98,17 @@ public:
     quint8 rxMaskB(int band) const;
     quint8 txMaskB(int band) const;
 
+    // Named Xvtr chips (DeskHPSDR / piHPSDR). Default 0. N2ADR preset does
+    // not fill these. Empty = J16 idle while that chip is selected so an
+    // HF amp on J16 does not follow the 10 m IF.
+    void   setRxMaskXvtr(int slot, quint8 mask);
+    void   setTxMaskXvtr(int slot, quint8 mask);
+    quint8 rxMaskXvtr(int slot) const;
+    quint8 txMaskXvtr(int slot) const;
+
     // ---- per-(group,pin) transmit action + external-PA gating ----
-    // group 0..2 (v1: only 0=HF is reached; 1/2 reserved).  pin1 is 1-based
+    // group 0..2 (0=HF amateur rows, 2=SWL broadcast rows; 1 reserved).
+    // pin1 is 1-based
     // (1..7) to match Thetis's setter API; the model stores pin0 = pin1-1.
     void        setTxPinAction(int group, int pin1, TxPinAction action);
     void        setTxPinPa(int group, int pin1, bool pa);
@@ -97,6 +140,11 @@ public:
     quint8 compute(int bandA, int bandB, bool tx, bool tune,
                    bool twoTone, bool pa) const;
 
+    // J16 bits for an Xvtr chip. Uses that chip's RX/TX masks (default 0)
+    // and the HF (group 0) pin-action / xPA gates. No analog / REG 11.
+    quint8 computeXvtr(int slot, bool tx, bool tune, bool twoTone,
+                       bool pa) const;
+
     // The gated target: enabled ? compute(...) : 0  (Thetis ExtCtrlEnable).
     quint8 targetBits(int bandA, int bandB, bool tx, bool tune,
                       bool twoTone, bool pa) const {
@@ -122,13 +170,16 @@ signals:
     void ocBitsChanged(quint8 bits);
 
 private:
-    int    groupForBand(int band) const;   // valid HF band -> 0, else -1 (§7.4)
+    int    groupForBand(int band) const;   // amateur row -> 0, broadcast row -> 2, else -1 (§7.4)
+    static int rowLowHz(int row);          // band low edge, for the RX2 "higher band" pick
     quint8 adjustForTxAction(int bandA, int bandB, quint8 bits,
                              bool tx, bool tune, bool twoTone, bool pa) const;
     quint8 adjustForRx(int bandA, int bandB, quint8 bits, bool pa) const;
 
-    int             nBands_;
-    QVector<quint8> rxA_, txA_, rxB_, txB_;
+    int             nBands_;   // amateur rows
+    int             nBc_;      // broadcast rows (appended after the amateur rows)
+    QVector<quint8> rxA_, txA_, rxB_, txB_;   // sized nRows()
+    QVector<quint8> rxXvtr_, txXvtr_;
     TxPinAction     txPinAction_[kGroups][kPins];
     bool            txPinPa_[kGroups][kPins];
     bool            rxPinPa_[kGroups][kPins];

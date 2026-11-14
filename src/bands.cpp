@@ -37,6 +37,23 @@ int bandIndexForFreq(int hz) {
     return -1;
 }
 
+namespace {
+// Region of the dial: 2k+1 inside amateur band k, 2k for the gap just
+// below band k, 2N above the last band.  Each gap is its own region.
+int bandRegionForFreq(int hz) {
+    const auto &b = amateurBands();
+    for (size_t i = 0; i < b.size(); ++i) {
+        if (hz < b[i].low) return int(2 * i);
+        if (hz <= b[i].high) return int(2 * i + 1);
+    }
+    return int(2 * b.size());
+}
+}  // namespace
+
+bool bandJumpCrosses(int fromHz, int toHz) {
+    return bandRegionForFreq(fromHz) != bandRegionForFreq(toHz);
+}
+
 const std::vector<Band> &broadcastBands() {
     // Shortwave broadcast meter bands, matching old Lyra BROADCAST_BANDS.
     static const std::vector<Band> kBc = {
@@ -161,6 +178,20 @@ int bcdForBand(int bandIndex, bool sixtyAsForty) {
         return 3;
     }
     return kBcd[bandIndex];
+}
+
+int yaesuBcdCodeForFreq(int hz, bool sixtyAsForty, bool elevenAsTen) {
+    int bi = bandIndexForFreq(hz);
+    if (bi < 0 && elevenAsTen && cbBandIndexForFreq(hz) >= 0)
+        bi = bandIndexForFreq(28400000);   // 10 m → BCD 9
+    return bcdForBand(bi, sixtyAsForty);
+}
+
+quint8 yaesuOcPattern(int code, bool invert) {
+    quint8 n = static_cast<quint8>(code & 0x0F);
+    if (invert)
+        n = static_cast<quint8>(n ^ 0x0F);
+    return n;
 }
 
 QString ocPatternText(int pattern) {

@@ -2,15 +2,21 @@
 
 #include "solarpanel.h"
 
+#include "bands.h"
+#include "bandmemory.h"
+#include "genslots.h"
+#include "hl2_stream.h"
 #include "solarservice.h"
 #include "ncdxffollow.h"
 
 #include <QActionGroup>
+#include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
 #include <QToolButton>
+#include <QToolTip>
 #include <QVBoxLayout>
 
 namespace lyra::ui {
@@ -34,8 +40,11 @@ QFrame *vdivider(QWidget *parent) {
 }
 } // namespace
 
-SolarPanel::SolarPanel(SolarService *svc, NcdxfFollow *follow, QWidget *parent)
-    : QWidget(parent), svc_(svc), follow_(follow) {
+SolarPanel::SolarPanel(SolarService *svc, NcdxfFollow *follow,
+                         lyra::ipc::HL2Stream *stream, BandMemory *bandMem,
+                         GenSlots *gen, QWidget *parent)
+    : QWidget(parent), svc_(svc), follow_(follow), stream_(stream),
+      bandMem_(bandMem), gen_(gen) {
     // Match the shared panel theme (the QML panels are #101820 / #2a4a5a).
     // ID-scoped so it styles only this panel's background, not the child
     // value boxes (which keep their own rgba cell backgrounds).
@@ -44,21 +53,35 @@ SolarPanel::SolarPanel(SolarService *svc, NcdxfFollow *follow, QWidget *parent)
     // ensures a plain QWidget subclass actually paints that background.
     setObjectName(QStringLiteral("solarPanel"));
     setAttribute(Qt::WA_StyledBackground, true);
+    setAttribute(Qt::WA_AlwaysShowToolTips, true);
     auto *row = new QHBoxLayout(this);
     row->setContentsMargins(10, 6, 10, 6);
     row->setSpacing(10);
 
     sfiBox_ = makeValueBox(tr("SFI"), &sfiVal_);
+    sfiBox_->installEventFilter(this);
     row->addWidget(sfiBox_);
-    row->addWidget(makeValueBox(tr("A"), &aVal_));
-    row->addWidget(makeValueBox(tr("K"), &kVal_));
+    auto *aBox = makeValueBox(tr("A"), &aVal_);
+    aBox->installEventFilter(this);
+    row->addWidget(aBox);
+    auto *kBox = makeValueBox(tr("K"), &kVal_);
+    kBox->installEventFilter(this);
+    row->addWidget(kBox);
     row->addWidget(vdivider(this));
 
-    // 10-band heat-map.
+    // 10-band heat-map. Each chip tunes VFO A to that band.
     for (const QString &b : SolarService::bands()) {
-        auto *cell = new QLabel(b, this);
-        cell->setAlignment(Qt::AlignCenter);
+        auto *cell = new QToolButton(this);
+        cell->setText(b);
         cell->setFixedSize(44, 22);   // identical chip size to the Band panel
+        cell->setCursor(Qt::PointingHandCursor);
+        cell->setFocusPolicy(Qt::NoFocus);
+        cell->setAutoRaise(true);
+        const QString band = b;
+        connect(cell, &QToolButton::clicked, this, [this, band]() {
+            tuneVfoA(band);
+        });
+        cell->installEventFilter(this);
         bandCells_.insert(b, cell);
         row->addWidget(cell);
     }
@@ -127,6 +150,24 @@ void SolarPanel::buildFollowButton() {
                 [this, call]() { if (follow_) follow_->setStation(call); });
     }
     followBtn_->setMenu(menu);
+    followBtn_->installEventFilter(this);
+}
+
+void SolarPanel::tipBelow(QWidget *w) {
+    if (!w || w->toolTip().isEmpty())
+        return;
+    const QPoint below = w->mapToGlobal(QPoint(0, w->height() + 3));
+    QToolTip::showText(below, w->toolTip(), w, w->rect(), 8000);
+}
+
+bool SolarPanel::eventFilter(QObject *watched, QEvent *event) {
+    if (event->type() == QEvent::ToolTip) {
+        if (auto *w = qobject_cast<QWidget *>(watched)) {
+            tipBelow(w);
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void SolarPanel::refreshFollowLabel() {
@@ -196,20 +237,25 @@ void SolarPanel::refresh() {
         tip += QStringLiteral("<br><span style='color:#e05c5c'>Last fetch: "
                               "%1</span>").arg(d.error);
     sfiBox_->setToolTip(tip);
+    if (aVal_ && aVal_->parentWidget())
+        aVal_->parentWidget()->setToolTip(tip);
+    if (kVal_ && kVal_->parentWidget())
+        kVal_->parentWidget()->setToolTip(tip);
 
     // Band heat-map.
     for (auto it = bandCells_.cbegin(); it != bandCells_.cend(); ++it) {
         const QString &band = it.key();
-        QLabel *cell = it.value();
+        QToolButton *cell = it.value();
         const Rating r = svc_->ratingForBand(band);
         const QString col = SolarService::ratingColor(r);
         // Shared "chip" geometry with the Band panel buttons (50/50
         // design blend): radius/fill/padding/text matched; the border +
         // text colour stay condition-driven.
         cell->setStyleSheet(QStringLiteral(
-            "QLabel{background:rgba(22,32,42,180);color:%1;"
+            "QToolButton{background:rgba(22,32,42,180);color:%1;"
             "border:1px solid %1;border-radius:4px;"
-            "font-size:13px;font-weight:700;}").arg(col));
+            "font-size:13px;font-weight:700;padding:0;}"
+            "QToolButton:hover{background:rgba(40,60,80,220);}").arg(col));
         QString rtxt;
         switch (r) {
         case Rating::Good: rtxt = tr("Good"); break;
@@ -217,9 +263,31 @@ void SolarPanel::refresh() {
         case Rating::Poor: rtxt = tr("Poor"); break;
         default:           rtxt = tr("n/a");  break;
         }
-        cell->setToolTip(QStringLiteral("<b>%1m</b> — %2 (%3)")
+        cell->setToolTip(QStringLiteral("<b>%1m</b> — %2 (%3)<br>"
+                                       "Click to tune VFO A to this band.")
                              .arg(band, rtxt, when));
     }
+}
+
+void SolarPanel::tuneVfoA(const QString &meters) {
+    // A beacon follow would retune VFO A on the next slot. Drop it so
+    // the chip sticks.
+    if (follow_ && !follow_->station().isEmpty())
+        follow_->setStation(QString());
+    if (gen_)
+        gen_->deactivate();
+    const QString key = meters + QLatin1String("m");
+    int hz = bandMem_ ? bandMem_->freqFor(key) : 0;
+    if (hz <= 0) {
+        for (const lyra::Band &b : lyra::amateurBands()) {
+            if (key == QLatin1String(b.name)) {
+                hz = b.defaultHz;
+                break;
+            }
+        }
+    }
+    if (hz > 0 && stream_)
+        stream_->setRx1FreqHz(static_cast<quint32>(hz));
 }
 
 } // namespace lyra::ui

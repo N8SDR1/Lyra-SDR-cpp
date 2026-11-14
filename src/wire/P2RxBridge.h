@@ -13,11 +13,13 @@
 // Lyra's router port is a verbatim port of.
 //
 // Division of labour with HL2Stream:
-//   * HL2Stream REMAINS the tuning/state authority — every VFO
-//     gesture, band button, memory recall and CAT command lands in
-//     HL2Stream::setRx1FreqHz whether or not the P1 wire is up.  The
-//     bridge subscribes to rx1FreqChanged and mirrors the dial onto
-//     DDC0, so the entire tuning UI drives the Saturn for free.
+    //   * HL2Stream REMAINS the tuning/state authority — every VFO
+    //     gesture, band button, memory recall and CAT command lands in
+    //     HL2Stream::setRx1FreqHz whether or not the P1 wire is up.  The
+    //     bridge subscribes to rx1FreqChanged / ritChanged / ctuneChanged
+    //     and mirrors DDC0 via p2Ddc0RfHz (CTUN centre when engaged,
+    //     else dial+RIT).  DUC follows the heard/LED TX VFO, not the
+    //     frozen pan.
 //   * The two wire paths are mutually exclusive: open() refuses while
 //     the P1 stream runs, and the Settings Open path closes this
 //     bridge before opening an HL2.  That guarantee is what makes the
@@ -30,28 +32,36 @@
 //
 // TX: a dedicated 48 kHz CMaster/TXA pump feeds the session's bounded
 // 192 kHz FIFO and continuous port-1029 writer. On-air-validated models
-// (Brick) key like HL2. Classic ANAN stays fail-closed until Arm P2 TX.
+// (BrickSDR2, Brick3SDR, ANAN-10/10E, ANAN-100 line) key like HL2.
+// Saturn G2 stays fail-closed until Arm P2 TX.
 //
-// Threading: P2Session (QUdpSocket + timers) lives on thread_; every
-// session mutation is marshalled onto that thread via
-// QMetaObject::invokeMethod functors.  The IQ decode + xrouter
-// dispatch run ON the session thread (direct connection), making it
-// the single DSP feeder thread while a P2 radio is open.
+// Threading: P2Session (QUdpSocket + HP timers) lives on thread_;
+// session mutation is marshalled via QMetaObject::invokeMethod.
+// IQ decode + xrouter run on that thread. Port 1029 DUC-IQ and the
+// 48 kHz CMaster pump are native threads that sendto() the bound
+// session SOCKET — they must not use QUdpSocket.
 
 #pragma once
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QThread>
+#include <QTimer>
 #include <QVariant>
+#include <QVariantList>
+#include <atomic>
 #include <limits>
+#include <memory>
 
 namespace lyra::ipc { class HL2Stream; }
-namespace lyra::dsp { class WdspEngine; }
+namespace lyra::dsp { class WdspEngine; class DivExt; }
 
 namespace lyra::wire {
 
 class P2Session;
+struct P2HardwareProfile;
 
 class P2RxBridge : public QObject {
     Q_OBJECT
@@ -59,11 +69,23 @@ class P2RxBridge : public QObject {
     Q_PROPERTY(int rxAttenuationDb READ rxAttenuationDb WRITE setRxAttenuationDb
                NOTIFY frontEndChanged)
     Q_PROPERTY(int ddcAdc READ ddcAdc WRITE setDdcAdc NOTIFY frontEndChanged)
+    // Live "which filters are switched in" summary for the radio's own
+    // front end (Alex BPF/HPF + TX LPF + antenna).  Display only.
+    Q_PROPERTY(QString frontEndFilters READ frontEndFilters
+               NOTIFY frontEndFiltersChanged)
     Q_PROPERTY(int rxInput READ rxInput WRITE setRxInput NOTIFY frontEndChanged)
     Q_PROPERTY(bool hpfBypass READ hpfBypass WRITE setHpfBypass
                NOTIFY frontEndChanged)
     Q_PROPERTY(int trxAntenna READ trxAntenna WRITE setTrxAntenna
                NOTIFY frontEndChanged)
+    // True while a P2 session is live on a radio whose front-end word
+    // actually muxes ANT1/2/3 + RX-only jacks (classic Alex / Saturn).
+    // Hermes-class BrickSDR uses a fixed TX word — no ANT chips.
+    Q_PROPERTY(bool hasAlexAntennaSelect READ hasAlexAntennaSelect
+               NOTIFY runningChanged)
+    Q_PROPERTY(int trxAntennaCount READ trxAntennaCount NOTIFY runningChanged)
+    Q_PROPERTY(int rxJackMask READ rxJackMask NOTIFY runningChanged)
+    Q_PROPERTY(QString rxExt1Label READ rxExt1Label NOTIFY runningChanged)
     Q_PROPERTY(int adcOverloadTier READ adcOverloadTier NOTIFY telemetryChanged)
     Q_PROPERTY(int adcOverloadMask READ adcOverloadMask NOTIFY telemetryChanged)
     Q_PROPERTY(int adc1Peak READ adc1Peak NOTIFY telemetryChanged)
@@ -79,6 +101,8 @@ class P2RxBridge : public QObject {
                NOTIFY txStateChanged)
     Q_PROPERTY(int txDriveLimitPercent READ txDriveLimitPercent
                WRITE setTxDriveLimitPercent NOTIFY txStateChanged)
+    Q_PROPERTY(bool txOnAirValidated READ txOnAirValidated
+               NOTIFY txStateChanged)
     Q_PROPERTY(bool txTransportReady READ txTransportReady
                NOTIFY txStateChanged)
     Q_PROPERTY(bool txTransmitting READ txTransmitting NOTIFY txStateChanged)
@@ -115,10 +139,40 @@ public:
     double supplyVolts() const { return supplyV_; }
     double paCurrentA() const { return paA_; }
     int rxAttenuationDb() const { return rxAttenuationDb_; }
+    // P2 Auto Step 0–31 (ADC pad walker). Not HL2 Auto-LNA. Master
+    // on/off lives on DSP+Audio Auto; persist `rx/autoStep`.
+    bool autoStep() const { return autoStepEnabled_; }
     int ddcAdc() const { return ddcAdc_; }
     int rxInput() const { return rxInput_; }
     bool hpfBypass() const { return hpfBypass_; }
     int trxAntenna() const { return trxAntenna_; }
+    QString frontEndFilters() const { return frontEndFilters_; }
+    // Raw words behind frontEndFilters (same as the HP packet's Alex0
+    // RX / TX halfwords), for the Settings filter lamps.  0 when closed.
+    int  frontEndRxWord() const { return frontEndRxWord_; }
+    int  frontEndTxWord() const { return frontEndTxWord_; }
+    bool frontEndClassicHpf() const;
+    bool frontEndOnboard() const;
+    // The same words for an arbitrary frequency (per-band grid in
+    // Settings → Filters / BCD).  -1 when no Alex-driven radio is open.
+    int  frontEndRxWordFor(quint32 hz) const;
+    int  frontEndTxWordFor(quint32 hz) const;
+    bool hasAlexAntennaSelect() const {
+        if (running_) return alexAntennaSelect_;
+        return deskAntOn_;
+    }
+    // Desk session: the host radio's antenna ladder, applied while this
+    // process has no Protocol 2 session of its own.
+    void postDeskAntenna(bool alex, int count, int mask, const QString &ext1);
+    int trxAntennaCount() const;
+    int rxJackMask() const;
+    QString rxExt1Label() const;
+    Q_INVOKABLE QStringList mapBandNames() const;
+    Q_INVOKABLE QVariantList rxJackChoices() const;
+    Q_INVOKABLE int antennaForBand(const QString &band) const;
+    Q_INVOKABLE int rxInputForBand(const QString &band) const;
+    Q_INVOKABLE void setAntennaForBand(const QString &band, int ant);
+    Q_INVOKABLE void setRxInputForBand(const QString &band, int input);
     int adcOverloadTier() const { return adcOverloadTier_; }
     int adcOverloadMask() const { return adcOverloadMask_; }
     int adc1Peak() const { return adc1Peak_; }
@@ -158,6 +212,7 @@ public slots:
     // Tear down (HP run=0) and release the radio's controller lease.
     void close();
     void setRxAttenuationDb(int db);
+    void setAutoStep(bool on);
     void setDdcAdc(int adc);
     void setRxInput(int input);
     void setHpfBypass(bool on);
@@ -166,6 +221,15 @@ public slots:
     // persists — but an explicit operator preference (setTxAutoArm) can
     // re-apply it automatically once the TX transport reports Ready.
     void setTxBenchArmed(bool on);
+    // A desk session can leave the TX transport unprimed or faulted.
+    // Dropping the desk does not restart it, so every later local key
+    // (Tune, 2-tone, foot switch) is refused until the process restarts.
+    // Re-prime when that latch is set and the host is back in receive.
+    void recoverLocalTx();
+    // After a refused key or a telemetry unkey, PA enable has to be
+    // written again in receive. The arm-time settle does not repeat
+    // on its own, so a later local key would stay dark until Stop.
+    void ensurePaSettled();
     // Persisted per-rig operator preference: when set, the bench interlock
     // auto-arms on every connect once the transport is healthy/Ready, so a
     // controlled dummy-load bench needn't be re-armed by hand each session.
@@ -183,29 +247,54 @@ signals:
     // independent of whether the radio ever confirmed.
     void openChanged();
     void frontEndChanged();
+    void frontEndFiltersChanged();
+    void bandAntennaEdited(const QString &band, int ant, int rxInput);
     void telemetryChanged();
     void txStateChanged();
     void logLine(QString line);
 
 private:
     QString modelLabel_;       // display name of the resolved marketed model
+    QString hardwareModelKey_;
+    int clampTrxAntenna(int ant) const;
+    int clampRxInput(int input) const;
+    void persistFrontEndForBand(const QString &band, const QString &name,
+                                const QVariant &value);
     quint16 chooseRateKhz();   // engine rate → legal P2 rate (may set engine rate)
-    // Mirror the tuning state onto the session: DDC0 = effective RX carrier
-    // (dial + RIT), and DUC = effective TX carrier (VFO B/XIT when enabled).
-    // Called whenever the relevant tuning state changes.
+    // Mirror the tuning state onto the session: DDC0 = p2Ddc0RfHz
+    // (CTUN centre when engaged, else dial+RIT) after xvtr/cal, and
+    // DUC = effective TX carrier (VFO/split/XIT — heard/LED, not the
+    // frozen pan).  Called whenever the relevant tuning state changes.
     void pushDialToSession();
     void syncRx2Ddc();
     void restoreFrontEndForBand(const QString &band);
     void persistFrontEndValue(const QString &name, const QVariant &value);
     void pushFrontEndToSession();
     void pushAttOnTxToSession();
+    void pushRx2GroundToSession();
+    void onAutoStepTick();
     void activateTxProducerSeam();
     void deactivateTxProducerSeam();
     void syncTxIntentToSession(bool on);
     void resetTxUiState();
+    // Arm the P2 TX gate when the model is on-air-validated (or the
+    // operator opted into auto-arm) AND the session is confirmed +
+    // transport-ready.  Called from both the TX-state tick and the
+    // first HP-status confirmation so Ready-before-started cannot
+    // leave the first PTT rejected.
+    void maybeAutoArmTx();
+    // PA enable is latched by the radio on the rising MOX edge. The
+    // enable packet has to already be in receive before a key is
+    // accepted, or that key produces no RF until the stream is restarted.
+    void noteTxPaSettled(quint32 epoch);
 
     lyra::ipc::HL2Stream  *stream_  = nullptr;
     lyra::dsp::WdspEngine *engine_  = nullptr;
+    std::unique_ptr<lyra::dsp::DivExt> divExt_;
+    // Operator mix, copied from the stream on the UI thread and read
+    // on the session thread before each diversity frame.
+    std::atomic<double> divGainDb_{0.0};
+    std::atomic<double> divPhaseDeg_{0.0};
     QThread    thread_;
     P2Session *session_ = nullptr;   // lives on thread_
     // open_  = an open() attempt is in flight or a session is live —
@@ -222,15 +311,28 @@ private:
     bool       running_ = false;
     bool       txProducerSeamActive_ = false;
     bool       txBenchArmed_ = false;
+    // True only after a receive-state PA-enable packet has been out
+    // long enough for the radio to latch it before the next key.
+    bool       txPaSettled_ = false;
+    bool       paResettlePending_ = false;
+    bool       paNeedsResettle_ = false;
+    // Peak forward watts while the current key is up. A held Tune that
+    // never leaves zero, with PA requested and a real drive byte, is the
+    // latched-PA key. The unkey rewrites PA in receive.
+    double     txPeakFwdW_ = 0.0;
+    QElapsedTimer txOnAge_;
+    quint32    txArmEpoch_ = 0;
     bool       txAutoArm_ = false;
     bool       txHardwareSupported_ = false;
     bool       txOnAirValidated_ = false;
+    bool       alexAntennaSelect_ = false;
     bool       txTransportReady_ = false;
     bool       txTransmitting_ = false;
     bool       txPaEnabled_ = false;
     bool       txFaultLatched_ = false;
+    bool       txRecovering_ = false;
     int        txEffectiveDrive_ = 0;
-    int        txDriveLimitPercent_ = 5;
+    int        txDriveLimitPercent_ = 50;
     QString    txStateDetail_ = QStringLiteral("Disconnected");
     QString    ip_;
     // P2 rigs are selectable identities but are not the active rig in the
@@ -268,11 +370,31 @@ private:
     int        rxInput_ = 0;
     bool       hpfBypass_ = false;
     int        trxAntenna_ = 1;
+    // Front-end filter readout (see frontEndFilters).  filterRxHz_ /
+    // filterTxHz_ = the corrected DDC0 / DUC carriers last pushed to
+    // the session — the same inputs the HP packet's Alex words use.
+    const P2HardwareProfile *filterProfile_ = nullptr;
+    quint32    filterRxHz_ = 0;
+    quint32    filterTxHz_ = 0;
+    QString    frontEndFilters_;
+    int        frontEndRxWord_ = 0;
+    int        frontEndTxWord_ = 0;
+    void       refreshFrontEndFilters();
+    bool       deskAntOn_ = false;
+    int        deskAntCount_ = 0;
+    int        deskAntMask_ = 0;
+    QString    deskAntExt1_;
     int        adcOverloadTier_ = 0;
     int        adcOverloadMask_ = 0;
     int        adc1Peak_ = 0;
     int        adc2Peak_ = 0;
     int        overloadDecayPackets_ = 0;
+    bool       autoStepEnabled_ = false;
+    bool       autoStepBandChange_ = false;
+    bool       adcOverflowSeen_ = false;
+    int        autoStepLevel_ = 0;     // 0..5 confirmation, 100 ms ticks
+    QTimer     autoStepTimer_;
+    QElapsedTimer autoStepHoldClock_;
     double     meterCalOffset_ = 0.0;
     double     displayCalOffset_ = 0.0;
 };

@@ -22,7 +22,11 @@ class LogDialog : public QDialog {
 public:
     explicit LogDialog(Prefs *prefs, QWidget *parent = nullptr);
 
+protected:
+    void showEvent(QShowEvent *e) override;
+
 private:
+    void fitToScreen();
     void appendLine(const QString &line);
     void copyAll();
     void saveToFile();

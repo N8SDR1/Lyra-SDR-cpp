@@ -2,9 +2,11 @@
 // See wdsp_engine.h for the locked scope + the §14.2 gotcha list.
 
 #include "wdsp_engine.h"
+#include "desk_session.h"
 
 #include "capturedprofile.h"
 #include "noisereducer.h"
+#include "ps/DdcMap.h"
 
 #include <QAudioDevice>
 #include <QAudioFormat>
@@ -13,6 +15,7 @@
 
 #include "wire/AAMix.h"  // P0.c direct port (reference aamix.h verbatim)
 #include "wire/ObBuffs.h" // P4.b — OutBound(0,…): RX audio → r1 ring → ob_main → sendOutbound (the asioOUT-pattern tee, cmasio.c:137-145)
+#include <QTimer>
 #include "wire/Ivac.h"   // #158 — create_ivac / destroy_ivac / xvacOUT / xvacIN / ivacGet
 #include "dsp/ParamEq.h"     // #59 — RX EQ engine (processMonoDup / bypassed)
 #include "dsp/EqAnalyzer.h"  // #59 — RX EQ analyzer feed (pre/post)
@@ -184,7 +187,8 @@ constexpr double kAgcFixedGainDb   = 20.0;
 // fft - feed-block so one FFT advances per IQ feed (smooth).  Detector
 // peak + recursive time-average for a stable display.  All tunable on
 // the bench.
-constexpr int    kAnDisp        = 0;       // analyzer id (RX1)
+constexpr int    kAnDisp        = 0;       // analyzer id (RX1; borrowed while transmitting)
+constexpr int    kAnDispRx2     = 2;       // second receiver. Id 1 is the transmit display.
 constexpr int    kAnMaxFft      = 32768;   // max fft (must be >= max_w)
 constexpr int    kAnFftSize     = 4096;
 // Full FFT resolution out of the analyzer (1 pixel per bin) so the
@@ -221,6 +225,11 @@ constexpr int    kPrefillMs    = 30;   // startup silence pre-fill (ms)
 // the audio lag the panadapter.  ~40 ms keeps it tight without
 // underrunning (operator-tunable on the bench).
 constexpr int    kSinkBufferMs = 40;
+
+// IQ block accumulator ceiling (C).  Each WDSP in_size block is
+// 2*inSize doubles.  Cap at N complete blocks and drop the oldest so
+// a stalled drain cannot grow the vector without bound (SUB / hitch).
+constexpr size_t kIqAccumMaxBlocks = 8;
 
 // Step 3e: perceptual volume taper.  Slider position (0..1) -> dB gain
 // so comfortable listening sits mid-slider instead of bunched at the
@@ -265,6 +274,12 @@ int modeToWdsp(const QString &m) {
     return 1;   // USB
 }
 
+void keepShack(const QString &key, const QVariant &value)
+{
+    if (lyra::deskApplyQuiet()) return;
+    QSettings().setValue(key, value);
+}
+
 } // namespace
 
 // ---------------------------------------------------------------
@@ -273,8 +288,11 @@ int modeToWdsp(const QString &m) {
 // PortAudio callback).  Producer = the RX worker thread via push();
 // consumer = Qt's audio backend thread via readData().  A std::mutex
 // guards the ring indices (hold time = a memcpy of a few hundred
-// int16, sub-ms).  On underrun readData pads silence and always
-// returns the full requested length so the sink never stops.
+// int16, sub-ms).  On underrun readData fades the last real sample
+// out once (raised-cosine, ~5 ms @ 48 kHz) then stays silent — no
+// per-callback re-fade (that would buzz at the sink period).  First
+// healthy sample after a gap fades back in.  Always returns the
+// requested length so the sink never stops.
 // ---------------------------------------------------------------
 class AudioRing : public QIODevice {
 public:
@@ -303,6 +321,9 @@ public:
     void prefillSilence(int frames) {
         std::lock_guard<std::mutex> lk(mtx_);
         rd_ = wr_ = countFrames_ = 0;
+        lastL_ = lastR_ = 0;
+        fadeOutLeft_ = fadeInLeft_ = 0;
+        gapActive_ = false;
         const int n = std::min(frames, capFrames_);
         for (int i = 0; i < n; ++i) {
             buf_[static_cast<size_t>(wr_) * 2 + 0] = 0;
@@ -336,13 +357,40 @@ public:
         std::lock_guard<std::mutex> lk(mtx_);
         for (qint64 f = 0; f < maxFrames; ++f) {
             if (countFrames_ > 0) {
-                out[f * 2 + 0] = buf_[static_cast<size_t>(rd_) * 2 + 0];
-                out[f * 2 + 1] = buf_[static_cast<size_t>(rd_) * 2 + 1];
+                qint16 L = buf_[static_cast<size_t>(rd_) * 2 + 0];
+                qint16 R = buf_[static_cast<size_t>(rd_) * 2 + 1];
                 rd_ = (rd_ + 1) % capFrames_;
                 --countFrames_;
+                if (gapActive_) {
+                    fadeInLeft_ = kFadeFrames;
+                    fadeOutLeft_ = 0;
+                    gapActive_ = false;
+                }
+                if (fadeInLeft_ > 0) {
+                    const float g = fadeInGain(fadeInLeft_);
+                    L = scale16(L, g);
+                    R = scale16(R, g);
+                    --fadeInLeft_;
+                }
+                lastL_ = L;
+                lastR_ = R;
+                out[f * 2 + 0] = L;
+                out[f * 2 + 1] = R;
             } else {
-                out[f * 2 + 0] = 0;   // underrun -> silence
-                out[f * 2 + 1] = 0;
+                if (!gapActive_) {
+                    fadeOutLeft_ = kFadeFrames;
+                    fadeInLeft_ = 0;
+                    gapActive_ = true;
+                }
+                if (fadeOutLeft_ > 0) {
+                    const float g = fadeOutGain(fadeOutLeft_);
+                    out[f * 2 + 0] = scale16(lastL_, g);
+                    out[f * 2 + 1] = scale16(lastR_, g);
+                    --fadeOutLeft_;
+                } else {
+                    out[f * 2 + 0] = 0;
+                    out[f * 2 + 1] = 0;
+                }
                 padded = true;
             }
         }
@@ -354,11 +402,34 @@ public:
 
 private:
     static constexpr qint64 kBytesPerFrame = 2 * sizeof(qint16);  // stereo
+    static constexpr int    kFadeFrames    = 256;  // ~5.3 ms @ 48 kHz
+
+    static float fadeOutGain(int left) {
+        const float t = static_cast<float>(kFadeFrames - left + 1)
+                        / static_cast<float>(kFadeFrames);
+        return 0.5f * (1.0f + std::cos(3.14159265f * t));
+    }
+    static float fadeInGain(int left) {
+        const float t = static_cast<float>(kFadeFrames - left + 1)
+                        / static_cast<float>(kFadeFrames);
+        return 0.5f * (1.0f - std::cos(3.14159265f * t));
+    }
+    static qint16 scale16(qint16 x, float g) {
+        const float y = static_cast<float>(x) * g;
+        if (y > 32767.0f) return 32767;
+        if (y < -32768.0f) return -32768;
+        return static_cast<qint16>(std::lround(y));
+    }
+
     mutable std::mutex  mtx_;
     std::vector<qint16> buf_;        // interleaved L,R; capFrames_*2
     int                 capFrames_;
     int                 rd_ = 0, wr_ = 0, countFrames_ = 0;
     qint64              overruns_ = 0, underruns_ = 0;
+    qint16              lastL_ = 0, lastR_ = 0;
+    int                 fadeOutLeft_ = 0;
+    int                 fadeInLeft_  = 0;
+    bool                gapActive_   = false;
 };
 
 WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
@@ -563,8 +634,9 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
         std::memory_order_relaxed);
     mutedRx2_.store(s.value(QStringLiteral("audio/mutedRx2"), false).toBool(),
                     std::memory_order_relaxed);
-    afGainDb_ = std::clamp(
-        s.value(QStringLiteral("audio/afGainDb"), 0.0).toDouble(), 0.0, 40.0);
+    afGainDb_.store(std::clamp(
+        s.value(QStringLiteral("audio/afGainDb"), 0.0).toDouble(), 0.0, 40.0),
+                    std::memory_order_relaxed);
     balance_.store(std::clamp(
         s.value(QStringLiteral("audio/balance"), 0.0).toDouble(), -1.0, 1.0),
         std::memory_order_relaxed);
@@ -617,6 +689,7 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     }
     cwPitchHz_ = std::clamp(
         s.value(QStringLiteral("dsp/cwPitchHz"), 600).toInt(), 200, 1500);
+    neuralCw_.setToneHz(cwPitchHz_);   // tone lock stays on the operator's station
     // RX DSP operator state (NR + AGC mode).  Defaults match old Lyra's
     // first-light: NR off, Mode 3 (MMSE-LSA), AEPF on, NPE OSMS, AGC med.
     nrEnabled_   = s.value(QStringLiteral("dsp/nrEnabled"), false).toBool();
@@ -625,6 +698,14 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     aepfEnabled_ = s.value(QStringLiteral("dsp/aepf"), true).toBool();
     npeMethod_   = std::clamp(
         s.value(QStringLiteral("dsp/npeMethod"), 0).toInt(), 0, 1);
+    nnrEnabled_  = s.value(QStringLiteral("dsp/nnrEnabled"), false).toBool();
+    nnrModel_    = std::clamp(
+        s.value(QStringLiteral("dsp/nnrModel"), 0).toInt(), 0, 1);
+    nnrMaskFloorDb_ = std::clamp(
+        s.value(QStringLiteral("dsp/nnrMaskFloorDb"), -40.0).toDouble(),
+        kNnrMaskFloorMinDb, kNnrMaskFloorMaxDb);
+    if (nnrEnabled_ && nrEnabled_)
+        nrEnabled_ = false;
     agcMode_     = s.value(QStringLiteral("dsp/agcMode"),
                            QStringLiteral("med")).toString();
     agcThreshDb_ = std::clamp(
@@ -641,9 +722,11 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
     squelchEnabled_ = s.value(QStringLiteral("dsp/squelchEnabled"), false).toBool();
     squelchThreshold_ = std::clamp(
         s.value(QStringLiteral("dsp/squelchThreshold"), 0.20).toDouble(), 0.0, 1.0);
-    nbEnabled_  = s.value(QStringLiteral("dsp/nbEnabled"), false).toBool();
-    nbStrength_ = std::clamp(
-        s.value(QStringLiteral("dsp/nbStrength"), 0.5).toDouble(), 0.0, 1.0);
+    nbEnabled_.store(s.value(QStringLiteral("dsp/nbEnabled"), false).toBool(),
+                     std::memory_order_relaxed);
+    nbStrength_.store(std::clamp(
+        s.value(QStringLiteral("dsp/nbStrength"), 0.5).toDouble(), 0.0, 1.0),
+                      std::memory_order_relaxed);
     apfEnabled_ = s.value(QStringLiteral("dsp/apfEnabled"), false).toBool();
     apfGainDb_  = std::clamp(
         s.value(QStringLiteral("dsp/apfGainDb"), 12.0).toDouble(), 0.0, 24.0);
@@ -669,7 +752,22 @@ WdspEngine::WdspEngine(WdspNative *wdsp, QObject *parent)
         const double sec = s.value(QStringLiteral("dsp/npCaptureSeconds"), 5.0).toDouble();
         npCaptureSeconds_ = (sec == 3.0 || sec == 5.0 || sec == 10.0) ? sec : 5.0;
         npAlpha_     = std::clamp(s.value(QStringLiteral("dsp/npAlpha"), 1.0).toDouble(), 1.0, 5.0);
-        npFloorDb_   = std::clamp(s.value(QStringLiteral("dsp/npFloorDb"), -12.0).toDouble(), -30.0, -3.0);
+        // Floor is max bin attenuation *before* WDSP AGC.  −12 dB was the
+        // original default; AGC Fast then makes most of that back, so with
+        // the panadapter no longer showing the mask the ear only hears a
+        // whisper.  −24 dB is still under the −30 slider stop.  One-shot
+        // migrate: a stored −12 that was never moved off the old default
+        // becomes −24 (dsp/npFloorMigrated).  An operator who later sets
+        // −12 by hand keeps it.
+        npFloorDb_   = std::clamp(s.value(QStringLiteral("dsp/npFloorDb"), -24.0).toDouble(), -30.0, -3.0);
+        if (!s.value(QStringLiteral("dsp/npFloorMigrated"), false).toBool()) {
+            const double stored = s.value(QStringLiteral("dsp/npFloorDb"), -12.0).toDouble();
+            if (stored > -12.5 && stored < -11.5) {
+                npFloorDb_ = -24.0;
+                s.setValue(QStringLiteral("dsp/npFloorDb"), -24.0);
+            }
+            s.setValue(QStringLiteral("dsp/npFloorMigrated"), true);
+        }
         npSmoothing_ = std::clamp(s.value(QStringLiteral("dsp/npSmoothing"), 0.6).toDouble(), 0.0, 0.95);
     }
     loadProfiles();
@@ -802,6 +900,105 @@ void WdspEngine::configureAnalyzerForRx_locked() noexcept
             api.SetDisplayNumAverage(kAnDisp, 0, numAvg);
         }
     }
+}
+
+void WdspEngine::configureRx2Analyzer_locked() noexcept
+{
+    // PRECONDITION: analyzerMtx_ held. The second analyzer is already
+    // created. Does not write the transmit block size and does not
+    // look at the first analyzer's open flag.
+    if (!wdsp_) return;
+    const WdspApi &api = wdsp_->api();
+    if (!api.SetAnalyzer) return;
+
+    const int overlap =
+        std::max(0, kAnFftSize - cfg_.inRate / kAnFrameRate);
+    const int maxW = kAnFftSize +
+        std::min(cfg_.inRate / 10, kAnFftSize * kAnFrameRate / 10);
+    int flp[1] = {0};
+    api.SetAnalyzer(
+        kAnDispRx2,
+        1, 1, 1, flp,
+        kAnFftSize,
+        cfg_.inSize,
+        kAnWindow,
+        kAnKaiserPi,
+        overlap,
+        0,
+        0.0, 0.0,
+        kAnPixels,
+        1, 0,
+        0.0, 0.0,
+        maxW);
+    if (api.SetDisplaySampleRate)
+        api.SetDisplaySampleRate(kAnDispRx2, cfg_.inRate);
+    if (api.SetDisplayDetectorMode)
+        api.SetDisplayDetectorMode(kAnDispRx2, 0, kAnDetector);
+    if (api.SetDisplayAverageMode)
+        api.SetDisplayAverageMode(kAnDispRx2, 0, kAnAvgMode);
+    if (kAnAvgMode != 0) {
+        const double avb =
+            std::exp(-1.0 / (kAnFrameRate * kAnTau));
+        const int numAvg = std::max(2,
+            std::min(60, static_cast<int>(kAnFrameRate * kAnTau)));
+        if (api.SetDisplayAvBackmult)
+            api.SetDisplayAvBackmult(kAnDispRx2, 0, avb);
+        if (api.SetDisplayNumAverage)
+            api.SetDisplayNumAverage(kAnDispRx2, 0, numAvg);
+    }
+}
+
+void WdspEngine::openRx2Analyzer()
+{
+    if (rx2AnalyzerOpen_.load(std::memory_order_acquire))
+        return;
+    if (!rx2SpectrumWanted_.load(std::memory_order_acquire))
+        return;
+    if (!wdsp_)
+        return;
+    const WdspApi &api = wdsp_->api();
+    if (!api.XCreateAnalyzer || !api.SetAnalyzer)
+        return;
+
+    std::lock_guard<std::mutex> lk(analyzerMtx_);
+    if (rx2AnalyzerOpen_.load(std::memory_order_relaxed))
+        return;
+    int success = -1;
+    char appDataPath[] = "";
+    api.XCreateAnalyzer(kAnDispRx2, &success, kAnMaxFft, 1, 1, appDataPath);
+    if (success != 0) {
+        qWarning("[wdsp] RX2 spectrum analyzer create failed (%d)", success);
+        return;
+    }
+    configureRx2Analyzer_locked();
+    rx2AnalyzerOpen_.store(true, std::memory_order_release);
+    qInfo("[wdsp] RX2 spectrum analyzer open");
+}
+
+void WdspEngine::closeRx2Analyzer()
+{
+    if (!rx2AnalyzerOpen_.exchange(false, std::memory_order_acq_rel))
+        return;
+    if (!wdsp_)
+        return;
+    const WdspApi &api = wdsp_->api();
+    std::lock_guard<std::mutex> lk(analyzerMtx_);
+    if (api.DestroyAnalyzer)
+        api.DestroyAnalyzer(kAnDispRx2);
+    specCacheRx2_.clear();
+}
+
+void WdspEngine::feedRx2Spectrum(double *block) noexcept
+{
+    if (!block)
+        return;
+    if (!rx2AnalyzerOpen_.load(std::memory_order_acquire))
+        return;
+    if (!wdsp_)
+        return;
+    const WdspApi &api = wdsp_->api();
+    if (api.Spectrum0)
+        api.Spectrum0(1, kAnDispRx2, 0, 0, block);
 }
 
 void WdspEngine::configureAnalyzerForTx() noexcept
@@ -1056,7 +1253,8 @@ bool WdspEngine::openRx1()
     // Panel (post-DSP makeup) gain = the operator's AF gain (dB → linear;
     // 0 dB = unity = WDSP create_panel default).
     if (api.SetRXAPanelGain1) {
-        api.SetRXAPanelGain1(channel_, std::pow(10.0, afGainDb_ / 20.0));
+        api.SetRXAPanelGain1(channel_,
+            std::pow(10.0, afGainDb_.load(std::memory_order_relaxed) / 20.0));
     }
 
     // RX noise reduction (EMNR) + auto-notch + LMS — persisted state.
@@ -1510,9 +1708,10 @@ void WdspEngine::rebuildVac(int id)
     // not by half-opening the stream.
     VacPaSel sel;
     if (!resolveVacPaSel(v.hostApiName, v.outName, v.inName, sel)) {
-        emitLog(QStringLiteral("%1 not started — need a WASAPI-resolvable "
-                               "input AND output device (out='%2' in='%3'); "
-                               "DL-2 is full-duplex (both required)")
+        emitLog(QStringLiteral("%1 not started — need an input AND an output "
+                               "device under the chosen host API (out='%2' "
+                               "in='%3'); VAC is full-duplex (both required; "
+                               "for ASIO pick the same driver for both)")
                     .arg(tag,
                          v.outName.isEmpty() ? QStringLiteral("(unset)") : v.outName,
                          v.inName.isEmpty()  ? QStringLiteral("(unset)") : v.inName));
@@ -1600,10 +1799,18 @@ void WdspEngine::rebuildVac(int id)
 
     const int rc = StartAudioIVAC(id);   // 1 = open + start OK
     if (rc != 1) {
-        emitLog(QStringLiteral("%1 PortAudio open FAILED (rc=%2; out='%3' "
+        const PaHostApiInfo *hai = Pa_GetHostApiInfo(sel.hostApi);
+        const bool asioApi = hai && hai->type == paASIO;
+        emitLog(QStringLiteral("%1 PortAudio open FAILED (rc=%2: %8; out='%3' "
                                "in='%4' hostApi=%5 out#%6 in#%7); VAC off this "
-                               "session").arg(tag).arg(rc).arg(v.outName, v.inName)
-                    .arg(sel.hostApi).arg(sel.outDev).arg(sel.inDev));
+                               "session%9").arg(tag).arg(rc).arg(v.outName, v.inName)
+                    .arg(sel.hostApi).arg(sel.outDev).arg(sel.inDev)
+                    .arg(QString::fromUtf8(lyra::wire::ivacLastOpenErrorText()),
+                         asioApi ? QStringLiteral(
+                             " — ASIO: close any other program using this "
+                             "driver (only one ASIO stream at a time), and "
+                             "set the interface to the VAC sample rate")
+                                 : QString()));
         StopAudioIVAC(id);   // null-safe close if OpenStream succeeded then StartStream failed
         destroy_ivac(id);
         return;
@@ -1627,6 +1834,38 @@ void WdspEngine::rebuildVac(int id)
                 .arg(tag).arg(v.outName).arg(v.rxGainDb)
                 .arg(v.inName).arg(v.txGainDb)
                 .arg(cfg_.outRate).arg(v.vacSize));
+    {
+        // [diag] what the device actually opened with — ASIO buffer sizes
+        // explain bursty callbacks (VAC rings over/underflowing).
+        double inLat = 0, outLat = 0, rate = 0;
+        long aMin = -1, aMax = -1, aPref = -1, aGran = -1;
+        if (lyra::wire::ivacStreamDiag(id, &inLat, &outLat, &rate,
+                                       &aMin, &aMax, &aPref, &aGran)) {
+            QString asio;
+            if (aPref >= 0)
+                asio = QStringLiteral("; ASIO driver buffer min %1 / "
+                                      "preferred %2 / max %3 frames "
+                                      "(granularity %4)")
+                           .arg(aMin).arg(aPref).arg(aMax).arg(aGran);
+            emitLog(QStringLiteral("%1 stream: %2 Hz, input latency %3 ms, "
+                                   "output latency %4 ms%5")
+                        .arg(tag).arg(rate, 0, 'f', 0)
+                        .arg(inLat * 1000.0, 0, 'f', 1)
+                        .arg(outLat * 1000.0, 0, 'f', 1).arg(asio));
+            if (aPref >= 0) {
+                // ASIO: re-centre the rings once the startup transients are
+                // over (they settle at an edge otherwise).  Skipped if this
+                // VAC was rebuilt or torn down in the meantime.
+                const auto gen = lyra::wire::ivacStreamGeneration(id);
+                const auto inst = lyra::wire::ivacGet(id);
+                QTimer::singleShot(2000, this, [id, gen, inst]() {
+                    if (lyra::wire::ivacGet(id) == inst &&
+                        lyra::wire::ivacStreamGeneration(id) == gen)
+                        lyra::wire::ivacRecenterRings(id);
+                });
+            }
+        }
+    }
 }
 
 // Stop the VAC-out tee + device + engine instance.  Idempotent.  Main
@@ -2172,6 +2411,24 @@ void WdspEngine::setZoom(double z)
     emit spanChanged();
 }
 
+double WdspEngine::displayZoom() const
+{
+    const double z = zoom_.load(std::memory_order_relaxed);
+    const double zClamp = (z > 1.0 ? z : 1.0);
+    if (!txOwnsAnalyzer_.load(std::memory_order_acquire)) {
+        return zClamp;
+    }
+    const int txR = txSpanHz_.load(std::memory_order_relaxed);
+    const int rxR = inRateAtomic_.load(std::memory_order_relaxed);
+    double zTx = zClamp;
+    if (txR > 0 && rxR > 0) {
+        zTx = zClamp * (static_cast<double>(txR) / static_cast<double>(rxR));
+        if (zTx < 1.0)
+            zTx = 1.0;
+    }
+    return zTx;
+}
+
 void WdspEngine::computePassband(double *lo, double *hi) const
 {
     computePassband(mode_, bw_, lo, hi);
@@ -2408,8 +2665,9 @@ void WdspEngine::setCwPitchHz(int hz)
     }
     cwPitchHz_ = static_cast<double>(hz);
     cwDecoder_.setToneHz(cwPitchHz_);   // #173 — bind decoder AFC centre to the pitch
+    neuralCw_.setToneHz(cwPitchHz_);   // neural tone lock follows the pitch too
     zbMarkerHz_.store(cwMarkerOffsetForMode(mode_), std::memory_order_relaxed);
-    QSettings().setValue(QStringLiteral("dsp/cwPitchHz"), hz);
+    keepShack(QStringLiteral("dsp/cwPitchHz"), hz);
     recomputePassband();   // CW filter recentres on the new pitch
     applyModeFilter();
     recomputePassbandRx2();
@@ -2429,6 +2687,7 @@ void WdspEngine::setCwDecodeEnabled(bool on)
     }
     if (on) {
         cwDecoder_.setToneHz(cwPitchHz_);
+        neuralCw_.setToneHz(cwPitchHz_);
         cwDecoder_.reset();
     }
     cwDecodeOn_.store(on, std::memory_order_relaxed);
@@ -2686,14 +2945,14 @@ double WdspEngine::txAnalyzerOffBins() const noexcept
 }
 
 void WdspEngine::cropSpectrum(const float *full, float *dst, int n,
-                              double offBins) const noexcept
+                              double offBins, double zoom) const noexcept
 {
     // Centre the displayed window on (analyzer DC − offBins) bins.  With
     // offBins==0 this is the legacy centred zoom crop.  During TUN
     // offBins = (NCO−dial) in bins, so the gen1 carrier (at −cw_pitch
     // baseband relative to the NCO, i.e. AT the dial on air) lands at the
     // display centre — on the SSB marker — instead of NCO-relative.
-    const double z    = zoom_.load(std::memory_order_relaxed);
+    const double z    = zoom > 0.0 ? zoom : displayZoom();
     const double keep = (z <= 1.0) ? static_cast<double>(kAnPixels)
                                    : static_cast<double>(kAnPixels) / z;
     const double lo    = (kAnPixels - keep) * 0.5 - offBins;
@@ -2710,10 +2969,157 @@ void WdspEngine::cropSpectrum(const float *full, float *dst, int n,
     }
 }
 
+int WdspEngine::copyHostSpectrumForDesk(float *dst, int maxN, int *spanHz)
+{
+    if (!dst || !spanHz) return 0;
+    const bool tx = txOwnsAnalyzer_.load(std::memory_order_acquire);
+    if (tx) {
+        const int full = txSpanHz_.load(std::memory_order_relaxed);
+        *spanHz = full > 0 ? full : 96000;
+    } else {
+        *spanHz = iqRateHz();
+    }
+    const int n = copySpectrumCache(dst, maxN);
+    if (!tx || n < kAnPixels) return n;
+    const double off = txAnalyzerOffBins();
+    if (off == 0.0) return n;
+    // Full TX span, shifted the way the host panadapter shifts Tune.
+    // Zoom stays 1 here — the desk applies its own zoom on top.
+    std::vector<float> full(dst, dst + n);
+    cropSpectrum(full.data(), dst, n, off, 1.0);
+    return n;
+}
+
+int WdspEngine::copyRx2SpectrumCache(float *dst, int maxN, int *spanHz)
+{
+    if (!dst || !spanHz) return 0;
+    *spanHz = inRateAtomic_.load(std::memory_order_relaxed);
+    const int n = std::min(maxN, kAnPixels);
+    if (n <= 0 || *spanHz <= 0) return 0;
+    std::unique_lock<std::mutex> lk(analyzerMtx_, std::try_to_lock);
+    if (!lk.owns_lock() || static_cast<int>(specCacheRx2_.size()) < n)
+        return 0;
+    std::memcpy(dst, specCacheRx2_.data(), static_cast<size_t>(n) * sizeof(float));
+    const float cal = static_cast<float>(
+        rxDisplayCalibrationDb_.load(std::memory_order_relaxed));
+    if (cal != 0.0f)
+        for (int i = 0; i < n; ++i) dst[i] += cal;
+    return n;
+}
+
+int WdspEngine::copySpectrumCache(float *dst, int maxN)
+{
+    if (!dst) return 0;
+    const int n = std::min(maxN, kAnPixels);
+    if (n <= 0) return 0;
+    std::unique_lock<std::mutex> lk(analyzerMtx_, std::try_to_lock);
+    if (!lk.owns_lock() || static_cast<int>(specCache_.size()) < n)
+        return 0;
+    std::memcpy(dst, specCache_.data(), static_cast<size_t>(n) * sizeof(float));
+    const float cal = static_cast<float>(
+        rxDisplayCalibrationDb_.load(std::memory_order_relaxed));
+    if (cal != 0.0f)
+        for (int i = 0; i < n; ++i) dst[i] += cal;
+    return n;
+}
+
+void WdspEngine::postDeskSpectrum(const float *db, int n, int fullSpanHz)
+{
+    if (!db || n < 2 || fullSpanHz <= 0) return;
+    {
+        std::lock_guard<std::mutex> lk(deskSpecMtx_);
+        deskSpec_.assign(db, db + n);
+        if (static_cast<int>(deskSpec_.size()) < kAnPixels)
+            deskSpec_.resize(kAnPixels, -200.0f);
+    }
+    const int prev = deskFullSpan_.exchange(fullSpanHz, std::memory_order_relaxed);
+    deskSpecMs_.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count(),
+        std::memory_order_relaxed);
+    if (prev != fullSpanHz) emit spanChanged();
+}
+
+void WdspEngine::postDeskSpectrumRx2(const float *db, int n, int fullSpanHz)
+{
+    if (!db || n < 2 || fullSpanHz <= 0) return;
+    {
+        std::lock_guard<std::mutex> lk(deskSpecMtx_);
+        deskSpecRx2_.assign(db, db + n);
+        if (static_cast<int>(deskSpecRx2_.size()) < kAnPixels)
+            deskSpecRx2_.resize(kAnPixels, -200.0f);
+    }
+    const int prev = deskRx2Span_.exchange(fullSpanHz, std::memory_order_relaxed);
+    deskRx2Ms_.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count(),
+        std::memory_order_relaxed);
+    if (prev != fullSpanHz) emit spanChanged();
+}
+
+void WdspEngine::clearDeskSpectrumRx2()
+{
+    {
+        std::lock_guard<std::mutex> lk(deskSpecMtx_);
+        deskSpecRx2_.clear();
+    }
+    const int prev = deskRx2Span_.exchange(0, std::memory_order_relaxed);
+    deskRx2Ms_.store(0, std::memory_order_relaxed);
+    if (prev != 0) emit spanChanged();
+}
+
+void WdspEngine::feedRemoteCwAudio(const qint16 *pcm, int nframes)
+{
+    // openRx1() sets running_ at startup even when this PC has no radio.
+    // Gating on that flag dropped every desk block, so Classic and DeepFast
+    // stayed on the local tap — which never receives IQ here — while the
+    // panel still showed Decoding. These samples are the host's post-demod
+    // receiver audio (the CW tone), the same mono the laptop speaker plays,
+    // taken before the desk volume slider. 48 kHz int16, matching the
+    // speaker and cfg_.outRate. The engines want float near -1..1.
+    if (!pcm || nframes <= 0) return;
+    remoteCwAudioMs_.store(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count(),
+        std::memory_order_relaxed);
+    if (!cwDecodeOn_.load(std::memory_order_relaxed)
+        || !cwModeActive_.load(std::memory_order_relaxed))
+        return;
+    if (static_cast<int>(remoteCwMono_.size()) != nframes)
+        remoteCwMono_.assign(static_cast<size_t>(nframes), 0.0f);
+    for (int i = 0; i < nframes; ++i)
+        remoteCwMono_[static_cast<size_t>(i)] =
+            static_cast<float>(pcm[i]) * (1.0f / 32768.0f);
+    const int eng = cwEngine_.load(std::memory_order_relaxed);
+    if (eng == 2) {
+        cwDecoder_.process(remoteCwMono_.data(), nframes);
+        neuralCw_.process(remoteCwMono_.data(), nframes);
+    } else if (eng == 1) {
+        neuralCw_.process(remoteCwMono_.data(), nframes);
+    } else {
+        cwDecoder_.process(remoteCwMono_.data(), nframes);
+    }
+}
+
 int WdspEngine::copySpectrum(float *dst, int maxN)
 {
     if (dst == nullptr) {
         return 0;
+    }
+    const qint64 specNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (deskFullSpan_.load(std::memory_order_relaxed) > 0
+        && (specNow - deskSpecMs_.load(std::memory_order_relaxed)) < 500) {
+        std::lock_guard<std::mutex> lk(deskSpecMtx_);
+        if (static_cast<int>(deskSpec_.size()) >= kAnPixels) {
+            const int n = std::min(maxN, kAnPixels);
+            const double z = displayZoom();
+            if (z <= 1.0) {
+                std::memcpy(dst, deskSpec_.data(),
+                            static_cast<size_t>(n) * sizeof(float));
+            } else {
+                cropSpectrum(deskSpec_.data(), dst, n, 0.0);
+            }
+            return n;
+        }
     }
     const WdspApi &api = wdsp_->api();
     if (!api.GetPixels) {
@@ -2750,7 +3156,7 @@ int WdspEngine::copySpectrum(float *dst, int maxN)
     }
     const float *full = specCache_.data();
 
-    const double z = zoom_.load(std::memory_order_relaxed);
+    const double z = displayZoom();
     const double offBins = txAnalyzerOffBins();   // 0 unless TUN active
     const float cal =
         static_cast<float>(rxDisplayCalibrationDb_.load(std::memory_order_relaxed));
@@ -2770,6 +3176,59 @@ int WdspEngine::copySpectrum(float *dst, int maxN)
     cropSpectrum(full, dst, n, offBins);
     if (cal != 0.0f)
         for (int i = 0; i < n; ++i) dst[i] += cal;
+    return n;
+}
+
+int WdspEngine::copySpectrumRx2(float *dst, int maxN)
+{
+    // Desk: the second pane shows the host's RX2 picture only. A fresh
+    // main picture is not a stand-in for that receiver.
+    const qint64 specNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const bool deskMain = deskFullSpan_.load(std::memory_order_relaxed) > 0
+        && (specNow - deskSpecMs_.load(std::memory_order_relaxed)) < 500;
+    const bool deskRx2 = deskRx2Span_.load(std::memory_order_relaxed) > 0
+        && (specNow - deskRx2Ms_.load(std::memory_order_relaxed)) < 500;
+    if (deskMain || deskRx2) {
+        if (!dst || !deskRx2) return 0;
+        std::lock_guard<std::mutex> lk(deskSpecMtx_);
+        if (static_cast<int>(deskSpecRx2_.size()) < kAnPixels) return 0;
+        const int n = std::min(maxN, kAnPixels);
+        std::memcpy(dst, deskSpecRx2_.data(),
+                    static_cast<size_t>(n) * sizeof(float));
+        return n;
+    }
+    // Full converter span. No zoom crop and no tune-carrier shift —
+    // those belong to the first receiver's panadapter.
+    if (!dst || !wdsp_)
+        return 0;
+    const WdspApi &api = wdsp_->api();
+    if (!api.GetPixels)
+        return 0;
+    const int n = std::min(maxN, kAnPixels);
+    if (n <= 0)
+        return 0;
+    {
+        std::unique_lock<std::mutex> lk(analyzerMtx_, std::try_to_lock);
+        if (lk.owns_lock()) {
+            if (!rx2AnalyzerOpen_.load(std::memory_order_acquire))
+                return 0;
+            if (static_cast<int>(specCacheRx2_.size()) != kAnPixels)
+                specCacheRx2_.assign(kAnPixels, -200.0f);
+            int flag = 0;
+            double ref = 0.0;
+            api.GetPixels(kAnDispRx2, 0, specCacheRx2_.data(), &flag, &ref);
+        }
+    }
+    if (static_cast<int>(specCacheRx2_.size()) < n)
+        return 0;
+    std::memcpy(dst, specCacheRx2_.data(),
+                static_cast<size_t>(n) * sizeof(float));
+    const float cal = static_cast<float>(
+        rxDisplayCalibrationDb_.load(std::memory_order_relaxed));
+    if (cal != 0.0f)
+        for (int i = 0; i < n; ++i)
+            dst[i] += cal;
     return n;
 }
 
@@ -2821,7 +3280,7 @@ int WdspEngine::copyWaterfallSpectrum(float *dst, int maxN)
     }
     const float *full = wfCache_.data();
 
-    const double z = zoom_.load(std::memory_order_relaxed);
+    const double z = displayZoom();
     const double offBins = txAnalyzerOffBins();   // 0 unless TUN active
     if (z <= 1.0 && offBins == 0.0) {
         std::memcpy(dst, full, static_cast<size_t>(n) * sizeof(float));
@@ -2884,6 +3343,16 @@ bool WdspEngine::startAudio()
         audioSink_->setBufferSize(
             cfg_.outRate * kSinkBufferMs / 1000 * 2 *
             static_cast<int>(sizeof(qint16)));
+        // WASAPI session / Windows per-app mixer. Separate from Lyra Vol
+        // and AF (those live in audio/volume). A new QAudioSink otherwise
+        // opens at 1.0 every Stop/Start or relaunch.
+        {
+            const double osVol = std::clamp(
+                QSettings().value(QStringLiteral("audio/sinkVolume"), 1.0)
+                    .toDouble(),
+                0.0, 1.0);
+            audioSink_->setVolume(osVol);
+        }
         audioSink_->start(audioRing_);   // pull mode
     }
 
@@ -2901,6 +3370,8 @@ void WdspEngine::stopAudio()
     // we delete the ring; audioMtx_ blocks the RX worker's push().
     std::lock_guard<std::mutex> lk(audioMtx_);
     if (audioSink_) {
+        QSettings().setValue(QStringLiteral("audio/sinkVolume"),
+                             audioSink_->volume());
         audioSink_->stop();
         delete audioSink_;
         audioSink_ = nullptr;
@@ -2917,8 +3388,28 @@ double WdspEngine::volumeDb() const
     return posToDb(volume_.load(std::memory_order_relaxed));
 }
 
+void WdspEngine::postDeskMeter(double dbm)
+{
+    if (std::isnan(dbm)) dbm = -200.0;
+    deskSmeter_.store(dbm, std::memory_order_relaxed);
+    deskMeterMs_.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count(),
+        std::memory_order_relaxed);
+}
+
+bool WdspEngine::deskMeterFresh() const
+{
+    const qint64 ms = deskMeterMs_.load(std::memory_order_relaxed);
+    if (ms <= 0) return false;
+    const qint64 now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    return (now - ms) < 1000;
+}
+
 double WdspEngine::sMeterDbm() const
 {
+    if (deskMeterFresh())
+        return deskSmeter_.load(std::memory_order_relaxed);
     if (!running_ || !wdsp_) return -200.0;
     const WdspApi &api = wdsp_->api();
     if (!api.GetRXAMeter) return -200.0;
@@ -3128,11 +3619,11 @@ void WdspEngine::setMuted(bool m)
 void WdspEngine::setAfGainDb(double db)
 {
     db = std::clamp(db, 0.0, 40.0);
-    if (std::abs(db - afGainDb_) < 1e-6) return;
-    afGainDb_ = db;
-    QSettings().setValue(QStringLiteral("audio/afGainDb"), db);
-    {   // push to WDSP live (serialise against feedIq's fexchange0)
+    {
         std::lock_guard<std::mutex> lk(channelMtx_);
+        if (std::abs(db - afGainDb_.load(std::memory_order_relaxed)) < 1e-6)
+            return;
+        afGainDb_.store(db, std::memory_order_relaxed);
         if (opened_ && wdsp_ && wdsp_->api().SetRXAPanelGain1) {
             const double g = std::pow(10.0, db / 20.0);
             wdsp_->api().SetRXAPanelGain1(channel_, g);
@@ -3140,6 +3631,7 @@ void WdspEngine::setAfGainDb(double db)
                 wdsp_->api().SetRXAPanelGain1(rx2Channel_, g);
         }
     }
+    QSettings().setValue(QStringLiteral("audio/afGainDb"), db);
     emit afGainChanged();
 }
 
@@ -3161,6 +3653,8 @@ void WdspEngine::pushNrState()
     if (!opened_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
     if (!api.SetRXAEMNRRun) return;   // EMNR not resolved -> nothing to push
+    const bool nnrOn  = nnrEnabled_ && api.SetRXANNRRun;
+    const bool emnrOn = nrEnabled_ && !nnrOn;
     auto apply = [&](int ch) {
         if (api.SetRXAEMNRgainMethod)
             api.SetRXAEMNRgainMethod(ch, std::clamp(nrMode_, 1, 4) - 1);
@@ -3172,10 +3666,24 @@ void WdspEngine::pushNrState()
             api.SetRXAEMNRpost2Run(ch, aepfEnabled_ ? 1 : 0);
         if (api.SetRXAEMNRPosition)
             api.SetRXAEMNRPosition(ch, 1);
-        api.SetRXAEMNRRun(ch, nrEnabled_ ? 1 : 0);
+        api.SetRXAEMNRRun(ch, emnrOn ? 1 : 0);
+        if (api.SetRXANNRRun) {
+            if (nnrOn) {
+                if (api.SetRXANNRModel)
+                    api.SetRXANNRModel(ch, nnrModel_);
+                if (api.SetRXANNRMaskFloor)
+                    api.SetRXANNRMaskFloor(ch, nnrMaskFloorDb_);
+            }
+            api.SetRXANNRRun(ch, nnrOn ? 1 : 0);
+        }
     };
     apply(channel_);
     if (rx2Opened_) apply(rx2Channel_);
+}
+
+bool WdspEngine::nnrAvailable() const
+{
+    return wdsp_ && wdsp_->api().SetRXANNRRun;
 }
 
 void WdspEngine::pushAgcMode()
@@ -3209,7 +3717,11 @@ void WdspEngine::setNrEnabled(bool on)
 {
     if (nrEnabled_ == on) return;
     nrEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/nrEnabled"), on);
+    keepShack(QStringLiteral("dsp/nrEnabled"), on);
+    if (on && nnrEnabled_) {
+        nnrEnabled_ = false;
+        keepShack(QStringLiteral("dsp/nnrEnabled"), false);
+    }
     pushNrState();
     emit nrChanged();
     emitLog(QStringLiteral("[wdsp] NR %1 (Mode %2)")
@@ -3222,7 +3734,7 @@ void WdspEngine::setNrMode(int mode)
     mode = std::clamp(mode, 1, 4);
     if (nrMode_ == mode) return;
     nrMode_ = mode;
-    QSettings().setValue(QStringLiteral("dsp/nrMode"), mode);
+    keepShack(QStringLiteral("dsp/nrMode"), mode);
     pushNrState();
     emit nrChanged();
 }
@@ -3231,7 +3743,7 @@ void WdspEngine::setAepfEnabled(bool on)
 {
     if (aepfEnabled_ == on) return;
     aepfEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/aepf"), on);
+    keepShack(QStringLiteral("dsp/aepf"), on);
     pushNrState();
     emit nrChanged();
 }
@@ -3241,9 +3753,56 @@ void WdspEngine::setNpeMethod(int method)
     method = std::clamp(method, 0, 1);
     if (npeMethod_ == method) return;
     npeMethod_ = method;
-    QSettings().setValue(QStringLiteral("dsp/npeMethod"), method);
+    keepShack(QStringLiteral("dsp/npeMethod"), method);
     pushNrState();
     emit nrChanged();
+}
+
+void WdspEngine::setNnrEnabled(bool on)
+{
+    if (nnrEnabled_ == on) return;
+    if (on && !nnrAvailable()) {
+        emitLog(QStringLiteral("[wdsp] NNR unavailable (engine lacks SetRXANNRRun)"));
+        return;
+    }
+    nnrEnabled_ = on;
+    keepShack(QStringLiteral("dsp/nnrEnabled"), on);
+    if (on && nrEnabled_) {
+        nrEnabled_ = false;
+        keepShack(QStringLiteral("dsp/nrEnabled"), false);
+    }
+    pushNrState();
+    emit nrChanged();
+    emitLog(QStringLiteral("[wdsp] NNR %1 (%2, floor %3 dB)")
+                .arg(on ? QStringLiteral("on") : QStringLiteral("off"))
+                .arg(nnrModel_ == 1 ? QStringLiteral("Premium")
+                                    : QStringLiteral("Standard"))
+                .arg(nnrMaskFloorDb_, 0, 'f', 0));
+}
+
+void WdspEngine::setNnrModel(int slot)
+{
+    slot = std::clamp(slot, 0, 1);
+    if (nnrModel_ == slot) return;
+    nnrModel_ = slot;
+    keepShack(QStringLiteral("dsp/nnrModel"), slot);
+    pushNrState();
+    emit nrChanged();
+    emitLog(QStringLiteral("[wdsp] NNR model %1")
+                .arg(slot == 1 ? QStringLiteral("Premium")
+                               : QStringLiteral("Standard")));
+}
+
+void WdspEngine::setNnrMaskFloorDb(double db)
+{
+    db = std::clamp(std::round(db), kNnrMaskFloorMinDb, kNnrMaskFloorMaxDb);
+    if (nnrMaskFloorDb_ == db) return;
+    nnrMaskFloorDb_ = db;
+    keepShack(QStringLiteral("dsp/nnrMaskFloorDb"), db);
+    pushNrState();
+    emit nrChanged();
+    emitLog(QStringLiteral("[wdsp] NNR mask floor %1 dB")
+                .arg(db, 0, 'f', 0));
 }
 
 // Re-derive the AGC ceiling from agcThreshDb_.  The slope + thresh calls
@@ -3421,7 +3980,7 @@ void WdspEngine::setAgcMode(const QString &mode)
         return;   // ignore unknown values
     if (agcMode_ == m) return;
     agcMode_ = m;
-    QSettings().setValue(QStringLiteral("dsp/agcMode"), m);
+    keepShack(QStringLiteral("dsp/agcMode"), m);
     pushAgcMode();
     emit agcModeChanged();
     emitLog(QStringLiteral("[wdsp] AGC mode %1").arg(m));
@@ -3463,7 +4022,7 @@ void WdspEngine::setAnfEnabled(bool on)
 {
     if (anfEnabled_ == on) return;
     anfEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/anfEnabled"), on);
+    keepShack(QStringLiteral("dsp/anfEnabled"), on);
     pushAnfState();
     emit anfChanged();
     emitLog(QStringLiteral("[wdsp] ANF %1")
@@ -3474,7 +4033,7 @@ void WdspEngine::setLmsEnabled(bool on)
 {
     if (lmsEnabled_ == on) return;
     lmsEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/lmsEnabled"), on);
+    keepShack(QStringLiteral("dsp/lmsEnabled"), on);
     pushLmsState();
     emit lmsChanged();
     emitLog(QStringLiteral("[wdsp] LMS %1 (strength %2%)")
@@ -3487,7 +4046,7 @@ void WdspEngine::setLmsStrength(double s)
     s = std::clamp(s, 0.0, 1.0);
     if (std::abs(s - lmsStrength_) < 1e-6) return;
     lmsStrength_ = s;
-    QSettings().setValue(QStringLiteral("dsp/lmsStrength"), s);
+    keepShack(QStringLiteral("dsp/lmsStrength"), s);
     pushLmsState();   // re-push taps/gain even while enabled (live tune)
     emit lmsChanged();
 }
@@ -3659,7 +4218,7 @@ void WdspEngine::setSquelchEnabled(bool on)
 {
     if (squelchEnabled_ == on) return;
     squelchEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/squelchEnabled"), on);
+    keepShack(QStringLiteral("dsp/squelchEnabled"), on);
     pushSquelchState();
     emit squelchChanged();
     emitLog(QStringLiteral("[wdsp] squelch %1")
@@ -3671,7 +4230,7 @@ void WdspEngine::setSquelchThreshold(double t)
     t = std::clamp(t, 0.0, 1.0);
     if (std::abs(t - squelchThreshold_) < 1e-6) return;
     squelchThreshold_ = t;
-    QSettings().setValue(QStringLiteral("dsp/squelchThreshold"), t);
+    keepShack(QStringLiteral("dsp/squelchThreshold"), t);
     pushSquelchState();
     emit squelchChanged();
 }
@@ -3682,14 +4241,16 @@ void WdspEngine::pushNbState()
 {
     if (!opened_ || !wdsp_) return;
     const WdspApi &api = wdsp_->api();
-    double th = 12.0 - 9.5 * std::clamp(nbStrength_, 0.0, 1.0);
+    const double strength = nbStrength_.load(std::memory_order_relaxed);
+    double th = 12.0 - 9.5 * std::clamp(strength, 0.0, 1.0);
     th = std::clamp(th, 1.5, 50.0);
+    const int run = nbEnabled_.load(std::memory_order_relaxed) ? 1 : 0;
     auto apply = [&](int ch, bool created) {
         if (!created) return;
         if (api.SetEXTNOBThreshold)
             api.SetEXTNOBThreshold(ch, th);
         if (api.SetEXTNOBRun)
-            api.SetEXTNOBRun(ch, nbEnabled_ ? 1 : 0);
+            api.SetEXTNOBRun(ch, run);
     };
     apply(channel_, nbCreated_);
     apply(rx2Channel_, nbCreatedRx2_);
@@ -3697,23 +4258,32 @@ void WdspEngine::pushNbState()
 
 void WdspEngine::setNbEnabled(bool on)
 {
-    if (nbEnabled_ == on) return;
-    nbEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/nbEnabled"), on);
-    pushNbState();
+    {
+        std::lock_guard<std::mutex> lk(channelMtx_);
+        if (nbEnabled_.load(std::memory_order_relaxed) == on)
+            return;
+        nbEnabled_.store(on, std::memory_order_relaxed);
+        pushNbState();
+    }
+    keepShack(QStringLiteral("dsp/nbEnabled"), on);
     emit nbChanged();
     emitLog(QStringLiteral("[wdsp] NB %1 (strength %2%)")
                 .arg(on ? QStringLiteral("on") : QStringLiteral("off"))
-                .arg(static_cast<int>(nbStrength_ * 100.0 + 0.5)));
+                .arg(static_cast<int>(
+                    nbStrength_.load(std::memory_order_relaxed) * 100.0 + 0.5)));
 }
 
 void WdspEngine::setNbStrength(double s)
 {
     s = std::clamp(s, 0.0, 1.0);
-    if (std::abs(s - nbStrength_) < 1e-6) return;
-    nbStrength_ = s;
-    QSettings().setValue(QStringLiteral("dsp/nbStrength"), s);
-    pushNbState();   // re-tune threshold live
+    {
+        std::lock_guard<std::mutex> lk(channelMtx_);
+        if (std::abs(s - nbStrength_.load(std::memory_order_relaxed)) < 1e-6)
+            return;
+        nbStrength_.store(s, std::memory_order_relaxed);
+        pushNbState();
+    }
+    keepShack(QStringLiteral("dsp/nbStrength"), s);
     emit nbChanged();
 }
 
@@ -3742,7 +4312,7 @@ void WdspEngine::setApfEnabled(bool on)
 {
     if (apfEnabled_ == on) return;
     apfEnabled_ = on;
-    QSettings().setValue(QStringLiteral("dsp/apfEnabled"), on);
+    keepShack(QStringLiteral("dsp/apfEnabled"), on);
     pushApfState();
     emit apfChanged();
     emitLog(QStringLiteral("[wdsp] APF %1")
@@ -3754,7 +4324,7 @@ void WdspEngine::setApfGainDb(double db)
     db = std::clamp(db, 0.0, 24.0);
     if (std::abs(db - apfGainDb_) < 1e-6) return;
     apfGainDb_ = db;
-    QSettings().setValue(QStringLiteral("dsp/apfGainDb"), db);
+    keepShack(QStringLiteral("dsp/apfGainDb"), db);
     pushApfState();   // re-apply the biquad gain live
     emit apfChanged();
 }
@@ -3878,9 +4448,10 @@ void WdspEngine::setNoiseApply(bool on)
         }
         applyEnabled_.store(on, std::memory_order_relaxed);
     }
-    // Remember the operator's NR-C on/off across restarts (main.cpp restores
-    // it at launch after auto-loading the chosen profile).
-    QSettings().setValue(QStringLiteral("dsp/noiseApplyEnabled"), on);
+    QSettings s;
+    s.setValue(QStringLiteral("dsp/noiseApplyEnabled"), on);
+    if (on && !npActiveName_.isEmpty())
+        s.setValue(QStringLiteral("dsp/noiseLastProfile"), npActiveName_);
     emitLog(on ? QStringLiteral("Noise apply: ON")
                : QStringLiteral("Noise apply: OFF"));
     emit noiseApplyChanged();
@@ -4026,7 +4597,12 @@ bool WdspEngine::saveNoiseProfile(const QString &name)
     if (!slot) { profiles_.push_back(sp); slot = &profiles_.back(); }
     if (!writeProfileFile(*slot)) return false;
     npActiveName_ = nm;
+    QSettings s;
+    s.setValue(QStringLiteral("dsp/noiseLastProfile"), nm);
+    s.setValue(QStringLiteral("dsp/noiseApplyEnabled"), true);
+    noiseProfileValid_.store(false, std::memory_order_relaxed);
     emit noiseProfilesChanged();
+    emit noiseCaptureChanged();
     return true;
 }
 
@@ -4055,10 +4631,37 @@ bool WdspEngine::loadNoiseProfile(const QString &name)
         applyReducerParams();
         reducer_->setProfile(found->power);
         npActiveName_ = name;
+        noiseProfileValid_.store(false, std::memory_order_relaxed);
     }
+    QSettings().setValue(QStringLiteral("dsp/noiseLastProfile"), name);
     emit noiseSettingsChanged();
     emit noiseProfilesChanged();
+    emit noiseCaptureChanged();
     return true;
+}
+
+void WdspEngine::restoreLastNoiseProfile()
+{
+    QSettings s;
+    const QStringList names = noiseProfiles();
+    QString name =
+        s.value(QStringLiteral("dsp/noiseAutoLoadProfile")).toString().trimmed();
+    if (name.isEmpty() || !names.contains(name))
+        name = s.value(QStringLiteral("dsp/noiseLastProfile")).toString().trimmed();
+    if (name.isEmpty() || !names.contains(name)) {
+        emitLog(QStringLiteral("NR-C restore: no saved profile to load"));
+        return;
+    }
+    if (!loadNoiseProfile(name)) {
+        emitLog(QStringLiteral("NR-C restore: '%1' did not load").arg(name));
+        return;
+    }
+    const bool apply =
+        s.value(QStringLiteral("dsp/noiseApplyEnabled"), false).toBool();
+    setNoiseApply(apply);
+    emitLog(QStringLiteral("NR-C restore: loaded '%1' apply %2")
+                .arg(name, apply ? QStringLiteral("ON")
+                                 : QStringLiteral("OFF")));
 }
 
 void WdspEngine::deleteNoiseProfile(const QString &name)
@@ -4253,6 +4856,13 @@ void WdspEngine::setRadioAudioSink(
 {
     std::lock_guard<std::mutex> lk(radioSinkMtx_);
     radioSink_ = std::move(sink);
+}
+
+void WdspEngine::setDeskAudioTap(
+    std::function<void(const double *lr, int nframes)> tap)
+{
+    std::lock_guard<std::mutex> lk(deskAudioMtx_);
+    deskAudioTap_ = std::move(tap);
 }
 
 void WdspEngine::applyAudioRouteTransient(bool hl2,
@@ -4558,7 +5168,18 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
     // RX audio, taken BEFORE the RX-EQ block below repoints `audio` — so a
     // user's CW-mode EQ curve can't distort the decode.  Gated to CW mode +
     // operator enable; when off this is one relaxed bool read (zero impact).
-    if (cwDecodeOn_.load(std::memory_order_relaxed) &&
+    // A desk with no local radio still has this channel open. While host
+    // audio is arriving, that feed owns the decoders — this local block
+    // would otherwise be silence.
+    bool remoteCwLive = false;
+    if (const qint64 remoteCwMs =
+            remoteCwAudioMs_.load(std::memory_order_relaxed)) {
+        const qint64 nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        remoteCwLive = (nowMs - remoteCwMs) < 1000;
+    }
+    if (!remoteCwLive &&
+        cwDecodeOn_.load(std::memory_order_relaxed) &&
         cwModeActive_.load(std::memory_order_relaxed) && nframes > 0) {
         if (static_cast<int>(cwMonoBuf_.size()) != nframes)
             cwMonoBuf_.assign(static_cast<size_t>(nframes), 0.0f);
@@ -4749,6 +5370,20 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
                 }
             }
             lyra::wire::xvacOUT(kVac1Id, /*stream*/1, vac_[0].rxScaled_.data());
+            {
+                // [diag] ~1/s: device callbacks per second vs RX frames fed.
+                // At 48 kHz with a 2048-frame VAC block a steady device gives
+                // ~23.4 callbacks/s; fewer means the device drains slower
+                // than Lyra fills (TO VAC ring overflows).
+                static long long diagFrames = 0;
+                diagFrames += nframes;
+                if (diagFrames >= 48000) {
+                    qInfo("[vac1] RX feed %lld frames; device callbacks %ld "
+                          "in the same span",
+                          diagFrames, lyra::wire::ivacTakeCallbackCount(kVac1Id));
+                    diagFrames = 0;
+                }
+            }
             // #90 Route 2 — feed the TX monitor into VAC stream-2 (mixer
             // input 1) when monitoring; else silence so the 2-input mixer
             // never starves.  Unscaled: SetIVACmonVol applies the Monitor
@@ -4808,6 +5443,17 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
         }
     }
 
+    // Desk hears this block before volume, mute, balance, and the
+    // HL2 jack pad, so the shack speaker level stays local.  try_lock:
+    // a busy tap must not stall the speakers on this computer.
+    {
+        std::function<void(const double *, int)> tap;
+        if (deskAudioMtx_.try_lock()) {
+            tap = deskAudioTap_;
+            deskAudioMtx_.unlock();
+            if (tap && audio) tap(audio, nframes);
+        }
+    }
     // Two mute paths OR together: the operator's manual mute_
     // (Audio panel) AND the auto-mute-on-TX gate (live wire MOX
     // bit, gated by autoMuteOnTx_ pref).  Either silences audio
@@ -4916,6 +5562,17 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
     }
 }
 
+void WdspEngine::trimIqAccum(std::vector<double>& acc, size_t blockDoubles)
+{
+    if (blockDoubles == 0)
+        return;
+    const size_t maxDoubles = blockDoubles * kIqAccumMaxBlocks;
+    if (acc.size() <= maxDoubles)
+        return;
+    acc.erase(acc.begin(),
+              acc.begin() + static_cast<std::ptrdiff_t>(acc.size() - maxDoubles));
+}
+
 void WdspEngine::feedIq(const double *iq, int nframes)
 {
     // Drop IQ until the channel is live (e.g. samples arriving in the
@@ -4945,13 +5602,14 @@ void WdspEngine::feedIq(const double *iq, int nframes)
     // Drain whole in_size blocks through WDSP.  in_size frames =
     // 2*in_size interleaved doubles in, 2*outSize_ doubles out.
     const size_t blockDoubles = static_cast<size_t>(2 * cfg_.inSize);
+    trimIqAccum(accum_, blockDoubles);
     while (accum_.size() >= blockDoubles) {
         // Noise blanker (EXT): splice the impulse blanker on the raw IQ
         // block BEFORE WDSP's RXA chain — xnobEXT cleans accum_ front into
-        // nbBuf_, and the cleaned block then drives BOTH the demod and the
-        // analyzer so audio + panadapter match.  NB off → use accum_.
+        // nbBuf_.  That post-NB block feeds NR-C (audio), Spectrum0,
+        // capture, and zero-beat.  NB off → use accum_.
         double *blockPtr = accum_.data();
-        if (nbEnabled_ && nbCreated_ && api.xnobEXT &&
+        if (nbEnabled_.load(std::memory_order_relaxed) && nbCreated_ && api.xnobEXT &&
             nbBuf_.size() >= blockDoubles) {
             api.xnobEXT(channel_, accum_.data(), nbBuf_.data());
             blockPtr = nbBuf_.data();
@@ -4978,12 +5636,15 @@ void WdspEngine::feedIq(const double *iq, int nframes)
             }
         }
         // Slice 3 apply: when enabled + a valid profile is loaded, clean
-        // the post-NB IQ block (Wiener-from-profile) and run WDSP + the
-        // analyzer on the CLEANED block so audio and panadapter match.
-        // Same-count interface → just swap the pointer (one window of
-        // latency lives inside the reducer).  Off/no-profile → unchanged.
+        // the post-NB IQ block (Wiener-from-profile) for WDSP audio only.
+        // The panadapter stays on post-NB IQ: the STFT gain mask around a
+        // strong station otherwise paints a 70–90 kHz slope.  Same-count
+        // interface → swap the pointer (one window of latency lives
+        // inside the reducer).
+        // Off/no-profile → unchanged.
         double *dspPtr = blockPtr;
-        if (applyEnabled_.load(std::memory_order_relaxed) && reducer_ &&
+        if (applyEnabled_.load(std::memory_order_relaxed) &&
+            !lyra::ps::captured_profile_ps_bypass() && reducer_ &&
             reducer_->ready()) {
             if (static_cast<int>(cleanBuf_.size()) < 2 * cfg_.inSize) {
                 cleanBuf_.resize(static_cast<size_t>(2 * cfg_.inSize));
@@ -4993,8 +5654,8 @@ void WdspEngine::feedIq(const double *iq, int nframes)
         }
         api.fexchange0(channel_, dspPtr, outBuf_.data(), &fexErr_);
 
-        // Step 5: feed the SAME block WDSP saw (cleaned when applying) to
-        // the panadapter so the trace matches the audio.
+        // Step 5: panadapter sees post-NB IQ (blockPtr), not NR-C-cleaned
+        // IQ, so the trace stays brick-wall like the reference display.
         //
         // Task #44 Phase 2: skip the RX feed when TX owns the analyzer —
         // the TX worker is then feeding pre-iqc TX I/Q via
@@ -5005,11 +5666,11 @@ void WdspEngine::feedIq(const double *iq, int nframes)
         // moxActiveChanged edge from main.cpp.
         if (analyzerOpen_ && api.Spectrum0
                 && !txOwnsAnalyzer_.load(std::memory_order_acquire)) {
-            api.Spectrum0(1, kAnDisp, 0, 0, dspPtr);
+            api.Spectrum0(1, kAnDisp, 0, 0, blockPtr);
         }
 
-        // Zero-beat carrier tracker (RX-only tuning aid): the SAME block WDSP
-        // + the panadapter see.  Runs only when enabled AND in a lockable
+        // Zero-beat carrier tracker (RX-only tuning aid): same IQ the
+        // panadapter sees (post-NB, pre-NR-C).  Runs only when enabled AND in a lockable
         // carrier mode (CW/AM/SAM/FM).  All estimator mutation stays on this
         // RX-worker thread; only the result atomics cross to the UI.
         {
@@ -5027,7 +5688,7 @@ void WdspEngine::feedIq(const double *iq, int nframes)
                 // so the on-freq carrier sits at −markerOffset.
                 const double mk = zbMarkerHz_.load(std::memory_order_relaxed);
                 zeroBeat_.setSearchCenter(-mk);
-                zeroBeat_.process(dspPtr, cfg_.inSize);
+                zeroBeat_.process(blockPtr, cfg_.inSize);
                 zbRawHz_.store(zeroBeat_.offsetHz(), std::memory_order_relaxed);
                 zbValid_.store(zeroBeat_.valid(),    std::memory_order_relaxed);
             } else if (zbRunPrev_) {
@@ -5117,6 +5778,79 @@ void WdspEngine::feedIq(const double *iq, int nframes)
         accum_.erase(accum_.begin(),
                      accum_.begin() + static_cast<std::ptrdiff_t>(blockDoubles));
     }
+}
+
+DivExt::~DivExt() {
+    if (!open_ || !wdsp_ || !wdsp_->isLoaded())
+        return;
+    const WdspApi &api = wdsp_->api();
+    if (running_ && api.SetEXTDIVRun)
+        api.SetEXTDIVRun(0, 0);
+    if (api.destroy_divEXT)
+        api.destroy_divEXT(0);
+    open_ = false;
+    running_ = false;
+}
+
+bool DivExt::ensure(WdspNative *wdsp) {
+    if (open_)
+        return true;
+    if (!wdsp || !wdsp->isLoaded())
+        return false;
+    const WdspApi &api = wdsp->api();
+    if (!api.create_divEXT || !api.xdivEXT || !api.SetEXTDIVOutput ||
+        !api.SetEXTDIVRotate || !api.SetEXTDIVRun)
+        return false;
+    api.create_divEXT(0, 0, 2, 128);
+    wdsp_ = wdsp;
+    open_ = true;
+    running_ = false;
+    api.SetEXTDIVOutput(0, 2);
+    applyRotate();
+    return true;
+}
+
+void DivExt::setMix(double gainDb, double phaseDeg) {
+    if (gainDb == gainDb_ && phaseDeg == phaseDeg_)
+        return;
+    gainDb_ = gainDb;
+    phaseDeg_ = phaseDeg;
+    applyRotate();
+}
+
+void DivExt::applyRotate() {
+    const double amp = std::pow(10.0, gainDb_ / 20.0);
+    const double th = phaseDeg_ * 0.017453292519943295;
+    irot_[0] = 1.0;
+    qrot_[0] = 0.0;
+    irot_[1] = amp * std::cos(th);
+    qrot_[1] = amp * std::sin(th);
+    if (open_ && wdsp_ && wdsp_->isLoaded() && wdsp_->api().SetEXTDIVRotate)
+        wdsp_->api().SetEXTDIVRotate(0, 2, irot_, qrot_);
+}
+
+void DivExt::setRunning(bool on) {
+    if (!open_ || !wdsp_ || !wdsp_->isLoaded())
+        return;
+    if (on == running_)
+        return;
+    const WdspApi &api = wdsp_->api();
+    if (on) {
+        api.SetEXTDIVOutput(0, 2);
+        api.SetEXTDIVRotate(0, 2, irot_, qrot_);
+        api.SetEXTDIVRun(0, 1);
+    } else {
+        api.SetEXTDIVRun(0, 0);
+    }
+    running_ = on;
+}
+
+bool DivExt::process(int n, double *s0, double *s1, double *out) {
+    if (!running_ || !wdsp_ || !s0 || !s1 || !out || n <= 0)
+        return false;
+    double *in[2] = {s0, s1};
+    wdsp_->api().xdivEXT(0, n, in, out);
+    return true;
 }
 
 } // namespace lyra::dsp

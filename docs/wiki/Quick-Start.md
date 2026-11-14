@@ -6,9 +6,11 @@ listening — and talking — fast. This same guide is built into the app
 
 > **Currently supported:** Windows 10 (64-bit, v1809+) or Windows 11, a
 > DirectX 11 / OpenGL 3.3 GPU (built-in graphics are fine), and a **wired
-> Ethernet** link to a Hermes Lite 2 / 2+. Full detail on
-> [PC Requirements](PC-Requirements). *(Not on Windows? Linux and macOS are on
-> the [Roadmap](Roadmap).)*
+> Ethernet** link to a Hermes Lite 2 / 2+ (**Protocol 1**) or a **BrickSDR2 / Brick3SDR
+> on Protocol 2**. A Brick or ANAN still on Protocol 1 may **show in Discover**
+> and **will not Open** — flash P2. See [Supported Radios](Supported-Radios).
+> Full PC detail: [PC Requirements](PC-Requirements). *(Not on Windows? Linux
+> and macOS are on the [Roadmap](Roadmap).)*
 
 ## 1 · Wire it up 🔌
 
@@ -23,8 +25,8 @@ listening — and talking — fast. This same guide is built into the app
   finds.
 - **Double-click your radio** to open it. On a fixed IP or different subnet, use
   **Add by IP**.
-- *First launch only:* Lyra spends a few minutes tuning its DSP math to your
-  CPU — a one-time step. Let it finish; it opens by itself.
+- *First launch, and after a DSP-engine update:* Lyra spends a few minutes
+  tuning its DSP math to your CPU. Let it finish; it opens by itself.
 
 ## 3 · Start the radio ▶️
 
@@ -38,12 +40,11 @@ listening — and talking — fast. This same guide is built into the app
 - Turn the **Volume** up.
 - **Click on the panadapter or the waterfall** to tune to a signal, and set the
   **mode** — SSB (**USB** above 10 MHz, **LSB** below), or **AM** / **FM**.
-- On **Hermes Lite 2 / 2+** and **BrickSDR2**, **SUB** is a second receiver
-  (independent of **SPLIT** pile-up TX on VFO B). Shift+click or right-click
-  a band chip to hop SUB (**green** chip = RX2, **red** = RX1). If RX2 is
-  off the panadapter span, click **◀ RX2** or **RX2 ▶** at the edge. One
-  ADC — N2ADR follows RX1, so cross-band SUB is much weaker. Details in the
-  [User Guide](User-Guide) — **Second receiver (SUB / RX2)**.
+- **SUB** is a second receiver (independent of **SPLIT**). Shift+click or
+  right-click a band chip to hop SUB (**green** = RX2, **red** = RX1).
+  One-converter radios draw RX2 on the main pane; **Brick3SDR / ANAN-100D**
+  open a **second panadapter**. Details in the [User Guide](User-Guide) —
+  **Second receiver (SUB / RX2)**.
 
 ## 5 · Talk 🎙️
 
@@ -70,7 +71,7 @@ Everything lives in the in-app **Help** guide (open it from the **Help** menu,
 or the cyan **?** on any panel) and in the [User Guide](User-Guide):
 
 - 🎙️ [First Voice Setup](First-Voice-Setup) — your first phone contact, step by step
-- 📖 [User Guide](User-Guide) — the panadapter, tuning, filters, bands, audio, TX rack, CW, profiles…
+- 📖 [User Guide](User-Guide) — the panadapter, tuning, filters, bands (including **Xvtr**), audio, TX rack, CW, profiles…
 - ✅ [Feature Status](Feature-Status) — everything Lyra can do today
 
 Welcome aboard, and 73.

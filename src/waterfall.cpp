@@ -10,6 +10,7 @@
 #include <QTimer>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace lyra::ui {
@@ -41,6 +42,16 @@ void Waterfall::setEngineObj(QObject *o) {
     engine_ = e;
     img_ = QImage();   // re-sized on the next frame to the bin count
     emit engineChanged();
+}
+
+void Waterfall::setReceiver(int v) {
+    if (v != 1 && v != 2)
+        v = 1;
+    if (v == receiver_)
+        return;
+    receiver_ = v;
+    img_ = QImage();
+    emit receiverChanged();
 }
 
 void Waterfall::setDbMin(double v) {
@@ -133,14 +144,33 @@ void Waterfall::onFrame() {
     if (!engine_ || !isVisible()) {
         return;
     }
+    {
+        const qint64 now = rowClock_.elapsed();
+        const qint64 minMs = 1000 / std::max(1, targetFps_);
+        if (lastFrameMs_ >= 0 && (now - lastFrameMs_) < (minMs / 2))
+            return;
+        lastFrameMs_ = now;
+    }
     const int n = engine_->spectrumPixelCount();
     if (n < 2) {
         return;
     }
-    // (Re)allocate the history buffer to the analyzer's bin count.
-    if (img_.width() != n || img_.height() != kHistory) {
-        img_ = QImage(n, kHistory, QImage::Format_RGBX8888);
-        img_.fill(Qt::black);
+    // (Re)allocate the history buffer to the analyzer's bin count, and
+    // grow its depth to the pane's on-screen height.  Growing keeps the
+    // existing rows (copied to the top — newest are at row 0).
+    const int wantRows = std::max(history_, wantedHistory());
+    if (img_.width() != n || img_.height() != wantRows) {
+        QImage grown(n, wantRows, QImage::Format_RGBX8888);
+        grown.fill(Qt::black);
+        if (img_.width() == n && !img_.isNull()) {
+            const int keep = std::min(img_.height(), wantRows);
+            const size_t bytes = static_cast<size_t>(img_.bytesPerLine());
+            for (int r = 0; r < keep; ++r)
+                std::memcpy(grown.scanLine(r), img_.constScanLine(r), bytes);
+        }
+        img_ = grown;
+        history_ = wantRows;
+        dirty_ = true;
     }
     if (static_cast<int>(row_.size()) != n) {
         row_.assign(static_cast<size_t>(n), -200.0f);
@@ -153,7 +183,10 @@ void Waterfall::onFrame() {
     // 120 ms IIR cache).  Effective only during TX state — WdspEngine
     // falls through to pixout=0 in RX (current shared behaviour) per
     // §15.29 C2 deferral.
-    engine_->copyWaterfallSpectrum(row_.data(), n);
+    if (receiver_ == 2)
+        engine_->copySpectrumRx2(row_.data(), n);
+    else
+        engine_->copyWaterfallSpectrum(row_.data(), n);
 
     // Auto-fit the dB range from the live spectrum (throttled to ~5 Hz),
     // independent of scroll speed / fps.  Runs every frame (not just on a
@@ -191,15 +224,15 @@ void Waterfall::onFrame() {
     }
     // Cap: never more than the history depth, and clamp per-frame so a
     // stall (minimised window, etc.) can't dump a huge burst at once.
-    rowsToPush = std::min(rowsToPush, std::min(kHistory, 8));
+    rowsToPush = std::min(rowsToPush, std::min(history_, 8));
     lastRowMs_ += static_cast<qint64>(rowsToPush) * rowIntervalMs;
 
     // Scroll the whole history DOWN by rowsToPush rows.
     const int bpl = img_.bytesPerLine();
     uchar *base = img_.bits();
-    if (rowsToPush < kHistory) {
+    if (rowsToPush < history_) {
         std::memmove(base + static_cast<size_t>(bpl) * rowsToPush, base,
-                     static_cast<size_t>(bpl) * (kHistory - rowsToPush));
+                     static_cast<size_t>(bpl) * (history_ - rowsToPush));
     }
 
     // Paint the peak-held frame into row 0 via the palette LUT, using
@@ -236,6 +269,12 @@ void Waterfall::onFrame() {
     update();
 }
 
+int Waterfall::wantedHistory() const {
+    const qreal dpr = window() ? window()->effectiveDevicePixelRatio() : 1.0;
+    const int px = static_cast<int>(std::ceil(height() * dpr));
+    return std::clamp(px, kMinHistory, kMaxHistory);
+}
+
 QSGNode *Waterfall::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) {
     if (img_.isNull() || width() < 2 || height() < 2) {
         delete oldNode;
@@ -246,7 +285,7 @@ QSGNode *Waterfall::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) {
         node = window()->createImageNode();
         node->setOwnsTexture(true);
         node->setFiltering(QSGTexture::Linear);
-        // Mipmaps so the tall history image (kHistory rows) squashed into a
+        // Mipmaps so the tall history image (history_ rows) squashed into a
         // short pane — e.g. after dragging the splitter down — minifies
         // smoothly instead of aliasing into shifting horizontal lines.
         node->setMipmapFiltering(QSGTexture::Linear);
@@ -255,7 +294,7 @@ QSGNode *Waterfall::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) {
     // Re-upload the history texture ONLY when its content actually changed
     // (a new row was pushed).  A pure resize — dragging the splitter —
     // leaves dirty_ false, so we just restretch the existing texture via
-    // setRect instead of re-uploading the whole n×kHistory image on every
+    // setRect instead of re-uploading the whole n×history_ image on every
     // geometry event.  That's what made the drag jerk.
     if (dirty_ || !node->texture()) {
         QSGTexture *tex = window()->createTextureFromImage(

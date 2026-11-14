@@ -4,6 +4,709 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-14 — v0.25.41 Sulafat RELEASED (ASIO for VAC, test stage)
+
+Fast-forward `feature/asio-vac` (`e4b43cf` / `5174bfa` / `8073a8f`) onto
+`feature/wdsp-2.10`. Star name **Sulafat** (γ Lyrae). Full installer
+`Lyra-Setup-0.25.41.exe`, app name **Lyra-cpp** (shared settings with
+Sheliak). Docs: `docs/releases/v0.25.41.md`, USER_GUIDE, README,
+KNOWN_ISSUES, wiki Feature Status / Home / FAQ. Tag `v0.25.41`.
+`main` untouched. Mac stays `macos-port`. ASIO is public **test stage**.
+
+## 2026-11-14 — v0.25.40 Sheliak RELEASED (ANAN / Brick3 filters on Filters / BCD)
+
+Cherry-pick `4d575ca` of `45e01bc` (Settings → Filters / BCD read-only
+radio HPF/BPF + TX LPF + ANT lamps/grid; hidden HL2 / BrickSDR;
+Orion MkII Alex1 TX image in RX as deskHPSDR parity) onto
+`feature/wdsp-2.10`. Docs: `docs/releases/v0.25.40.md`, USER_GUIDE
+What's new + Filters / BCD, README, KNOWN_ISSUES, wiki Feature Status
+/ Home / FAQ. Tag `v0.25.40`. `main` untouched. Mac stays `macos-port`.
+
+## 2026-11-08 — v0.25.39 Sheliak RELEASED (HiDPI display, ANAN model, log on-screen)
+
+Cherry-pick `f909000` of `e516762` (panadapter ribbon + waterfall
+history 512→pane height, cap 1024) onto `feature/wdsp-2.10` already
+holding `4eac6aa` (ANAN blank model → filter profile) and `dffa47a`
+(Log window fit-to-screen). 4K @ 150%: use Windows Display scale, no
+`QT_SCALE_FACTOR`. DeepFist already in 0.25.38. Docs:
+`docs/releases/v0.25.39.md`, USER_GUIDE What's new + Display +
+Diagnostics, README, KNOWN_ISSUES, wiki Feature Status / Home / FAQ /
+PC Requirements. Tag `v0.25.39`. `main` untouched. Mac stays
+`macos-port`.
+
+## 2026-11-07 — v0.25.38 Sheliak RELEASED (DeepFist pitch lock + earlier commit)
+
+Cherry-pick `e7c465a` of `edd19a1` (11 DeepFist files: DeepFistCommit,
+conditioner/model/neural decoder, wdsp_engine pitch plumbing, bench)
+onto `feature/wdsp-2.10`. DeepFist searches ±80 Hz of the operator CW
+pitch; characters commit on two agreeing decodes, capped at the old
+1.3 s delay. Classic fldigi decoder untouched. Original decoder:
+Brent Crier (N9BC). Docs: `docs/releases/v0.25.38.md`, USER_GUIDE
+What's new + Reading CW, README, KNOWN_ISSUES, wiki Feature Status /
+Home. Tag `v0.25.38`. `main` untouched. Mac stays `macos-port`.
+
+## 2026-11-05 — v0.25.37 Sheliak RELEASED (7000DLE / 8000DLE TX, Xvtr IO, Stop)
+
+HEAD after `d7433bb` (7000/8000 TX notes), `ae127da` (Xvtr BYTE0-4
+on-air RF latch; K7MDL 0.25.36), `3aff798` (Metis STOP before socket
+close). Same tag includes `e17f42a` Orion MkII `txOnAirValidated` and
+`1a2d9c5` CMASIO / WING FAQ. G2 / G2-1K still dummy-load arm. Red
+Pitaya still no P2 TX profile. P1 ANAN still refused. Docs:
+`docs/releases/v0.25.37.md`, USER_GUIDE What's new, README,
+KNOWN_ISSUES, wiki Feature Status / Home. Tag `v0.25.37`. `main`
+untouched. Mac stays `macos-port`.
+
+## 2026-11-04 — v0.25.36 Sheliak RELEASED (8 Xvtr slots, SWL J16 rows, digital-mode ALC)
+
+Five commits over v0.25.35. `546813d` Xvtr slots 4 → 8 (K7MDL's
+five-band stack): `lyra::xvtr::kSlotCount = 8` in `xvtr_math.h` is the
+single source, `XvtrSlots::kCount` / `OcControl::kXvtrSlots` alias it;
+slots 5–8 default disabled / numbered; BandPanel Repeater model
+`Xvtr.slotCount`, one row of 8 on HL2, wraps 2×4 beside the Alex ANT /
+RX chips so dock min width is unchanged; `xvtr/4..7/*` additive.
+`ecb041c` SWL broadcast rows on J16: `OcControl::rowForHz(hz, xvtrSlot)`
+Xvtr → ham → BC → none (ham wins 75 m / 41 m / 13 m overlaps); rows
+0–10 ham, 11–22 BC; pin-table group 2 for BC; folded "SWL broadcast
+rows" section in the Filters / BCD grid (`hw/ocSwlRowsOpen`); keys
+`swlRxA|TxA|RxB|TxB/N`; Live J16 reads "<band> BC (SWL row)" / "none
+(GEN / CB / out of table)"; CB + GEN deliberately no row. `ec07dab`
+second pass after design review: SWL seed only from
+`setOcAccessory(N2adr)` (combo + Reload button), never from
+`reloadOcFromDisk` / first run / rig switch; TX seed = 0 for every band
+(RX-only filters); 41 m → 40 m row (3+7), 13 m → 15 m row (5+7), 120 m
+pin 2 only; `[oc] SWL rows seeded from N2ADR (12 rows, TX off)`; bounds
+via `nRows()`; test_oc_control 22 groups + `oc_swl_seed_paths_static`
+ctest. `f9042df` TX: `applyDigitalTxLevels()` — in DIGU / DIGL ALC max
+gain capped at 1.0 (limiter only) and Leveler held off regardless of the
+toggle, voice modes keep operator values, nothing saved changes; found
+testing RADE through STD over TCI (3.0 ALC gain + 10 ms decay reshaped
+variable-envelope waveforms; FT8 got through); first RADE contact on
+the air 2026-11-04. `2b04d57` TCI TX-in gain spinner retired (no-op
+since c4a6324; `tci/tx_gain_db` orphaned, profile field dropped,
+RX-out gain stays). Docs: `docs/releases/v0.25.36.md`, USER_GUIDE
+(What's new, stale "queued" lines → shipped, four → eight Xvtr, OC
+Control SWL bullet, Leveler / ALC / VAC / TCI digital advice →
+automatic), README, KNOWN_ISSUES, wiki Feature Status / Home / Roadmap /
+Installing / FAQ. Open: CL1 / CL2 external 10 MHz reference scoping
+(`HL2_EXT_REF_CL1_CL2_SCOPE.md`, untracked). Tag `v0.25.36`. `main`
+untouched. Mac stays `macos-port`.
+
+## 2026-11-02 — v0.25.35 Sheliak RELEASED (GEN RF1/Alt memory, RPT band-change drop)
+
+Two tester fixes over v0.25.34, no wire / DSP changes. `5442443` GEN
+slots remember RF1/Alt + LNA + Auto-LNA per slot (GitHub #24, K7MDL):
+GEN freqs fall outside BandMemory's ham/BC/CB tables so nothing was
+saved or applied; GenSlots now does it XvtrSlots-style
+(`gen/<n>/rxPort|lnaDb|autoLna`), applied after the freq + mode writes
+behind an `applying_` guard; unset LNA/Auto leave live state alone,
+unset rxPort = RF1, resetSlot clears all three; TX drive untouched.
+`b2820cd` RPT offset drops on band change (DL1VE): 2 m RPT → 15 m left
+VFO B at RX1 − 600 kHz, SPLIT lit, 20.492 MHz on the IO-board TX regs,
+persisted. New `rptActive` (`tx/rptActive`) set by the RPT button /
+repeater memory, cleared by any split-off and 1→2 / 2→1 / ⇄;
+`setRx1FreqHz` drops split + A→B when `bandIdFor()` (Xvtr slot or
+BandMemory band) changes, safetyLog `TX: RPT off — RX1 left <band>…`,
+status bus `RPT off — left <band>`; keyed RPT gets the simplex
+band-jump refusal; TuningPanel duplex tracker gated on rptActive +
+same band. Operator SPLIT persists across bands as before (Thetis /
+deskHPSDR). Old persisted RPT split loads as operator split — click
+SPLIT off once. One-shot `[iob] TX regs follow VFO B (SPLIT on)` in
+pollIoboardSession; forced-present line shows TX Hz / REG 11. Docs:
+release notes, USER_GUIDE (What's new, new GEN heading, RPT paragraph,
+`[iob]` troubleshooting), wiki Feature Status / FAQ / Installing /
+Home / Roadmap, README, KNOWN_ISSUES. Still queued: Xvtr slots 4 → 8
+and SWL-band OC rows (per-slot Xvtr OC rows shipped 0.25.29; release
+text that said otherwise corrected the same day, incl. the GitHub body).
+Tag `v0.25.35`. `main` untouched. Mac stays `macos-port`.
+
+## 2026-10-31 — v0.25.34 Sheliak RELEASED (HL2 IO board sequencer)
+
+HL2 IO board (N2ADR HL2IOBoard Pico, I2C 0x1D) rework, Protocol 1
+only. `f6eb10f` standalone slot sequencer module + frame harness,
+`bf04ef4` hl2_stream switched to the periodic sequencer (write-on-change
+I2C path removed from FrameComposer), `b0289d1` Settings → Filters /
+BCD → IO board group (Transverter bands send, Send RX fcodes, Force
+present, Status line), C3b verbose `[iob]` gate armed at open + 0x41
+warning wording. deskHPSDR model: 11 slots × 12 EP2 datagrams
+(~31.5 ms / slot, ~346 ms / cycle); slot 0 latch, 1 probe 0x41, 2–6
+regs 0–4, 7 REG 11, 8–9 regs 13/14; second-USB-frame placement with a
+one-datagram slip next to gateware case 0 / 10 frames; restart on a
+changed snapshot. Detection: PCA9536 at 0x41, 10 probes at ~1.7 s then
+~30 s. REG 11 only 0 / 2; never 0 Hz. `LYRA_NO_IOBOARD_FCODE` retired.
+Bench on N8SDR HL2+ (no IO board): zero 0x1D traffic absent, forced
+capture correct, restart / power-cycle / live force / fast hops clean,
+Brick3 P2 + PS TX no IO-board activity. Pico-side confirmation from
+testers (K7MDL / W7CPA / DL1VE). Still queued: Xvtr slots 4 → 8 and
+SWL-band OC rows (per-slot Xvtr OC rows shipped 0.25.29).
+Tag `v0.25.34`. `main` untouched. Mac stays `macos-port`.
+
+## 2026-10-30 — v0.25.33 Sheliak RELEASED (stability upgrade)
+
+Ships the P2 unity-IQ fix below plus `2ae5848` CTUN pan lock on P2,
+`54afb17` J4 analog-first and STD on Apps (both carried from the
+v0.25.32 tag), `12cd393` PS at 48 kHz. Framed operator-facing as a
+stability upgrade recommended for all Protocol 2 radios; drive warning
+(+8 dB at 40 %, +10 dB at 30 %, TUN included; walk Drive up; re-run TUN
+per band) is mandatory in the release body. Star name stays Sheliak
+(series name since 0.25.0). `v0.25.32` tag (`9be343a`) left in place,
+unpublished — that build carried the host-DUC PS replica regression.
+UNRELEASED-ps-p2-unity-iq.md folded into `docs/releases/v0.25.33.md`.
+Tag `v0.25.33`. Do not merge `main`. Mac stays `macos-port`.
+
+## 2026-10-30 — P2 PureSignal root cause: TX IQ scaled with Drive
+
+Four audits agree (docs/PS_P2_REGRESSION_REPORT.md): ac3ad57 (v0.25.16)
+made `SetTXFixedGain(0, rv, rv)` unconditional, so P2 applied Drive
+twice (IQ × HP [345]); the TX-DAC replica followed the IQ and never
+reached SetPk below full drive → st 4, FB 0, cal 0, auto-att pad → 0
+(Greg / Brick2). Three code commits on `feature/wdsp-2.10`:
+`e95b135` P2 IQ at unity (tx/TxDriveSplit.h + test_tx_drive_split, P1
+unchanged, one-shot per-rig cap-ceiling reset `p2/psUnityIqCapResetV1`);
+`a278e9b` revert 94e5056 host DUC tap + `+3` DDC byte; `12cd393`
+iqSampleScale() 1.0 while PS live. No version bump, no tag, no DEV
+rebuild — Rick reads the diff first. Operator warning: same Drive
+position = more RF on P2 (~+8 dB at 40 %). Pre-existing test rot
+noted: test_p2_tx_packets.cpp no longer matches the P2TxWriter API;
+test_p2_g2_profile has a stale "7000DLE profile-locked" assertion.
+
+## 2026-10-29 — v0.25.32 Sheliak tagged (NEVER RELEASED — PS replica regression; superseded by v0.25.33)
+
+J4 analog-first (BYTE0 before fcodes; skip analog want >54 MHz).
+PureSignal P2 replica tightening: radio TX-DAC when odd samples have
+energy, host DUC tap if empty — not Desk-identical PS on Brick2 until
+D1 moves on B2/Greg. Settings → Apps recommended: STD (not Hardware
+Startup). Tag `v0.25.32`. Do not merge `main`. Mac stays `macos-port`.
+
+## 2026-10-28 — v0.25.31 Sheliak RELEASED
+
+Minor PureSignal changes for Protocol 2: auto-att hunts from live FB;
+PS ON turns ATT-on-TX on and restores it when PS is off. Tag
+`v0.25.31`. Do not merge `main`.
+
+## 2026-10-27 — v0.25.30 Sheliak RELEASED
+
+Station notes: Xiegu/XPA125 band = Pico J4 volts; J3 Band Volts stays
+off. Help: how to set and delete `LYRA_NO_IOBOARD_FCODE=1`. CW keyer
+docs: KEY jack + COM CWX, no extra Winkeyer USB driver. Tag
+`v0.25.30`. Do not merge `main`.
+
+## 2026-10-26 — v0.25.29 Sheliak RELEASED
+
+OC Control: P2 HP `[1401]`, per-rig Off/N2ADR/Custom (Brick/ANAN
+default Off; HL2 N2ADR), named Xvtr rows empty by default. No auto
+Yaesu BCD on the radio DB9 (Thetis/DeskHPSDR tick-the-pins). USB-BCD
+FTDI unchanged (HL2 / B2 / B3 + VK amp). Parked Help balloon, P1 6 m
+hide, PS/Amp View float size. Tag `v0.25.29`. Do not merge `main`.
+
+## 2026-10-25 — v0.25.28 Sheliak RELEASED
+
+Pico RX fcodes 13/14 (GitHub #23, deskHPSDR-shaped). PureSignal dock ON
+like Thetis. Analog BYTE0–4 and REG 11 0/2 unchanged. Kill switch
+`LYRA_NO_IOBOARD_FCODE=1`. Return installer v0.25.27. Tag `v0.25.28`.
+Do not merge `main`.
+
+## 2026-10-24 — v0.25.27 Sheliak RELEASED
+
+VFO LED digit vs Step (#22), Helios TX SWR, View → Freq Cal float (#21).
+Installer `dist/Lyra-Setup-0.25.27.exe`. Tag `v0.25.27`. Do not merge
+`main`.
+
+## 2026-10-24 — LED Step + Helios SWR
+
+Digit wheel on the VFO LED. Empty LED uses that VFO's Step; Snap only
+there (panadapter Panafall / Exact·100 Hz untouched). Helios TX SWR
+after watts, before planet name. Docs + wiki.
+
+## 2026-10-22 — v0.25.26 Sheliak RELEASED
+
+Layouts (GitHub #20) + Snap VFO wheel to Step + laptop Tuning logo.
+Installer `dist/Lyra-Setup-0.25.26.exe`. Tag `v0.25.26`. Do not merge
+`main`.
+
+## 2026-10-22 — Recall test1 left Profiles/Display open
+
+Qt restoreState does not hide docks that are already visible. Save
+now records dockVis; recall hides main docks then applies that map.
+Photograph the slot before the name dialog. SPLIT is radio state,
+not a layout slot.
+
+## 2026-10-22 — Named slot recall exploded on a live window
+
+Factory stick worked on the laptop. Save test1 / close / reopen looked
+fine (session restore before show). Recall test1 then crushed docks:
+recall applied saveGeometry() on a visible QMainWindow. Live recall
+now restores dock state only.
+
+## 2026-10-22 — Layout #20: factory survives restart
+
+Recent, not ancient: v0.25.17 SUB panadapter2 + skip-save while SUB
+on; v0.25.20 Diversity + FloatingDockMemory (forces float on show);
+Filters RX/TX lo and meter faces changed min sizes. Qt restoreState
+of an older blob + those extra docks comes up crushed. Recalling
+factory looked fine, then layout-undo treated the QML load / float
+memory as a drag and photographed the crush on close.
+
+Recalling factory no longer writes Qt saveState() as the session.
+Rebuild factory until a dock is moved. Restore/factory is quiet
+until docksReady so undo + float-memory cannot clear that flag.
+Hidden cache: AppData + HKCU N8SDR\Lyra-cpp.
+
+## 2026-10-22 — Sticky VFO Snap (Volker); quiet [hb] gui
+
+Sticky VFO is **Settings → Hardware → Navigation** (default off).
+Wheel on LED / panadapter / HID snaps to the Step grid when ticked.
+Digit-place wheel stays additive. GUI heartbeat no longer WARNs
+every second — stall line only.
+
+## 2026-10-21 — Hold after v0.25.25
+
+Operator: 0.25.25 is out. Hold for a while. Only small fixes
+or cosmetics unless something is actually broken. No new
+feature sprints. Do not merge `main`. macOS stays `macos-port`.
+
+## 2026-10-21 — Volker DL1VE: RF1/Alt + LNA on v0.25.24
+
+Mail: antenna switching works; LNA Auto and manual between HF and
+2 m. More tests coming. Lyra-to-Lyra still on his list. GPA100
+analog not in this test.
+
+## 2026-10-20 — v0.25.24 Sheliak RELEASED
+
+Tester cut for Volker (HL2 RF1 / Alt RX, I2C 0x1D register 11;
+GPA100 analog BYTE0–4 untouched) and Brick keyed-with-no-RF
+(P2 DUC-IQ on a native pump, not the session thread). Wiki +
+User Guide station table current. Do not merge `main`. macOS
+stays `macos-port`.
+
+## 2026-10-20 — v0.25.23 Sheliak (Lyra-to-Lyra beta) RELEASED
+
+Full GitHub release so the in-app notice fires. Second Lyra on the
+laptop; shack stays on the radio. Tailscale personal, same account.
+v0.25.22 remains the return point. Do not merge `main`.
+
+## 2026-10-16 — v0.25.22 Sheliak RELEASED
+
+Helios, Sonar (replaces Radar), Cluster meters. Frequency change
+ignored while transmitting; stay keyed. Xvtr LNA/ATT recall.
+Listen-password checkbox disabled. macOS stays `macos-port`.
+Do not merge `main`.
+
+## 2026-10-15 — v0.25.21 Sheliak RELEASED
+
+Lyra Remote is a separate browser desk. Settings → Remote holds
+the password and the voice session. Brick3 holds the first key
+until PA enable is already in receive. The TCI meter line carries
+ALC headroom. Wiki and the in-app guide link the remote package
+and its wiki. Do not merge `main`.
+
+## 2026-10-14 — v0.25.20 Sheliak RELEASED
+
+Diversity, three-frequency band stack, separate RX and TX filter
+lows, and the filter-board write that follows a return to a band
+already on the dial (Issue #17). Randy gets the bench note by
+email. Do not merge `main`.
+
+## 2026-10-14 — Diversity mix confirmed; fine steps
+
+Operator: the mix works on Brick3 into a dummy load. The
+messy null is the AM broadcast on the open RX2 jack, not
+the combiner. Steppers and the polar step 0.05 dB and 0.1°.
+The stream setters use a 1e-4 deadband so a 0.05 dB step
+is not swallowed.
+
+## 2026-10-14 — Diversity polar (same gain / phase)
+
+The Diversity dock keeps the switch and the two steppers, and
+adds a polar plane of those same numbers. Distance is gain
+(−27 at the centre, 0 dB on the bright ring, +27 at the rim).
+Angle is phase, 0° to the right. Double-click returns to
+0 dB / 0°. Drag is ignored while transmitting. No new state.
+
+## 2026-10-14 — Diversity D4 (chip + dock)
+
+DIV chip on the Options strip, right after Amp View. It only
+opens the Diversity dock. The dock has the lit switch, gain
+(−27..+27 dB) and phase (−180..180°). Opening the dock does
+not arm. Chip is hidden on HL2 and Brick2. Switch stays dark
+while transmitting; the saved arm comes back on unkey. DIV on
+turns SUB off and does not turn it back on. Defaults 0 dB / 0°.
+`lyra` built; `test_div_overlay` still passed. Dummy-load
+listen is still the operator's bench.
+
+## 2026-10-14 — Diversity D2+D3 (overlay + DDC0 consumer)
+
+Armed stays off. Brick3 / 100D RX overlay is enable `0x01`,
+sync `0x02`, DDC0=ADC0 and DDC1=ADC1 at the RX1 rate, both HP
+phase words = RX1, ADC1 attenuation follows ADC0. Never `0x03`
+or `0x0F`. PS live and TX drop it and keep the arm. RX1 follows
+DDC0 and the bridge de-interleaves into `divEXT` (identity
+0 dB / 0°). Port 1035 is punched while the overlay is live.
+SUB and DIV cannot both be wanted. One-ADC arm changes nothing.
+`scratch/test_div_overlay.cpp` passed. No DIV button, no polar,
+no dummy-load listen (nothing in the UI arms it).
+
+## 2026-10-14 — Diversity D0 + D1 (no wire, no UI)
+
+WDSP re-check before any bind: TAPR README still stops at 2.10
+(`6c8aad86` / `b02d5bac`). Bundled `_native/wdsp.dll`
+`GetWDSPVersion` = **210**. No engine bump.
+
+D0: capability comment retargeted at
+`diversity_include_plan.md`. Flag still unread. HL2 / Brick2
+stay false. Checklist locked: Brick3 dummy first, extra-DDC
+`0x0F` off, DIV exclusive with SUB, second RF = RX2 jack
+(Ext1), PS/TX drops the overlay.
+
+D1: `divEXT` bound in `wdsp_native` (nine exports). Synthetic
+IQ test `scratch/test_divext.cpp` vs the `div.c` mix
+(0 dB/0°, 180° null, +6 dB, run=0 copy, zero-rotate silence).
+No DIV button, no polar, no packet change.
+
+---
+
+## 2026-10-13 — GitHub #17 analog stuck on 20 m (0.25.18 regression)
+
+Randy W7CPA: 0.25.10/16 intermittent; **0.25.18 total fail** —
+10 min of band clicks, **zero** J4 voltage change, leftover **20 m**.
+
+Cause (file:line, not guess): `FrameComposer.cpp` I2C overlay set
+`delay=0` on analog BYTE4..BYTE1. Two 0x1D writes in one UDP
+datagram. Pico `n2adr_basic` never latched BYTE0. Host also
+coalesced on **enqueue** (`lastIoboardTxHz_`) so a failed latch
+looked done. I2C2 / 0x1D packing / `ctrl_read=0` were already
+Thetis-correct. LPF 0x20 is **not** on this 32-slot ring.
+
+Fix: restore Thetis/Quisk **delay=5** after every analog steal;
+coalesce on `hl2_ioboard_tx_freq_on_wire()` (BYTE0 overlaid);
+keep drop-pending (that part was right).
+
+**Released v0.25.19 Sheliak** — installer + tag + wiki. Also ships
+IQ backlog cap, PC-ring underrun fade, NB/AF atomics. Do not merge
+`main`. Diversity still parked (plan in
+`docs/architecture/diversity_include_plan.md`). Bench: J4 pin 8
+160→80→20→15, J3 Band Volts off.
+
+---
+
+## 2026-10-13 — DIV UI sequence + WDSP 2.10 check (saved)
+
+Operator: polar **yes**, with **Lyra flare** — **after** a working mix.
+Do not start polar first. Check whether WDSP newer than 2.10 exists;
+adopt it if true.
+
+**UI lock** (in `diversity_include_plan.md` §7 + D8 + checklist):
+v1 / D4 = DIV button + dB + phase. D8 = polar on the same two
+numbers, Lyra glass/stepper look, not a Thetis DiversityForm clone.
+D8 gated on D2+D3+D5 dummy-load peak/null + PS/TX interlock.
+
+**WDSP check (2026-10-13):** TAPR `OpenHPSDR-wdsp` README latest
+note is **2.10 (2026-09-04)**. Master tip is README-only
+`6c8aad86` (2026-09-09) on top of “Release Version 2.10”. No 2.11
+or 2.20. DL1BZ mirror + DeskHPSDR #207 + Apache Core all still
+cite 2.10. **Lyra already ships 2.10** (`GetWDSPVersion` 210,
+v0.25.8). `divEXT` is unchanged. **No bump before DIV.** Re-check
+TAPR the day D1 starts. Do not confuse Thetis **app** 2.10.3.13
+with the WDSP **library** version.
+
+Still no `src/` DIV code. Remaining ticks: first HW Brick3 then
+100D dummy; extra-DDC D6-only.
+
+---
+
+## 2026-10-13 — Diversity include plan (research only)
+
+Operator: park audit E/F; deep-seek Thetis + DeskHPSDR diversity;
+plan for Lyra. Two agents + Lyra gap map + four senior red-teams.
+**No feature code.**
+
+Plan: `docs/architecture/diversity_include_plan.md` (amended after
+consensus + Thetis confirm). Locked: interleaved DDC0 / port 1035
+ingest (not two ports); mask `0x01`/`0x0F` never `0x03`;
+overlay+consumer one commit; PS > TX-drop > DIV RX; hide DIV
+until D4; TX-drop is a deliberate Thetis divergence. CAT later =
+ZZDB–ZZDH. ATT link RX-only. E/F stay parked.
+
+Confirm fold: DeskHPSDR Q-line
+`q0+(div_sin·i1+div_cos·q1)` (`receiver.c:1643`); create_div
+zeros → Output+Rotate before Run; no Thetis phase-table import;
+PS restore gives 1035 to PS / RX1 back to DDC2; copy RX1
+dither+IQ-gain+rate; no RX2 auto-enable; Option A is Lyra-only
+(Thetis keeps DDC3 RX2).
+
+---
+
+## 2026-10-11 — START HERE: PS noise stimulus (in, pending dummy-load bench)
+
+Operator (2026-10-10 night): DeskHPSDR's Noise button looks like a
+better PureSignal stimulus than TUNE or two-tone. Do something
+similar. Optional later: tilt it toward an average adult male voice.
+Dummy load only. Do not merge `main`.
+
+What it is (DeskHPSDR `e88b7d2`, DL1BZ, 2026-07-26, `ps_menu.c` +
+`transmitter.c` `tx_set_noise`):
+
+- A third TX test source beside Two Tone. Mutually exclusive.
+  Turning Noise on stops Two Tone, and the reverse.
+- WDSP **pre-gen** mode 2 (Gaussian), not post-gen. Calls:
+  `SetTXAPreGenNoiseMag`, `SetTXAPreGenMode(id, 2)`,
+  `SetTXAPreGenRun`. Injected **before** the TX chain, so the
+  normal TX bandpass limits it to the selected passband.
+- Level spin **−12..+3 dB**, default 0. Magnitude
+  `pow(10, 0.05 * dB)`. 0 dB is full-scale noise: average PA
+  power is high. Tooltip says keep the test short.
+- Does **not** start the two-tone auto-attenuate timer. If PS is
+  already on, keying with Noise is enough for calcc (any solid MOX).
+
+Why it is the better stimulus:
+
+- TUNE is one amplitude. Two-tone is only 700 Hz and 1900 Hz.
+- Noise fills the whole TX passband with a changing envelope.
+- An average male voice already sits in a normal SSB filter
+  (pitch ~85–155 Hz, most power ~300 Hz–1 kHz, consonants
+  ~1–3 kHz). Flat noise through the existing SSB filter is the
+  first cut. A male long-term tilt (more low, falling above
+  ~500 Hz) is a second control only if flat noise calibrates
+  cleanly. No formant synthesizer.
+
+Shipped this morning (not committed): White button on the PS panel
+only (not the TX dock — “Noise” collides with NR). Mutually exclusive
+with TUNE and two-tone.
+Level spin −12..0 dB on the PS panel, default −6, persisted
+`tx/psNoiseLevelDb`. Pre-gen mode 2 via `SetTXAPreGenNoiseMag` /
+`Mode` / `Run`. MOX-off, stream start, and force-release clear it
+the same way as two-tone. Male-voice tilt is still the second
+step, not in this cut.
+
+TUNE mag stays 0.99999, two-tone stays 0.49999/0.49999.
+Two-tone average watts read about half of TUNE at the same drive
+(2026-10-10 bench: 40 m, PS off, Drive 100, TUNE ~18–20 W,
+two-tone ~8–11 W). That is the magnitude pair, not a drive lock
+and not PROT. Bare-rig FB ~126 sits just under the 129 window
+at pad 0 / Drive 100. First bench: dummy load, short key-downs,
+compare FB and watts against two-tone at the same drive. 0 dB is
+full-scale average power.
+
+Also locked tonight, do not redo: Thetis calibrates on any solid
+MOX, including TUNE; two-tone is not a gate. Jose's VAC echo was
+VAC1 output pointed at the speaker plus a live mic; no TX voice
+was VAC1 input left at (none).
+
+### Dual-ADC class order (Brick3 / 100D-class) — recorded 2026-10-11
+
+This numbered order was not in the log until now. Diversity stays
+parked on its own pass. No Internal/EXT1 picker.
+
+1. **Per-band PS pad — DONE** in v0.25.16 (`ps/txAtt/<band>`, 0–31).
+   That was the live-PS hole. Do not rebuild it.
+2. **Dual-ADC wire (Step 1)** — not started. Assign the second ADC
+   on the P2 wire so RX2 is not a second DDC on the same ADC.
+3. **Second pan (Step 2)** — not started. Independent panadapter
+   pane, only on radios that can actually run two ADCs.
+4. **Always-visible RX2 knobs (Step 3)** — not started. After the
+   second pane exists.
+
+Do not start 2 until the noise-stimulus dummy-load bench is done,
+unless the operator says otherwise.
+
+## 2026-10-10 — v0.25.16 Sheliak RELEASED (Brick3 Beta Testing)
+
+- Full GitHub release (not prerelease) so the in-app updater and
+  `/releases/latest` see it. Tag `v0.25.16`. Title mentions Brick3
+  Beta Testing. Do not merge `main`.
+- Since v0.25.15: Brick3SDR P2 RX+TX (discover 02:B3), MAP chips,
+  Auto Step 0–31, per-band PS pad, PS Reset wipe, catalog ANT/RX
+  jacks. Sampler on Brick3 rear **PS**. No Internal/EXT1 picker.
+- Dummy-load first. Dual-ADC panes and diversity still parked.
+
+## 2026-10-09 — Brick3 PureSignal saved locally (FB still unchanged)
+
+- Catalog **Brick3SDR** (`BRICK3-SDR`) is back: Angelia/100D class
+  (2 ADC, Alex), discover `02:B3`. Dummy-load + Arm P2 TX only.
+- P2 PS aligned to DeskHPSDR Brick3/Angelia: Internal analog default,
+  no HP `[4]` `0x80`, HP vs DUC ATT split, ALEX_PS_BIT, DDC0-only PS
+  overlay, Angelia receive_specific DDC2/DDC3 slots programmed, analog
+  forced Internal while live PS (not RX1 Ext1). RX stays on DDC0.
+- **Bench (dummy load, 2026-10-09 night):** FB still ~22, Amp View
+  still linear — same as before these wire changes. Coupler FB did
+  **not** rise. Stop here overnight; do not invent ADC maps or switch
+  to Thetis two-stream. Not in v0.25.15. Do not merge `main`.
+
+## 2026-10-09 — v0.25.15 Sheliak RELEASED
+
+- Same version **0.25.15** — one installer (not 0.25.16). DUC + startup
+  profiles + keyboard VFO + Tuning Mem. Help: How to create a profile,
+  MUTE vs VAC/MON echo, Combinator vs CFC, Tuner SWR vs Meter.
+- Brick3 Stage 0 and TCI stereo RX2 stay **uncommitted** (not this cut).
+- Tag `v0.25.15`, GitHub release, wiki. Do not merge `main`.
+
+## 2026-10-08 — v0.25.15 Sheliak (patch)
+
+- Version bump **0.25.14 → 0.25.15**. Star name stays **Sheliak**.
+- Protocol 2 TX DUC was one VFO step behind after the first retune
+  (Greg VK3KV BrickSDR2; same on-air 40 m chase here). RX1 NCO now
+  writes before the dial-changed notify; SPLIT / VFO B / XIT same
+  order; mode/CW-pitch re-pushes DUC. Local installer only until
+  Greg confirms — no GitHub tag yet.
+- USER_GUIDE / wiki / `docs/releases/v0.25.15.md`. Do not merge `main`.
+
+## 2026-10-06 — v0.25.14 Sheliak (patch)
+
+- Version bump **0.25.13 → 0.25.14**. Star name stays **Sheliak**.
+- TCI TUNE keys the host TUN path; TRX keys MOX (`requestMoxFromTci`).
+  CHRONO TX-audio headers use negotiated rate / samples / format /
+  channels. Socket flicker does not unkey. Bench: MSHV, WSJT-X, JTDX,
+  SDRLogger+.
+- Parked later idea: TX rack setup without RF (looped speech + BW).
+- USER_GUIDE / wiki / `docs/releases/v0.25.14.md`. Tag `v0.25.14`.
+  Do not merge `main`.
+
+## 2026-10-05 — v0.25.13 Sheliak (patch)
+
+- Version bump **0.25.12 → 0.25.13**. Star name stays **Sheliak**.
+- TCI STOP no longer unkeys: WSJT-X / JTDX send STOP when the TCI RX tap
+  goes silent on MOX; 0.25.11 closed the radio (fixed) but also dropped
+  MOX. STOP still echoes `start` while the session is running.
+- USER_GUIDE / wiki / `docs/releases/v0.25.13.md`. Tag `v0.25.13`.
+  Do not merge `main`.
+
+## 2026-10-05 — v0.25.12 Sheliak (patch)
+
+- Version bump **0.25.11 → 0.25.12**. Star name stays **Sheliak**.
+- Rec default `%USERPROFILE%\Lyra\Recordings`; migrate empty / relative /
+  Program Files roots (Start-Menu cwd made Rec look dead).
+- 0.25.11 FFTW-before-companions + TCI STOP + analog skip stay in tree.
+- USER_GUIDE / wiki / `docs/releases/v0.25.12.md`. Tag `v0.25.12`.
+  Do not merge `main`.
+
+## 2026-10-05 — v0.25.11 Sheliak (patch)
+
+- Version bump **0.25.10 → 0.25.11**. Star name stays **Sheliak**.
+- Hardware Startup companions wait until FFTW + create_rnet (Phil
+  AG5EY 0.25.10 first-run vanish with Logger mid-wisdom).
+- beginConnect refuses until prn is allocated.
+- TCI STOP / handshake / prune unkey / TUNE-TRX-if-stopped.
+- Analog same-Hz skip (`e912417`) in this cut.
+- USER_GUIDE / wiki / `docs/releases/v0.25.11.md`. Tag `v0.25.11`.
+  Do not merge `main`. Rec default-path left uncommitted.
+
+## 2026-10-04 — v0.25.10 Sheliak (patch)
+
+- Version bump **0.25.9 → 0.25.10**. Star name stays **Sheliak**.
+- Analog: Protocol 1 always writes TX Hz; N2ADR checkbox is OC/LPF only.
+- NR-C: display Spectrum0 on uncleaned IQ (rectangular); Floor −24.
+- Rec: RX WAV on P1 and P2; Vulkan snapshot grab.
+- USER_GUIDE / wiki / `docs/releases/v0.25.10.md`. Tag `v0.25.10`. Do not
+  merge `main`.
+
+## 2026-10-03 — v0.25.9 Sheliak (patch)
+
+- Version bump **0.25.8 → 0.25.9**. Star name stays **Sheliak**.
+- NNR factory model **Standard** (the 0.25.8 installer was Premium). A
+  saved `dsp/nnrModel` is kept. Mask tooltip: try −25 to −40.
+- PWR needle keeps the highest coupler sample between ticks so voice
+  peaks show. Factory PWR peak-hold **700 ms** when unset.
+- TCI CW terminal holds the key line between letters (`CW_MSG` queue
+  and callsign correct, prosigns, speed steps). `TX_SENSORS` stay
+  live at receive.
+- USER_GUIDE / wiki / `docs/releases/v0.25.9.md`. Tag `v0.25.9`. Do not
+  merge `main`.
+
+## 2026-10-02 — v0.25.8 Sheliak (patch)
+
+- Version bump **0.25.7 → 0.25.8**. Star name stays **Sheliak**.
+- Bundled WDSP **2.10** (`wdsp.dll`); wisdom `wdspWisdom01`.
+- NNR operator surface: toggle, Standard / Premium (**factory Premium**
+  in the 0.25.8 installer), Mask −10…−50 default −40, XOR vs EMNR, NR-C
+  still independent.
+- Follow-up `1c47d60`: factory model **Standard** for the next build
+  (Heiko: NNR raises CPU, Premium more than Standard). Existing
+  `dsp/nnrModel` QSettings keep whatever 0.25.8 already wrote.
+- PS Amp View: GetPSDisp version-gated; P1 + P2 re-proved.
+- USER_GUIDE / wiki / `docs/releases/v0.25.8.md`. Tag `v0.25.8`. Do not
+  merge `main`.
+
+## 2026-10-02 — v0.25.7 Sheliak (patch)
+
+- Version bump **0.25.6 → 0.25.7**. Star name stays **Sheliak**.
+- TCI: `start;` before `ready;` + echo client start/stop. WSJT-X / JTDX
+  attach; MSHV unchanged. Operator bench: RX + key-up on MSHV, WSJT-X,
+  JTDX.
+- Settings → Apps “Tested with and recommended” links.
+- USER_GUIDE / wiki / `docs/releases/v0.25.7.md`.
+- Installer pending. Tag `v0.25.7`. Do not merge `main`.
+
+## 2026-09-30 — v0.25.6 Sheliak (patch)
+
+- Version bump **0.25.5 → 0.25.6**. Star name stays **Sheliak**.
+- HL2 / HL2+ N2ADR analog band-follow writes TX frequency so IO-board analog
+  voltage tracks the band. Closes GitHub **#14**.
+- USER_GUIDE / wiki / `docs/releases/v0.25.6.md`.
+- Installer `dist/Lyra-Setup-0.25.6.exe`. Tag `v0.25.6`. Do not merge `main`.
+
+## 2026-09-29 — v0.25.5 Sheliak (patch)
+
+- Version bump **0.25.4 → 0.25.5**. Star name stays **Sheliak**.
+- HID USB mouse-wheel encoder (Settings → Hardware → Navigation). FM 1750
+  Hz mixed into TX audio while keyed. Extra tune steps, 70 cm 7.6 MHz
+  offset, Region-1 1750 chip, RX EQ title.
+- USER_GUIDE / wiki / `docs/releases/v0.25.5.md`.
+- Installer `dist/Lyra-Setup-0.25.5.exe`. Tag `v0.25.5`. #14 stays open.
+  Do not merge `main`.
+
+## 2026-09-29 — v0.25.4 Sheliak (patch)
+
+- Version bump **0.25.3 → 0.25.4**. Star name stays **Sheliak**.
+- Apps store + header chip; native RTTY decoder stripped (CW send/decode
+  stay). Memory click-to-edit. Xvtr OOB IF clamp removed (0.25.3 ten-digit
+  RF kept).
+- USER_GUIDE / wiki / `docs/releases/v0.25.4.md`.
+- Installer `dist/Lyra-Setup-0.25.4.exe`. Tag `v0.25.4`. #14 stays open.
+  Do not merge `main`.
+
+## 2026-09-29 — v0.25.3 Sheliak (patch)
+
+- Version bump **0.25.2 → 0.25.3**. Star name stays **Sheliak**.
+- Xvtr VFO LED ten digits (~2.147 GHz); TCI `vfo_limits` match. Fixes
+  the 55.999.999 Hz display cap (Volker). Region does not rewrite slots.
+- USER_GUIDE **Xvtr (transverters)** + wiki FAQ / Feature-Status.
+- Installer `dist/Lyra-Setup-0.25.3.exe`. Tag `v0.25.3`. #14 stays open.
+  Do not merge `main`. Native RTTY strip stays uncommitted.
+
+---
+
+## 2026-09-28 — v0.25.2 Sheliak (patch)
+
+- Version bump **0.25.1 → 0.25.2**. Star name stays **Sheliak**.
+- NR-C recall (`0ef8fcc`): last profile restores on restart; NR-C starts
+  on only if it was on at exit.
+- TUNE / 2-tone land on the dial (CW TUNE on the RX marker; DIGU/DIGL
+  signs). TX panadapter span matches RX (sip1 96 k vs RX rate).
+- Installer `dist/Lyra-Setup-0.25.2.exe`. Tag `v0.25.2`. #14 stays open.
+  Do not merge `main`. Native RTTY strip stays uncommitted.
+
+---
+
+## 2026-09-27 — v0.25.1 Sheliak (patch)
+
+- Version bump **0.25.0 → 0.25.1**. Star name stays **Sheliak**.
+- NR-C occupied-bin mix, Xvtr slots, MSAA Off/2×/4×/8×, P1 ANAN/Brick
+  Discover-list / Open-refuse + docs (flash P2; Anton linoobs).
+- Installer `dist/Lyra-Setup-0.25.1.exe`. Tag `v0.25.1`. #14 stays open.
+  Do not merge `main`.
+
+---
+
+## 2026-09-26 — v0.25.0 Sheliak (PureSignal)
+
+- Version bump **0.24.5 → 0.25.0**. Star name **Sheliak** (β Lyrae);
+  Vega remains identity / watermark only.
+- PureSignal + Amp View already in tree (`a853560`). About / window title
+  show the star name. Wiki Home gallery + gh-pages shots prepared.
+- Installer `dist/Lyra-Setup-0.25.0.exe`. Tag `v0.25.0`. Issue #16 closed
+  (Bob). #14 still open. WDSP 2.10 after this cut.
+
+---
+
 ## 2026-09-25 — v0.24.5 graphics pin + VAC2 profiles
 
 - **Graphics:** pinned Settings backend (vulkan/d3d12/d3d11/opengl) is

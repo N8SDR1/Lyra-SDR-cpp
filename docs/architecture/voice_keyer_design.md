@@ -265,6 +265,14 @@ core that Stages B and C both reuse — exactly the "build once" plan.
 
 ---
 
+## 8.1 TX rack setup without RF — **dropped** (2026-10-16)
+
+On-air always sounds different from a local tap. Dummy-load + **MON TX**
+for “did the rack grab”; Kiwi / trusted ear for the set. No no-RF listen
+path. Review stays raw WAV; MON TX stays post-rack / pre-ALC, keyed only.
+
+---
+
 ## 9. Provenance
 
 Reference: openHPSDR **Thetis** `Console/clsAudioRecordPlayback.cs` +

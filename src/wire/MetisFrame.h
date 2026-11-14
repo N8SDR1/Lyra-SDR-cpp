@@ -105,4 +105,9 @@ std::uint32_t metis_out_seq_num();
 // consume it via this accessor.
 int metis_socket_fd();
 
+// Radio IPv4 (network byte order) from metis_wire_bind, or 0 if unset.
+// EP6 recv drops datagrams whose source is not this address so leftover
+// Protocol-2 IQ from another radio on the LAN cannot starve HL2 keepalive.
+std::uint32_t metis_radio_ip_be();
+
 }  // namespace lyra::wire

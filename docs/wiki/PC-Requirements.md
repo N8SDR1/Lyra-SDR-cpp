@@ -5,9 +5,10 @@ render on the GPU, so graphics capability matters a little more here than in a
 typical desktop app — but Lyra runs comfortably on modest hardware, and
 **built-in / integrated graphics are fine**.
 
-> **Operating system:** Windows 10 (64-bit, **v1809 / build 17763** or newer)
-> or Windows 11. **32-bit Windows is not supported.** Linux and macOS are on
-> the [Roadmap](Roadmap) for a future version.
+> **Radios:** Hermes Lite 2 / 2+ (Protocol 1) or **BrickSDR2 / Brick3SDR
+> on Protocol 2**. P2 ANAN-10…200D also open (pick the marketed model).
+> A Brick or classic ANAN still on Protocol 1 may list in Discover and
+> **will not Open** — see [Supported Radios](Supported-Radios).
 
 ## The three tiers
 
@@ -20,7 +21,7 @@ typical desktop app — but Lyra runs comfortably on modest hardware, and
 | **Memory** | 4 GB (8 GB comfortable) | 16 GB | 32 GB |
 | **Storage** | ~300 MB free (SSD recommended) | SSD, ~500 MB free | NVMe Gen4 SSD |
 | **Network** | 100 Mbit **wired** Ethernet to the radio | Gigabit Ethernet, ideally a dedicated NIC | Dedicated Gigabit / 2.5 GbE NIC, wired straight to the radio |
-| **Display** | 1600 × 900 | 1920 × 1080 | Dual / triple monitor; 1440p or 4K |
+| **Display** | 1600 × 900 | 1920 × 1080 | Dual / triple monitor; 1440p or 4K. Use **Windows Display scale** (e.g. 150% on 4K). Do **not** set `QT_SCALE_FACTOR`. |
 
 ## Display — what the minimum actually buys you
 
@@ -35,7 +36,7 @@ all of them fully reachable, nothing cut off:
 | **Panadapter + waterfall** | See the band, click to tune |
 | **Tuning** | VFO, step, mode, RIT / XIT, split |
 | **Band** | Band switching |
-| **Filters** | Sample rate, RX and TX bandwidth |
+| **Filters** | Sample rate, RX and TX bandwidth on the top line, RX lo and TX lo underneath |
 | **Audio** | LNA, volume, AF gain, mute, and the RX DSP row (NB / NR / ANF / LMS / SQ …) |
 | **Meter** | S-meter on receive; power / SWR / ALC on transmit |
 | **TX** | Drive, mic gain, ATT, PROT, VOX, Tune, MOX |
@@ -85,7 +86,13 @@ Lyra runs fine on the **Recommended** spec — the extra CPU/GPU headroom in
 **Maxed+** isn't about *whether* it runs, it's about running *everything at
 once* without the machine breaking a sweat: the full TX speech-processing rack,
 spots, high-refresh spectrum and waterfall on a big screen, and comfortable
-margin for dual receive plus heavier DSP still on the roadmap (PureSignal).
+margin for dual receive plus **PureSignal** (coupler / ADC0 feedback while
+keyed).
+
+**NNR** (neural noise reduction) is extra CPU in the receive audio chain.
+**Standard** is the factory default. **Premium** uses more and is comfortable
+on Recommended and up. On Minimum, prefer Standard or classic NR if the
+machine is already busy (dual receive, a high waterfall rate).
 
 ## Two things that matter on any tier
 

@@ -34,6 +34,7 @@
 #include <QTimer>
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -94,6 +95,38 @@ struct RxConfig {
     int    block      = 1;
 };
 
+// Host combiner for two converters on one carrier.  create_div leaves
+// the rotate at zero and output at 0, so ensure() sets output to "sum"
+// and the stored rotate before anything calls setRunning(true).
+// Defaults are 0 dB / 0°.  setMix is the operator control.
+class DivExt {
+public:
+    DivExt() = default;
+    ~DivExt();
+    DivExt(const DivExt &) = delete;
+    DivExt &operator=(const DivExt &) = delete;
+
+    bool ensure(WdspNative *wdsp);
+    // Path 0 stays identity.  Path 1 is amp = 10^(dB/20), angle in degrees.
+    // Safe before ensure(); the DLL call waits until the combiner is open.
+    void setMix(double gainDb, double phaseDeg);
+    void setRunning(bool on);
+    bool running() const { return running_; }
+    // s0/s1/out are interleaved I,Q doubles, 2*n each.
+    bool process(int n, double *s0, double *s1, double *out);
+
+private:
+    void applyRotate();
+
+    WdspNative *wdsp_ = nullptr;
+    double gainDb_ = 0.0;
+    double phaseDeg_ = 0.0;
+    double irot_[2]{1.0, 1.0};
+    double qrot_[2]{0.0, 0.0};
+    bool open_ = false;
+    bool running_ = false;
+};
+
 class WdspEngine : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool   running   READ isRunning  NOTIFY runningChanged)
@@ -145,6 +178,7 @@ class WdspEngine : public QObject {
     // all track zoom for free because the displayed span shrinks as zoom
     // rises.  NOTIFY spanChanged (emitted on a rate OR a zoom change).
     Q_PROPERTY(int    spanHz READ spanHz NOTIFY spanChanged)
+    Q_PROPERTY(int    iqRateHz READ iqRateHz NOTIFY spanChanged)
     // Panadapter zoom: 1.0 = full IQ span; higher magnifies the band
     // CENTRE.  Done old-Lyra-style — the analyzer always produces a
     // full-span, full-resolution spectrum; copySpectrum crops the centre
@@ -222,6 +256,13 @@ class WdspEngine : public QObject {
     Q_PROPERTY(int  nrMode     READ nrMode    NOTIFY nrChanged)
     Q_PROPERTY(bool aepfEnabled READ aepfEnabled NOTIFY nrChanged)
     Q_PROPERTY(int  npeMethod  READ npeMethod  NOTIFY nrChanged)
+    // WDSP Neural NR (2.10).  XOR with EMNR — enabling one turns the
+    // other off.  nnrModel: 0=Standard (factory default) 1=Premium
+    // (heavier CPU).  Mask floor: −10 (least) … −50 (most); default −40.
+    Q_PROPERTY(bool nnrEnabled READ nnrEnabled NOTIFY nrChanged)
+    Q_PROPERTY(bool nnrAvailable READ nnrAvailable NOTIFY nrChanged)
+    Q_PROPERTY(int  nnrModel   READ nnrModel   NOTIFY nrChanged)
+    Q_PROPERTY(double nnrMaskFloorDb READ nnrMaskFloorDb NOTIFY nrChanged)
     // AGC mode as an operator-facing string: off / fast / med / slow.
     // (Long / Auto / Custom land with the rest of the AGC surface.)
     Q_PROPERTY(QString agcMode READ agcMode NOTIFY agcModeChanged)
@@ -340,6 +381,8 @@ public:
     // Returns -200 when the RX channel isn't running.  Safe to call
     // from the UI thread (just reads WDSP's latest stored meter value).
     double sMeterDbm() const;
+    void postDeskMeter(double dbm);
+    bool deskMeterFresh() const;
     // RX2 (WDSP channel 2) RXA_S_PK — same units as sMeterDbm().
     // −200 when SUB/RX2 is not open.
     double sMeterDbmRx2() const;
@@ -363,7 +406,7 @@ public:
     bool   txMuted() const { return txMuted_.load(std::memory_order_relaxed); }
     bool   autoMuteOnTx() const { return autoMuteOnTx_.load(std::memory_order_relaxed); }
     int    rxResumeDelayMs() const { return rxResumeDelayMs_.load(std::memory_order_relaxed); }
-    double afGainDb() const { return afGainDb_; }
+    double afGainDb() const { return afGainDb_.load(std::memory_order_relaxed); }
     double balance()  const { return balance_.load(std::memory_order_relaxed); }
     bool   monEnabled() const { return monEnabled_.load(std::memory_order_relaxed); }
     double monVolume()  const { return monVolume_.load(std::memory_order_relaxed); }
@@ -372,25 +415,45 @@ public:
         return hl2Out_ ? 0 : deviceIndex_ + 1;
     }
     double zoom() const { return zoom_.load(std::memory_order_relaxed); }
+    // Crop zoom used by spanHz() + copySpectrum.  RX: operator zoom.
+    // TX: scaled so sip1 Hz window matches RX (sip1 is 96 kHz; RX IQ
+    // is often 192 kHz — same Zoom number would otherwise jump).
+    double displayZoom() const;
     // Span reported to QML's freq-scale binding.  RX state: rate /
-    // zoom (same as before).  TX state (txOwnsAnalyzer_=true, Task
-    // #44 Phase 2 MOX-edge swap): the WDSP TX sip1 dsp_rate
-    // (txSpanHz_), still divided by zoom.  Span change emitted on
-    // every MOX edge via setTxOwnsAnalyzer().
+    // displayZoom.  TX state: sip1 dsp_rate / displayZoom.  Span
+    // change emitted on every MOX edge via setTxOwnsAnalyzer().
     //
     // inRate read is via inRateAtomic_ (mirror of cfg_.inRate
     // updated under channelMtx_ in setSampleRate) so this getter is
     // race-free against rate-change without taking the lock — per
     // amendment A.6 in the reconciled doc.
     int    spanHz() const {
-        const double z = zoom_.load(std::memory_order_relaxed);
-        const double zClamp = (z > 1.0 ? z : 1.0);
+        const double zClamp = displayZoom();
+        const qint64 specMs = deskSpecMs_.load(std::memory_order_relaxed);
+        const int specSpan = deskFullSpan_.load(std::memory_order_relaxed);
+        const qint64 specNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (specSpan > 0 && specMs > 0 && (specNow - specMs) < 500) {
+            const int cropped = static_cast<int>(specSpan / zClamp);
+            return cropped > 0 ? cropped : 1;
+        }
         if (txOwnsAnalyzer_.load(std::memory_order_acquire)) {
             const int r = txSpanHz_.load(std::memory_order_relaxed);
             return static_cast<int>(r / zClamp);
         }
         const int r = inRateAtomic_.load(std::memory_order_relaxed);
         return static_cast<int>(r / zClamp);
+    }
+    // Full converter rate (Hz). The second receiver's spectrum uses this
+    // as its scale so the main panadapter's zoom does not shrink it.
+    int iqRateHz() const {
+        const qint64 specMs = deskRx2Ms_.load(std::memory_order_relaxed);
+        const int specSpan = deskRx2Span_.load(std::memory_order_relaxed);
+        const qint64 specNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (specSpan > 0 && specMs > 0 && (specNow - specMs) < 500)
+            return specSpan;
+        return inRateAtomic_.load(std::memory_order_relaxed);
     }
     // Task #44 Phase 2 — analyzer ownership accessor for TxDspWorker
     // (called per block-pack tick to decide whether to feed the TX
@@ -423,12 +486,12 @@ public:
     // out_rate / in_rate).  Step 3d sizes its output buffer to this.
     int outSize() const { return outSize_; }
 
-    // Step 5: WDSP spectral analyzer (panadapter source).  The IQ fed
-    // to the audio chain is also fed to the analyzer; copySpectrum
-    // pulls the latest display-width dB array (called from the
-    // panadapter's render thread — WDSP serialises feed-vs-read
-    // internally, as standard SDR apps rely on).  Plain C++ (not Q_INVOKABLE):
-    // the panadapter is a C++ QQuickPaintedItem, not QML JS.
+    // Step 5: WDSP spectral analyzer (panadapter source).  Fed post-NB
+    // IQ (NR-C cleans WDSP audio only; it does not enter the analyzer).
+    // copySpectrum pulls the latest display-width dB array (called from
+    // the panadapter's render thread — WDSP serialises feed-vs-read
+    // internally).  Plain C++ (not Q_INVOKABLE): the panadapter is a
+    // C++ QQuickPaintedItem, not QML JS.
     int  spectrumPixelCount() const;
     void setRxDisplayCalibrationDb(double db) {
         rxDisplayCalibrationDb_.store(db, std::memory_order_relaxed);
@@ -437,6 +500,26 @@ public:
         return rxDisplayCalibrationDb_.load(std::memory_order_relaxed);
     }
     int  copySpectrum(float *dst, int maxN);
+    // Full uncropped cache, no GetPixels. The panadapter already
+    // refreshed specCache_. Used by the Lyra-to-Lyra spectrum sender.
+    int  copySpectrumCache(float *dst, int maxN);
+    // Lyra-to-Lyra panadapter. RX: full converter span + the cache.
+    // TX: the host's sip1 picture (full TX span, Tune shift included)
+    // so the desk passband matches the shack, then back to the RX span
+    // when the host leaves TX. The desk zooms inside that span itself.
+    int  copyHostSpectrumForDesk(float *dst, int maxN, int *spanHz);
+    // Host RX2 cache only. No GetPixels. Span is this radio's converter
+    // rate. Returns 0 until the second panadapter has filled the cache.
+    int  copyRx2SpectrumCache(float *dst, int maxN, int *spanHz);
+    // Desk paints these instead of the local analyzer. fullSpanHz is
+    // the shack's whole IQ span; local zoom crops it.
+    void postDeskSpectrum(const float *db, int n, int fullSpanHz);
+    void postDeskSpectrumRx2(const float *db, int n, int fullSpanHz);
+    void clearDeskSpectrumRx2();
+    // Desk CW decoder. 48 kHz mono int16 of the host receiver the laptop
+    // is already playing (pre volume). The local WDSP channel stays open
+    // with no radio, so this must not wait for that channel to stop.
+    void feedRemoteCwAudio(const qint16 *pcm, int nframes);
     // §15.29 C1 — waterfall-specific spectrum read.  During TX state,
     // the analyzer is configured with n_pixout=2 (configureAnalyzerForTx)
     // — pixout=0 = panadapter (30 ms tau IIR), pixout=1 = waterfall
@@ -499,11 +582,18 @@ public:
     int  nrMode()      const { return nrMode_; }
     bool aepfEnabled() const { return aepfEnabled_; }
     int  npeMethod()   const { return npeMethod_; }
+    bool nnrEnabled()  const { return nnrEnabled_; }
+    bool nnrAvailable() const;
+    int  nnrModel()    const { return nnrModel_; }
+    double nnrMaskFloorDb() const { return nnrMaskFloorDb_; }
     QString agcMode()  const { return agcMode_; }
     Q_INVOKABLE void setNrEnabled(bool on);
     Q_INVOKABLE void setNrMode(int mode);        // 1..4
     Q_INVOKABLE void setAepfEnabled(bool on);
     Q_INVOKABLE void setNpeMethod(int method);   // 0=OSMS 1=MCRA
+    Q_INVOKABLE void setNnrEnabled(bool on);
+    Q_INVOKABLE void setNnrModel(int slot);      // 0=Standard 1=Premium
+    Q_INVOKABLE void setNnrMaskFloorDb(double db);  // −10..−50
     Q_INVOKABLE void setAgcMode(const QString &mode);  // off/fast/med/slow
     // AGC knee/threshold in WDSP-dBFS (more negative = more weak-signal
     // headroom).  Re-derives the AGC ceiling via SetRXAAGCThresh; clamped
@@ -565,8 +655,8 @@ public:
     double squelchThreshold() const { return squelchThreshold_; }
     Q_INVOKABLE void setSquelchEnabled(bool on);
     Q_INVOKABLE void setSquelchThreshold(double t);   // 0..1
-    bool   nbEnabled()  const { return nbEnabled_; }
-    double nbStrength() const { return nbStrength_; }
+    bool   nbEnabled()  const { return nbEnabled_.load(std::memory_order_relaxed); }
+    double nbStrength() const { return nbStrength_.load(std::memory_order_relaxed); }
     Q_INVOKABLE void setNbEnabled(bool on);
     Q_INVOKABLE void setNbStrength(double s);          // 0..1
     bool apfEnabled() const { return apfEnabled_; }
@@ -618,6 +708,9 @@ public:
     // size; refuses (returns false) if its capture RATE differs from the
     // current IQ rate (caller shows a recapture hint).
     Q_INVOKABLE bool loadNoiseProfile(const QString &name);
+    // Settings auto-load name, else last saved/loaded profile.  Apply
+    // follows dsp/noiseApplyEnabled (off at exit stays off).
+    Q_INVOKABLE void restoreLastNoiseProfile();
     Q_INVOKABLE void deleteNoiseProfile(const QString &name);
     // Rename a saved profile (and its file).  False if not found or the
     // new name is empty / already in use.
@@ -712,6 +805,7 @@ public:
     Q_INVOKABLE void setCwDecodeSquelch(bool on, double value) { cwDecoder_.setSquelch(on, value); }
     // Live squelch signal metric (SNR 0..100) for the panel bar; polled by QML.
     Q_INVOKABLE double cwDecodeMetric() const { return cwDecoder_.squelchMetric(); }
+
     int  cwRxWpm() const { return cwDecoder_.rxWpm(); }
 
     // DeepFist neural CW decoder — second, selectable engine.  Both engines
@@ -788,6 +882,12 @@ public:
     // session whose profile audioRoute is "radio"; empty clears.
     void setRadioAudioSink(
         std::function<void(const qint16 *lr, int nframes)> sink);
+    // Lyra-to-Lyra desk tee. Pre-volume receiver audio (doubles,
+    // interleaved stereo, about ±1). Host volume, mute, balance,
+    // and the HL2 jack pad do not apply. The callback must only
+    // copy; it runs on the RX worker thread. Null clears it.
+    void setDeskAudioTap(
+        std::function<void(const double *lr, int nframes)> tap);
 
     // Per-radio audio routing (Layer-2 radio profiles).  Applies an
     // output route for the SESSION only — unlike setAudioOutputDevice
@@ -955,6 +1055,10 @@ public:
     Q_INVOKABLE bool openRx2();
     Q_INVOKABLE void closeRx2();
     Q_INVOKABLE void setSubEnabled(bool on);
+    // Second-receiver spectrum. Created only when the radio has two
+    // converters. The main analyzer stays on the first receiver.
+    void setRx2SpectrumWanted(bool on);
+    int  copySpectrumRx2(float *dst, int maxN);
     void feedIqRx2(const double *iq, int nframes);
 
 signals:
@@ -1073,10 +1177,8 @@ private:
     // Push the current mode_/bw_ to WDSP (SetRXAMode + RXASetPassband).
     // No-op when the channel isn't open (applied on the next openRx1).
     void applyModeFilter();
-    // Push the current NR (EMNR) state to WDSP — run + gain method +
-    // NPE method + AEPF + position.  No-op when the channel is closed
-    // (re-applied on the next openRx1).  Channel-parameterized so RX2
-    // can reuse it unchanged.
+    // Push EMNR + NNR.  Mutual exclusion is applied here: at most one
+    // of EMNR-run / NNR-run is 1.  No-op when the channel is closed.
     void pushNrState();
     // Push the current AGC mode (SetRXAAGCMode).  No-op when closed.
     void pushAgcMode();
@@ -1145,6 +1247,10 @@ private:
     void configureAnalyzerForTx() noexcept;
     void configureAnalyzerForRx_locked() noexcept;   // analyzerMtx_ held
     void configureAnalyzerForTx_locked() noexcept;   // analyzerMtx_ held
+    void configureRx2Analyzer_locked() noexcept;     // analyzerMtx_ held
+    void openRx2Analyzer();
+    void closeRx2Analyzer();
+    void feedRx2Spectrum(double *block) noexcept;
 
     // P4.b TUN display-honesty crop helpers (shared by copySpectrum +
     // copyWaterfallSpectrum).  txAnalyzerOffBins() converts the live
@@ -1154,7 +1260,7 @@ private:
     // display points about a centre shifted left by offBins.
     double txAnalyzerOffBins() const noexcept;
     void   cropSpectrum(const float *full, float *dst, int n,
-                        double offBins) const noexcept;
+                        double offBins, double zoom = -1.0) const noexcept;
 
     WdspNative *wdsp_    = nullptr;
     RxConfig    cfg_;
@@ -1180,6 +1286,8 @@ private:
     bool        opened_  = false;
     bool        running_ = false;
     bool        analyzerOpen_ = false;   // Step 5 panadapter analyzer
+    std::atomic<bool> rx2SpectrumWanted_{false};
+    std::atomic<bool> rx2AnalyzerOpen_{false};
     // ── Task #44 Phase 2 atomics ──────────────────────────────────
     // txOwnsAnalyzer_ : true while the MOX-edge swap has retuned
     //   kAnDisp for the TX sip1 feed (per setTxOwnsAnalyzer()).
@@ -1217,6 +1325,10 @@ private:
     // both, but document the order for future-proofing).
     mutable std::mutex analyzerMtx_;
 
+    // Drop oldest IQ from an accumulator so it never holds more than
+    // kIqAccumMaxBlocks complete in_size blocks (see wdsp_engine.cpp).
+    static void trimIqAccum(std::vector<double>& acc, size_t blockDoubles);
+
     // Step 3d DSP buffers (all sized in the constructor).
     // accum_ : interleaved IQ doubles awaiting a full in_size block.
     // outBuf_: fexchange0 output (2 * outSize_ doubles, L/R).
@@ -1250,6 +1362,8 @@ private:
     // dispatch-path lock is uncontended except during set/clear.
     std::mutex          radioSinkMtx_;
     std::function<void(const qint16 *, int)> radioSink_;
+    std::mutex          deskAudioMtx_;
+    std::function<void(const double *, int)> deskAudioTap_;
     // P4.b — interleaved L/R doubles handed to the verbatim
     // OutBound(0) RX-audio tee (dispatchAudioFrame; the §2 asioOUT
     // pattern).  sendProtocol1Samples does the reference 16-bit
@@ -1282,10 +1396,10 @@ private:
     std::atomic<int>    rxResumeDelayMs_{50};   // persisted audio/rxResumeDelayMs
     QTimer              rxResumeTimer_;
     void applyTxMuted_(bool m);
-    // AF makeup gain (dB, main-thread; pushed to WDSP SetRXAPanelGain1 as
-    // a linear gain).  Balance −1..+1 is applied Lyra-side in feedIq, so
-    // it's an atomic the RX worker reads.
-    double              afGainDb_ = 0.0;
+    // AF makeup gain (dB).  UI write + WDSP SetRXAPanelGain1 under
+    // channelMtx_; RX1/RX2 workers read the atomic (RX2 holds rx2Mtx_
+    // only).  Balance −1..+1 is applied Lyra-side in feedIq.
+    std::atomic<double> afGainDb_{0.0};
     std::atomic<double> balance_{0.0};
 
     // #159 slim DSP — per-family [RX=0, TX=1] minimum-phase flag (false =
@@ -1325,6 +1439,11 @@ private:
     int     nrMode_      = 3;            // 1..4 (UI) -> gain_method 0..3
     bool    aepfEnabled_ = true;
     int     npeMethod_   = 0;            // 0=OSMS 1=MCRA
+    bool    nnrEnabled_  = false;        // WDSP Neural NR; default off
+    int     nnrModel_    = 0;            // 0=Standard (default) 1=Premium
+    double  nnrMaskFloorDb_ = -40.0;     // −10..−50; factory default −40
+    static constexpr double kNnrMaskFloorMinDb = -50.0;
+    static constexpr double kNnrMaskFloorMaxDb = -10.0;
     QString agcMode_     = QStringLiteral("med");
     double  agcThreshDb_ = -100.0;   // WDSP-dBFS AGC knee (persisted; see kAgcThreshDbFs)
     // Latching Auto AGC-T state.  autoAgcThresh_ is persisted; the timer runs
@@ -1355,8 +1474,11 @@ private:
     int     wdspNotchCount_ = 0;         // notches currently in the WDSP DB
     bool    squelchEnabled_   = false;
     double  squelchThreshold_ = 0.20;    // 0..1 operator knob
-    bool    nbEnabled_   = false;
-    double  nbStrength_  = 0.5;          // 0..1 (higher = more blanking)
+    // NB run/strength: UI writes under channelMtx_; feedIq (channelMtx_)
+    // and feedIqRx2 (rx2Mtx_) read the atomics so a toggle cannot tear
+    // against either worker.
+    std::atomic<bool>   nbEnabled_{false};
+    std::atomic<double> nbStrength_{0.5};  // 0..1 (higher = more blanking)
     bool    nbCreated_   = false;        // EXT NOB created for this channel
     std::vector<double> nbBuf_;          // xnobEXT output (2*inSize doubles)
     bool    apfEnabled_  = false;        // CW peaking filter (CW-gated)
@@ -1381,7 +1503,7 @@ private:
     std::vector<double> cleanBuf_;                  // 2*inSize cleaned IQ
     double              npCaptureSeconds_ = 5.0;    // 3/5/10
     double              npAlpha_     = 1.0;          // over-subtraction
-    double              npFloorDb_   = -12.0;        // max attenuation
+    double              npFloorDb_   = -24.0;        // max attenuation (pre-AGC)
     double              npSmoothing_ = 0.6;          // mask smoothing
     QString             npActiveName_;              // loaded profile ("" = none)
     void applyReducerParams();   // push α/floor/smoothing to reducer_ (lock held)
@@ -1414,6 +1536,16 @@ private:
     // garbage feeding the zoom crop).  GUI-thread only (the QQuickWidget
     // panadapter + waterfall reads are serialised).
     std::vector<float> specCache_;
+    std::vector<float> deskSpec_;
+    std::vector<float> deskSpecRx2_;
+    std::atomic<qint64> deskSpecMs_{0};
+    std::atomic<qint64> deskRx2Ms_{0};
+    std::atomic<double> deskSmeter_{-200.0};
+    std::atomic<qint64> deskMeterMs_{0};
+    std::atomic<int> deskFullSpan_{0};
+    std::atomic<int> deskRx2Span_{0};
+    mutable std::mutex deskSpecMtx_;
+    std::vector<float> specCacheRx2_;
     std::atomic<double> rxDisplayCalibrationDb_{0.0};
     // §15.29 C1 — pixout=1 waterfall cache, mirrors specCache_ but
     // populated by copyWaterfallSpectrum's GetPixels(pixout=1) during
@@ -1547,6 +1679,12 @@ private:
     std::atomic<bool>                    cwDecodeOn_{false};
     std::atomic<bool>                    cwModeActive_{false};
     std::vector<float>                   cwMonoBuf_;
+    // Desk host-audio feed. Steady-clock ms of the last block; while it
+    // is fresh the local tap stays quiet so a silent local channel cannot
+    // share the decoders. remoteCwMono_ is the GUI-thread copy (float,
+    // about -1..1), separate from the audio-thread cwMonoBuf_.
+    std::atomic<qint64>                  remoteCwAudioMs_{0};
+    std::vector<float>                   remoteCwMono_;
     bool                  vacMox_ = false;         // #158 DL-4 last MOX (re-applied on rebuild)
     bool                  vacEnvApplied_ = false;
     // Shared 2-input IVAC mixer silence for stream 2 (TX monitor) during

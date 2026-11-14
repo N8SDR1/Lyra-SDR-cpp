@@ -1,7 +1,7 @@
 // Bounded single-producer/single-consumer FIFO for Protocol 2 TX IQ.
 //
-// Producer: ChannelMaster's existing post-WDSP ILV output callback.
-// Consumer: P2TxWriter on the P2 session thread.
+// Producer: ChannelMaster's post-WDSP ILV output (cm_main TX thread).
+// Consumer: dedicated P2 TX-IQ send thread (not the session Qt loop).
 //
 // The FIFO stores logical {I,Q} doubles. P2TxPackets encodes them to the
 // wire as I-then-Q, 24-bit big-endian (encodeIq) -- the HPSDR P2 DUC-IQ
@@ -16,8 +16,10 @@
 
 #include <array>
 #include <atomic>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 
 namespace lyra::wire {
 
@@ -34,6 +36,10 @@ public:
     bool pushInterleaved(const double *iq, std::size_t samples) noexcept;
     bool popPacket(
         std::array<P2TxIqSample, kPacketSamples> &packet) noexcept;
+
+    // Writer wait: returns true when a packet is available or stop is set.
+    bool waitForPacket(const std::atomic<bool> &stop, int timeoutMs) noexcept;
+    void wakeWaiters() noexcept;
 
     std::size_t size() const noexcept;
     std::size_t freeSpace() const noexcept {
@@ -63,6 +69,8 @@ private:
     std::atomic<std::uint64_t> overflowEvents_{0};
     std::atomic<std::uint64_t> droppedSamples_{0};
     std::atomic<std::uint64_t> underflowEvents_{0};
+    std::mutex waitMutex_;
+    std::condition_variable waitCv_;
 };
 
 // Process-wide producer seam. Lyra supports one active radio/session;

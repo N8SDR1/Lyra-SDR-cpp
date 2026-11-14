@@ -43,6 +43,23 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
         // applying_ guards out the change WE make while restoring.  No
         // lnaSetByOperator-equivalent distinction is needed here because
         // there's no Auto-drive that roams; every set is the operator.
+        connect(stream_, &lyra::ipc::HL2Stream::autoLnaChanged, this,
+                [this]() {
+                    if (applying_ || currentBand_.isEmpty() || !stream_)
+                        return;
+                    QSettings().setValue(
+                        bandMemPfx() + currentBand_ +
+                        QStringLiteral("/autoLna"), stream_->autoLna());
+                });
+        connect(stream_, &lyra::ipc::HL2Stream::hl2RxPortChanged, this,
+                [this]() {
+                    if (applying_ || currentBand_.isEmpty() || !stream_)
+                        return;
+                    QSettings().setValue(
+                        bandMemPfx() + currentBand_ +
+                        QStringLiteral("/rxPort"),
+                        stream_->hl2RxPort() == 2 ? 2 : 0);
+                });
         connect(stream_, &lyra::ipc::HL2Stream::txDriveLevelChanged, this,
                 [this](int level) {
                     if (applying_ || currentBand_.isEmpty()) return;
@@ -78,6 +95,9 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                 });
         connect(prefs_, &Prefs::modeRx2Changed, this,
                 &BandMemory::saveRx2Mode);
+        auto liveRx2 = [this]() { saveRx2Scale(); };
+        connect(prefs_, &Prefs::rx2DbMinChanged, this, liveRx2);
+        connect(prefs_, &Prefs::rx2DbMaxChanged, this, liveRx2);
     }
     // Apply the current band's saved settings ONCE at startup.  The
     // stream restores its RX1 frequency in its own ctor via an atomic
@@ -90,6 +110,8 @@ BandMemory::BandMemory(Prefs *prefs, lyra::ipc::HL2Stream *stream,
         if (!currentBand_.isEmpty())
             applyBand(currentBand_);
         currentBandRx2_ = bandNameFor(int(stream_->rx2FreqHz()));
+        if (!currentBandRx2_.isEmpty())
+            applyRx2Scale(currentBandRx2_);
     }
 }
 
@@ -132,31 +154,112 @@ void BandMemory::onFreqChanged() {
         currentBand_ = name;
         if (!name.isEmpty()) applyBand(name);   // restore mode/dB ranges
     }
-    // Remember this band's last frequency so the Band buttons can return
-    // to where you were (see freqFor()).
+    // Remember this band's current stack slot so the Band buttons can
+    // return to where you were (see freqFor() / recallFreq()).
     if (!name.isEmpty())
-        QSettings().setValue(bandMemPfx() + name +
-                             QStringLiteral("/freq"), hz);
-}
-
-int BandMemory::freqFor(const QString &band) const {
-    return QSettings().value(bandMemPfx() + band +
-                             QStringLiteral("/freq"), 0).toInt();
-}
-
-int BandMemory::freqForRx2(const QString &band) const {
-    return QSettings().value(bandMemPfx() + band +
-                             QStringLiteral("/freqRx2"), 0).toInt();
+        writeSlot(name, false, stackIndex(name, false), hz);
 }
 
 void BandMemory::onRx2FreqChanged() {
-    if (!stream_) return;
+    if (applyingRx2_ || !stream_) return;
     const int hz = int(stream_->rx2FreqHz());
     const QString name = bandNameFor(hz);
-    currentBandRx2_ = name;
+    if (name != currentBandRx2_) {
+        currentBandRx2_ = name;
+        if (!name.isEmpty())
+            applyRx2Scale(name);
+    }
     if (!name.isEmpty())
-        QSettings().setValue(bandMemPfx() + name +
-                             QStringLiteral("/freqRx2"), hz);
+        writeSlot(name, true, stackIndex(name, true), hz);
+}
+
+int BandMemory::stackIndex(const QString &band, bool rx2) const {
+    const QString key = rx2 ? QStringLiteral("/stackRx2")
+                            : QStringLiteral("/stack");
+    int i = QSettings().value(bandMemPfx() + band + key, 0).toInt();
+    if (i < 0 || i >= kStackSlots)
+        i = 0;
+    return i;
+}
+
+int BandMemory::slotFreq(const QString &band, bool rx2, int index) const {
+    if (index < 0 || index >= kStackSlots)
+        index = 0;
+    QSettings s;
+    const QString p = bandMemPfx() + band + QLatin1Char('/');
+    const QString key = (rx2 ? QStringLiteral("s%1Rx2") : QStringLiteral("s%1"))
+                            .arg(index);
+    if (s.contains(p + key))
+        return s.value(p + key).toInt();
+    // One stored frequency from before the stack: it is slot 1.
+    if (index == 0) {
+        const QString legacy = rx2 ? QStringLiteral("freqRx2")
+                                   : QStringLiteral("freq");
+        return s.value(p + legacy, 0).toInt();
+    }
+    return 0;
+}
+
+void BandMemory::writeSlot(const QString &band, bool rx2, int index, int hz) {
+    if (band.isEmpty() || hz <= 0)
+        return;
+    if (index < 0 || index >= kStackSlots)
+        index = 0;
+    QSettings s;
+    const QString p = bandMemPfx() + band + QLatin1Char('/');
+    const QString key = (rx2 ? QStringLiteral("s%1Rx2") : QStringLiteral("s%1"))
+                            .arg(index);
+    s.setValue(p + key, hz);
+    // Keep the legacy single-frequency key equal to the current slot so
+    // anything that still reads /freq lands on the same place.
+    if (index == stackIndex(band, rx2)) {
+        s.setValue(p + (rx2 ? QStringLiteral("freqRx2")
+                            : QStringLiteral("freq")), hz);
+    }
+}
+
+int BandMemory::freqFor(const QString &band) const {
+    if (band.isEmpty())
+        return 0;
+    return slotFreq(band, false, stackIndex(band, false));
+}
+
+int BandMemory::freqForRx2(const QString &band) const {
+    if (band.isEmpty())
+        return 0;
+    return slotFreq(band, true, stackIndex(band, true));
+}
+
+int BandMemory::stackSlot(const QString &band) const {
+    return stackIndex(band, false) + 1;
+}
+
+int BandMemory::stackSlotRx2(const QString &band) const {
+    return stackIndex(band, true) + 1;
+}
+
+int BandMemory::recallFreq(const QString &band, int currentHz,
+                           int defaultHz, bool rx2) {
+    if (band.isEmpty())
+        return defaultHz > 0 ? defaultHz : 0;
+    int idx = stackIndex(band, rx2);
+    if (bandNameFor(currentHz) == band) {
+        idx = (idx + 1) % kStackSlots;
+        QSettings().setValue(bandMemPfx() + band +
+                                 (rx2 ? QStringLiteral("/stackRx2")
+                                      : QStringLiteral("/stack")),
+                             idx);
+        ++stackGeneration_;
+        emit stackChanged();
+    }
+    int hz = slotFreq(band, rx2, idx);
+    if (hz <= 0) {
+        const int prev = slotFreq(band, rx2, (idx + kStackSlots - 1) % kStackSlots);
+        hz = prev > 0 ? prev : defaultHz;
+    }
+    if (hz > 0)
+        writeSlot(band, rx2, idx, hz);
+    return hz;
 }
 
 void BandMemory::saveRx2Mode() {
@@ -164,6 +267,14 @@ void BandMemory::saveRx2Mode() {
     QSettings().setValue(bandMemPfx() + currentBandRx2_ +
                          QStringLiteral("/modeRx2"),
                          prefs_->modeRx2());
+}
+
+void BandMemory::saveRx2Scale() {
+    if (applyingRx2_ || !prefs_ || currentBandRx2_.isEmpty()) return;
+    QSettings s;
+    const QString p = bandMemPfx() + currentBandRx2_ + QLatin1Char('/');
+    s.setValue(p + QStringLiteral("dbMinRx2"), prefs_->rx2DbMin());
+    s.setValue(p + QStringLiteral("dbMaxRx2"), prefs_->rx2DbMax());
 }
 
 void BandMemory::applyRx2Band(const QString &band) {
@@ -178,10 +289,34 @@ void BandMemory::applyRx2Band(const QString &band) {
         if (bandSsb == QLatin1String("USB") || bandSsb == QLatin1String("LSB"))
             mode = bandSsb;
     }
-    if (mode.isEmpty())
-        return;
+    if (!mode.isEmpty()) {
+        applyingRx2_ = true;
+        prefs_->setModeRx2(mode);
+        applyingRx2_ = false;
+    }
+    applyRx2Scale(band);
+}
+
+void BandMemory::applyRx2Scale(const QString &band) {
+    if (!prefs_ || band.isEmpty()) return;
+    QSettings s;
+    const QString p = bandMemPfx() + band + QLatin1Char('/');
     applyingRx2_ = true;
-    prefs_->setModeRx2(mode);
+    if (s.contains(p + QStringLiteral("dbMinRx2"))) {
+        prefs_->setRx2DbMin(s.value(p + QStringLiteral("dbMinRx2")).toDouble());
+        prefs_->setRx2DbMax(s.value(p + QStringLiteral("dbMaxRx2")).toDouble());
+    } else {
+        const double dMin = s.contains(p + QStringLiteral("dbMin"))
+                                ? s.value(p + QStringLiteral("dbMin")).toDouble()
+                                : prefs_->rxDbMin();
+        const double dMax = s.contains(p + QStringLiteral("dbMax"))
+                                ? s.value(p + QStringLiteral("dbMax")).toDouble()
+                                : prefs_->rxDbMax();
+        prefs_->setRx2DbMin(dMin);
+        prefs_->setRx2DbMax(dMax);
+        s.setValue(p + QStringLiteral("dbMinRx2"), dMin);
+        s.setValue(p + QStringLiteral("dbMaxRx2"), dMax);
+    }
     applyingRx2_ = false;
 }
 
@@ -202,13 +337,26 @@ void BandMemory::saveCurrent() {
 
 void BandMemory::applyBand(const QString &band) {
     if (!prefs_) return;
-    // Arm Auto-LNA's fast acquire.  The reference sets `_band_change` in
-    // its band-select handler (console.cs:43776) so the auto-attenuator
-    // climbs quickly to the new band's overload edge instead of waiting
-    // out a hold interval per dB.
-    if (stream_) stream_->noteBandChange();
     QSettings s;
     const QString p = bandMemPfx() + band + QLatin1Char('/');
+    // Auto-LNA is per amateur band (not one global switch).  Unvisited
+    // HF bands default on.  Restore before LNA so Auto-off does not
+    // immediately walk a stored 20m/2m number.  Acquire only when Auto
+    // is on for this band.
+    if (stream_) {
+        applying_ = true;
+        const bool autoOn = s.contains(p + QStringLiteral("autoLna"))
+            ? s.value(p + QStringLiteral("autoLna")).toBool()
+            : true;
+        stream_->setAutoLna(autoOn, /*armAcquire=*/autoOn);
+        if (!s.contains(p + QStringLiteral("autoLna")))
+            s.setValue(p + QStringLiteral("autoLna"), autoOn);
+        const int rxPort = s.contains(p + QStringLiteral("rxPort"))
+            ? s.value(p + QStringLiteral("rxPort")).toInt()
+            : 0;
+        stream_->setHl2RxPort(rxPort == 2 ? 2 : 0);
+        applying_ = false;
+    }
     // Per-band manual LNA — restored independently of the mode/dB block
     // below (a band may have an LNA set point but no stored mode).  The
     // applying_ guard keeps the resulting lnaSetByOperator from re-saving.

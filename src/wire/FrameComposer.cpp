@@ -13,6 +13,7 @@
 // (OutboundRing) dissolutions.
 
 #include "wire/FrameComposer.h"
+#include "wire/Hl2IoBoard.h"
 #include "wire/MetisFrame.h"
 #include "wire/RadioNet.h"
 #include "wire/RbpFilter.h"
@@ -290,9 +291,10 @@ void compose_case_0([[maybe_unused]] unsigned char& C0,
 // =================== §4a.4 case 2 ====================================
 //
 // Source: networkproto1.c:982-993, HL2 dispatch.
-// DDC0 is always RX1 frequency, except in the nddc=2 (Hermes II)
-// PS-on TX state where it carries TX frequency.  On HL2 nddc=4 the
-// nddc==2 branch is a structural no-op (preserved verbatim).
+// DDC0 is RX1 frequency, except while PureSignal is live on TX:
+//   nddc=2 (Hermes II) and nddc=4 (HL2 Thetis) both lock DDC0 to TX
+//   frequency without mutating stored rx[0] (VFO A).  The old
+//   nddc==2-only branch was a no-op on HL2.
 
 void compose_case_2(unsigned char& C0, unsigned char& C1,
                                    unsigned char& C2, unsigned char& C3,
@@ -301,7 +303,8 @@ void compose_case_2(unsigned char& C0, unsigned char& C1,
     C0 |= 4;  // addr 2: C0 |= (addr << 1) → 0x04
 
     int ddc_freq;
-    if ((nddc == 2) && (XmitBit == 1) && (prn->puresignal_run))
+    if ((XmitBit == 1) && (prn->puresignal_run)
+        && (nddc == 2 || nddc == 4))
         ddc_freq = prn->tx[0].frequency;
     else
         ddc_freq = prn->rx[0].frequency;
@@ -315,10 +318,9 @@ void compose_case_2(unsigned char& C0, unsigned char& C1,
 // =================== §4a.5 case 3 ====================================
 //
 // Source: networkproto1.c:995-1010, HL2 dispatch.
-// Three-way conditional preserved verbatim:
-//   (1) Hermes-II nddc=2 + PS + TX → DDC1 = TX freq;
+//   (1) PS live + TX: DDC1 = TX freq (Hermes II nddc=2 and HL2 nddc=4);
 //   (2) Orion / ANAN P1 nddc=5 → DDC1 = RX1 freq;
-//   (3) default HL2 nddc=4 → DDC1 = RX2 freq.
+//   (3) default HL2 RX → DDC1 = RX2 / VFO B.
 
 void compose_case_3(unsigned char& C0, unsigned char& C1,
                                    unsigned char& C2, unsigned char& C3,
@@ -327,7 +329,8 @@ void compose_case_3(unsigned char& C0, unsigned char& C1,
     C0 |= 6;  // addr 3: C0 |= (addr << 1) → 0x06
 
     int ddc_freq;
-    if ((nddc == 2) && (XmitBit == 1) && (prn->puresignal_run))
+    if ((XmitBit == 1) && (prn->puresignal_run)
+        && (nddc == 2 || nddc == 4))
         ddc_freq = prn->tx[0].frequency;
     else if (nddc == 5)
         ddc_freq = prn->rx[0].frequency;
@@ -361,6 +364,8 @@ void compose_case_1(unsigned char& C0, unsigned char& C1,
 //
 // Source: networkproto1.c:1015-1021, HL2 dispatch.
 // ADC assignments (`P1_adc_cntrl`) + TX step attenuator narrow 5-bit
+// form.  Live HL2 PureSignal: `P1_adc_cntrl=4` (Thetis cntrl1=4) only
+// while MOX+PS+attestation — written by ddc_map, not hardcoded here.
 // form.  The wider 6-bit MOX-gated form lives in case 11 (§4b-2) —
 // both read the same `prn->adc[0].tx_step_attn` field.  No `31 - x`
 // inversion at this layer; the inversion is the setter's job
@@ -851,6 +856,13 @@ void write_main_loop_hl2(const char* out_bufp) {
         g_fpga_write_bufp.assign(kFpgaPayloadBytes, 0);
     }
 
+    // HL2 I/O board sequencer (Hl2IoBoard.h).  USB frame 1 always takes
+    // round-robin case g_out_control_idx; an IO-board frame can only go
+    // in USB frame 2.  f1_case = the case frame 2 carried, -1 when it
+    // carried an IO-board frame.
+    const bool iob = hl2iob::begin_datagram(/*f0_case=*/g_out_control_idx);
+    int f1_case = -1;
+
     // Reference `WriteMainLoop_HL2:873` declares the C0..C4 locals
     // once at function scope and they retain values across USB-
     // frame iterations.  Per-case bodies write all 5 bytes; the
@@ -895,64 +907,14 @@ void write_main_loop_hl2(const char* out_bufp) {
         // caught by 2026-06-06 TX-Agent-2 S.8 audit.
         C0 = static_cast<unsigned char>(XmitBit);
 
-        // I2C-transaction overlay (HL2-only).  Lines 898-943.
-        // First leg: decrement delay if non-zero.
-        if (0 != prn->i2c.delay) {
-            prn->i2c.delay--;
-        }
-
-        // Second leg: pre-decrement delay AND check the queue.
-        // Preserved verbatim — the double decrement is the
-        // reference's countdown pattern.  When the queue has data
-        // AND delay is at-or-below-zero, fire an I2C transaction
-        // and reset delay to 5.
-        if ((0 >= --prn->i2c.delay) &&
-            (prn->i2c.in_index != prn->i2c.out_index)) {
-            prn->i2c.delay = 5;
-
-            // I2C queue ring-buffer next-index walk (HL2 has
-            // MAX_I2C_QUEUE = 32 slots; kMaxI2cQueue mirrors).
-            unsigned char next = prn->i2c.out_index + 1 >= kMaxI2cQueue
-                                     ? 0
-                                     : prn->i2c.out_index + 1;
-
-            // C0 — I2C addr 0x3c (bus 0) or 0x3d (bus 1) shifted
-            // into bits[7:1], plus ctrl_request → bit 7 (which is
-            // the "stop" bit on the wire).
-            if (0 == prn->i2c.i2c_queue[next].bus) {
-                C0 |= static_cast<unsigned char>((0x3c << 1)
-                          | (prn->i2c.ctrl_request << 7));
-            } else {
-                C0 |= static_cast<unsigned char>((0x3d << 1)
-                          | (prn->i2c.ctrl_request << 7));
-            }
-
-            // C2 — I2C target address.  If MSB set (7-bit notation
-            // shifted), normalize by right-shift; then OR 0x80
-            // (Stop request).
-            unsigned char address = prn->i2c.i2c_queue[next].address;
-            if (0x7f < address) {
-                address = address >> 1;
-            }
-            C2 = static_cast<unsigned char>(0x80 | address);
-
-            // C1 — read=0x07 / write=0x06 sub-command
-            if (prn->i2c.ctrl_read) {
-                C1 = 0x07;
-            } else {
-                C1 = 0x06;
-            }
-
-            // C3 / C4 — payload control byte + write data
-            C3 = prn->i2c.i2c_queue[next].control;
-            C4 = prn->i2c.i2c_queue[next].write_data;
-
-            // Advance queue out-index
-            prn->i2c.out_index = next;
-
-            // NB: I2C-overlay frames do NOT advance g_out_control_idx.
-            // The else-branch below does that on non-I2C frames.
-        } else {
+        // HL2 I/O board frame (USB frame 2 only).  Like the reference I2C
+        // overlay, it does NOT advance g_out_control_idx.
+        bool i2c_overlay = false;
+        if (txframe == 1 && iob)
+            i2c_overlay = hl2iob::compose_frame(XmitBit, C0, C1, C2, C3, C4);
+        if (txframe == 1 && !i2c_overlay)
+            f1_case = g_out_control_idx;
+        if (!i2c_overlay) {
             // Normal switch dispatch (networkproto1.c:946-1178).
             // All 19 cases compile-time present per Q2 eager.
             // §4a-scope: cases 0 / 2 / 3 implemented.  Cases 1
@@ -1054,6 +1016,8 @@ void write_main_loop_hl2(const char* out_bufp) {
 
         cw_wire_probe(C0, C1, C2, C3, C4);  // #186 diag (LYRA_CW_DEBUG)
     }
+
+    hl2iob::end_datagram(f1_case);
 
     // ---- LRIQ memcpy + wire send + paired release ----
     //

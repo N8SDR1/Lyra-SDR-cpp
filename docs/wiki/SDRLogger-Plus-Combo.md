@@ -3,7 +3,7 @@
 **[SDRLogger+](https://n8sdr1.github.io/SDRLoggerPlus/)** is the companion
 logging program — a modern contest/DX logger by the same developer. Over an
 ordinary **TCI** connection it already drives Lyra (including **HL2 /
-BrickSDR2 SUB / RX2** and **SPLIT VFO B**) and shows spots, but turning on
+BrickSDR2 / Brick3SDR SUB / RX2** and **SPLIT VFO B**) and shows spots, but turning on
 **Combo** upgrades
 that one-way link into a two-way *collaboration* that runs over the **same TCI
 socket** — no bridge app, no second connection, no extra port. The CW Console,
@@ -23,7 +23,8 @@ matches deskHPSDR / Thetis:
 | `rx_channel_sensors` **1,0** | RX2 S-meter (dBm); ~−140 dBm floor if SUB is off |
 
 Setting an RX2 frequency does **not** auto-enable SUB. Combo **RST / SNR stay
-on RX1** until SDRLogger+ is known to consume a second-channel report.
+on RX1** until SDRLogger+ is known to consume a second-channel report
+(that Combo slice is **held**).
 
 > 🌐 **Get SDRLogger+:** [n8sdr1.github.io/SDRLoggerPlus](https://n8sdr1.github.io/SDRLoggerPlus/)
 > · [Download / source](https://github.com/N8SDR1/SDRLoggerPlus)
@@ -34,7 +35,8 @@ on RX1** until SDRLogger+ is known to consume a second-channel report.
    It's **off by default**, per-machine, and remembered.
 2. Make sure **TCI server running** is on (Combo rides the TCI link), and that
    **SDRLogger+ is connected to Lyra as a TCI client** — point its radio / TCI
-   connection at Lyra's IP and port (the same **50001**).
+   connection at Lyra's IP and port (the same **40001** default unless you
+   changed it).
 3. When the two are linked, SDRLogger+ shows a **`● Lyra Combo`** badge in its
    Log-Entry header — that badge is your confirmation the link is live.
 

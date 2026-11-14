@@ -14,7 +14,7 @@ import QtQuick.Layouts
 Rectangle {
     id: root
     implicitWidth: 360
-    implicitHeight: col.implicitHeight + 16
+    implicitHeight: col.implicitHeight + 12
     // Honest FLOOR (below the preferred implicitHeight) so the host dock can be
     // shrunk under the content — the internal ScrollView then scrolls instead of
     // clipping.  Tuner collapses via the Tuner model (not a root `collapsed`
@@ -60,6 +60,16 @@ Rectangle {
     property int confirmDelIdx: -1
     onEditRowsChanged: { editRowIdx = -1; confirmDelIdx = -1 }
 
+    // Shared column widths so the header and every stored row use the same
+    // edges. fillWidth on top of each label's own text width made "In" and
+    // "44" land in different columns.
+    readonly property int tuneGutter: editRows ? 48 : 10
+    readonly property int tuneColW: {
+        var used = 42 + 100 + tuneGutter + 8 * 5
+        var wide = bodyScroll.contentWidth > 0 ? bodyScroll.contentWidth : 360
+        return Math.max(36, Math.floor((wide - used) / 3))
+    }
+
     // Reset edit/confirm selection when the antenna changes (indices are per-antenna).
     Connections {
         target: Tuner
@@ -102,51 +112,43 @@ Rectangle {
         return (k >= 0 ? "+" : "") + k.toFixed(1) + " kHz"
     }
 
-    // Scroll when the panel is compressed below its natural content size
-    // — both axes, AsNeeded — so a floated-small or racked panel stays
-    // fully usable instead of silently clipping (SizeRootObjectToView
-    // gives no scrollbar on its own).  Same idiom as SpeechPanel / the CW
-    // decoder.  Above the natural size the content fills; below it scrolls.
+    // Scroll only when the dock is shorter than the stacked content.
+    // Do not stretch the column to the viewport — that opened a dead
+    // band between the match tiles and the stored rows.
     ScrollView {
         id: bodyScroll
         anchors.fill: parent
-        anchors.margins: 8
+        anchors.margins: 6
         clip: true
-        contentWidth: Math.max(324, availableWidth)
-        // The memory list sizes itself with Layout.fillHeight, so the column
-        // needs a definite height to grow into: fill the viewport when the panel
-        // is tall enough, else hold at the ~380px natural height and let the
-        // ScrollView scroll.  Bind to bodyScroll.height (stable) rather than
-        // availableHeight so the fill can't feed a scrollbar-visibility loop.
-        contentHeight: Tuner.collapsed ? col.implicitHeight
-                                       : Math.max(380, bodyScroll.height)
+        // Leave the vertical bar's width so the last column is not drawn under it.
+        contentWidth: Math.max(280, availableWidth - 16)
+        contentHeight: col.implicitHeight
         ScrollBar.horizontal.policy: ScrollBar.AsNeeded
         ScrollBar.vertical.policy:   ScrollBar.AsNeeded
 
         ColumnLayout {
             id: col
             width: bodyScroll.contentWidth
-            height: bodyScroll.contentHeight
-            spacing: 8
+            spacing: 4
 
         // ── Header ──
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: 6
             Label { text: qsTr("TUNER"); color: root.cAccent; font.bold: true
                     font.letterSpacing: 1 }
             Label { text: qsTr("manual ATU memory"); color: root.cMuted
                     font.pixelSize: 11; Layout.fillWidth: true }
             // live SWR pill
             Rectangle {
-                implicitHeight: 26; implicitWidth: swrLbl.implicitWidth + 20
+                implicitHeight: 22; implicitWidth: swrLbl.implicitWidth + 16
                 radius: 6; color: "#0d141b"
                 border.color: root.swrColor(root.swr)
                 Label {
                     id: swrLbl; anchors.centerIn: parent
                     text: root.swr < 0 ? qsTr("SWR —")
                           : qsTr("SWR ") + root.swr.toFixed(1) + ":1"
-                    color: root.swrColor(root.swr); font.pixelSize: 14; font.bold: true
+                    color: root.swrColor(root.swr); font.pixelSize: 12; font.bold: true
                 }
             }
             // edit-existing toggle (hidden when collapsed)
@@ -197,8 +199,8 @@ Rectangle {
                     required property int index
                     required property string modelData
                     readonly property bool sel: Tuner.activeAntenna === index
-                    radius: 7; implicitHeight: 24
-                    implicitWidth: antLbl.implicitWidth + 22
+                    radius: 6; implicitHeight: 22
+                    implicitWidth: antLbl.implicitWidth + 16
                     color: sel ? "#10323a" : "#161e28"
                     border.color: sel ? root.cAccent : "#2a3a4a"
                     Label { id: antLbl; anchors.centerIn: parent; text: parent.modelData
@@ -211,29 +213,37 @@ Rectangle {
         }
 
         // ── Context line: band + freq + match badge ──
+        // Badge sits next to the frequency. A fill spacer after it, so a
+        // narrow dock or the scrollbar cannot crush the words.
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
             Label { text: Tuner.currentBand !== "" ? Tuner.currentBand : qsTr("—")
                     color: "#efb340"; font.bold: true; font.pixelSize: 13 }
             Label { text: Tuner.currentFreqText; color: root.cText
-                    font.family: "Consolas"; font.pixelSize: 18 }
-            Item { Layout.fillWidth: true }
-            RowLayout {
-                spacing: 4
+                    font.family: "Consolas"; font.pixelSize: 16 }
+            Row {
                 visible: Tuner.matchValid
-                Rectangle { width: 8; height: 8; radius: 4; color: root.matchCol }
+                spacing: 5
+                Layout.alignment: Qt.AlignVCenter
+                Rectangle {
+                    width: 7; height: 7; radius: 3.5; color: root.matchCol
+                    anchors.verticalCenter: parent.verticalCenter
+                }
                 Label {
                     text: Tuner.matchExact ? qsTr("exact match")
                           : qsTr("nearest ") + root.fmtDelta(Tuner.matchDeltaHz)
-                    color: root.matchCol; font.pixelSize: 11 }
+                    color: root.matchCol; font.pixelSize: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
+            Item { Layout.fillWidth: true }
         }
 
         // ── Match tiles: Input / Output / Inductor ──
         GridLayout {
             Layout.fillWidth: true
-            columns: 3; columnSpacing: 8; rowSpacing: 0
+            columns: 3; columnSpacing: 6; rowSpacing: 0
             Repeater {
                 model: [
                     { k: qsTr("INPUT"),    v: Tuner.matchInput },
@@ -244,18 +254,18 @@ Rectangle {
                     id: tile
                     required property var modelData
                     Layout.fillWidth: true
-                    implicitHeight: 52; radius: 9
+                    implicitHeight: 40; radius: 6
                     color: "#0d141b"
                     border.color: Qt.rgba(root.matchCol.r, root.matchCol.g, root.matchCol.b, 0.55)
                     ColumnLayout {
-                        anchors.fill: parent; anchors.margins: 8; spacing: 2
+                        anchors.fill: parent; anchors.margins: 5; spacing: 0
                         Label { text: tile.modelData.k; color: root.cMuted
                                 font.pixelSize: 10; font.letterSpacing: 1 }
                         Label {
                             text: (tile.modelData.v && tile.modelData.v.length > 0)
                                   ? tile.modelData.v : "—"
                             color: Tuner.matchValid ? root.cText : root.cDim
-                            font.family: "Consolas"; font.pixelSize: 22 }
+                            font.family: "Consolas"; font.pixelSize: 18 }
                     }
                 }
             }
@@ -265,6 +275,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             visible: !root.editingNew && (!Tuner.matchValid || !Tuner.matchExact)
+            Layout.maximumHeight: visible ? 4096 : 0
             implicitHeight: nrCol.implicitHeight + 14
             radius: 9; color: "#241a0c"; border.color: "#6e4f1c"
             RowLayout {
@@ -294,6 +305,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             visible: root.editingNew
+            Layout.maximumHeight: visible ? 4096 : 0
             implicitHeight: edCol.implicitHeight + 16
             radius: 9; color: "#0d141b"; border.color: root.cAccent
             ColumnLayout {
@@ -334,13 +346,25 @@ Rectangle {
             visible: !Tuner.collapsed
             spacing: 0
             RowLayout {
-                Layout.fillWidth: true; spacing: 0
-                Label { text: qsTr("Band"); color: root.cMuted; font.pixelSize: 11; Layout.preferredWidth: 46 }
-                Label { text: qsTr("Freq");  color: root.cMuted; font.pixelSize: 11; Layout.fillWidth: true }
-                Label { text: qsTr("In");    color: root.cMuted; font.pixelSize: 11; Layout.preferredWidth: 48 }
-                Label { text: qsTr("Out");   color: root.cMuted; font.pixelSize: 11; Layout.preferredWidth: 48 }
-                Label { text: qsTr("Ind");   color: root.cMuted; font.pixelSize: 11; Layout.preferredWidth: 48 }
-                Item { Layout.preferredWidth: root.editRows ? 48 : 0 }
+                Layout.fillWidth: true; spacing: 8
+                Label { text: qsTr("Band"); color: root.cMuted; font.pixelSize: 11
+                        Layout.minimumWidth: 42; Layout.preferredWidth: 42; Layout.maximumWidth: 42 }
+                Label { text: qsTr("Freq");  color: root.cMuted; font.pixelSize: 11
+                        Layout.minimumWidth: 100; Layout.preferredWidth: 100; Layout.maximumWidth: 100 }
+                Label { text: qsTr("In");    color: root.cMuted; font.pixelSize: 11
+                        Layout.minimumWidth: root.tuneColW; Layout.preferredWidth: root.tuneColW
+                        Layout.maximumWidth: root.tuneColW
+                        horizontalAlignment: Text.AlignHCenter }
+                Label { text: qsTr("Out");   color: root.cMuted; font.pixelSize: 11
+                        Layout.minimumWidth: root.tuneColW; Layout.preferredWidth: root.tuneColW
+                        Layout.maximumWidth: root.tuneColW
+                        horizontalAlignment: Text.AlignHCenter }
+                Label { text: qsTr("Ind");   color: root.cMuted; font.pixelSize: 11
+                        Layout.minimumWidth: root.tuneColW; Layout.preferredWidth: root.tuneColW
+                        Layout.maximumWidth: root.tuneColW
+                        horizontalAlignment: Text.AlignHCenter }
+                Item { Layout.preferredWidth: root.tuneGutter; Layout.minimumWidth: root.tuneGutter
+                       Layout.maximumWidth: root.tuneGutter }
             }
             Rectangle { Layout.fillWidth: true; height: 1; color: "#22323e" }
 
@@ -360,7 +384,7 @@ Rectangle {
                     readonly property bool editing: root.editRows && root.editRowIdx === pIdx
                     readonly property bool confirming: root.confirmDelIdx === pIdx
                     Layout.fillWidth: true
-                    implicitHeight: 26
+                    implicitHeight: 22
                     radius: editing ? 5 : 0
                     color: editing ? "#0e2a34" : (here ? "#10323a" : "transparent")
                     border.color: editing ? root.cAccent : "transparent"
@@ -375,34 +399,57 @@ Rectangle {
                     }
 
                     RowLayout {
-                        anchors.fill: parent; anchors.leftMargin: 0; spacing: 0
+                        anchors.fill: parent; anchors.leftMargin: 0; anchors.rightMargin: 0
+                        spacing: 8
                         Label { text: row.p.band; color: row.here ? root.cAccent : root.cMuted
-                                font.pixelSize: 12; Layout.preferredWidth: 46 }
+                                font.pixelSize: 12
+                                Layout.minimumWidth: 42; Layout.preferredWidth: 42; Layout.maximumWidth: 42 }
                         Label { text: row.p.freqText
                                 color: row.here ? root.cAccent : root.cText
-                                font.family: "Consolas"; font.pixelSize: 12; Layout.fillWidth: true }
+                                font.family: "Consolas"; font.pixelSize: 12
+                                Layout.minimumWidth: 100; Layout.preferredWidth: 100; Layout.maximumWidth: 100 }
                         // read-only labels (every row except the one being edited)
                         Label { visible: !row.editing; text: row.p.input || "—"
-                                color: root.cText; font.family: "Consolas"; font.pixelSize: 12; Layout.preferredWidth: 48 }
+                                color: root.cText; font.family: "Consolas"; font.pixelSize: 12
+                                Layout.minimumWidth: root.tuneColW; Layout.preferredWidth: root.tuneColW
+                                Layout.maximumWidth: root.tuneColW
+                                horizontalAlignment: Text.AlignHCenter }
                         Label { visible: !row.editing; text: row.p.output || "—"
-                                color: root.cText; font.family: "Consolas"; font.pixelSize: 12; Layout.preferredWidth: 48 }
+                                color: root.cText; font.family: "Consolas"; font.pixelSize: 12
+                                Layout.minimumWidth: root.tuneColW; Layout.preferredWidth: root.tuneColW
+                                Layout.maximumWidth: root.tuneColW
+                                horizontalAlignment: Text.AlignHCenter }
                         Label { visible: !row.editing; text: row.p.inductor || "—"
-                                color: root.cText; font.family: "Consolas"; font.pixelSize: 12; Layout.preferredWidth: 48 }
+                                color: root.cText; font.family: "Consolas"; font.pixelSize: 12
+                                Layout.minimumWidth: root.tuneColW; Layout.preferredWidth: root.tuneColW
+                                Layout.maximumWidth: root.tuneColW
+                                horizontalAlignment: Text.AlignHCenter }
 
                         // edit fields (only the selected row)
                         TextField { id: reIn;  visible: row.editing; text: row.p.input
-                                    Layout.preferredWidth: 48; font.pixelSize: 12
+                                    font.pixelSize: 12
+                                    Layout.minimumWidth: root.tuneColW; Layout.preferredWidth: root.tuneColW
+                                    Layout.maximumWidth: root.tuneColW
+                                    horizontalAlignment: Text.AlignHCenter
                                     onEditingFinished: Tuner.updatePoint(row.pIdx, reIn.text, reOut.text, reInd.text, row.p.note) }
                         TextField { id: reOut; visible: row.editing; text: row.p.output
-                                    Layout.preferredWidth: 48; font.pixelSize: 12
+                                    font.pixelSize: 12
+                                    Layout.minimumWidth: root.tuneColW; Layout.preferredWidth: root.tuneColW
+                                    Layout.maximumWidth: root.tuneColW
+                                    horizontalAlignment: Text.AlignHCenter
                                     onEditingFinished: Tuner.updatePoint(row.pIdx, reIn.text, reOut.text, reInd.text, row.p.note) }
                         TextField { id: reInd; visible: row.editing; text: row.p.inductor
-                                    Layout.preferredWidth: 48; font.pixelSize: 12
+                                    font.pixelSize: 12
+                                    Layout.minimumWidth: root.tuneColW; Layout.preferredWidth: root.tuneColW
+                                    Layout.maximumWidth: root.tuneColW
+                                    horizontalAlignment: Text.AlignHCenter
                                     onEditingFinished: Tuner.updatePoint(row.pIdx, reIn.text, reOut.text, reInd.text, row.p.note) }
 
                         // trailing control: delete-with-confirm, only on the active row
                         Item {
-                            Layout.preferredWidth: root.editRows ? 48 : 0
+                            Layout.minimumWidth: root.tuneGutter
+                            Layout.preferredWidth: root.tuneGutter
+                            Layout.maximumWidth: root.tuneGutter
                             Layout.fillHeight: true
                             RowLayout {
                                 anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
@@ -479,7 +526,7 @@ Rectangle {
 
             // Add-current-freq affordance.
             RowLayout {
-                Layout.fillWidth: true; Layout.topMargin: 8; spacing: 8
+                Layout.fillWidth: true; Layout.topMargin: 4; spacing: 6
                 Button {
                     text: qsTr("Add current freq"); implicitHeight: 24; font.pixelSize: 11
                     onClicked: {

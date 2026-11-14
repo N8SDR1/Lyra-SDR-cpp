@@ -2,15 +2,22 @@
 
 #include "settingsdialog.h"
 
+#include "desk_link.h"
+#include "eqmodel.h"
+#include "speechmodel.h"
+#include "combinatormodel.h"
+#include "platemodel.h"
 #include "bands.h"
 #include "hl2_discovery.h"
 #include "mainwindow.h"   // Share-a-layout buttons call MainWindow export/import
 #include "hl2_stream.h"
 #include "wire/P2RxBridge.h"
+#include "wire/P2Session.h"
 #include "hardware/HardwareCatalog.h"
 #include "palettes.h"
 #include "prefs.h"
 #include "win_perf.h"   // Performance group — network-throttle read/set
+#include "hid_vfo_wheel.h"
 #include "time_stations.h"
 #include "logdialog.h"
 
@@ -19,19 +26,27 @@
 #include "wdsp_engine.h"
 #include "wxservice.h"
 
+#include "appsstore.h"
 #include "backup.h"
 #include "rig/RigScope.h"       // multi-rig Stage 3 — per-rig key routing (cal/)
 #include "rig/RigRegistry.h"    // multi-rig — discovery→rig auto-create/remove
 #include "wdsp_native.h"
 
 #include <QApplication>
+#include <QAudioDevice>
+#include <QGuiApplication>
+#include <QMediaDevices>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
 #include <QDirIterator>
 #include <QProgressBar>
+#include <QStatusBar>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -58,12 +73,14 @@
 #include <QPainter>      // #91 VOX — colored mic-level meter bar
 #include <QPaintEvent>
 #include <QGridLayout>
+#include <QToolButton>   // folded SWL rows header on the OC grid
 #include <QRadioButton>
 #include <QButtonGroup>
 #include <QSignalBlocker>
 #include <QVector>
 #include <QFrame>
 #include "oc/OcControl.h"   // #199 — editable OC table (Filters / BCD tab)
+#include "xvtrslots.h"      // named Xvtr rows on the OC grid (DeskHPSDR / #24)
 #include <QHash>
 #include <QHBoxLayout>
 #include <QSettings>
@@ -71,7 +88,9 @@
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QHostAddress>
+#include <QNetworkInterface>
 #include <QColor>
 #include <QFont>
 #include <QBrush>
@@ -119,6 +138,13 @@
 #include <utility>
 #include <cmath>
 #include <iterator>
+
+// ASIO opt-in state (wire/Ivac.cpp).  Declared here rather than
+// including wire/Ivac.h, whose macros clash with other headers.
+namespace lyra::wire {
+bool ivacAsioCompiledIn();
+bool ivacAsioActive();
+}
 
 namespace lyra::ui {
 
@@ -278,10 +304,11 @@ SettingsDialog::SettingsDialog(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                                lyra::cat::SerialCwKey *serialCwKey,
                                const QList<lyra::cat::CatServer *> &catServers,
                                lyra::wire::P2RxBridge *p2,
+                               DeskLink *desk,
                                QWidget *parent)
     : QDialog(parent), prefs_(prefs), stream_(stream),
       discovery_(discovery), p2_(p2), bcd_(bcd), engine_(engine), wx_(wx),
-      memory_(memory), eibi_(eibi), tci_(tci), spots_(spots),
+      memory_(memory), eibi_(eibi), tci_(tci), desk_(desk), spots_(spots),
       spotHole_(spotHole), dxCluster_(dxCluster),
       meter_(meter), tuner_(tuner), voiceKeyer_(voiceKeyer),
       recorder_(recorder), converter_(converter),
@@ -390,9 +417,13 @@ SettingsDialog::SettingsDialog(Prefs *prefs, lyra::ipc::HL2Stream *stream,
     if (tci_) {
         tabs_->addTab(wrapScroll(buildNetworkTab()), tr("Network"));
     }
+    if (prefs_) {
+        tabs_->addTab(wrapScroll(buildRemoteTab()), tr("Remote"));
+    }
     if (serialPtt_) {
         tabs_->addTab(wrapScroll(buildCatSerialTab()), tr("CAT / Serial"));
     }
+    tabs_->addTab(wrapScroll(buildAppsTab()), tr("Apps"));
 
     // --- Set-once utility / cosmetic (rarely revisited) ---
     if (profiles_) {
@@ -445,43 +476,182 @@ QWidget *SettingsDialog::buildAudioTab() {
     note->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
     form->addRow(note);
 
-    // ── Task #53 — Shared RX+TX Filter Low edge ─────────────────
-    // Single global filter-low setting applied to BOTH the WDSP RX
-    // bandpass (replaces the previously-hardcoded 0 Hz low cut for
-    // SSB/DIG modes) AND the HL2Stream TX bandpass (replaces the
-    // previously-hardcoded 200 Hz low cut).  Interim until the TX
-    // Profile Manager (Task #49) ships per-profile (lo, hi) pairs
-    // that override this default on profile load.  Tooltip carries
-    // the 50/60 Hz mains-coupling warning.
+    // ── RX and TX filter low edges ──────────────────────────────
+    // Two cutoffs, 0..500 Hz.  With the RX/TX lock on they track.
+    // SSB and digital use them.  CW is pitch-centred; AM / DSB / FM
+    // are symmetric around the carrier and ignore the low edge.
     {
-        auto *flSpin = new QSpinBox(page);
-        flSpin->setRange(0, 500);
-        flSpin->setSingleStep(10);
-        flSpin->setSuffix(tr(" Hz"));
-        flSpin->setValue(prefs_->filterLow());
-        flSpin->setToolTip(
-            tr("Low cutoff frequency for the RX and TX audio bandpass "
-               "(shared).  Higher values (100-200 Hz) suppress 50 / 60 Hz "
-               "mains coupling on the microphone path and reduce low-end "
-               "rumble on receive.  Lower values (50-70 Hz) preserve "
-               "chest-resonance / low-end body for ESSB-style wide "
-               "audio — verify your station isn't picking up mains hum "
-               "at very low cuts.\n\n"
-               "Applies to SSB / DIG modes only (asymmetric passband, "
-               "low edge offset from carrier).  CW is pitch-centred and "
-               "AM / DSB / FM are symmetric around DC — those modes "
-               "ignore this setting.\n\n"
-               "Interim setting: when the TX Profile Manager ships, "
-               "each named profile will carry its own RX + TX (low, "
-               "high) pair that overrides this default on load."));
-        connect(flSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+        auto *rxLo = new QSpinBox(page);
+        rxLo->setRange(0, 500);
+        rxLo->setSingleStep(10);
+        rxLo->setSuffix(tr(" Hz"));
+        rxLo->setValue(prefs_->filterLow());
+        rxLo->setToolTip(
+            tr("Receive low cutoff, 0–500 Hz.  Higher values "
+               "(100–200 Hz) cut rumble.  Lower values (50–70 Hz) "
+               "keep low-end body.  SSB and digital only."));
+        connect(rxLo, qOverload<int>(&QSpinBox::valueChanged), this,
                 [this](int v) { prefs_->setFilterLow(v); });
-        connect(prefs_, &Prefs::filterLowChanged, flSpin, [this, flSpin]() {
-            if (flSpin->value() != prefs_->filterLow()) {
-                flSpin->setValue(prefs_->filterLow());
-            }
+        connect(prefs_, &Prefs::filterLowChanged, rxLo, [this, rxLo]() {
+            if (rxLo->value() != prefs_->filterLow())
+                rxLo->setValue(prefs_->filterLow());
         });
-        form->addRow(tr("Filter Low edge (RX + TX):"), flSpin);
+        form->addRow(tr("RX filter low:"), rxLo);
+
+        auto *txLo = new QSpinBox(page);
+        txLo->setRange(0, 500);
+        txLo->setSingleStep(10);
+        txLo->setSuffix(tr(" Hz"));
+        txLo->setValue(prefs_->txFilterLow());
+        txLo->setToolTip(
+            tr("Transmit low cutoff, 0–500 Hz.  With the lock on, "
+               "this follows the receive low.  Unlock it to keep a "
+               "deeper transmit cut than you listen to, or the reverse."));
+        connect(txLo, qOverload<int>(&QSpinBox::valueChanged), this,
+                [this](int v) { prefs_->setTxFilterLow(v); });
+        connect(prefs_, &Prefs::txFilterLowChanged, txLo, [this, txLo]() {
+            if (txLo->value() != prefs_->txFilterLow())
+                txLo->setValue(prefs_->txFilterLow());
+        });
+        form->addRow(tr("TX filter low:"), txLo);
+    }
+
+    // ── ASIO devices for VAC (opt-in; docs/architecture/asio_vac_plan.md)
+    // Off by default: with it off Lyra never loads an ASIO driver.  The
+    // ASIO Compatible logo sits beside the switch — the Steinberg ASIO
+    // Usage Guidelines require it in every dialog that enables/configures
+    // ASIO (ASIO is manually activated in Lyra).
+    if (lyra::wire::ivacAsioCompiledIn()) {
+        auto *grp = new QGroupBox(tr("ASIO® devices"), page);
+        auto *row = new QHBoxLayout(grp);
+        auto *col = new QVBoxLayout;
+        QSettings s;
+        auto *asioChk = new QCheckBox(
+            tr("Enable ASIO devices for VAC (takes effect after restarting "
+               "Lyra)"), grp);
+        asioChk->setChecked(
+            s.value(QStringLiteral("audio/asioEnabled"), false).toBool());
+        asioChk->setToolTip(tr(
+            "Adds \"ASIO\" to the VAC Driver list, so VAC1 or VAC2 can use "
+            "an ASIO audio interface (e.g. a mixer's USB ASIO driver) for "
+            "the TX mic and RX audio.\n\n"
+            "Off by default: when off, Lyra never loads any ASIO driver.  "
+            "Only one VAC can use ASIO at a time, pick the SAME ASIO driver "
+            "for its input and output, and close any other program using "
+            "that driver.  64-bit ASIO drivers only."));
+        auto *asioState = new QLabel(grp);
+        asioState->setWordWrap(true);
+        asioState->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+        auto updateState = [asioChk, asioState]() {
+            QSettings st;
+            QString t;
+            if (lyra::wire::ivacAsioActive())
+                t = tr("ASIO is active this session.");
+            else if (asioChk->isChecked())
+                t = tr("Restart Lyra to load ASIO drivers.");
+            else if (st.value(QStringLiteral("audio/asioDisabledAfterCrash"),
+                              false).toBool())
+                t = tr("ASIO was switched off because Lyra did not finish "
+                       "starting while loading ASIO drivers last time.  An "
+                       "installed ASIO driver may be faulty.");
+            else
+                t = tr("Off — no ASIO driver is loaded.");
+            asioState->setText(t);
+        };
+        connect(asioChk, &QCheckBox::toggled, grp, [updateState](bool on) {
+            QSettings st;
+            st.setValue(QStringLiteral("audio/asioEnabled"), on);
+            if (on)
+                st.remove(QStringLiteral("audio/asioDisabledAfterCrash"));
+            updateState();
+        });
+        updateState();
+        col->addWidget(asioChk);
+        col->addWidget(asioState);
+
+        // ASIO stream options — read when the VAC stream starts (turn the
+        // VAC off and on, or change its device, to apply).
+        auto *opts = new QFormLayout;
+        auto *inCh = new QSpinBox(grp);
+        inCh->setRange(1, 64);
+        inCh->setValue(s.value(QStringLiteral("audio/asioInChannel"), 1).toInt());
+        inCh->setToolTip(tr(
+            "First ASIO input channel carrying the mic.  A mixer such as the "
+            "WING has many USB channels — pick the one your mic is routed to."));
+        auto *inMono = new QCheckBox(tr("Mono (that channel only)"), grp);
+        inMono->setChecked(s.value(QStringLiteral("audio/asioInMono"), false).toBool());
+        inMono->setToolTip(tr(
+            "On: read only the channel above and copy it to both sides.  "
+            "Off: read it and the next channel as a stereo pair."));
+        auto *inRow = new QHBoxLayout;
+        inRow->addWidget(inCh);
+        inRow->addWidget(inMono);
+        inRow->addStretch(1);
+        opts->addRow(tr("Mic input channel:"), inRow);
+
+        auto *outCh = new QSpinBox(grp);
+        outCh->setRange(1, 64);
+        outCh->setValue(s.value(QStringLiteral("audio/asioOutChannel"), 1).toInt());
+        outCh->setToolTip(tr("First of the two ASIO output channels for RX audio."));
+        opts->addRow(tr("Audio output channels:"), outCh);
+
+        auto *block = new QComboBox(grp);
+        block->addItem(tr("Auto (match Lyra's audio block)"), 0);
+        for (int n : {64, 128, 256, 512, 1024, 2048})
+            block->addItem(tr("%1 frames").arg(n), n);
+        {
+            const int i = block->findData(
+                s.value(QStringLiteral("audio/asioBlock"), 0).toInt());
+            block->setCurrentIndex(i >= 0 ? i : 0);
+        }
+        block->setToolTip(tr(
+            "ASIO driver buffer size.  Small blocks keep audio flowing in "
+            "even steps.  If the driver can't do the size asked for, its own "
+            "preferred size is used (see the log)."));
+        opts->addRow(tr("Block size:"), block);
+
+        auto *pin = new QCheckBox(tr("Hold the rate ratio at 1.0"), grp);
+        pin->setChecked(s.value(QStringLiteral("audio/asioPinRate"), true).toBool());
+        pin->setToolTip(tr(
+            "On (default): VAC does not keep adjusting its rate to the ASIO "
+            "device.  Off: the normal adaptive rate matching is used."));
+        opts->addRow(QString(), pin);
+
+        auto *applyNote = new QLabel(
+            tr("These apply when the VAC starts — turn the VAC off and on "
+               "again after changing them."), grp);
+        applyNote->setWordWrap(true);
+        applyNote->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+        opts->addRow(applyNote);
+
+        connect(inCh, &QSpinBox::valueChanged, grp, [](int v) {
+            QSettings().setValue(QStringLiteral("audio/asioInChannel"), v); });
+        connect(inMono, &QCheckBox::toggled, grp, [](bool on) {
+            QSettings().setValue(QStringLiteral("audio/asioInMono"), on); });
+        connect(outCh, &QSpinBox::valueChanged, grp, [](int v) {
+            QSettings().setValue(QStringLiteral("audio/asioOutChannel"), v); });
+        connect(block, &QComboBox::currentIndexChanged, grp, [block](int) {
+            QSettings().setValue(QStringLiteral("audio/asioBlock"),
+                                 block->currentData().toInt()); });
+        connect(pin, &QCheckBox::toggled, grp, [](bool on) {
+            QSettings().setValue(QStringLiteral("audio/asioPinRate"), on); });
+        col->addLayout(opts);
+
+        auto *attr = new QLabel(
+            tr("ASIO is a registered trademark of Steinberg Media "
+               "Technologies GmbH."), grp);
+        attr->setWordWrap(true);
+        attr->setStyleSheet(QStringLiteral("QLabel{color:#6c7f8f;font-size:10px;}"));
+        col->addWidget(attr);
+        row->addLayout(col, 1);
+        auto *logo = new QLabel(grp);
+        const QPixmap pm(QStringLiteral(
+            ":/asio/ASIO-compatible-logo-white-transparent-RGB.png"));
+        if (!pm.isNull())
+            logo->setPixmap(pm.scaledToHeight(56, Qt::SmoothTransformation));
+        logo->setToolTip(tr("ASIO Compatible"));
+        row->addWidget(logo, 0, Qt::AlignTop);
+        form->addRow(grp);
     }
 
     // ── #158 — Virtual Audio Cable (VAC1) ───────────────────────────
@@ -1160,13 +1330,35 @@ QWidget *SettingsDialog::buildBandsTab() {
     auto *mem = new QWidget(sub);
     auto *v = new QVBoxLayout(mem);
 
-    auto *table = new QTableWidget(0, 7, mem);
+    auto *how = new QLabel(
+        tr("Click a cell to type — there is no Save button. The change is "
+           "kept when you press Enter or click another cell. F2 also opens "
+           "the highlighted cell."), mem);
+    how->setWordWrap(true);
+    how->setStyleSheet(QStringLiteral(
+        "color:#d8e6f0; font-weight:600; padding: 4px 0 2px 0;"));
+    v->addWidget(how);
+
+    auto *table = new QTableWidget(0, 9, mem);
     table->setHorizontalHeaderLabels(
         {tr("Name"), tr("Freq (MHz)"), tr("Mode"), tr("RX BW (Hz)"),
-         tr("Offset (kHz)"), tr("CTCSS (Hz)"), tr("Notes")});
+         tr("Offset (kHz)"), tr("UL (Hz)"), tr("DL (Hz)"),
+         tr("Burst"), tr("Notes")});
     table->horizontalHeader()->setStretchLastSection(true);
-    table->verticalHeader()->setVisible(false);
+    table->verticalHeader()->setVisible(true);
+    table->verticalHeader()->setDefaultSectionSize(24);
+    table->setAlternatingRowColors(true);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    table->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    table->setMinimumHeight(220);
+    table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    // First click opens the cell (not double-click). Spreadsheet-style so
+    // the list does not look read-only.
+    table->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    table->setToolTip(tr("Click a cell to edit. Changes are stored when you "
+                         "leave the cell."));
 
     auto refreshing = std::make_shared<bool>(false);
     auto refresh = [this, table, refreshing]() {
@@ -1188,15 +1380,32 @@ QWidget *SettingsDialog::buildBandsTab() {
             table->setItem(i, 5, new QTableWidgetItem(
                 p.ctcssToneHz > 0.0 ? QString::number(p.ctcssToneHz, 'f', 1)
                                     : QString()));
-            table->setItem(i, 6, new QTableWidgetItem(p.notes));
+            table->setItem(i, 6, new QTableWidgetItem(
+                p.ctcssDlHz > 0.0 ? QString::number(p.ctcssDlHz, 'f', 1)
+                                  : QString()));
+            table->setItem(i, 7, new QTableWidgetItem(
+                p.burstHz == 1750 ? QStringLiteral("1750") : QString()));
+            table->setItem(i, 8, new QTableWidgetItem(p.notes));
+            for (int c = 0; c < 9; ++c) {
+                if (QTableWidgetItem *it = table->item(i, c)) {
+                    it->setToolTip(tr("Click to edit — stored when you leave "
+                                      "the cell."));
+                }
+            }
         }
         *refreshing = false;
     };
     refresh();
-    connect(memory_, &MemoryStore::changed, table, refresh);
+    connect(memory_, &MemoryStore::changed, table, [refresh, refreshing]() {
+        // Skip rebuilds that our own itemChanged just caused — rewriting
+        // the table mid-edit closes the editor (can't type in Settings).
+        if (*refreshing) return;
+        refresh();
+    });
     connect(table, &QTableWidget::itemChanged, table,
             [this, table, refreshing](QTableWidgetItem *) {
         if (*refreshing) return;
+        *refreshing = true;
         const int r = table->currentRow() >= 0 ? table->currentRow() : 0;
         Q_UNUSED(r);
         // Rebuild every row from the table on any edit (simple + robust).
@@ -1213,11 +1422,22 @@ QWidget *SettingsDialog::buildBandsTab() {
                 ? int(qRound(table->item(i, 4)->text().toDouble() * 1000.0)) : 0;
             p.ctcssToneHz = table->item(i, 5)
                 ? table->item(i, 5)->text().toDouble() : 0.0;
-            p.notes = table->item(i, 6) ? table->item(i, 6)->text() : QString();
+            p.ctcssDlHz = table->item(i, 6)
+                ? table->item(i, 6)->text().toDouble() : 0.0;
+            {
+                const QString b = table->item(i, 7)
+                    ? table->item(i, 7)->text().trimmed() : QString();
+                p.burstHz = (b.contains(QStringLiteral("1750"))
+                             || b == QLatin1String("1")
+                             || b.compare(QLatin1String("y"), Qt::CaseInsensitive) == 0)
+                                ? 1750 : 0;
+            }
+            p.notes = table->item(i, 8) ? table->item(i, 8)->text() : QString();
             if (p.freq > 0) memory_->setPreset(i, p);
         }
+        *refreshing = false;
     });
-    v->addWidget(table);
+    v->addWidget(table, 1);
 
     auto *btnRow = new QHBoxLayout;
     auto *addBtn = new QPushButton(tr("Store current"), mem);
@@ -1225,6 +1445,17 @@ QWidget *SettingsDialog::buildBandsTab() {
         if (!memory_->addCurrent(QString()))
             QMessageBox::information(this, tr("Memory"),
                 tr("The memory bank is full (%1 presets).").arg(MemoryStore::kMax));
+    });
+    auto *editBtn = new QPushButton(tr("Edit cell"), mem);
+    editBtn->setToolTip(tr("Open the highlighted cell for typing (same as F2)."));
+    connect(editBtn, &QPushButton::clicked, mem, [table]() {
+        if (QTableWidgetItem *it = table->currentItem())
+            table->editItem(it);
+        else if (table->rowCount() > 0) {
+            table->setCurrentCell(0, 0);
+            if (QTableWidgetItem *it = table->currentItem())
+                table->editItem(it);
+        }
     });
     auto *delBtn = new QPushButton(tr("Delete"), mem);
     connect(delBtn, &QPushButton::clicked, mem, [this, table]() {
@@ -1266,6 +1497,7 @@ QWidget *SettingsDialog::buildBandsTab() {
                                  tr("Could not write the file."));
     });
     btnRow->addWidget(addBtn);
+    btnRow->addWidget(editBtn);
     btnRow->addWidget(delBtn);
     btnRow->addWidget(clrBtn);
     btnRow->addStretch(1);
@@ -1274,12 +1506,13 @@ QWidget *SettingsDialog::buildBandsTab() {
     v->addLayout(btnRow);
 
     auto *hint = new QLabel(
-        tr("Edit cells directly. Use the “Mem” button on the Band panel to "
-           "store the current frequency and recall presets. RX BW blank = "
-           "the mode default. For a REPEATER, set Offset (the TX shift in "
-           "kHz, e.g. −100 for 10 m, −1000 = −1 MHz for 6 m) and CTCSS "
-           "(access tone in Hz); recall arms SPLIT to the input + sends the "
-           "tone. Blank Offset/CTCSS = simplex. Up to %1 presets.")
+        tr("Use the “Mem” button on the Band (or Tuning) panel to store "
+           "and recall. RX BW blank = the mode default. For a REPEATER, "
+           "set Offset (TX shift in kHz, e.g. −100 for 10 m, −1000 = −1 MHz "
+           "for 6 m, −7600 for 70 cm), UL (TX CTCSS Hz), optional DL (RX tone if different "
+           "from UL), and Burst (1750 for a 1750 Hz tone-burst recipe). "
+           "Recall arms SPLIT + UL. Blank Offset/UL/DL = none (simplex / no "
+           "tone). Up to %1 presets. Scroll the table if more rows are stored.")
             .arg(MemoryStore::kMax), mem);
     hint->setWordWrap(true);
     hint->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
@@ -1844,10 +2077,10 @@ QWidget *SettingsDialog::buildNetworkTab() {
     auto *combo = new QCheckBox(tr("SDRLogger+ Combo (share CW Console contact)"), grp);
     combo->setChecked(tci_->comboEnabled());
     combo->setToolTip(tr("Two-way link with SDRLogger+ over this TCI connection.\n"
-                         "When on, a callsign grabbed in the CW Decoder / typed in\n"
-                         "the CW Console populates the SDRLogger+ log entry (and its\n"
-                         "callbook lookup fills the {NAME} token back here). A macro\n"
-                         "containing the {LOG} tag logs the QSO in SDRLogger+.\n"
+                         "When on, a callsign grabbed in the CW Decoder\n"
+                         "/ typed in the CW Console populates the SDRLogger+ log entry\n"
+                         "(and its callbook lookup fills the {NAME} token back here).\n"
+                         "A macro containing the {LOG} tag logs the QSO in SDRLogger+.\n"
                          "SDRLogger+ shows a “Lyra Combo: Linked” indicator while active."));
     connect(combo, &QCheckBox::toggled, tci_,
             [this](bool on) { tci_->setComboEnabled(on); });
@@ -1856,8 +2089,9 @@ QWidget *SettingsDialog::buildNetworkTab() {
     auto *emuProto = new QCheckBox(tr("Emulate ExpertSDR3 (report protocol "
                                       "name “ExpertSDR3”)"), grp);
     emuProto->setChecked(tci_->emulateExpertSdr3());
-    emuProto->setToolTip(tr("Some clients only recognise ExpertSDR3 / SunSDR "
-                            "rigs. Enable these to masquerade as one."));
+    emuProto->setToolTip(tr("JTDX and WSJT-X only attach if the protocol "
+                            "name is ExpertSDR3 (MSHV / Open SSTV do not "
+                            "care). Default on. Un-tick to advertise Lyra."));
     connect(emuProto, &QCheckBox::toggled, tci_,
             [this](bool on) { tci_->setEmulateExpertSdr3(on); });
     form->addRow(QString(), emuProto);
@@ -1907,45 +2141,10 @@ QWidget *SettingsDialog::buildNetworkTab() {
             }
         });
         form->addRow(tr("RX-out gain:"), rxGainSpin);
-
-        // ── Task #108 — symmetric INBOUND TCI gain (operator-flagged
-        //    2026-06-03: MSHV / JTDX / WSJT-X overdrive Lyra's TXA
-        //    ALC).  Same range, same pattern as the RX-out spinner
-        //    above, applied in TciServer at audio-block ingress —
-        //    AFTER decode + resample, BEFORE TciMicSource hands the
-        //    samples to TxDspWorker.  Stopgap until per-profile TCI
-        //    gain ships under #49 + #55.
-        auto *txGainSpin = new QDoubleSpinBox(grp);
-        txGainSpin->setRange(-40.0, 10.0);
-        txGainSpin->setDecimals(1);
-        txGainSpin->setSingleStep(1.0);
-        txGainSpin->setSuffix(tr(" dB"));
-        txGainSpin->setValue(prefs_->tciTxGainDb());
-        txGainSpin->setToolTip(tr(
-            "Attenuate (or boost) the TX audio Lyra RECEIVES from TCI "
-            "clients (MSHV, JTDX, WSJT-X, etc.) before it hits the "
-            "WDSP TXA chain.  Negative dB reduces the level if your "
-            "client sends audio hotter than Lyra's ALC handles "
-            "gracefully (the common case — digital-mode software "
-            "often outputs near full-scale by default).  Positive dB "
-            "boosts a quiet client.  0 dB = byte-identical to your "
-            "client's stream level.  Live: takes effect on the next "
-            "received audio packet.\n\n"
-            "Mirror of the RX-out gain above.  Stopgap until per-mode "
-            "RX/TX gain profiles ship (planned tasks #49 + #55)."));
-        connect(txGainSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
-                grp, [this](double v) {
-            if (prefs_) prefs_->setTciTxGainDb(v);
-        });
-        connect(prefs_, &lyra::ui::Prefs::tciTxGainDbChanged, txGainSpin,
-                [this, txGainSpin]() {
-            const double v = prefs_->tciTxGainDb();
-            if (txGainSpin->value() != v) {
-                QSignalBlocker b(txGainSpin);
-                txGainSpin->setValue(v);
-            }
-        });
-        form->addRow(tr("TX-in gain:"), txGainSpin);
+        // No TX-in counterpart: the #108 inbound gain stage was dropped
+        // in the TX-rip refactor (c4a6324) and never re-plumbed, so the
+        // level of TCI TX audio is set by the client app, Lyra's digital
+        // drive %, and the ALC.
     }
 
     auto *enable = new QCheckBox(tr("TCI server running"), grp);
@@ -2400,6 +2599,618 @@ static QString detectSdrLoggerPlusExe() {
     return QString();
 }
 
+QWidget *SettingsDialog::buildRemoteTab() {
+    auto *page = new QWidget(this);
+    auto *v = new QVBoxLayout(page);
+    v->setSpacing(12);
+
+    auto *intro = new QLabel(
+        tr("The remote link runs only between this Lyra host and the remote. "
+           "It stays on your own network. No outside server carries it, and "
+           "no outside account or other service is required.\n\n"
+           "These settings cover the local remote and the later full IP remote. "
+           "The listen address and port stay on the Network tab."),
+        page);
+    intro->setWordWrap(true);
+    intro->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    v->addWidget(intro);
+
+    if (desk_) {
+        auto *lyra = new QGroupBox(tr("Lyra to Lyra"), page);
+        auto *lyLay = new QVBoxLayout(lyra);
+        lyLay->setSpacing(10);
+        auto *lyNote = new QLabel(
+            tr("This is the desk link between two Lyras over Tailscale. "
+               "It is not the browser page below, and it does not open a "
+               "port on the router.\n\n"
+               "On the shack, copy the name and turn Allow desk on. "
+               "On the laptop, paste that name and choose Attach to host. "
+               "The laptop does not start its own radio. The shack radio "
+               "is the host rig, and the laptop plays that receiver. "
+               "The shack volume stays on the shack. The laptop volume "
+               "and mute control only the laptop. "
+               "The laptop shows the shack spectrum. Band, frequency, "
+               "mode, filter, RIT, Split, AGC, NR, squelch, and drive "
+               "on the laptop move the shack radio. NB, BIN, NR, NNR, "
+               "ANF, LMS, APF, and the transmit filter follow the shack "
+               "too. The laptop meters follow "
+               "the shack. The laptop shows LNA or ATT for the radio "
+               "the shack has open. ANT and RX on the band row follow "
+               "a Protocol 2 radio, and the second receiver shows when "
+               "the shack has SUB on. "
+               "Start voice asks for the Remote password. MOX and Tune "
+               "key the shack after that. The laptop microphone goes to "
+               "the shack transmitter. A slow path can listen and cannot "
+               "key. CW needs a round trip under 150 ms. Other transmit "
+               "needs under 200 ms. Listening continues above that. "
+               "The status shows the worst ping, held for about 3 seconds, "
+               "and RX, CW, and Voice lamps for the latest ping. "
+               "Save desk profile keeps the laptop filters and transmit "
+               "rack on this computer. Recall on host applies that set "
+               "on the shack for this session, and also AGC, NR, NNR, "
+               "NB, ANF, LMS, APF, squelch, RIT on or off, and CW pitch. "
+               "The shack does not store it. End voice, Detach, and "
+               "Drop desk put the shack filters, rack, and those "
+               "receiver settings back. The Mic slider level is part of "
+               "the laptop profile and stays on the laptop. "
+               "PureSignal ON and 2-tone ask the shack. Voice-cal noise "
+               "stays on the shack. PureSignal and Amp View on the "
+               "laptop show the correction the shack calculated. "
+               "Windows may ask to allow Lyra the first time, and again "
+               "for the audio port. Allow it on private networks. "
+               "Do not forward a port."),
+            lyra);
+        lyNote->setWordWrap(true);
+        lyNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+        lyLay->addWidget(lyNote);
+
+        auto *hostRow = new QHBoxLayout();
+        auto *hostName = new QLineEdit(lyra);
+        hostName->setReadOnly(true);
+        hostName->setPlaceholderText(tr("Tailscale name appears here"));
+        auto *copy = new QPushButton(tr("Copy"), lyra);
+        auto *allow = new QCheckBox(tr("Allow desk"), lyra);
+        allow->setChecked(desk_->allowDesk());
+        hostRow->addWidget(hostName, 1);
+        hostRow->addWidget(copy);
+        hostRow->addWidget(allow);
+        lyLay->addLayout(hostRow);
+
+        auto *drop = new QPushButton(tr("Drop desk"), lyra);
+        lyLay->addWidget(drop, 0, Qt::AlignLeft);
+
+        auto *deskRow = new QHBoxLayout();
+        auto *deskName = new QLineEdit(desk_->savedHostName(), lyra);
+        deskName->setPlaceholderText(tr("Paste the shack Tailscale name"));
+        auto *attach = new QPushButton(tr("Attach to host"), lyra);
+        auto *detach = new QPushButton(tr("Detach"), lyra);
+        deskRow->addWidget(deskName, 1);
+        deskRow->addWidget(attach);
+        deskRow->addWidget(detach);
+        lyLay->addLayout(deskRow);
+
+        auto *statusRow = new QHBoxLayout();
+        auto *lamp = new QLabel(lyra);
+        lamp->setWordWrap(true);
+        lamp->setStyleSheet(QStringLiteral("color:#cdd9e5;"));
+        auto *rxLamp = new QLabel(tr("RX"), lyra);
+        auto *cwLamp = new QLabel(tr("CW"), lyra);
+        auto *voiceLamp = new QLabel(tr("Voice"), lyra);
+        rxLamp->setAlignment(Qt::AlignCenter);
+        cwLamp->setAlignment(Qt::AlignCenter);
+        voiceLamp->setAlignment(Qt::AlignCenter);
+        rxLamp->setMinimumWidth(44);
+        cwLamp->setMinimumWidth(44);
+        voiceLamp->setMinimumWidth(56);
+        rxLamp->setToolTip(tr("Lit while this desk is attached and pings are arriving. Listening stays up past the transmit gates."));
+        cwLamp->setToolTip(tr("Lit when the latest ping is under 150 ms."));
+        voiceLamp->setToolTip(tr("Lit when the latest ping is under 200 ms."));
+        auto paintPathLamp = [](QLabel *w, bool on) {
+            w->setStyleSheet(on
+                ? QStringLiteral("color:#00e5ff; border:1px solid #00e5ff; "
+                                 "border-radius:3px; padding:1px 6px;")
+                : QStringLiteral("color:#6a7a8a; border:1px solid #3d4a58; "
+                                 "border-radius:3px; padding:1px 6px;"));
+        };
+        statusRow->addWidget(lamp, 1);
+        statusRow->addWidget(rxLamp);
+        statusRow->addWidget(cwLamp);
+        statusRow->addWidget(voiceLamp);
+        lyLay->addLayout(statusRow);
+
+        auto *pathLegend = new QLabel(
+            tr("RX: lit while this desk is attached. Listening stays up. "
+               "CW: lit when the latest ping is under 150 ms. "
+               "Voice: lit when the latest ping is under 200 ms. "
+               "Dim is out of range."),
+            lyra);
+        pathLegend->setWordWrap(true);
+        pathLegend->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+        lyLay->addWidget(pathLegend);
+
+        auto *micRow = new QHBoxLayout();
+        auto *micPick = new QComboBox(lyra);
+        micPick->setToolTip(tr(
+            "The microphone on this laptop that is sent to the shack "
+            "when you key. The transmit panel's Mic source is the "
+            "radio's own input, so a High Definition device on this "
+            "PC is chosen here."));
+        {
+            const QString saved = QSettings().value(
+                QStringLiteral("deskRemote/micDevice")).toString();
+            const QString vac = QSettings().value(
+                QStringLiteral("vac1/inputDevice")).toString();
+            const QString cur = !saved.isEmpty() ? saved : vac;
+            micPick->addItem(tr("Windows default"), QString());
+            int pick = 0;
+            const auto inputs = QMediaDevices::audioInputs();
+            for (const QAudioDevice &d : inputs) {
+                micPick->addItem(d.description(), d.description());
+                if (!cur.isEmpty()
+                    && d.description().compare(cur, Qt::CaseInsensitive) == 0)
+                    pick = micPick->count() - 1;
+            }
+            micPick->setCurrentIndex(pick);
+        }
+        connect(micPick, &QComboBox::activated, lyra, [micPick](int) {
+            QSettings().setValue(QStringLiteral("deskRemote/micDevice"),
+                                 micPick->currentData().toString());
+        });
+        micRow->addWidget(new QLabel(tr("Laptop microphone"), lyra));
+        micRow->addWidget(micPick, 1);
+        lyLay->addLayout(micRow);
+
+        auto *voiceRow = new QHBoxLayout();
+        auto *voicePw = new QLineEdit(lyra);
+        voicePw->setEchoMode(QLineEdit::Password);
+        voicePw->setPlaceholderText(tr("Remote password"));
+        auto *voiceStart = new QPushButton(tr("Start voice"), lyra);
+        auto *voiceEnd = new QPushButton(tr("End voice"), lyra);
+        voiceRow->addWidget(voicePw, 1);
+        voiceRow->addWidget(voiceStart);
+        voiceRow->addWidget(voiceEnd);
+        lyLay->addLayout(voiceRow);
+
+        auto *profNote = new QLabel(
+            tr("The desk profile is stored on this laptop. It holds the "
+               "receive and transmit filters, the leveler, the transmit "
+               "rack (EQ, speech, combinator, and plate), AGC, NR, NNR, "
+               "NB, ANF, LMS, APF, squelch, RIT on or off, CW pitch, and "
+               "the Mic slider. Recall applies the radio settings on the "
+               "shack for this session and sets the Mic slider on this "
+               "laptop. The shack profile store is left as it was."),
+            lyra);
+        profNote->setWordWrap(true);
+        profNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+        lyLay->addWidget(profNote);
+        auto *profRow = new QHBoxLayout();
+        auto *saveProf = new QPushButton(tr("Save desk profile"), lyra);
+        auto *recallProf = new QPushButton(tr("Recall on host"), lyra);
+        profRow->addWidget(saveProf);
+        profRow->addWidget(recallProf);
+        profRow->addStretch(1);
+        lyLay->addLayout(profRow);
+
+        // Enter in the password box must start voice. A dialog button
+        // left as the default (Detach, after Attach disables itself)
+        // would drop the desk instead.
+        for (QPushButton *b : {copy, drop, attach, detach, voiceStart, voiceEnd,
+                               saveProf, recallProf}) {
+            b->setAutoDefault(false);
+            b->setDefault(false);
+        }
+        connect(voicePw, &QLineEdit::returnPressed, lyra, [voiceStart]() {
+            if (voiceStart->isEnabled())
+                voiceStart->click();
+        });
+
+        auto refresh = [desk = desk_, hostName, copy, allow, drop,
+                        deskName, attach, detach, lamp,
+                        rxLamp, cwLamp, voiceLamp, paintPathLamp,
+                        voicePw, voiceStart, voiceEnd,
+                        saveProf, recallProf]() {
+            hostName->setText(desk->selfName());
+            copy->setEnabled(!desk->selfName().isEmpty());
+            if (allow->isChecked() != desk->allowDesk())
+                allow->setChecked(desk->allowDesk());
+            allow->setEnabled(desk->tailscaleUp() || desk->allowDesk());
+            if (desk->attached() && !desk->allowDesk())
+                allow->setEnabled(false);
+            drop->setEnabled(desk->allowDesk() && desk->attached());
+            attach->setEnabled(!desk->allowDesk() && !desk->attached() && !desk->attaching());
+            detach->setEnabled(desk->attached() && !desk->allowDesk());
+            deskName->setReadOnly(desk->attached() || desk->attaching());
+            lamp->setText(desk->lamp());
+            const bool live = desk->attached() && desk->rttMs() >= 0;
+            const int rtt = desk->rttMs();
+            paintPathLamp(rxLamp, live);
+            paintPathLamp(cwLamp, live && rtt < 150);
+            paintPathLamp(voiceLamp, live && rtt < 200);
+            const bool deskSide = desk->attached() && !desk->allowDesk();
+            voicePw->setEnabled(deskSide && !desk->voiceHeld());
+            voiceStart->setEnabled(deskSide && !desk->voiceHeld());
+            voiceEnd->setEnabled(deskSide && desk->voiceHeld());
+            saveProf->setEnabled(deskSide);
+            recallProf->setEnabled(deskSide
+                && QSettings().contains(QStringLiteral("deskRemote/profile")));
+        };
+        refresh();
+        connect(desk_, &DeskLink::changed, lyra, refresh);
+        connect(copy, &QPushButton::clicked, lyra, [desk = desk_]() {
+            QGuiApplication::clipboard()->setText(desk->selfName());
+        });
+        connect(allow, &QCheckBox::toggled, lyra, [desk = desk_](bool on) {
+            desk->setAllowDesk(on);
+        });
+        connect(drop, &QPushButton::clicked, desk_, &DeskLink::dropDesk);
+        connect(attach, &QPushButton::clicked, lyra, [desk = desk_, deskName]() {
+            desk->attachToHost(deskName->text());
+        });
+        connect(detach, &QPushButton::clicked, desk_, &DeskLink::detach);
+        connect(voiceStart, &QPushButton::clicked, lyra, [desk = desk_, voicePw]() {
+            desk->stageVoicePassword(voicePw->text());
+            voicePw->clear();
+            desk->askVoice();
+        });
+        connect(voiceEnd, &QPushButton::clicked, desk_, &DeskLink::endVoice);
+        connect(saveProf, &QPushButton::clicked, lyra, [this, desk = desk_, recallProf]() {
+            if (!desk->deskSide() || !prefs_) return;
+            QJsonObject o;
+            o.insert(QStringLiteral("rxBw"), prefs_->rxBandwidth());
+            o.insert(QStringLiteral("txBw"), prefs_->txBandwidth());
+            o.insert(QStringLiteral("rxLo"), prefs_->filterLow());
+            o.insert(QStringLiteral("txLo"), prefs_->txFilterLow());
+            if (stream_) {
+                o.insert(QStringLiteral("levelerOn"), stream_->levelerOn());
+                o.insert(QStringLiteral("levelerMax"), stream_->levelerMaxGainLinear());
+                o.insert(QStringLiteral("levelerDecay"), stream_->levelerDecayMs());
+            }
+            if (auto *m = EqModel::instance())
+                o.insert(QStringLiteral("eq"), m->saveState());
+            if (auto *m = SpeechModel::instance())
+                o.insert(QStringLiteral("speech"), m->saveState());
+            if (auto *m = CombinatorModel::instance())
+                o.insert(QStringLiteral("combinator"), m->saveState());
+            if (auto *m = PlateModel::instance())
+                o.insert(QStringLiteral("plate"), m->saveState());
+            if (engine_) {
+                o.insert(QStringLiteral("agc"), engine_->agcMode());
+                o.insert(QStringLiteral("nr"), engine_->nrEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("nrm"), engine_->nrMode());
+                o.insert(QStringLiteral("aepf"), engine_->aepfEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("npe"), engine_->npeMethod());
+                o.insert(QStringLiteral("nnr"), engine_->nnrEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("nnm"), engine_->nnrModel());
+                o.insert(QStringLiteral("nnf"), qRound(engine_->nnrMaskFloorDb()));
+                o.insert(QStringLiteral("nb"), engine_->nbEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("nbs"), qRound(engine_->nbStrength() * 1000.0));
+                o.insert(QStringLiteral("anf"), engine_->anfEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("lms"), engine_->lmsEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("lmsv"), qRound(engine_->lmsStrength() * 1000.0));
+                o.insert(QStringLiteral("apf"), engine_->apfEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("apfv"), qRound(engine_->apfGainDb() * 10.0));
+                o.insert(QStringLiteral("sq"), engine_->squelchEnabled() ? 1 : 0);
+                o.insert(QStringLiteral("sqv"), qRound(engine_->squelchThreshold() * 1000.0));
+                o.insert(QStringLiteral("cw"), engine_->cwPitchHz());
+            }
+            if (stream_)
+                o.insert(QStringLiteral("rit"), stream_->ritEnabled() ? 1 : 0);
+            o.insert(QStringLiteral("mic"), desk->micGainDb());
+            QSettings().setValue(
+                QStringLiteral("deskRemote/profile"),
+                QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact)));
+            recallProf->setEnabled(true);
+        });
+        connect(recallProf, &QPushButton::clicked, lyra, [desk = desk_]() {
+            if (!desk->deskSide()) return;
+            QByteArray json = QSettings()
+                .value(QStringLiteral("deskRemote/profile")).toString().toUtf8();
+            if (json.isEmpty()) return;
+            const QJsonDocument doc = QJsonDocument::fromJson(json);
+            if (doc.isObject()) {
+                QJsonObject o = doc.object();
+                if (o.contains(QStringLiteral("mic"))) {
+                    desk->setMicGainDb(o.value(QStringLiteral("mic")).toInt());
+                    o.remove(QStringLiteral("mic"));
+                    json = QJsonDocument(o).toJson(QJsonDocument::Compact);
+                }
+            }
+            if (!json.isEmpty())
+                desk->sendDeskProfile(json);
+        });
+        v->addWidget(lyra);
+    }
+
+    const int tciPort = QSettings().value(QStringLiteral("tci/port"), 40001).toInt();
+    QStringList lanAddrs;
+    for (const QHostAddress &addr : QNetworkInterface::allAddresses()) {
+        if (addr.protocol() != QAbstractSocket::IPv4Protocol) continue;
+        if (addr.isLoopback() || addr.isLinkLocal()) continue;
+        lanAddrs.append(addr.toString());
+    }
+    QString lanBox;
+    if (lanAddrs.isEmpty()) {
+        lanBox = tr("ws://&lt;this computer's house-network address&gt;:%1").arg(tciPort);
+    } else {
+        QStringList boxes;
+        for (const QString &ip : lanAddrs)
+            boxes.append(QStringLiteral("ws://%1:%2").arg(ip).arg(tciPort));
+        lanBox = boxes.join(tr(" or "));
+    }
+
+    auto *open = new QGroupBox(tr("Open the page"), page);
+    auto *openLay = new QVBoxLayout(open);
+    openLay->setSpacing(10);
+    auto *how = new QLabel(
+        tr("Lyra does not serve the page. Get Lyra Remote from "
+           "<a href=\"https://github.com/N8SDR1/Lyra-Remote\">github.com/N8SDR1/Lyra-Remote</a>. "
+           "Unzip it on the computer you are sitting at and double-click "
+           "<b>Open Lyra Remote.cmd</b>. That opens "
+           "<b>http://127.0.0.1:4173/</b> in the browser on that computer. "
+           "Leave the small server window running. Opening the page file itself does not connect."),
+        open);
+    how->setWordWrap(true);
+    how->setTextFormat(Qt::RichText);
+    how->setOpenExternalLinks(true);
+    how->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    how->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    openLay->addWidget(how);
+    auto *where = new QLabel(
+        tr("On this same computer, leave the box at the top of the page on "
+           "<b>ws://127.0.0.1:%1</b>. On the Network tab, turn the TCI server on "
+           "and leave the bind address at 127.0.0.1.<br><br>"
+           "From another computer on this network, run that same package there "
+           "and open <b>http://127.0.0.1:4173/</b> on that computer. You do not "
+           "browse to this radio to get the page. On this radio, set the Network "
+           "bind address to 0.0.0.0. In the page, set the box to "
+           "<b>%2</b>. Allow inbound TCP port %1 through the firewall. "
+           "The port is the TCI port on the Network tab.")
+            .arg(tciPort)
+            .arg(lanBox),
+        open);
+    where->setWordWrap(true);
+    where->setTextFormat(Qt::RichText);
+    where->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    openLay->addWidget(where);
+    v->addWidget(open);
+
+    auto *who = new QGroupBox(tr("Who may connect"), page);
+    auto *whoLay = new QVBoxLayout(who);
+    whoLay->setSpacing(10);
+    auto *whoNote = new QLabel(
+        tr("Other remote TCI programs use this same port. Leave the Network "
+           "bind address at 127.0.0.1 and another computer cannot open it, "
+           "so a remote TCI program there is blocked. A program on this "
+           "computer still connects.\n\n"
+           "Set the bind address to 0.0.0.0 only when another computer on "
+           "this network should reach Lyra. Then put that computer in "
+           "Accept only these. Any entry drops every other address, "
+           "including other remote TCI programs, unless that computer or a "
+           "range that covers it is listed. This computer stays allowed. "
+           "Do not forward the TCI port to the internet. With the bind "
+           "address open and Accept left blank, every TCI client that can "
+           "reach the port may connect."),
+        who);
+    whoNote->setWordWrap(true);
+    whoNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    whoLay->addWidget(whoNote);
+    auto *whoForm = new QFormLayout();
+    whoForm->setVerticalSpacing(10);
+    whoLay->addLayout(whoForm);
+
+    auto *accept = new QPlainTextEdit(prefs_->remoteAcceptIps(), who);
+    accept->setPlaceholderText(
+        tr("Blank accepts every address that can reach this radio.\n"
+           "192.168.1.40\n"
+           "192.168.1.0/24"));
+    accept->setFixedHeight(88);
+    accept->setToolTip(
+        tr("One address or a range per line, or separated by commas. "
+           "With any entry, every other address is dropped, including "
+           "other remote TCI programs. This computer is always allowed. "
+           "Leave this blank and leave the Network bind address at "
+           "127.0.0.1 to keep other computers off the port."));
+    auto *acceptErr = new QLabel(who);
+    acceptErr->setWordWrap(true);
+    acceptErr->setStyleSheet(QStringLiteral("color:#e0736b;"));
+    whoForm->addRow(tr("Accept only these:"), accept);
+    whoForm->addRow(QString(), acceptErr);
+
+    auto *refuse = new QPlainTextEdit(prefs_->remoteRefuseIps(), who);
+    refuse->setPlaceholderText(
+        tr("Blank refuses nobody.\n"
+           "192.168.1.40\n"
+           "192.168.1.0/24"));
+    refuse->setFixedHeight(88);
+    refuse->setToolTip(
+        tr("An address here is dropped even when it is also on the accept "
+           "list. This computer cannot be refused."));
+    auto *refuseErr = new QLabel(who);
+    refuseErr->setWordWrap(true);
+    refuseErr->setStyleSheet(QStringLiteral("color:#e0736b;"));
+    whoForm->addRow(tr("Refuse these:"), refuse);
+    whoForm->addRow(QString(), refuseErr);
+
+    auto *listNote = new QLabel(
+        tr("One full address is one computer. A range uses a prefix, such as "
+           "192.168.1.0/24 for 192.168.1.0 through 192.168.1.255. A short "
+           "piece or a star is not accepted. Both boxes use the same forms. "
+           "A blank accept list and a blank refuse list let every reachable "
+           "address connect, and listening stays open. The lists apply as "
+           "soon as you leave a valid entry. A refused or unlisted address "
+           "is dropped at the door and never counts as a password try. "
+           "Changing the radio and transmitting use the password below; "
+           "the remote asks for that proof when those controls are on."),
+        who);
+    listNote->setWordWrap(true);
+    listNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    whoForm->addRow(listNote);
+    v->addWidget(who);
+
+    connect(accept, &QPlainTextEdit::textChanged, this,
+            [this, accept, acceptErr]() {
+                const QString text = accept->toPlainText();
+                const QString problem = Prefs::remoteIpListProblem(text);
+                acceptErr->setText(problem);
+                if (!problem.isEmpty()) return;
+                prefs_->setRemoteAcceptIps(text);
+            });
+    connect(refuse, &QPlainTextEdit::textChanged, this,
+            [this, refuse, refuseErr]() {
+                const QString text = refuse->toPlainText();
+                const QString problem = Prefs::remoteIpListProblem(text);
+                refuseErr->setText(problem);
+                if (!problem.isEmpty()) return;
+                prefs_->setRemoteRefuseIps(text);
+            });
+
+    auto *pw = new QGroupBox(tr("Password"), page);
+    auto *pwForm = new QFormLayout(pw);
+    pwForm->setVerticalSpacing(10);
+
+    auto *phrase = new QLineEdit(pw);
+    phrase->setEchoMode(QLineEdit::Password);
+    phrase->setPlaceholderText(
+        prefs_->remotePasswordSet()
+            ? tr("Saved — type a new phrase to replace it")
+            : tr("At least 12 characters, spaces allowed"));
+    auto *again = new QLineEdit(pw);
+    again->setEchoMode(QLineEdit::Password);
+    again->setPlaceholderText(tr("Type the same phrase again"));
+    pwForm->addRow(tr("Password:"), phrase);
+    pwForm->addRow(tr("Confirm:"), again);
+
+    auto *pwStatus = new QLabel(pw);
+    pwStatus->setWordWrap(true);
+    auto refreshPw = [this, pwStatus, phrase]() {
+        if (prefs_->remotePasswordSet()) {
+            pwStatus->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+            pwStatus->setText(
+                tr("A password is saved on this computer only. The phrase "
+                   "itself is not kept. A remote session must prove it "
+                   "before it may change the radio or transmit. Five wrong "
+                   "proofs from one address lock that address for 15 minutes, "
+                   "with waits of 1, 2, 4, 8, and 16 seconds. A correct proof "
+                   "clears the count. A session token then lives only in "
+                   "memory for that connection and is dropped when the link "
+                   "closes. The next connection proves the password again."));
+            phrase->setPlaceholderText(
+                tr("Saved — type a new phrase to replace it"));
+        } else {
+            pwStatus->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+            pwStatus->setText(
+                tr("No password is saved, so remote transmit stays off. "
+                   "Use 12 to 128 characters. Spaces are allowed, so a short "
+                   "phrase works. The callsign alone, and words such as "
+                   "password or lyra, are refused."));
+            phrase->setPlaceholderText(
+                tr("At least 12 characters, spaces allowed"));
+        }
+    };
+    refreshPw();
+    pwForm->addRow(pwStatus);
+
+    auto *lockNotice = new QLabel(tr("No address is locked."), pw);
+    lockNotice->setWordWrap(true);
+    lockNotice->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    pwForm->addRow(lockNotice);
+    if (tci_) {
+        connect(tci_, &TciServer::remoteLockChanged, lockNotice,
+                [lockNotice, this](const QString &text) {
+                    if (text.isEmpty()) {
+                        lockNotice->setStyleSheet(
+                            QStringLiteral("color:#8fa6ba;"));
+                        lockNotice->setText(tr("No address is locked."));
+                    } else {
+                        lockNotice->setStyleSheet(
+                            QStringLiteral("color:#e0736b;"));
+                        lockNotice->setText(text);
+                    }
+                });
+    }
+
+    auto *pwErr = new QLabel(pw);
+    pwErr->setWordWrap(true);
+    pwErr->setStyleSheet(QStringLiteral("color:#e0736b;"));
+    pwForm->addRow(pwErr);
+
+    auto *pwButtons = new QWidget(pw);
+    auto *pwRow = new QHBoxLayout(pwButtons);
+    pwRow->setContentsMargins(0, 0, 0, 0);
+    auto *setPw = new QPushButton(tr("Save password"), pwButtons);
+    auto *clearPw = new QPushButton(tr("Clear password"), pwButtons);
+    clearPw->setEnabled(prefs_->remotePasswordSet());
+    pwRow->addWidget(setPw);
+    pwRow->addWidget(clearPw);
+    pwRow->addStretch(1);
+    pwForm->addRow(QString(), pwButtons);
+
+    connect(setPw, &QPushButton::clicked, this,
+            [this, phrase, again, pwErr, clearPw, refreshPw]() {
+                if (phrase->text() != again->text()) {
+                    pwErr->setText(tr("The two phrases do not match."));
+                    return;
+                }
+                QApplication::setOverrideCursor(Qt::WaitCursor);
+                const QString problem = prefs_->setRemotePassword(phrase->text());
+                QApplication::restoreOverrideCursor();
+                if (!problem.isEmpty()) {
+                    pwErr->setText(problem);
+                    return;
+                }
+                phrase->clear();
+                again->clear();
+                pwErr->clear();
+                clearPw->setEnabled(true);
+                refreshPw();
+            });
+    connect(clearPw, &QPushButton::clicked, this,
+            [this, phrase, again, pwErr, clearPw, refreshPw]() {
+                const auto answer = QMessageBox::question(
+                    this, tr("Clear remote password"),
+                    tr("Clear the saved password? Remote transmit stays off "
+                       "until a new one is saved."));
+                if (answer != QMessageBox::Yes) return;
+                prefs_->clearRemotePassword();
+                phrase->clear();
+                again->clear();
+                pwErr->clear();
+                clearPw->setEnabled(false);
+                refreshPw();
+            });
+    connect(prefs_, &Prefs::remotePasswordChanged, clearPw,
+            [this, clearPw]() {
+                clearPw->setEnabled(prefs_->remotePasswordSet());
+            });
+
+    auto *listen = new QCheckBox(
+        tr("Password required to listen"), pw);
+    listen->setChecked(prefs_->remoteListenRequiresPassword());
+    listen->setEnabled(false);
+    listen->setToolTip(
+        tr("Disabled for now. The tick was saved but never held spectrum "
+           "or receiver audio. Turning it on would look like a lock we "
+           "do not apply: WSJT-X and the Remote page still need an open "
+           "listen path. Start voice already uses the password. Address "
+           "lists still apply."));
+    pwForm->addRow(QString(), listen);
+
+    auto *listenNote = new QLabel(
+        tr("Disabled until a listen lock can run without breaking a "
+           "receiver page or a digital program on another computer. "
+           "Start voice already proves the password. Address lists "
+           "and an unforwarded port keep other computers out. "
+           "Programs on this computer are not asked."),
+        pw);
+    listenNote->setWordWrap(true);
+    listenNote->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    pwForm->addRow(listenNote);
+    v->addWidget(pw);
+
+    v->addStretch(1);
+    return page;
+}
+
 QWidget *SettingsDialog::buildHardwareTab() {
     // Two-column layout (task #22, operator-flagged 3× — the Hardware
     // tab had grown to ~10 groups + 7 inline form rows + the Transmit
@@ -2539,7 +3350,8 @@ QWidget *SettingsDialog::buildHardwareTab() {
         region->setCurrentIndex(std::max(0, region->findData(prefs_->bandPlanRegion())));
         region->setToolTip(tr("Region for the amateur band-plan overlay "
                               "(sub-band segments, landmarks, out-of-band "
-                              "advisories) on the panadapter."));
+                              "advisories) and for 11m/CB click-tune defaults "
+                              "(AM vs USB vs LSB on channels 36–40)."));
         connect(region, &QComboBox::currentIndexChanged, grp, [this, region](int) {
             prefs_->setBandPlanRegion(region->currentData().toString());
         });
@@ -2573,6 +3385,52 @@ QWidget *SettingsDialog::buildHardwareTab() {
         });
         g->addWidget(country, 1, 1);
 
+        auto *burst1750Ck = new QCheckBox(
+            tr("Show 1750 Hz tone burst on Tuning (FM)"), grp);
+        burst1750Ck->setChecked(prefs_->fmShow1750Burst());
+        burst1750Ck->setToolTip(tr(
+            "European / IARU Region 1 FM repeaters often open on a short "
+            "1750 Hz burst instead of CTCSS.  Region 2 (US) and Region 3 "
+            "almost always use CTCSS, so this chip stays hidden unless you "
+            "check here.  With no saved choice it follows Region 1 only.  "
+            "Burst length is set next to this checkbox (0.5 / 2 / 3 / 4 s)."));
+        connect(burst1750Ck, &QCheckBox::clicked, grp, [this](bool on) {
+            prefs_->setFmShow1750Burst(on);
+        });
+        connect(prefs_, &Prefs::fmShow1750BurstChanged, burst1750Ck,
+                [this, burst1750Ck]() {
+            if (burst1750Ck->isChecked() != prefs_->fmShow1750Burst())
+                burst1750Ck->setChecked(prefs_->fmShow1750Burst());
+        });
+        g->addWidget(burst1750Ck, 2, 0, 1, 1);
+
+        auto *burstMsCombo = new QComboBox(grp);
+        burstMsCombo->addItem(tr("0.5 s"), 500);
+        burstMsCombo->addItem(tr("2 s"), 2000);
+        burstMsCombo->addItem(tr("3 s"), 3000);
+        burstMsCombo->addItem(tr("4 s"), 4000);
+        burstMsCombo->setToolTip(tr(
+            "How long the Tuning 1750 chip mixes 1750 Hz into FM TX audio. "
+            "Default 2 s. Hold MOX / PTT, then tap 1750."));
+        if (stream_) {
+            const int i = burstMsCombo->findData(stream_->fmBurstMs());
+            burstMsCombo->setCurrentIndex(i >= 0 ? i : 1);
+        }
+        connect(burstMsCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+                grp, [this, burstMsCombo](int) {
+            if (stream_)
+                stream_->setFmBurstMs(burstMsCombo->currentData().toInt());
+        });
+        if (stream_) {
+            connect(stream_, &lyra::ipc::HL2Stream::fmBurstMsChanged,
+                    burstMsCombo, [burstMsCombo](int ms) {
+                const int i = burstMsCombo->findData(ms);
+                if (i >= 0 && burstMsCombo->currentIndex() != i)
+                    burstMsCombo->setCurrentIndex(i);
+            });
+        }
+        g->addWidget(burstMsCombo, 2, 1);
+
         // Overlay-layer toggles (the panadapter top strip).  Each mirrors
         // a Prefs bool; Region = None hides everything regardless.
         auto addLayer = [this, g](int row, const QString &text,
@@ -2586,7 +3444,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             g->addWidget(ck, row, 0, 1, 2);
             return ck;
         };
-        auto *segCk = addLayer(2, tr("Sub-band segments"),
+        auto *segCk = addLayer(3, tr("Sub-band segments"),
             tr("Coloured CW / digital / SSB / FM sub-band strip."),
             prefs_->bandPlanSegments(),
             [this](bool v){ prefs_->setBandPlanSegments(v); }, grp);
@@ -2594,7 +3452,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (segCk->isChecked() != prefs_->bandPlanSegments())
                 segCk->setChecked(prefs_->bandPlanSegments());
         });
-        auto *landCk = addLayer(3, tr("Digital landmarks (FT8 / FT4 / WSPR / PSK)"),
+        auto *landCk = addLayer(4, tr("Digital landmarks (FT8 / FT4 / WSPR / PSK)"),
             tr("Markers at the common digital-mode calling frequencies. "
                "Click one to tune there."),
             prefs_->bandPlanLandmarks(),
@@ -2603,7 +3461,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (landCk->isChecked() != prefs_->bandPlanLandmarks())
                 landCk->setChecked(prefs_->bandPlanLandmarks());
         });
-        auto *beaconCk = addLayer(4, tr("NCDXF beacon markers"),
+        auto *beaconCk = addLayer(5, tr("NCDXF beacon markers"),
             tr("The 5 NCDXF International Beacon Project frequencies."),
             prefs_->bandPlanBeacons(),
             [this](bool v){ prefs_->setBandPlanBeacons(v); }, grp);
@@ -2611,7 +3469,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (beaconCk->isChecked() != prefs_->bandPlanBeacons())
                 beaconCk->setChecked(prefs_->bandPlanBeacons());
         });
-        auto *edgeCk = addLayer(5, tr("Band-edge warning lines"),
+        auto *edgeCk = addLayer(6, tr("Band-edge warning lines"),
             tr("Red dashed lines at each band's edges."),
             prefs_->bandPlanEdges(),
             [this](bool v){ prefs_->setBandPlanEdges(v); }, grp);
@@ -2619,7 +3477,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (edgeCk->isChecked() != prefs_->bandPlanEdges())
                 edgeCk->setChecked(prefs_->bandPlanEdges());
         });
-        auto *classCk = addLayer(6, tr("License-class edges (US)"),
+        auto *classCk = addLayer(7, tr("License-class edges (US)"),
             tr("Amber markers at the US phone sub-band edges where each "
                "license class (Extra / Advanced / General / Tech) gains "
                "privileges.  US-only; the operator is responsible for "
@@ -2630,15 +3488,19 @@ QWidget *SettingsDialog::buildHardwareTab() {
             if (classCk->isChecked() != prefs_->bandPlanClassEdges())
                 classCk->setChecked(prefs_->bandPlanClassEdges());
         });
-        auto *txWarnCk = addLayer(7, tr("Warn on transmit out of band"),
+        auto *txWarnCk = addLayer(8, tr("Warn on transmit out of band"),
             tr("Posts an advisory at key-down if your transmit signal falls "
                "outside the amateur band for your region.  Checks the whole "
                "occupied bandwidth (mode + TX filter), not just the dial "
                "frequency — so a wide signal that reaches past the band edge "
                "warns even when the carrier is in band; VFO B is used when "
-               "split.  Advisory only — it never inhibits transmit.  "
-               "Independent of the band-edge lines above so decluttering the "
-               "display can't disable the transmit-safety warning."),
+               "split.  While an Xvtr slot matches the TX frequency, the "
+               "HF amateur table is skipped (2 m / 70 cm / 23 cm are not "
+               "in that table); Lyra still warns if the occupied bandwidth "
+               "walks off the slot's RF low/high.  Advisory only — it never "
+               "inhibits transmit.  Independent of the band-edge lines above "
+               "so decluttering the display can't disable the transmit-safety "
+               "warning."),
             prefs_->bandPlanTxWarn(),
             [this](bool v){ prefs_->setBandPlanTxWarn(v); }, grp);
         connect(prefs_, &Prefs::bandPlanTxWarnChanged, txWarnCk, [this, txWarnCk]() {
@@ -2648,7 +3510,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
 
         // Per-mode segment colours — a swatch button per kind (click to
         // recolour; picking the default clears the override).
-        g->addWidget(new QLabel(tr("Segment colors"), grp), 8, 0);
+        g->addWidget(new QLabel(tr("Segment colors"), grp), 9, 0);
         auto *colorRow = new QWidget(grp);
         auto *ch = new QHBoxLayout(colorRow);
         ch->setContentsMargins(0, 0, 0, 0);
@@ -2684,7 +3546,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
         });
         ch->addWidget(resetColors);
         ch->addStretch(1);
-        g->addWidget(colorRow, 8, 1);
+        g->addWidget(colorRow, 9, 1);
 
         form->addRow(grp);
     }
@@ -2705,6 +3567,158 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 cb->setChecked(prefs_->cbBandEnabled());
         });
         v->addWidget(cb);
+        auto *memTune = new QCheckBox(
+            tr("Show memory recall on the Tuning panel"), grp);
+        memTune->setChecked(prefs_->memoryOnTuning());
+        memTune->setToolTip(tr("Adds a Mem chip next to SUB on the Tuning "
+                               "dock. The Band panel Mem chip stays."));
+        connect(memTune, &QCheckBox::toggled, grp,
+                [this](bool on) { prefs_->setMemoryOnTuning(on); });
+        connect(prefs_, &Prefs::memoryOnTuningChanged, memTune,
+                [this, memTune]() {
+            if (memTune->isChecked() != prefs_->memoryOnTuning())
+                memTune->setChecked(prefs_->memoryOnTuning());
+        });
+        v->addWidget(memTune);
+        form->addRow(grp);
+    }
+
+    // --- Navigation (HID mouse-wheel VFO) ---
+    {
+        auto *grp = new QGroupBox(tr("Navigation"), page);
+        auto *v = new QVBoxLayout(grp);
+        auto *sticky = new QCheckBox(
+            tr("Snap VFO wheel to Step (sticky)"), grp);
+        sticky->setChecked(prefs_->vfoStickyWheel());
+        sticky->setToolTip(tr(
+            "When on, wheel on the VFO LED (not on a digit), panadapter, "
+            "or USB encoder snaps to that surface's step grid, then steps. "
+            "14.228.200 Hz at 500 Hz goes to 14.228.500 or 14.228.000, "
+            "not 14.228.700. Wheel over a digit still steps that place. "
+            "Off = add the step from wherever you are."));
+        connect(sticky, &QCheckBox::toggled, grp,
+                [this](bool on) { prefs_->setVfoStickyWheel(on); });
+        connect(prefs_, &Prefs::vfoStickyWheelChanged, sticky,
+                [this, sticky]() {
+            if (sticky->isChecked() != prefs_->vfoStickyWheel())
+                sticky->setChecked(prefs_->vfoStickyWheel());
+        });
+        v->addWidget(sticky);
+
+        auto *en = new QCheckBox(
+            tr("USB encoder / HID mouse wheel tunes the VFO"), grp);
+        en->setChecked(prefs_->hidVfoWheelEnabled());
+        en->setToolTip(tr(
+            "For a USB knob that Windows treats as a mouse. "
+            "Each notch moves the focused VFO by the Tuning-panel Step "
+            "(not the panadapter scroll step)."));
+        connect(en, &QCheckBox::toggled, grp,
+                [this](bool on) { prefs_->setHidVfoWheelEnabled(on); });
+        connect(prefs_, &Prefs::hidVfoWheelEnabledChanged, en, [this, en]() {
+            if (en->isChecked() != prefs_->hidVfoWheelEnabled())
+                en->setChecked(prefs_->hidVfoWheelEnabled());
+        });
+        v->addWidget(en);
+
+        auto *devRow = new QHBoxLayout;
+        auto *combo = new QComboBox(grp);
+        combo->setMinimumWidth(280);
+        combo->setToolTip(tr("Pick the encoder. Your real mouse stays a mouse."));
+        auto fillCombo = [this, combo]() {
+            combo->blockSignals(true);
+            combo->clear();
+            combo->addItem(tr("Select HID mouse…"), QString());
+            const auto mice = HidVfoWheel::enumerateMice();
+            const QString saved = prefs_->hidVfoDeviceId();
+            int sel = 0;
+            bool found = saved.isEmpty();
+            for (const auto &m : mice) {
+                combo->addItem(m.label, m.id);
+                if (!saved.isEmpty()
+                    && HidVfoWheel::idsEquivalent(saved, m.id)) {
+                    sel = combo->count() - 1;
+                    found = true;
+                }
+            }
+            if (!found && !saved.isEmpty()) {
+                combo->addItem(tr("(unplugged) %1").arg(saved), saved);
+                sel = combo->count() - 1;
+            }
+            combo->setCurrentIndex(sel);
+            combo->blockSignals(false);
+        };
+        fillCombo();
+        connect(combo, &QComboBox::currentIndexChanged, grp,
+                [this, combo](int) {
+            prefs_->setHidVfoDeviceId(
+                combo->currentData().toString());
+        });
+        auto *refresh = new QPushButton(tr("Refresh"), grp);
+        refresh->setToolTip(tr("Re-scan attached HID mice."));
+        connect(refresh, &QPushButton::clicked, grp, fillCombo);
+        devRow->addWidget(combo, 1);
+        devRow->addWidget(refresh);
+        v->addLayout(devRow);
+
+        auto *testRow = new QHBoxLayout;
+        auto *testHint = new QLabel(
+            tr("Wheel test — turn the selected encoder:"), grp);
+        auto *flash = new QLabel(tr("  "), grp);
+        flash->setMinimumWidth(48);
+        flash->setMinimumHeight(18);
+        flash->setAlignment(Qt::AlignCenter);
+        flash->setStyleSheet(
+            QStringLiteral("background:#3a3a3a; color:#ccc; border:1px solid #666;"));
+        flash->setText(tr("idle"));
+        testRow->addWidget(testHint);
+        testRow->addWidget(flash);
+        testRow->addStretch(1);
+        v->addLayout(testRow);
+        if (auto *hid = HidVfoWheel::instance()) {
+            connect(hid, &HidVfoWheel::wheelHeard, flash, [flash]() {
+                flash->setText(tr("tick"));
+                flash->setStyleSheet(
+                    QStringLiteral(
+                        "background:#c0392b; color:white; border:1px solid #922;"));
+                QTimer::singleShot(180, flash, [flash]() {
+                    flash->setText(tr("idle"));
+                    flash->setStyleSheet(
+                        QStringLiteral(
+                            "background:#3a3a3a; color:#ccc; border:1px solid #666;"));
+                });
+            });
+        }
+
+        auto *unf = new QCheckBox(
+            tr("Listen when Lyra is not focused"), grp);
+        unf->setChecked(prefs_->hidVfoListenUnfocused());
+        unf->setToolTip(tr(
+            "Keep receiving this encoder while another window is in front. "
+            "Only that HID device; your desktop mouse is unaffected."));
+        connect(unf, &QCheckBox::toggled, grp,
+                [this](bool on) { prefs_->setHidVfoListenUnfocused(on); });
+        connect(prefs_, &Prefs::hidVfoListenUnfocusedChanged, unf,
+                [this, unf]() {
+            if (unf->isChecked() != prefs_->hidVfoListenUnfocused())
+                unf->setChecked(prefs_->hidVfoListenUnfocused());
+        });
+        v->addWidget(unf);
+
+        auto *only = new QCheckBox(
+            tr("Wheel only adjusts VFO"), grp);
+        only->setChecked(prefs_->hidVfoWheelOnly());
+        only->setToolTip(tr(
+            "Swallow the follow-on mouse-wheel event so this encoder "
+            "does not also scroll the panadapter when the pointer is over it."));
+        connect(only, &QCheckBox::toggled, grp,
+                [this](bool on) { prefs_->setHidVfoWheelOnly(on); });
+        connect(prefs_, &Prefs::hidVfoWheelOnlyChanged, only,
+                [this, only]() {
+            if (only->isChecked() != prefs_->hidVfoWheelOnly())
+                only->setChecked(prefs_->hidVfoWheelOnly());
+        });
+        v->addWidget(only);
+
         form->addRow(grp);
     }
 
@@ -2939,7 +3953,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
     // discovery is a hardware/connection concern, and relocating it frees
     // the main-window real estate for actual control panels.
     if (discovery_ || stream_) {
-        auto *radioBox = new QGroupBox(tr("Radio (Hermes Lite 2 / 2+)"), page);
+        auto *radioBox = new QGroupBox(tr("Radio"), page);
         auto *rv = new QVBoxLayout(radioBox);
 
         auto *status = new QLabel(tr("Click \"Discover\" to scan the LAN."),
@@ -3132,12 +4146,10 @@ QWidget *SettingsDialog::buildHardwareTab() {
         rv->addLayout(manualRow);
         rv->addLayout(btnRow);
 
-        // ── P2 hardware profile (Saturn / ANAN family) ──────────────
-        // Layer-1 hardware-catalog selection — the Thetis
-        // comboRadioModel equivalent — plus the TRX antenna port.
-        // Both persist immediately and take effect at the next Open
-        // of a Protocol 2 radio.  (The HL2 path ignores these.)
-        {
+        // ── P2 hardware profile (Saturn / ANAN family / Brick) ─────
+        // Layer-1 hardware-catalog selection plus TRX antenna / RX
+        // jack / ADC. Persist immediately; live wire apply needs an
+        // open Protocol 2 session.  (The HL2 path ignores these.)
             auto *hwRow = new QHBoxLayout();
             hwRow->addWidget(new QLabel(tr("P2 radio model:"), radioBox));
             auto *modelCombo = new QComboBox(radioBox);
@@ -3178,27 +4190,22 @@ QWidget *SettingsDialog::buildHardwareTab() {
 
             hwRow->addWidget(new QLabel(tr("Antenna:"), radioBox));
             auto *antCombo = new QComboBox(radioBox);
-            antCombo->addItems({tr("ANT 1"), tr("ANT 2"), tr("ANT 3")});
-            antCombo->setCurrentIndex(
-                p2_ && p2_->isRunning()
-                    ? p2_->trxAntenna() - 1
-                    : qBound(1,
-                        QSettings().value(QStringLiteral("p2/trxAntenna"), 1)
-                            .toInt(), 3) - 1);
             connect(antCombo,
                     QOverload<int>::of(&QComboBox::currentIndexChanged),
-                    radioBox, [this, status, list](int idx) {
+                    radioBox, [this, antCombo, status, list](int) {
+                        const int ant = antCombo->currentData().toInt();
+                        if (ant < 1) return;
                         QSettings().setValue(
-                            QStringLiteral("p2/trxAntenna"), idx + 1);
+                            QStringLiteral("p2/trxAntenna"), ant);
                         if (p2_ && p2_->isRunning())
-                            p2_->setTrxAntenna(idx + 1);
+                            p2_->setTrxAntenna(ant);
                         if (auto *it = list->currentItem();
                             it && it->data(Qt::UserRole + 7).toInt() == 2) {
                             auto p = lyra::rig::registry::rig(
                                 lyra::rig::registry::rigIdForMac(
                                     it->data(Qt::UserRole + 1).toString()));
                             if (p.isValid()) {
-                                p.trxAntenna = idx + 1;
+                                p.trxAntenna = ant;
                                 lyra::rig::registry::upsertRig(p);
                             }
                         }
@@ -3274,28 +4281,19 @@ QWidget *SettingsDialog::buildHardwareTab() {
             // (Rig menu, or Open it here → "Switch to X?").
             rv->addLayout(hwRow);
 
-            // Live G2 front-end state.  These settings are rig- and
-            // band-scoped by P2RxBridge; they are intentionally disabled
-            // unless a P2 session is active, so editing an undiscovered
-            // radio can never write state under the wrong rig.
+            // Live front-end state. Rig- and band-scoped by P2RxBridge.
+            // ADC 2 / RX jacks / HPF only apply on radios that have them
+            // (Brick3SDR / ANAN-100D class = 2 ADC + classic Alex; G2 =
+            // 2 ADC + MkII BPF). Hermes-class BrickSDR has a fixed jack
+            // and one ADC — those widgets stay off. Live writes stay
+            // gated on an open P2 session so an undiscovered row cannot
+            // poke the wrong rig.
             auto *feRow = new QHBoxLayout();
-            auto *feLabel = new QLabel(tr("Active G2 band:"), radioBox);
+            auto *feLabel = new QLabel(tr("RX ADC:"), radioBox);
             auto *adcCombo = new QComboBox(radioBox);
             adcCombo->addItems({tr("ADC 1"), tr("ADC 2")});
             auto *inputCombo = new QComboBox(radioBox);
-            inputCombo->addItems({tr("TRX antenna"), tr("BYPS"),
-                                  tr("EXT 1"), tr("XVTR")});
             auto *hpfBypass = new QCheckBox(tr("HPF bypass"), radioBox);
-            const bool p2Active = p2_ && p2_->isRunning();
-            feLabel->setEnabled(p2Active);
-            adcCombo->setEnabled(p2Active);
-            inputCombo->setEnabled(p2Active);
-            hpfBypass->setEnabled(p2Active);
-            if (p2Active) {
-                adcCombo->setCurrentIndex(p2_->ddcAdc());
-                inputCombo->setCurrentIndex(p2_->rxInput());
-                hpfBypass->setChecked(p2_->hpfBypass());
-            }
             connect(adcCombo,
                     QOverload<int>::of(&QComboBox::currentIndexChanged),
                     radioBox, [this](int idx) {
@@ -3303,8 +4301,11 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     });
             connect(inputCombo,
                     QOverload<int>::of(&QComboBox::currentIndexChanged),
-                    radioBox, [this](int idx) {
-                        if (p2_ && p2_->isRunning()) p2_->setRxInput(idx);
+                    radioBox, [this, inputCombo](int) {
+                        const QVariant d = inputCombo->currentData();
+                        if (!d.isValid()) return;
+                        if (p2_ && p2_->isRunning())
+                            p2_->setRxInput(d.toInt());
                     });
             connect(hpfBypass, &QCheckBox::toggled, radioBox,
                     [this](bool on) {
@@ -3317,10 +4318,59 @@ QWidget *SettingsDialog::buildHardwareTab() {
             feRow->addWidget(hpfBypass);
             feRow->addStretch(1);
             rv->addLayout(feRow);
-        }
+
+            auto rebuildAntRx = [antCombo, inputCombo, modelCombo]() {
+                const QString key = modelCombo->currentData().toString();
+                const int n = lyra::hardware::trxAntennaCount(key);
+                const unsigned mask = lyra::hardware::rxJackMask(key);
+                const QString ext1 = lyra::hardware::rxExt1Label(key);
+                {
+                    const QSignalBlocker b(antCombo);
+                    const int cur = antCombo->currentData().isValid()
+                        ? antCombo->currentData().toInt()
+                        : QSettings().value(QStringLiteral("p2/trxAntenna"), 1)
+                              .toInt();
+                    antCombo->clear();
+                    for (int i = 1; i <= n; ++i)
+                        antCombo->addItem(QObject::tr("ANT %1").arg(i), i);
+                    int idx = antCombo->findData(cur);
+                    if (idx < 0 && antCombo->count() > 0)
+                        idx = 0;
+                    if (idx >= 0)
+                        antCombo->setCurrentIndex(idx);
+                }
+                {
+                    const QSignalBlocker b(inputCombo);
+                    const int cur = inputCombo->currentData().isValid()
+                        ? inputCombo->currentData().toInt() : 0;
+                    inputCombo->clear();
+                    const QString names[4] = {
+                        QObject::tr("TRX antenna"),
+                        QObject::tr("BYPS"),
+                        ext1,
+                        QObject::tr("XVTR"),
+                    };
+                    for (int i = 0; i < 4; ++i) {
+                        if (!(mask & (1u << static_cast<unsigned>(i))))
+                            continue;
+                        inputCombo->addItem(names[i], i);
+                    }
+                    int idx = inputCombo->findData(cur);
+                    if (idx < 0 && inputCombo->count() > 0)
+                        idx = 0;
+                    if (idx >= 0)
+                        inputCombo->setCurrentIndex(idx);
+                }
+            };
+            rebuildAntRx();
+            connect(modelCombo,
+                    QOverload<int>::of(&QComboBox::currentIndexChanged),
+                    radioBox, [rebuildAntRx](int) { rebuildAntRx(); });
 
         auto refresh = [this, scanBtn, openBtn, closeBtn, removeBtn,
-                        list, status, markConnected]() {
+                        list, status, markConnected, modelCombo, antCombo,
+                        feLabel, adcCombo, inputCombo, hpfBypass,
+                        rebuildAntRx]() {
             const bool p1Running = stream_ && stream_->isRunning();
             // isOpen(), not isRunning(): a P2 open() in flight but not
             // yet confirmed by the radio must still block a concurrent
@@ -3335,12 +4385,71 @@ QWidget *SettingsDialog::buildHardwareTab() {
             // passive (its own sockets; radios answer even when busy)
             // and the operator needs the list populated to SEE the
             // other radio before Close-then-Open switching.  Open
-            // itself stays gated on !running below.
+            // stays clickable while another radio is live so the
+            // status line can say "Close first" instead of looking
+            // like Brick3 itself is unsupported.
             scanBtn->setEnabled(discovery_ != nullptr);
-            openBtn->setEnabled(stream_ && !running &&
-                                list->currentItem() != nullptr);
+            openBtn->setEnabled(stream_ && list->currentItem() != nullptr);
+            openBtn->setToolTip(
+                running
+                    ? tr("A radio is already open. Click Close first, "
+                         "then Open.")
+                    : tr("Open the selected radio."));
             closeBtn->setEnabled(running);
             removeBtn->setEnabled(list->currentItem() != nullptr);
+
+            const QString key = modelCombo->currentData().toString();
+            const auto *hw = lyra::hardware::modelByKey(key);
+            const auto *p2hw = lyra::wire::p2ProfileForModel(key);
+            const bool dualAdc = hw && hw->adcCount > 1;
+            const bool hasAlex = p2hw && !p2hw->fixedTxFrontEnd;
+            antCombo->setEnabled(hasAlex);
+            rebuildAntRx();
+            antCombo->setToolTip(
+                hasAlex
+                    ? tr("Shared TX/RX ANT jack. Port count follows the "
+                         "selected model (Brick3SDR: ANT 1/2). Saved now; "
+                         "on the wire after Open. All-bands MAP is on "
+                         "the Band panel.")
+                    : tr("This model has a single fixed antenna jack."));
+            adcCombo->setEnabled(p2Running && dualAdc);
+            feLabel->setEnabled(p2Running && dualAdc);
+            adcCombo->setToolTip(
+                !dualAdc
+                    ? tr("This model has one ADC.")
+                    : (p2Running
+                           ? tr("Which ADC the receivers listen to. "
+                                "Brick3SDR / ANAN-100D class have two.")
+                           : tr("Open this Protocol 2 radio first.")));
+            inputCombo->setEnabled(p2Running && hasAlex);
+            hpfBypass->setEnabled(p2Running && hasAlex);
+            inputCombo->setToolTip(
+                !hasAlex
+                    ? tr("This model has a fixed RX jack (no Alex RX "
+                         "select).")
+                    : (p2Running
+                           ? tr("Alex RX path: TRX (the ANT jack) plus "
+                                "any extra RX-only jacks (Brick3SDR: "
+                                "RX2).")
+                           : tr("Open this Protocol 2 radio first — then "
+                                "RX input is selectable.")));
+            hpfBypass->setToolTip(
+                hasAlex
+                    ? tr("Bypass the Alex high-pass filter on the RX "
+                         "path.")
+                    : tr("This model has no Alex HPF."));
+            if (p2Running) {
+                const QSignalBlocker ba(adcCombo);
+                const QSignalBlocker bi(inputCombo);
+                const QSignalBlocker bh(hpfBypass);
+                const QSignalBlocker bt(antCombo);
+                adcCombo->setCurrentIndex(p2_->ddcAdc());
+                const int ii = inputCombo->findData(p2_->rxInput());
+                if (ii >= 0) inputCombo->setCurrentIndex(ii);
+                hpfBypass->setChecked(p2_->hpfBypass());
+                const int ai = antCombo->findData(p2_->trxAntenna());
+                if (ai >= 0) antCombo->setCurrentIndex(ai);
+            }
             if (p1Running)
                 status->setText(tr("Connected to %1").arg(stream_->targetIp()));
             else if (p2Running)
@@ -3360,8 +4469,43 @@ QWidget *SettingsDialog::buildHardwareTab() {
         // the live P2 reply (deskHPSDR reads the same bytes [13]/[20]/[23]).
         if (discovery_ && p2_ && p2_->isOpen())
             discovery_->probe(p2_->targetIp());
+        // Selecting a Protocol 2 radio shows THAT radio's saved model, so
+        // the box never displays a model the radio isn't actually using.
+        connect(list, &QListWidget::currentRowChanged, radioBox,
+                [list, modelCombo, status](int) {
+                    auto *it = list->currentItem();
+                    if (!it || it->data(Qt::UserRole + 7).toInt() != 2) return;
+                    auto p = lyra::rig::registry::rig(
+                        lyra::rig::registry::rigIdForMac(
+                            it->data(Qt::UserRole + 1).toString()));
+                    if (!p.isValid()) return;
+                    // Blank model on an ANAN: fill it from the board the
+                    // radio reported (Orion → ANAN-200D) and save it.
+                    if (p.hardwareModelKey.isEmpty() &&
+                        p.family == lyra::rig::RadioFamily::AnanP2) {
+                        if (const auto *dm =
+                                lyra::hardware::defaultModelForBoardName(
+                                    it->data(Qt::UserRole + 2).toString(),
+                                    true)) {
+                            p.hardwareModelKey = QLatin1String(dm->key);
+                            lyra::rig::registry::upsertRig(p);
+                        }
+                    }
+                    if (p.hardwareModelKey.isEmpty()) {
+                        status->setText(tr("This radio has no model saved — "
+                                           "pick its model so Lyra can "
+                                           "drive its filters."));
+                        return;
+                    }
+                    const int i = modelCombo->findData(p.hardwareModelKey);
+                    if (i >= 0 && i != modelCombo->currentIndex())
+                        modelCombo->setCurrentIndex(i);
+                });
         connect(list, &QListWidget::currentRowChanged, radioBox,
                 [refresh](int) { refresh(); });
+        connect(modelCombo,
+                QOverload<int>::of(&QComboBox::currentIndexChanged),
+                radioBox, [refresh](int) { refresh(); });
 
         if (discovery_) {
             connect(scanBtn, &QPushButton::clicked, discovery_,
@@ -3618,19 +4762,18 @@ QWidget *SettingsDialog::buildHardwareTab() {
     // "Filters / BCD" tab (buildFiltersBcdTab); the Hardware tab was full.
 
 
-    // --- Auto-LNA (overload-triggered front-end protection) ---
-    // On sustained ADC overload the LNA backs off; when the band clears
-    // it creeps gain back up, riding the overload edge.  The master
-    // on/off lives on the DSP+Audio panel (Row 1 "Auto"); these are the
-    // tuning knobs (mirrors the reference Ant/Filters Auto-ATT options).
+    // --- Auto-LNA (P1) / Auto Step (P2) recovery knobs ---
+    // Master on/off is DSP+Audio Row 1 "Auto". These hold/undo knobs
+    // are shared: Auto-LNA creeps PGA gain up; Auto Step creeps ATT down.
     {
         auto *undo = new QCheckBox(
             tr("Creep gain back up when the band clears (Undo)"), page);
         undo->setChecked(stream_ && stream_->autoLnaUndo());
         undo->setToolTip(tr(
-            "On: after backing off on overload, Auto-LNA raises the gain "
-            "1 dB per hold interval once clipping stops.\n"
-            "Off: Auto-LNA only ever backs the gain off and holds it there."));
+            "On: after backing off on overload, Auto creeps the front end "
+            "1 dB per hold interval once clipping stops "
+            "(HL2: LNA up; Protocol 2: ATT down toward 0).\n"
+            "Off: Auto only ever pads/backs off and holds it there."));
         if (stream_) {
             connect(undo, &QCheckBox::toggled, stream_,
                     &lyra::ipc::HL2Stream::setAutoLnaUndo);
@@ -3640,15 +4783,16 @@ QWidget *SettingsDialog::buildHardwareTab() {
                         if (undo->isChecked() != on) undo->setChecked(on);
                     });
         }
-        form->addRow(tr("Auto-LNA"), undo);
+        form->addRow(tr("Auto-LNA / Auto Step"), undo);
 
         auto *hold = new QSpinBox(page);
         hold->setRange(1, 60);
         hold->setSuffix(tr(" s"));
         hold->setValue(stream_ ? stream_->autoLnaHoldSec() : 4);
         hold->setToolTip(tr(
-            "How long to wait after clipping stops before creeping the gain "
-            "back up — and the interval between each +1 dB step."));
+            "How long to wait after clipping stops before creeping, "
+            "and the interval between each 1 dB step "
+            "(HL2 LNA +1 dB; Protocol 2 ATT −1 dB)."));
         if (stream_) {
             connect(hold, qOverload<int>(&QSpinBox::valueChanged), stream_,
                     &lyra::ipc::HL2Stream::setAutoLnaHoldSec);
@@ -3838,9 +4982,11 @@ QWidget *SettingsDialog::buildHardwareTab() {
             limit->setRange(1, 100);
             limit->setSuffix(tr(" %"));
             limit->setToolTip(tr(
-                "Independent ceiling over the front-panel Drive slider. "
-                "Defaults to 5% and is hard-limited to 25% until G2 TX "
-                "completes dummy-load validation."));
+                "Independent ceiling over the front-panel Drive slider for "
+                "radios whose TX is not yet on-air validated (classic ANAN). "
+                "Default is 50% on a dummy load. Raise this if you want more "
+                "Drive on the dummy. This is not the watts CAP or Max Protect. "
+                "Dummy load only."));
             p2Grid->addWidget(limitLabel, 2, 0);
             p2Grid->addWidget(limit, 2, 1, Qt::AlignLeft);
 
@@ -3918,6 +5064,35 @@ QWidget *SettingsDialog::buildHardwareTab() {
             g->addWidget(p2Wrap, 5, 0, 1, 2);
         }
 
+        if (stream_) {
+            auto *psAtt = new QCheckBox(
+                tr("I have the PureSignal hardware coupler installed"), grp);
+            psAtt->setChecked(stream_->psAttestation());
+            psAtt->setToolTip(tr(
+                "Set automatically the first time you press ON on the "
+                "PureSignal dock (same as Thetis / DeskHPSDR). Uncheck "
+                "to fully disable PS on a radio with no coupler. Drive, "
+                "watts cap, and ATT-on-TX are separate."));
+            connect(psAtt, &QCheckBox::toggled, stream_,
+                    &lyra::ipc::HL2Stream::setPsAttestation);
+            connect(stream_, &lyra::ipc::HL2Stream::psAttestationChanged, psAtt,
+                    [psAtt](bool on) {
+                        if (psAtt->isChecked() != on) psAtt->setChecked(on);
+                    });
+            g->addWidget(psAtt, 6, 0, 1, 2);
+
+            auto *psHelp = new QLabel(grp);
+            psHelp->setText(tr(
+                "PureSignal: dummy load first. Daily switch is the "
+                "PureSignal dock ON (not a second Settings Arm). "
+                "DIGU/DIGL/DRM/CWL/CWU/FM still force the calibrator "
+                "off. Live gates: "
+                "docs/architecture/puresignal_hl2_bench.md."));
+            psHelp->setWordWrap(true);
+            psHelp->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+            g->addWidget(psHelp, 7, 0, 1, 2);
+        }
+
         // --- Auto-mute RX while transmitting (task #26) ---
         // Default ON.  When the wire MOX bit settles true (post TR-delay),
         // the WdspEngine drops RX audio to silence so the operator
@@ -3945,7 +5120,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 const bool on = engine_->autoMuteOnTx();
                 if (amBox->isChecked() != on) amBox->setChecked(on);
             });
-            g->addWidget(amBox, 6, 0, 1, 2);
+            g->addWidget(amBox, 9, 0, 1, 2);
         }
 
         // --- RX-on-unkey delay (queued thud/echo fix) ---
@@ -3988,7 +5163,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     rxdSpin->setValue(v);
                 }
             });
-            g->addWidget(rxdWrap, 7, 0, 1, 2);
+            g->addWidget(rxdWrap, 10, 0, 1, 2);
         }
 
         // --- Task #36: Hardware PTT input forwarder (default OFF) ---
@@ -4037,7 +5212,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     hwBox->setChecked(on);
                 }
             });
-            g->addWidget(hwBox, 8, 0, 1, 2);
+            g->addWidget(hwBox, 11, 0, 1, 2);
         }
 
         // --- Task #157: Space-bar PTT enable/disable ---
@@ -4077,7 +5252,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     sbBox->setChecked(on);
                 }
             });
-            g->addWidget(sbBox, 9, 0, 1, 2);
+            g->addWidget(sbBox, 12, 0, 1, 2);
         }
 
         // --- Auto-start on launch (opt-out) ---
@@ -4106,7 +5281,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                     asBox->setChecked(on);
                 }
             });
-            g->addWidget(asBox, 10, 0, 1, 2);
+            g->addWidget(asBox, 13, 0, 1, 2);
         }
 
         // Mic source picker + Mic Boost checkbox MOVED to the TX
@@ -4155,7 +5330,7 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
     // or full-width (BCD-only, no stream).
     QGroupBox *bcdBox = nullptr;
     if (bcd_) {
-        bcdBox = section(tr("USB-BCD amp band output"));
+        bcdBox = section(tr("PC FTDI cable (optional)"));
         auto *bf = new QFormLayout(bcdBox);
         if (!bcd_->available()) {
             auto *na = new QLabel(tr("FTDI driver (ftd2xx.dll) not found — "
@@ -4166,10 +5341,10 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         } else {
             auto *en = new QCheckBox(tr("Enable USB-BCD amp band output"));
             en->setChecked(bcd_->enabled());
-            en->setToolTip(tr("Outputs the Yaesu BCD band code on an FTDI cable "
-                              "so a linear amp follows the band.\n⚠ Verify "
-                              "wiring + low-power test per band before keying "
-                              "at full power."));
+            en->setToolTip(tr(
+                "PC FTDI cable only (same as Thetis USB/BCD Cable). "
+                "The radio DB9 is the OC grid — tick pins yourself.\n"
+                "⚠ Verify wiring + low-power test per band before full power."));
             connect(en, &QCheckBox::toggled, bcd_, &UsbBcd::setEnabled);
             connect(bcd_, &UsbBcd::enabledChanged, en, [en](bool on) {
                 if (en->isChecked() != on) en->setChecked(on);
@@ -4226,38 +5401,85 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         }
     }
 
+    // Protocol 2 ANAN / Brick3: the radio's OWN band filters (Alex HPF/BPF
+    // + TX LPF) are switched by the per-packet Alex words, not the J16 OC
+    // pins — so they are shown read-only right next to the J16 pins: a
+    // lamp row under "Live pins" and ticked columns in the per-band grid.
+    // Display only.  {Alex halfword bit, band-pass label, high-pass label}
+    // — the RX bits are band-pass filters on the Orion MkII / Saturn board
+    // and high-pass filters on classic Alex.
+    struct RadioLamp { int bit; const char *bpf; const char *hpf; };
+    static const RadioLamp kRadioRx[] = {
+        {6, "160", "1.5M"}, {5, "80/60", "6.5M"}, {4, "40/30", "9.5M"},
+        {1, "20-15", "13M"}, {2, "12/10", "20M"}, {3, "6m", "6m pre"},
+        {12, "Byp", "Byp"}};
+    static const RadioLamp kRadioTx[] = {
+        {7, "160", nullptr}, {6, "80", nullptr}, {5, "60/40", nullptr},
+        {4, "30/20", nullptr}, {15, "17/15", nullptr}, {14, "12/10", nullptr},
+        {13, "6m", nullptr}};
+    const QString radioLampOn = QStringLiteral(
+        "QLabel{background:#9acd32;color:#0b1116;border-radius:4px;"
+        "font-weight:bold;padding:0 4px;}");
+    const QString radioLampOff = QStringLiteral(
+        "QLabel{background:#26333c;color:#5b6b78;border-radius:4px;"
+        "padding:0 4px;}");
+
     if (oc) {
         auto *ocBox = section(tr("Filter board — OC Control (J16 pins)"));
         auto *ocv = new QVBoxLayout(ocBox);
         ocv->setSpacing(10);
 
-        // --- master enable + live hardware pin-state strip ---
+        // --- accessory Off / N2ADR / Custom + live pin strip ---
         auto *topRow = new QHBoxLayout;
-        auto *fb = new QCheckBox(
-            tr("Enable N2ADR / IO board (filters + Pico analog, not J3)"));
-        fb->setChecked(stream_->filterBoardEnabled());
-        fb->setToolTip(tr(
-            "DeskHPSDR: HL2 filter_board = N2ADR, OC on every frame.\n"
-            "Thetis/Quisk send the same OC bits with no extra checkbox.\n\n"
-            "Drives J16 open-collectors. Gateware relays them over I2C "
-            "(addr 0x20) for N2ADR LPFs. A Pico (M0AWS / KP4RX) can turn "
-            "those bits into analog PWM — stock N2ADR firmware is J4 pin 8, "
-            "not J3.\n\n"
-            "IO-board J3 is the fan-PWM header. Analog on J3 uses the Band "
-            "Volts checkbox below (DeskHPSDR dither / MI0BOT HL2 Band Volts).\n\n"
-            "Off = OC pins idle (harmless with no board)."));
-        connect(fb, &QCheckBox::toggled, stream_,
-                &lyra::ipc::HL2Stream::setFilterBoardEnabled);
-        connect(stream_, &lyra::ipc::HL2Stream::filterBoardChanged, fb,
-                [fb](bool on) { if (fb->isChecked() != on) fb->setChecked(on); });
-        topRow->addWidget(fb);
+        topRow->addWidget(new QLabel(tr("OC accessory")));
+        auto *acc = new QComboBox;
+        acc->addItem(tr("Off"), int(lyra::oc::OcAccessory::Off));
+        acc->addItem(tr("N2ADR"), int(lyra::oc::OcAccessory::N2adr));
+        acc->addItem(tr("Custom"), int(lyra::oc::OcAccessory::Custom));
+        {
+            const int i = acc->findData(int(stream_->ocAccessory()));
+            acc->setCurrentIndex(i >= 0 ? i : 0);
+        }
+        acc->setToolTip(tr(
+            "J16 / P2 [1401] open-collectors — same model as Thetis Ext Control "
+            "and DeskHPSDR OC: the host emits the ticks you set. It does not "
+            "auto-choose Yaesu BCD for a radio DB9.\n\n"
+            "Off — emit 0. Table is kept.\n"
+            "N2ADR — stamp the stock HF LPF map; SWL broadcast rows get the "
+            "LPF of the ham band just above them. Xvtr rows stay empty.\n"
+            "Custom — emit the grid as ticked. Editing N2ADR ticks promotes "
+            "to Custom.\n\n"
+            "P1 HL2: I2C 0x20. P2: HP [1401]. Analog J4 / REG 11 are not "
+            "this control — see the IO board box."));
+        connect(acc, &QComboBox::currentIndexChanged, page, [this, acc](int) {
+            stream_->setOcAccessory(static_cast<lyra::oc::OcAccessory>(
+                acc->currentData().toInt()));
+        });
+        connect(stream_, &lyra::ipc::HL2Stream::ocAccessoryChanged, page,
+                [this, acc]() {
+                    const int i = acc->findData(int(stream_->ocAccessory()));
+                    if (i >= 0 && acc->currentIndex() != i) {
+                        QSignalBlocker b(acc);
+                        acc->setCurrentIndex(i);
+                    }
+                });
+        topRow->addWidget(acc);
         topRow->addStretch(1);
         topRow->addWidget(new QLabel(tr("Live pins:")));
+        const QStringList n2PinTip = {
+            tr("N2ADR pin 1 — 160 m LPF"),
+            tr("N2ADR pin 2 — 80 m LPF"),
+            tr("N2ADR pin 3 — 60 m / 40 m LPF"),
+            tr("N2ADR pin 4 — 30 m / 20 m LPF"),
+            tr("N2ADR pin 5 — 17 m / 15 m LPF"),
+            tr("N2ADR pin 6 — 12 m / 10 m LPF"),
+            tr("N2ADR pin 7 — 3 MHz HPF (RX on 80–10 m; off on TX and 160 m)")};
         QVector<QLabel *> pinCells;
         for (int p = 1; p <= 7; ++p) {
             auto *cell = new QLabel(QString::number(p));
             cell->setAlignment(Qt::AlignCenter);
             cell->setFixedSize(22, 22);
+            cell->setToolTip(n2PinTip[p - 1]);
             pinCells.append(cell);
             topRow->addWidget(cell);
         }
@@ -4275,9 +5497,101 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         connect(stream_, &lyra::ipc::HL2Stream::ocBitsChanged, page, refreshPins);
         ocv->addLayout(topRow);
 
-        // --- per-band editable grid (HF group v1) ---
+        // Radio's own filters (P2 ANAN / Brick3) — lamps right under the
+        // J16 Live pins.  Hidden unless such a radio is open.
+        QWidget *radioLampHost = nullptr;
+        if (p2_) {
+            radioLampHost = new QWidget;
+            auto *rl = new QGridLayout(radioLampHost);
+            rl->setContentsMargins(0, 0, 0, 0);
+            rl->setHorizontalSpacing(4);
+            rl->setVerticalSpacing(3);
+            auto *rxName = new QLabel;
+            rl->addWidget(rxName, 0, 0);
+            rl->addWidget(new QLabel(tr("Radio TX low-pass:")), 1, 0);
+            QVector<QLabel *> rxL, txL;
+            for (int i = 0; i < 7; ++i) {
+                auto *r = new QLabel(QString::fromLatin1(kRadioRx[i].bpf));
+                auto *t = new QLabel(QString::fromLatin1(kRadioTx[i].bpf));
+                for (QLabel *c : {r, t}) {
+                    c->setAlignment(Qt::AlignCenter);
+                    c->setMinimumSize(44, 22);
+                }
+                rl->addWidget(r, 0, 1 + i);
+                rl->addWidget(t, 1, 1 + i);
+                rxL.append(r);
+                txL.append(t);
+            }
+            auto *antL = new QLabel;
+            antL->setStyleSheet(QStringLiteral(
+                "QLabel{color:#7fd4a0;font-weight:bold;padding-left:8px;}"));
+            rl->addWidget(antL, 1, 8);
+            rl->setColumnStretch(9, 1);
+            ocv->addWidget(radioLampHost);
+            auto refreshRadioLamps = [this, radioLampHost, rxName, rxL, txL,
+                                      antL, radioLampOn, radioLampOff]() {
+                const int rxw = p2_->frontEndRxWord();
+                const int txw = p2_->frontEndTxWord();
+                const bool show = !p2_->frontEndFilters().isEmpty() &&
+                                  !p2_->frontEndOnboard();
+                radioLampHost->setVisible(show);
+                if (!show) return;
+                const bool hpf = p2_->frontEndClassicHpf();
+                rxName->setText(hpf ? tr("Radio RX high-pass:")
+                                    : tr("Radio RX band-pass:"));
+                for (int i = 0; i < 7; ++i) {
+                    rxL[i]->setText(QString::fromLatin1(
+                        hpf ? kRadioRx[i].hpf : kRadioRx[i].bpf));
+                    rxL[i]->setStyleSheet(((rxw >> kRadioRx[i].bit) & 1)
+                                              ? radioLampOn : radioLampOff);
+                    txL[i]->setStyleSheet(((txw >> kRadioTx[i].bit) & 1)
+                                              ? radioLampOn : radioLampOff);
+                }
+                antL->setText(((txw >> 8) & 1)    ? tr("ANT1")
+                              : ((txw >> 9) & 1)  ? tr("ANT2")
+                              : ((txw >> 10) & 1) ? tr("ANT3")
+                                                  : QString());
+            };
+            refreshRadioLamps();
+            connect(p2_, &lyra::wire::P2RxBridge::frontEndFiltersChanged,
+                    radioLampHost, refreshRadioLamps);
+        }
+
+        auto *pinHelp = new QLabel(tr(
+            "<b>N2ADR example (stock board)</b> — column 1–7 mean this on that "
+            "board; Custom can be any mapping.<br>"
+            "Pin 1 = 160 m &nbsp; 2 = 80 m &nbsp; 3 = 60/40 m &nbsp; "
+            "4 = 30/20 m &nbsp; 5 = 17/15 m &nbsp; 6 = 12/10 m &nbsp; "
+            "7 = 3 MHz HPF (RX only on 80–10 m). "
+            "6 m = all off (no LPF on that board).<br>"
+            "<b>Radio DB9 / ACC:</b> Thetis and DeskHPSDR do not auto-map "
+            "Yaesu BCD onto these pins — you tick the cells that match "
+            "<i>your</i> cable (ANAN OC is often inverted). "
+            "<b>Example Yaesu A–D</b> only stamps a starting grid.<br>"
+            "<b>Xvtr:</b> leave empty so J16 idles (an HF amp on J16 will not "
+            "follow 10 m). Copy 10 m ticks (RX pins 6+7, TX pin 6) if the HL2 "
+            "LPF must stay on the IF.<br>"
+            "<b>SWL:</b> broadcast rows (folded below) follow their own ticks; "
+            "N2ADR seeds each with the LPF of the ham band just above it. "
+            "Where a BC band overlaps a ham band the ham row is used. CB and "
+            "GEN have no row (pins off)."));
+        pinHelp->setWordWrap(true);
+        pinHelp->setTextFormat(Qt::RichText);
+        pinHelp->setStyleSheet(QStringLiteral(
+            "QLabel{color:#8fa6ba;font-size:12px;padding:4px 0;}"));
+        ocv->addWidget(pinHelp);
+
+        // --- per-band editable grid (HF + named Xvtr + folded SWL rows) ---
         const auto &bands = lyra::amateurBands();
         const int nB = int(bands.size());
+        const int nXv = lyra::oc::OcControl::kXvtrSlots;
+        const auto &bcBands = lyra::broadcastBands();
+        const int nBc = int(bcBands.size());
+        const int xvHdrRow = 2 + nB;
+        const int xvFirstRow = xvHdrRow + 1;
+        const int swlHdrRow = xvFirstRow + nXv;
+        const int swlFirstRow = swlHdrRow + 1;
+        const int gridRows = swlFirstRow + nBc;
         auto *grid = new QGridLayout;
         grid->setHorizontalSpacing(4);
         grid->setVerticalSpacing(3);
@@ -4288,22 +5602,26 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         grid->addWidget(colHdr(tr("J16 Transmit pins"), QStringLiteral("#e08a8a")),
                         0, 9, 1, 7, Qt::AlignCenter);
         for (int p = 1; p <= 7; ++p) {
-            grid->addWidget(colHdr(QString::number(p), QStringLiteral("#7fd4a0")),
-                            1, p);
-            grid->addWidget(colHdr(QString::number(p), QStringLiteral("#e08a8a")),
-                            1, 8 + p);
+            auto *rxH = colHdr(QString::number(p), QStringLiteral("#7fd4a0"));
+            auto *txH = colHdr(QString::number(p), QStringLiteral("#e08a8a"));
+            rxH->setToolTip(n2PinTip[p - 1]);
+            txH->setToolTip(n2PinTip[p - 1]);
+            grid->addWidget(rxH, 1, p);
+            grid->addWidget(txH, 1, 8 + p);
         }
         // Bring the RX and TX halves closer + a thin divider between them.
         grid->setColumnMinimumWidth(8, 9);
         auto *gdiv = new QFrame;
         gdiv->setFrameShape(QFrame::VLine);
         gdiv->setStyleSheet(QStringLiteral("QFrame{color:#5a7c94;}"));
-        grid->addWidget(gdiv, 0, 8, 2 + nB, 1);
+        grid->addWidget(gdiv, 0, 8, gridRows, 1);
 
+        QVector<QLabel *> hfLabels(nB);
         QVector<QVector<QCheckBox *>> rxCb(nB), txCb(nB);
         for (int b = 0; b < nB; ++b) {
             auto *bl = new QLabel(QString::fromLatin1(bands[b].name));
             bl->setStyleSheet(QStringLiteral("QLabel{color:#cdd9e5;}"));
+            hfLabels[b] = bl;
             grid->addWidget(bl, 2 + b, 0);
             for (int p = 1; p <= 7; ++p) {
                 auto *rx = new QCheckBox;
@@ -4318,18 +5636,281 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
                             quint8 m = oc->rxMaskA(b);
                             if (on) m |= bit; else m &= ~bit;
                             oc->setRxMaskA(b, m);
-                            stream_->applyOcEdit();
+                            stream_->noteOcGridEdited();
                         });
                 connect(tx, &QCheckBox::toggled, page,
                         [this, oc, b, bit](bool on) {
                             quint8 m = oc->txMaskA(b);
                             if (on) m |= bit; else m &= ~bit;
                             oc->setTxMaskA(b, m);
-                            stream_->applyOcEdit();
+                            stream_->noteOcGridEdited();
                         });
             }
         }
-        auto loadGrid = [oc, rxCb, txCb, nB]() {
+
+        // Radio's own filters per band (P2 ANAN / Brick3): read-only ticks
+        // in columns to the right of the J16 pins, computed from the same
+        // functions that build the radio's filter words (band centre).
+        // Hidden unless such a radio is open.
+        if (p2_) {
+            constexpr int kRxCol0 = 17;          // after the TX pins + gap
+            constexpr int kTxCol0 = kRxCol0 + 8;
+            grid->setColumnMinimumWidth(16, 14);
+            QVector<QWidget *> radioCells;
+            auto *rdiv = new QFrame;
+            rdiv->setFrameShape(QFrame::VLine);
+            rdiv->setStyleSheet(QStringLiteral("QFrame{color:#5a7c94;}"));
+            grid->addWidget(rdiv, 0, 16, 2 + nB, 1);
+            radioCells.append(rdiv);
+            auto *rxHdr = colHdr(QString(), QStringLiteral("#9acd32"));
+            auto *txHdr = colHdr(tr("Radio TX low-pass"),
+                                 QStringLiteral("#9acd32"));
+            grid->addWidget(rxHdr, 0, kRxCol0, 1, 7, Qt::AlignCenter);
+            grid->addWidget(txHdr, 0, kTxCol0, 1, 7, Qt::AlignCenter);
+            radioCells << rxHdr << txHdr;
+            QVector<QLabel *> rxColHdr;
+            for (int i = 0; i < 7; ++i) {
+                auto *rh = colHdr(QString(), QStringLiteral("#9acd32"));
+                auto *th = colHdr(QString::fromLatin1(kRadioTx[i].bpf),
+                                  QStringLiteral("#9acd32"));
+                grid->addWidget(rh, 1, kRxCol0 + i);
+                grid->addWidget(th, 1, kTxCol0 + i);
+                rxColHdr.append(rh);
+                radioCells << rh << th;
+            }
+            QVector<QVector<QCheckBox *>> rRx(nB), rTx(nB);
+            for (int b = 0; b < nB; ++b) {
+                for (int i = 0; i < 7; ++i) {
+                    auto *r = new QCheckBox;
+                    auto *t = new QCheckBox;
+                    for (QCheckBox *c : {r, t}) {
+                        // Read-only: the radio picks its own filters.
+                        c->setAttribute(Qt::WA_TransparentForMouseEvents);
+                        c->setFocusPolicy(Qt::NoFocus);
+                        c->setToolTip(tr("Chosen by the radio — not editable"));
+                    }
+                    grid->addWidget(r, 2 + b, kRxCol0 + i, Qt::AlignCenter);
+                    grid->addWidget(t, 2 + b, kTxCol0 + i, Qt::AlignCenter);
+                    rRx[b].append(r);
+                    rTx[b].append(t);
+                    radioCells << r << t;
+                }
+            }
+            const auto *bandList = &bands;   // static table
+            auto refreshRadioGrid = [this, radioCells, rxHdr, rxColHdr, rRx,
+                                     rTx, nB, bandList]() {
+                const bool show = !p2_->frontEndFilters().isEmpty() &&
+                                  !p2_->frontEndOnboard();
+                for (QWidget *w : radioCells) w->setVisible(show);
+                if (!show) return;
+                const bool hpf = p2_->frontEndClassicHpf();
+                rxHdr->setText(hpf ? tr("Radio RX high-pass")
+                                   : tr("Radio RX band-pass"));
+                for (int i = 0; i < 7; ++i)
+                    rxColHdr[i]->setText(QString::fromLatin1(
+                        hpf ? kRadioRx[i].hpf : kRadioRx[i].bpf));
+                for (int b = 0; b < nB; ++b) {
+                    const auto &bd = (*bandList)[static_cast<size_t>(b)];
+                    const quint32 mid = static_cast<quint32>(
+                        (static_cast<qint64>(bd.low) + bd.high) / 2);
+                    const int rxw = p2_->frontEndRxWordFor(mid);
+                    const int txw = p2_->frontEndTxWordFor(mid);
+                    for (int i = 0; i < 7; ++i) {
+                        rRx[b][i]->setChecked(
+                            rxw >= 0 && ((rxw >> kRadioRx[i].bit) & 1));
+                        rTx[b][i]->setChecked(
+                            txw >= 0 && ((txw >> kRadioTx[i].bit) & 1));
+                    }
+                }
+            };
+            // Only hide at build (a show() before the grid is parented would
+            // float the widget); the deferred refresh runs once it is.
+            for (QWidget *w : radioCells) w->hide();
+            QTimer::singleShot(0, page, refreshRadioGrid);
+            connect(p2_, &lyra::wire::P2RxBridge::frontEndFiltersChanged,
+                    page, refreshRadioGrid);
+        }
+
+        auto *xvHdr = new QLabel(tr("Xvtr chips (empty = pins off)"));
+        xvHdr->setStyleSheet(QStringLiteral(
+            "QLabel{color:#4fc3f7;font-weight:bold;padding-top:8px;}"));
+        grid->addWidget(xvHdr, xvHdrRow, 0, 1, 16);
+
+        QVector<QLabel *> xvLabels(nXv);
+        QVector<QVector<QCheckBox *>> xvRxCb(nXv), xvTxCb(nXv);
+        for (int i = 0; i < nXv; ++i) {
+            auto *bl = new QLabel;
+            xvLabels[i] = bl;
+            grid->addWidget(bl, xvFirstRow + i, 0);
+            for (int p = 1; p <= 7; ++p) {
+                auto *rx = new QCheckBox;
+                auto *tx = new QCheckBox;
+                xvRxCb[i].append(rx);
+                xvTxCb[i].append(tx);
+                grid->addWidget(rx, xvFirstRow + i, p, Qt::AlignCenter);
+                grid->addWidget(tx, xvFirstRow + i, 8 + p, Qt::AlignCenter);
+                const int bit = 1 << (p - 1);
+                connect(rx, &QCheckBox::toggled, page,
+                        [this, oc, i, bit](bool on) {
+                            quint8 m = oc->rxMaskXvtr(i);
+                            if (on) m |= bit; else m &= ~bit;
+                            oc->setRxMaskXvtr(i, m);
+                            stream_->noteOcGridEdited();
+                        });
+                connect(tx, &QCheckBox::toggled, page,
+                        [this, oc, i, bit](bool on) {
+                            quint8 m = oc->txMaskXvtr(i);
+                            if (on) m |= bit; else m &= ~bit;
+                            oc->setTxMaskXvtr(i, m);
+                            stream_->noteOcGridEdited();
+                        });
+            }
+        }
+
+        // --- SWL broadcast rows: collapsible, folded by default -----------
+        // One arrow-button header row; the band rows live in the same
+        // QGridLayout (so the pin columns line up) and are simply hidden
+        // while folded — the grid drops empty rows.  Open/closed persists.
+        const QString swlOpenKey = QStringLiteral("hw/ocSwlRowsOpen");
+        auto *swlHdr = new QToolButton;
+        swlHdr->setCheckable(true);
+        swlHdr->setAutoRaise(true);
+        swlHdr->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        swlHdr->setText(tr("SWL broadcast rows (%1) — ham row wins on overlap")
+                            .arg(nBc));
+        swlHdr->setToolTip(tr(
+            "J16 ticks for the shortwave broadcast meter bands. Used only "
+            "when the dial is outside every ham band and Xvtr chip (ham "
+            "rows win on 75 m / 41 m / 13 m overlaps). N2ADR seeds each row "
+            "with the LPF of the ham band directly above it; 120 m drops "
+            "the 3 MHz HPF. CB and GEN keep pins off."));
+        swlHdr->setStyleSheet(QStringLiteral(
+            "QToolButton{color:#4fc3f7;font-weight:bold;padding-top:8px;"
+            "border:none;background:transparent;}"));
+        grid->addWidget(swlHdr, swlHdrRow, 0, 1, 16, Qt::AlignLeft);
+
+        QVector<QLabel *> swlLabels(nBc);
+        QVector<QVector<QCheckBox *>> swlRxCb(nBc), swlTxCb(nBc);
+        QVector<QWidget *> swlWidgets;
+        for (int bc = 0; bc < nBc; ++bc) {
+            const int row = oc->bcRow(bc);
+            auto *bl = new QLabel(tr("%1 BC").arg(QString::fromLatin1(bcBands[bc].name)));
+            bl->setStyleSheet(QStringLiteral("QLabel{color:#cdd9e5;}"));
+            bl->setToolTip(tr("%1–%2 MHz")
+                               .arg(bcBands[bc].low / 1e6, 0, 'f', 3)
+                               .arg(bcBands[bc].high / 1e6, 0, 'f', 3));
+            swlLabels[bc] = bl;
+            swlWidgets.append(bl);
+            grid->addWidget(bl, swlFirstRow + bc, 0);
+            for (int p = 1; p <= 7; ++p) {
+                auto *rx = new QCheckBox;
+                auto *tx = new QCheckBox;
+                swlRxCb[bc].append(rx);
+                swlTxCb[bc].append(tx);
+                swlWidgets.append(rx);
+                swlWidgets.append(tx);
+                grid->addWidget(rx, swlFirstRow + bc, p, Qt::AlignCenter);
+                grid->addWidget(tx, swlFirstRow + bc, 8 + p, Qt::AlignCenter);
+                const int bit = 1 << (p - 1);
+                connect(rx, &QCheckBox::toggled, page,
+                        [this, oc, row, bit](bool on) {
+                            quint8 m = oc->rxMaskA(row);
+                            if (on) m |= bit; else m &= ~bit;
+                            oc->setRxMaskA(row, m);
+                            stream_->noteOcGridEdited();
+                        });
+                connect(tx, &QCheckBox::toggled, page,
+                        [this, oc, row, bit](bool on) {
+                            quint8 m = oc->txMaskA(row);
+                            if (on) m |= bit; else m &= ~bit;
+                            oc->setTxMaskA(row, m);
+                            stream_->noteOcGridEdited();
+                        });
+            }
+        }
+        {
+            const bool open = QSettings().value(swlOpenKey, false).toBool();
+            swlHdr->setChecked(open);
+            swlHdr->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
+            // Only hide here: a show() before the grid is parented would
+            // float the widget as a window.  The toggle below runs after.
+            if (!open)
+                for (auto *w : swlWidgets) w->hide();
+        }
+        connect(swlHdr, &QToolButton::toggled, page,
+                [swlHdr, swlWidgets, swlOpenKey](bool open) {
+                    swlHdr->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
+                    for (auto *w : swlWidgets) w->setVisible(open);
+                    QSettings().setValue(swlOpenKey, open);
+                });
+
+        auto *liveCap = new QLabel;
+        liveCap->setWordWrap(true);
+        liveCap->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+
+        const QString liveOn = QStringLiteral(
+            "QLabel{color:#0b1116;background:#7fd4a0;border-radius:3px;"
+            "padding:1px 4px;font-weight:bold;}");
+        const QString liveOff = QStringLiteral("QLabel{color:#cdd9e5;background:transparent;}");
+        const QString xvOff = QStringLiteral("QLabel{color:#5b6b78;background:transparent;}");
+
+        auto refreshXvtrLabels = [this, xvLabels, nXv, xvOff]() {
+            auto *xv = stream_ ? stream_->xvtrSlots() : nullptr;
+            for (int i = 0; i < nXv; ++i) {
+                QString name = xv ? xv->slotName(i) : QString();
+                if (name.trimmed().isEmpty())
+                    name = tr("Xvtr %1").arg(i + 1);
+                const bool on = xv && xv->slotEnabled(i);
+                xvLabels[i]->setText(on ? name : tr("%1 (off)").arg(name));
+                if (!on)
+                    xvLabels[i]->setStyleSheet(xvOff);
+            }
+        };
+
+        auto paintLive = [this, hfLabels, xvLabels, swlLabels, nB, nXv, nBc,
+                          liveCap, liveOn, liveOff, xvOff, refreshXvtrLabels]() {
+            refreshXvtrLabels();
+            int liveRow = -1;   // OcControl row: amateur, or a SWL row
+            int liveXv = -1;
+            if (stream_) {
+                const quint32 rf = stream_->rx1FreqHz();
+                liveXv = stream_->xvtrMatchingSlot(static_cast<qint64>(rf));
+                if (liveXv < 0)
+                    liveRow = stream_->ocBandIndexForRf(rf);
+            }
+            const int liveHf = (liveRow >= 0 && liveRow < nB) ? liveRow : -1;
+            const int liveBc = lyra::oc::OcControl::bcIndexOfRow(liveRow);
+            for (int b = 0; b < nB; ++b)
+                hfLabels[b]->setStyleSheet(b == liveHf ? liveOn : liveOff);
+            for (int bc = 0; bc < nBc; ++bc)
+                swlLabels[bc]->setStyleSheet(bc == liveBc ? liveOn : liveOff);
+            auto *xv = stream_ ? stream_->xvtrSlots() : nullptr;
+            for (int i = 0; i < nXv; ++i) {
+                if (i == liveXv)
+                    xvLabels[i]->setStyleSheet(liveOn);
+                else if (!(xv && xv->slotEnabled(i)))
+                    xvLabels[i]->setStyleSheet(xvOff);
+                else
+                    xvLabels[i]->setStyleSheet(liveOff);
+            }
+            if (liveXv >= 0) {
+                const QString nm = xvLabels[liveXv]->text();
+                liveCap->setText(tr("Live J16: %1 — empty ticks = pins off "
+                                    "(HF amp on J16 will not follow 10 m IF).")
+                                     .arg(nm));
+            } else if (liveHf >= 0) {
+                liveCap->setText(tr("Live J16: %1")
+                    .arg(QString::fromLatin1(lyra::amateurBands()[size_t(liveHf)].name)));
+            } else if (liveBc >= 0) {
+                liveCap->setText(tr("Live J16: %1 BC (SWL row)")
+                    .arg(QString::fromLatin1(lyra::broadcastBands()[size_t(liveBc)].name)));
+            } else {
+                liveCap->setText(tr("Live J16: none (GEN / CB / out of table)"));
+            }
+        };
+
+        auto loadGrid = [oc, rxCb, txCb, xvRxCb, xvTxCb, swlRxCb, swlTxCb,
+                         nB, nXv, nBc, paintLive]() {
             for (int b = 0; b < nB; ++b)
                 for (int p = 0; p < 7; ++p) {
                     const int bit = 1 << p;
@@ -4338,34 +5919,75 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
                     rxCb[b][p]->setChecked(oc->rxMaskA(b) & bit);
                     txCb[b][p]->setChecked(oc->txMaskA(b) & bit);
                 }
+            for (int i = 0; i < nXv; ++i)
+                for (int p = 0; p < 7; ++p) {
+                    const int bit = 1 << p;
+                    QSignalBlocker br(xvRxCb[i][p]);
+                    QSignalBlocker bt(xvTxCb[i][p]);
+                    xvRxCb[i][p]->setChecked(oc->rxMaskXvtr(i) & bit);
+                    xvTxCb[i][p]->setChecked(oc->txMaskXvtr(i) & bit);
+                }
+            for (int bc = 0; bc < nBc; ++bc) {
+                const int row = oc->bcRow(bc);
+                for (int p = 0; p < 7; ++p) {
+                    const int bit = 1 << p;
+                    QSignalBlocker br(swlRxCb[bc][p]);
+                    QSignalBlocker bt(swlTxCb[bc][p]);
+                    swlRxCb[bc][p]->setChecked(oc->rxMaskA(row) & bit);
+                    swlTxCb[bc][p]->setChecked(oc->txMaskA(row) & bit);
+                }
+            }
+            paintLive();
         };
         loadGrid();
         ocv->addLayout(grid);
+        ocv->addWidget(liveCap);
+        if (stream_) {
+            connect(stream_, &lyra::ipc::HL2Stream::rx1FreqChanged,
+                    page, paintLive);
+            connect(stream_, &lyra::ipc::HL2Stream::ocAccessoryChanged,
+                    page, loadGrid);
+            if (auto *xv = stream_->xvtrSlots())
+                connect(xv, &lyra::ui::XvtrSlots::slotsChanged, page, paintLive);
+        }
 
         // --- preset buttons + hot-switch ---
         auto *btnRow = new QHBoxLayout;
-        auto *n2 = new QPushButton(tr("N2ADR preset"));
-        n2->setToolTip(tr("Load the standard N2ADR filter-board pin map."));
-        connect(n2, &QPushButton::clicked, page, [this, oc, loadGrid]() {
-            const int n = oc->nBands();
-            for (int b = 0; b < n; ++b) {
-                oc->setRxMaskA(b, quint8(lyra::n2adrOcPattern(b, false)));
-                oc->setTxMaskA(b, quint8(lyra::n2adrOcPattern(b, true)));
-            }
+        auto *n2 = new QPushButton(tr("Reload N2ADR HF"));
+        n2->setToolTip(tr(
+            "Same as picking N2ADR in the accessory combo: stamp the stock "
+            "HF map and seed the SWL broadcast rows from the ham LPF above "
+            "each. Xvtr rows stay as they are."));
+        connect(n2, &QPushButton::clicked, page, [this, loadGrid]() {
+            stream_->setOcAccessory(lyra::oc::OcAccessory::N2adr);
             loadGrid();
-            stream_->applyOcEdit();
+        });
+        auto *yae = new QPushButton(tr("Example Yaesu A–D"));
+        yae->setToolTip(tr(
+            "Optional starting grid only (not how Thetis auto-drives a DB9). "
+            "Pins 1–4 = A/B/C/D, 160 m=1 … 10 m=9, 6 m=10. Switches to Custom "
+            "so you can edit. Verify vs the amp at low power. Xvtr stays empty."));
+        connect(yae, &QPushButton::clicked, page, [this, loadGrid]() {
+            stream_->stampOcYaesuExample();
+            loadGrid();
         });
         auto *clr = new QPushButton(tr("Clear all"));
         connect(clr, &QPushButton::clicked, page, [this, oc, loadGrid]() {
-            const int n = oc->nBands();
+            const int n = oc->nRows();   // amateur + SWL rows
             for (int b = 0; b < n; ++b) {
                 oc->setRxMaskA(b, 0);
                 oc->setTxMaskA(b, 0);
             }
+            for (int i = 0; i < lyra::oc::OcControl::kXvtrSlots; ++i) {
+                oc->setRxMaskXvtr(i, 0);
+                oc->setTxMaskXvtr(i, 0);
+            }
             loadGrid();
+            stream_->setOcAccessory(lyra::oc::OcAccessory::Custom);
             stream_->applyOcEdit();
         });
         btnRow->addWidget(n2);
+        btnRow->addWidget(yae);
         btnRow->addWidget(clr);
         btnRow->addStretch(1);
         auto *hot = new QCheckBox(tr("Allow hot switching"));
@@ -4379,8 +6001,138 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         btnRow->addWidget(hot);
         ocv->addLayout(btnRow);
 
+        auto setGridOn = [this, rxCb, txCb, xvRxCb, xvTxCb, swlRxCb, swlTxCb,
+                          nB, nXv, nBc]() {
+            const bool on =
+                stream_->ocAccessory() != lyra::oc::OcAccessory::Off;
+            for (int b = 0; b < nB; ++b)
+                for (int p = 0; p < 7; ++p) {
+                    rxCb[b][p]->setEnabled(on);
+                    txCb[b][p]->setEnabled(on);
+                }
+            for (int i = 0; i < nXv; ++i)
+                for (int p = 0; p < 7; ++p) {
+                    xvRxCb[i][p]->setEnabled(on);
+                    xvTxCb[i][p]->setEnabled(on);
+                }
+            for (int bc = 0; bc < nBc; ++bc)
+                for (int p = 0; p < 7; ++p) {
+                    swlRxCb[bc][p]->setEnabled(on);
+                    swlTxCb[bc][p]->setEnabled(on);
+                }
+        };
+        setGridOn();
+        connect(stream_, &lyra::ipc::HL2Stream::ocAccessoryChanged,
+                page, setGridOn);
+
         // ocBox (enable + live pins + grid + preset buttons) is complete.
         root->addWidget(ocBox);
+
+        // --- HL2 IO board (I2C2 0x1D) — detection-gated, periodic --------
+        // Protocol 1 only.  Same model as deskHPSDR: written every cycle
+        // while the board answers at 0x41 or is forced present.
+        {
+            using lyra::ipc::HL2Stream;
+            auto *iobBox = section(tr("IO board (HL2IOBoard, I2C 0x1D)"));
+            auto *iv = new QVBoxLayout(iobBox);
+
+            auto *statusRow = new QHBoxLayout;
+            statusRow->addWidget(new QLabel(tr("Status:")));
+            auto *status = new QLabel;
+            status->setStyleSheet(QStringLiteral("font-weight:bold;"));
+            statusRow->addWidget(status);
+            statusRow->addStretch(1);
+            iv->addLayout(statusRow);
+            auto showStatus = [this, status]() {
+                switch (stream_->ioboardStatus()) {
+                case HL2Stream::IoboardStatus::Detected:
+                    status->setText(tr("Detected"));
+                    break;
+                case HL2Stream::IoboardStatus::ForcedPresent:
+                    status->setText(tr("Forced present"));
+                    break;
+                case HL2Stream::IoboardStatus::Protocol2:
+                    status->setText(tr("Protocol 2 — not used"));
+                    break;
+                case HL2Stream::IoboardStatus::NotDetected:
+                    status->setText(tr("Not detected"));
+                    break;
+                }
+            };
+            showStatus();
+            connect(stream_, &HL2Stream::ioboardStatusChanged, status, showStatus);
+
+            auto *iobNote = new QLabel(tr(
+                "Protocol 1 only. While the IO board answers at 0x41 (or is "
+                "forced present) Lyra writes the TX frequency (registers 0–4), "
+                "the RF1 / Alt RX input (register 11) and the RX frequency "
+                "codes (registers 13 / 14) about every 346 ms, as deskHPSDR "
+                "does. With no board detected nothing is written to 0x1D."));
+            iobNote->setWordWrap(true);
+            iv->addWidget(iobNote);
+
+            auto *xvRow = new QHBoxLayout;
+            xvRow->addWidget(new QLabel(tr("Transverter bands send")));
+            auto *xv = new QComboBox;
+            xv->addItem(tr("Hold last HF frequency"), false);
+            xv->addItem(tr("On-air RF frequency"), true);
+            xv->setCurrentIndex(stream_->ioboardXvtrOnAirRf() ? 1 : 0);
+            xv->setToolTip(tr(
+                "TX frequency sent to the IO board (registers 0–4).\n\n"
+                "On-air RF frequency (default): the TX dial in Hertz — the "
+                "same on-air RF the RX frequency codes (registers 13 / 14) "
+                "use on simplex. Analog band volts (J4 / GPA100 / XPA125) "
+                "update on a hop, including transverter chips, and stay put "
+                "between hops.\n\n"
+                "Hold last HF frequency is kept in this list for older "
+                "settings; packing always sends on-air RF."));
+            connect(xv, &QComboBox::currentIndexChanged, page, [this, xv](int) {
+                stream_->setIoboardXvtrAnalog(xv->currentData().toBool());
+            });
+            xvRow->addWidget(xv);
+            xvRow->addStretch(1);
+            iv->addLayout(xvRow);
+
+            auto *rxc = new QCheckBox(tr("Send RX frequency codes (registers 13 / 14)"));
+            rxc->setChecked(stream_->ioboardSendRxFcodes());
+            rxc->setToolTip(tr(
+                "Register 13 = RX1 frequency code, register 14 = RX2 (or RX1 "
+                "when SUB is off). Firmware that follows the RX band (for "
+                "example K7MDL Pico GPIO) uses them. Default on, as "
+                "deskHPSDR."));
+            connect(rxc, &QCheckBox::toggled, stream_,
+                    &HL2Stream::setIoboardSendRxFcodes);
+            iv->addWidget(rxc);
+
+            auto *force = new QCheckBox(
+                tr("Force IO board present (DIY Pico without PCA9536)"));
+            force->setChecked(stream_->ioboardForcePresent());
+            force->setToolTip(tr(
+                "Skips detection at 0x41 and writes 0x1D every cycle. Only for "
+                "a Pico on I2C bus 2 without the PCA9536 (deskHPSDR "
+                "force_iob). Default off."));
+            connect(force, &QCheckBox::toggled, stream_,
+                    &HL2Stream::setIoboardForcePresent);
+            iv->addWidget(force);
+
+            connect(stream_, &HL2Stream::ioboardSettingsChanged, iobBox,
+                    [this, xv, rxc, force]() {
+                        const int i = stream_->ioboardXvtrOnAirRf() ? 1 : 0;
+                        if (xv->currentIndex() != i) {
+                            QSignalBlocker b(xv);
+                            xv->setCurrentIndex(i);
+                        }
+                        if (rxc->isChecked() != stream_->ioboardSendRxFcodes()) {
+                            QSignalBlocker b(rxc);
+                            rxc->setChecked(stream_->ioboardSendRxFcodes());
+                        }
+                        if (force->isChecked() != stream_->ioboardForcePresent()) {
+                            QSignalBlocker b(force);
+                            force->setChecked(stream_->ioboardForcePresent());
+                        }
+                    });
+            root->addWidget(iobBox);
+        }
 
         // --- HL2 Band Volts on J3 / fan PWM (DeskHPSDR + MI0BOT) ----------
         // IO-board J3 is GPIO04_Fan. Gateware Band Volts (wiki) hijacks
@@ -4391,16 +6143,17 @@ QWidget *SettingsDialog::buildFiltersBcdTab() {
         // block; stock ak4951 without fan leaves the pin low.
         {
             auto *bvBox = section(
-                tr("IO-board J3 analog (fan PWM / Band Volts)"));
+                tr("J3 fan header only — not Pico / J4 analog"));
             auto *bvv = new QVBoxLayout(bvBox);
 
             auto *note = new QLabel(tr(
-                "If your amp/tuner takes analog band voltage from IO-board "
-                "J3 (the fan header), use this checkbox — same wire bit as "
-                "DeskHPSDR’s “HL2 Band Volts / Dither Bit” and MI0BOT "
-                "Thetis “HL2 Band Volts”. Leave it off if J3 is a cooling "
-                "fan. N2ADR filters still use the OC enable above; stock "
-                "Pico analog PWM is J4 pin 8."));
+                "Leave this off for a stock N2ADR Pico, M0AWS DB9, or "
+                "GP100/GPA100 on J4 pin 8. That analog is sent on Protocol 1 "
+                "(I2C2 C0 0x3d, slave 0x1D TX Hz) while an IO board is "
+                "detected or forced present — see the IO board box above.\n\n"
+                "Tick this only if the amp is jumpered to IO-board J3 "
+                "(GPIO04_Fan). Then J3 becomes gateware Band Volts instead "
+                "of a cooling fan (DeskHPSDR / MI0BOT “HL2 Band Volts”)."));
             note->setWordWrap(true);
             note->setStyleSheet(QStringLiteral("color:#e0b060;"));  // amber caution
             bvv->addWidget(note);
@@ -4662,7 +6415,7 @@ QWidget *SettingsDialog::buildMeterTab() {
 
         // Separate RX/TX meter STYLE (Arc/Bar/Ladder per state) — auto-swaps
         // on the MOX edge, mirroring the panadapter dB-range swap.  The
-        // header Arc|Bar|Ladder buttons stay a live quick override.
+        // header Arc|Bar|Ladder|Lyra buttons stay a live quick override.
         auto *sepStyle = new QCheckBox(tr("Separate RX / TX meter style"), page);
         sepStyle->setChecked(meter_->separateStyle());
         sepStyle->setToolTip(tr(
@@ -4677,7 +6430,11 @@ QWidget *SettingsDialog::buildMeterTab() {
             cb->addItem(tr("Horizon Arc"),     0);
             cb->addItem(tr("Plasma Bar"),      1);
             cb->addItem(tr("Vertical Ladder"), 2);
-            cb->setCurrentIndex(std::clamp(cur, 0, 2));
+            cb->addItem(tr("Sonar"),           3);
+            cb->addItem(tr("Helios"),          4);
+            cb->addItem(tr("Cluster"),         5);
+            const int ix = cb->findData(cur);
+            cb->setCurrentIndex(ix < 0 ? 0 : ix);
             return cb;
         };
         auto *rxStyleCb = buildStyleCombo(meter_->style());
@@ -4900,9 +6657,10 @@ QWidget *SettingsDialog::buildMeterTab() {
         "want each peak to read as a distinct event.  Ignores the "
         "PWR peak-hold spin box below.\n\n"
         "• Peak — sliding-window MAX with operator-tunable hold "
-        "(default 3000 ms).  Peaks park long enough to read off "
-        "the digital face at leisure; matches the typical Bird/"
-        "Palstar PEAK ballistic.  General-purpose default.\n\n"
+        "(factory default 700 ms).  Each tick keeps the highest "
+        "forward-power sample since the last one, then the needle "
+        "holds that peak for the time below.  General-purpose "
+        "default.\n\n"
         "• Avg — IIR smoother (~200 ms time constant).  Tracks the "
         "running average of forward power, NOT peaks.  Calm needle "
         "for sustained-tone gain-structure work and ragchew.  The "
@@ -4930,22 +6688,20 @@ QWidget *SettingsDialog::buildMeterTab() {
     pwrHold->setRange(100, 10000);
     pwrHold->setSingleStep(100);
     pwrHold->setSuffix(tr(" ms"));
-    pwrHold->setValue(meter_ ? meter_->pwrPeakHoldMs() : 3000);
+    pwrHold->setValue(meter_ ? meter_->pwrPeakHoldMs()
+                             : MeterModel::kDefaultPwrPeakHoldMs);
     pwrHold->setToolTip(tr(
-        "PWR meter peak hold — how long the main needle holds a "
-        "captured peak before decaying.  Sliding-window MAX detector: "
-        "needle jumps to peak instantly and holds at that value for "
-        "this duration before the slot wraps and the next-highest "
-        "sample takes over.  Default 3000 ms (3 sec, Bird/Palstar-"
-        "PEAK-style ballistic).  Lower for snappier decay; higher "
-        "for analog-needle-style long park.\n\n"
+        "PWR meter peak hold — how long the main needle keeps a "
+        "captured peak.  Between display updates the meter keeps "
+        "the highest forward-power sample, so a short voice peak "
+        "is not skipped.  This knob is how long that peak stays "
+        "on the face.  Factory default 700 ms.  Lower for a "
+        "snappier fall; higher to park a reading longer.\n\n"
         "ONLY APPLIES IN \"Peak\" BALLISTIC MODE — PEP uses a fixed "
         "500 ms hold and Avg uses an IIR smoother (this knob greys "
         "out for those two modes).\n\n"
-        "Note: this does NOT change how fast the needle CLIMBS to "
-        "peak — that's limited by the HL2 forward-power ADC's "
-        "hardware response time (directional coupler analog "
-        "integrator), which no software knob can shorten."));
+        "A value you already saved is kept.  The coupler's own "
+        "rise time is still the hardware floor."));
     connect(pwrHold, &QSpinBox::valueChanged, this,
             [this](int v) { if (meter_) meter_->setPwrPeakHoldMs(v); });
     form->addRow(tr("PWR peak-hold:"), pwrHold);
@@ -6756,9 +8512,10 @@ QWidget *SettingsDialog::buildTxTab() {
             tr("Reduce TX drive in digital modes (DIGU/DIGL)"), grp);
         en->setChecked(prefs_->digitalDriveEnabled());
         en->setToolTip(tr("When on, transmit at a fraction of the band's set "
-                          "drive while in the digital data modes — back off on "
-                          "FT8/JS8/etc. without touching your voice drive. "
-                          "Off = no change."));
+                          "drive while in DIGU/DIGL — back off on FT8/JS8/etc. "
+                          "without touching your voice Drive/Tune sliders "
+                          "(those stay at 100%). The status bar names the "
+                          "cut when you enter a digital mode. Off = no change."));
         form->addRow(en);
 
         auto *pct = new QSpinBox(grp);
@@ -7377,15 +9134,20 @@ QWidget *SettingsDialog::buildTxTab() {
             131.8, 136.5, 141.3, 146.2, 151.4, 156.7, 159.8, 162.2, 165.5, 167.9,
             171.3, 173.8, 177.3, 179.9, 183.5, 186.2, 189.9, 192.8, 196.6, 199.5,
             203.5, 206.5, 210.7, 218.1, 225.7, 229.1, 233.6, 241.8, 250.3, 254.1};
+        toneCombo->addItem(tr("— (none)"), 0.0);
         for (double t : kCtcss)
             toneCombo->addItem(QStringLiteral("%1 Hz").arg(t, 0, 'f', 1),
                                QVariant(t));
-        toneCombo->setToolTip(tr("Standard CTCSS sub-audible tone (Hz)."));
+        toneCombo->setToolTip(tr(
+            "Uplink CTCSS (TX encode). Empty = no encode (simplex / DL-only)."));
         const double curTone = stream_->ctcssToneHz();
-        for (int i = 0; i < toneCombo->count(); ++i)
-            if (toneCombo->itemData(i).toDouble() == curTone) {
-                toneCombo->setCurrentIndex(i); break;
-            }
+        if (curTone <= 0.5)
+            toneCombo->setCurrentIndex(0);
+        else
+            for (int i = 0; i < toneCombo->count(); ++i)
+                if (toneCombo->itemData(i).toDouble() == curTone) {
+                    toneCombo->setCurrentIndex(i); break;
+                }
         connect(toneCombo, qOverload<int>(&QComboBox::currentIndexChanged),
                 this, [this, toneCombo](int) {
                     if (stream_) stream_->setCtcssToneHz(
@@ -7393,6 +9155,11 @@ QWidget *SettingsDialog::buildTxTab() {
                 });
         connect(stream_, &lyra::ipc::HL2Stream::ctcssToneHzChanged, toneCombo,
                 [toneCombo](double hz) {
+                    if (hz <= 0.5) {
+                        if (toneCombo->currentIndex() != 0)
+                            toneCombo->setCurrentIndex(0);
+                        return;
+                    }
                     for (int i = 0; i < toneCombo->count(); ++i)
                         if (toneCombo->itemData(i).toDouble() == hz) {
                             if (toneCombo->currentIndex() != i)
@@ -7428,8 +9195,11 @@ QWidget *SettingsDialog::buildTxTab() {
             "Default ON — matches the reference's HL2 working posture "
             "(Setup → General → Ant/Filters → \"ATT on Tx\").  Turning it "
             "OFF removes RX-ADC protection during TX; only do so if you "
-            "have a specific reason.  The TxPanel \"ATT\" lamp shows the "
-            "live state (orange = armed, red = engaged)."));
+            "have a specific reason.  PureSignal ON turns this checkbox "
+            "on (Thetis Auto Attenuate); PS off restores it. That does "
+            "not change the dB spin or the PS coupler pad.  The TxPanel "
+            "\"ATT\" lamp shows the live state (orange = armed, red = "
+            "engaged)."));
         connect(enBox, &QCheckBox::toggled, this, [this](bool on) {
             if (stream_) stream_->setAttOnTxEnabled(on);
         });
@@ -7464,6 +9234,45 @@ QWidget *SettingsDialog::buildTxTab() {
         form->addRow(tr("ATT:"), attSpin);
 
         leftCol->addWidget(grp);   // §15.31 — SAFETY / set-once column
+    }
+
+    // Dual-ADC analog isolate: ground/disconnect the RX2 jack while
+    // keyed so TX energy on ANT cannot couple into the second
+    // converter's analog path. ATT-on-TX pads ADC1; this is the
+    // analog relay. Hidden on one-converter radios (no RX2 jack).
+    if (stream_) {
+        auto *grp = new QGroupBox(
+            tr("RX2 jack isolate on TX"), page);
+        auto *form = new QFormLayout(grp);
+
+        auto *gndBox = new QCheckBox(
+            tr("Ground RX2 antenna while transmitting"), grp);
+        gndBox->setChecked(stream_->rx2GroundOnTx());
+        gndBox->setToolTip(tr(
+            "On two-converter radios the RX2 jack stays on its analog "
+            "path while you transmit from ANT. ATT-on-TX pads the ADC; "
+            "this additionally grounds/disconnects the RX2 jack so TX "
+            "energy cannot couple into the second converter.\n\n"
+            "Default ON. Leave it on unless you have a specific reason "
+            "to keep RX2 open during TX. One-converter radios have no "
+            "RX2 jack — this control is hidden."));
+        connect(gndBox, &QCheckBox::toggled, this, [this](bool on) {
+            if (stream_) stream_->setRx2GroundOnTx(on);
+        });
+        connect(stream_, &lyra::ipc::HL2Stream::rx2GroundOnTxChanged, gndBox,
+                [gndBox](bool on) {
+                    if (gndBox->isChecked() != on) gndBox->setChecked(on);
+                });
+        form->addRow(gndBox);
+
+        auto showGnd = [this, grp]() {
+            grp->setVisible(stream_ && stream_->dualAdc());
+        };
+        showGnd();
+        connect(stream_, &lyra::ipc::HL2Stream::dualAdcChanged,
+                page, showGnd);
+
+        leftCol->addWidget(grp);
     }
 
     // #94 — External TX Inhibit (hard keying lockout).  Lives HERE in
@@ -7983,6 +9792,15 @@ QWidget *SettingsDialog::buildVoxTab() {
     return page;
 }
 
+void SettingsDialog::setRemoteDesk(bool on)
+{
+    if (!tabs_) return;
+    for (int i = 0; i < tabs_->count(); ++i) {
+        if (tabs_->tabText(i) == tr("Calibration"))
+            tabs_->setTabVisible(i, !on);
+    }
+}
+
 bool SettingsDialog::selectTopic(const QString &topic) {
     // Map a panel help topic -> the Settings tab that owns it.  ONLY topics
     // whose panel genuinely has a Settings home appear here; a panel whose
@@ -8003,10 +9821,12 @@ bool SettingsDialog::selectTopic(const QString &topic) {
         {QStringLiteral("tuner"),      QStringLiteral("Tuner")},
         {QStringLiteral("recorder"),   QStringLiteral("Recording")},
         {QStringLiteral("profiles"),   QStringLiteral("Profiles")},
+        {QStringLiteral("apps"),       QStringLiteral("Apps")},
         {QStringLiteral("meter"),      QStringLiteral("Meter")},
         {QStringLiteral("band"),       QStringLiteral("Bands")},
         {QStringLiteral("memory"),     QStringLiteral("Bands")},
         {QStringLiteral("bands"),      QStringLiteral("Bands")},
+        {QStringLiteral("remote"),     QStringLiteral("Remote")},
     };
     const QString want = kTabFor.value(topic);
     if (want.isEmpty()) return false;
@@ -8404,8 +10224,6 @@ QWidget *SettingsDialog::buildVisualsTab() {
     form->addRow(tr("Waterfall speed"), wspeed);
 
     // --- Waterfall dB range (INDEPENDENT of the panadapter scale) ---
-    // Auto-fit OR a manual floor/ceiling.  The manual spinboxes gray
-    // out while Auto is on.
     auto *wfAuto = new QCheckBox(tr("Auto-fit the waterfall dB range"), page);
     wfAuto->setChecked(prefs_->waterfallDbAuto());
     wfAuto->setToolTip(tr("Track the band automatically (noise floor − 15 dB "
@@ -8414,33 +10232,15 @@ QWidget *SettingsDialog::buildVisualsTab() {
     connect(wfAuto, &QCheckBox::toggled, prefs_, &Prefs::setWaterfallDbAuto);
     form->addRow(tr("Waterfall dB"), wfAuto);
 
-    // §15.30 — TWO independent pairs (RX-state and TX-state) so an
-    // operator can tune the TX waterfall scale without keying, and so
-    // the RX pair (their tuned dark-with-pop preference) never gets
-    // overwritten by a drag during MOX (or vice versa).  Both pairs
-    // are always-visible: the RX spinboxes always read+write the RX
-    // backing; the TX spinboxes always read+write the TX backing.
-    //
-    // The live `waterfallDbMin()/Max()` accessors still MOX-route
-    // (drag-the-right-edge during MOX updates whichever state is
-    // active) — these spinboxes just bypass that and address each
-    // backing directly via setRxWaterfallDb*/setTxWaterfallDb*.
-
-    // --- RX-state waterfall (the operator's normal listening scale) ---
     auto *wfMin = new QDoubleSpinBox(page);
     wfMin->setRange(-200.0, 0.0);
     wfMin->setSuffix(tr(" dB"));
     wfMin->setValue(prefs_->rxWaterfallDbMin());
-    wfMin->setToolTip(tr("RX-state waterfall floor — levels at/below this "
-                         "map to the darkest palette colour.  Active when "
-                         "MOX is OFF.  Drag the waterfall's right-edge "
-                         "during RX to tune this from the panadapter."));
+    wfMin->setToolTip(tr("Waterfall floor — levels at/below this map to "
+                         "the darkest palette colour."));
     connect(wfMin, &QDoubleSpinBox::valueChanged,
             prefs_, &Prefs::setRxWaterfallDbMin);
     connect(prefs_, &Prefs::waterfallDbMinChanged, page, [this, wfMin]() {
-        // Mirror RX changes that came from elsewhere (drag during RX,
-        // band-memory recall, etc.).  RX backing only — TX changes
-        // arrive on txWaterfallDbMinChanged below.
         if (wfMin->value() != prefs_->rxWaterfallDbMin())
             wfMin->setValue(prefs_->rxWaterfallDbMin());
     });
@@ -8450,9 +10250,8 @@ QWidget *SettingsDialog::buildVisualsTab() {
     wfMax->setRange(-200.0, 20.0);
     wfMax->setSuffix(tr(" dB"));
     wfMax->setValue(prefs_->rxWaterfallDbMax());
-    wfMax->setToolTip(tr("RX-state waterfall ceiling — levels at/above this "
-                         "map to the brightest palette colour.  Active when "
-                         "MOX is OFF."));
+    wfMax->setToolTip(tr("Waterfall ceiling — levels at/above this map to "
+                         "the brightest palette colour."));
     connect(wfMax, &QDoubleSpinBox::valueChanged,
             prefs_, &Prefs::setRxWaterfallDbMax);
     connect(prefs_, &Prefs::waterfallDbMaxChanged, page, [this, wfMax]() {
@@ -8461,19 +10260,12 @@ QWidget *SettingsDialog::buildVisualsTab() {
     });
     form->addRow(tr("Waterfall dB — RX ceiling"), wfMax);
 
-    // --- TX-state waterfall (active while MOX is on) ---
-    // Defaults −70 / +30 dBFS match the reference TX waterfall
-    // Low / High Level for HL2 TX drive levels — a clean tune-carrier
-    // line that doesn't blow out the heat map.  Tune from here OR by
-    // dragging the waterfall's right-edge during MOX.
     auto *wfTxMin = new QDoubleSpinBox(page);
     wfTxMin->setRange(-200.0, 30.0);
     wfTxMin->setSuffix(tr(" dB"));
     wfTxMin->setValue(prefs_->txWaterfallDbMin());
     wfTxMin->setToolTip(tr("TX-state waterfall floor — active only while "
-                           "MOX is ON.  Default −70 dB frames a clean "
-                           "TX-tone line; the operator's RX preferences "
-                           "are preserved separately."));
+                           "MOX is ON. Main pan only."));
     connect(wfTxMin, &QDoubleSpinBox::valueChanged,
             prefs_, &Prefs::setTxWaterfallDbMin);
     connect(prefs_, &Prefs::txWaterfallDbMinChanged, page, [this, wfTxMin]() {
@@ -8487,8 +10279,7 @@ QWidget *SettingsDialog::buildVisualsTab() {
     wfTxMax->setSuffix(tr(" dB"));
     wfTxMax->setValue(prefs_->txWaterfallDbMax());
     wfTxMax->setToolTip(tr("TX-state waterfall ceiling — active only while "
-                           "MOX is ON.  Default +30 dB matches the "
-                           "reference TX waterfall High Level."));
+                           "MOX is ON. Main pan only."));
     connect(wfTxMax, &QDoubleSpinBox::valueChanged,
             prefs_, &Prefs::setTxWaterfallDbMax);
     connect(prefs_, &Prefs::txWaterfallDbMaxChanged, page, [this, wfTxMax]() {
@@ -8497,9 +10288,6 @@ QWidget *SettingsDialog::buildVisualsTab() {
     });
     form->addRow(tr("Waterfall dB — TX ceiling"), wfTxMax);
 
-    // --- dB display range (vertical scale) ---
-    // Auto-fit OR a manual floor/ceiling.  The manual spinboxes gray
-    // out while Auto is on (the panadapter auto-fits internally).
     auto *pdAuto = new QCheckBox(tr("Auto-fit the spectrum dB range"), page);
     pdAuto->setChecked(prefs_->dbAuto());
     pdAuto->setToolTip(tr("Track the band automatically (noise floor − 15 dB "
@@ -8515,7 +10303,8 @@ QWidget *SettingsDialog::buildVisualsTab() {
     dbMin->setValue(prefs_->dbMin());
     connect(dbMin, &QDoubleSpinBox::valueChanged, prefs_, &Prefs::setDbMin);
     connect(prefs_, &Prefs::dbMinChanged, page, [this, dbMin]() {
-        if (dbMin->value() != prefs_->dbMin()) dbMin->setValue(prefs_->dbMin());
+        if (dbMin->value() != prefs_->dbMin())
+            dbMin->setValue(prefs_->dbMin());
     });
     form->addRow(tr("dB range — floor"), dbMin);
 
@@ -8525,42 +10314,81 @@ QWidget *SettingsDialog::buildVisualsTab() {
     dbMax->setValue(prefs_->dbMax());
     connect(dbMax, &QDoubleSpinBox::valueChanged, prefs_, &Prefs::setDbMax);
     connect(prefs_, &Prefs::dbMaxChanged, page, [this, dbMax]() {
-        if (dbMax->value() != prefs_->dbMax()) dbMax->setValue(prefs_->dbMax());
+        if (dbMax->value() != prefs_->dbMax())
+            dbMax->setValue(prefs_->dbMax());
     });
     form->addRow(tr("dB range — ceiling"), dbMax);
 
-    // Gray the manual floor/ceiling out while Auto is on, and keep the
-    // checkbox in sync if Auto is flipped elsewhere (e.g. a dB-edge drag
-    // on the panadapter turns it off).
-    auto applyPdAuto = [dbMin, dbMax](bool a) {
+    auto *subDbMin = new QDoubleSpinBox(page);
+    subDbMin->setRange(-200.0, 0.0);
+    subDbMin->setSuffix(tr(" dB"));
+    subDbMin->setValue(prefs_->rx2DbMin());
+    subDbMin->setToolTip(tr("SUB receiver spectrum and waterfall floor. "
+                            "Two-converter radios only."));
+    connect(subDbMin, &QDoubleSpinBox::valueChanged,
+            prefs_, &Prefs::setRx2DbMin);
+    connect(prefs_, &Prefs::rx2DbMinChanged, page, [this, subDbMin]() {
+        if (subDbMin->value() != prefs_->rx2DbMin())
+            subDbMin->setValue(prefs_->rx2DbMin());
+    });
+    form->addRow(tr("SUB RX floor"), subDbMin);
+    auto *subDbMinLab = qobject_cast<QLabel *>(form->labelForField(subDbMin));
+
+    auto *subDbMax = new QDoubleSpinBox(page);
+    subDbMax->setRange(-200.0, 30.0);
+    subDbMax->setSuffix(tr(" dB"));
+    subDbMax->setValue(prefs_->rx2DbMax());
+    subDbMax->setToolTip(tr("SUB receiver spectrum and waterfall ceiling. "
+                            "Two-converter radios only."));
+    connect(subDbMax, &QDoubleSpinBox::valueChanged,
+            prefs_, &Prefs::setRx2DbMax);
+    connect(prefs_, &Prefs::rx2DbMaxChanged, page, [this, subDbMax]() {
+        if (subDbMax->value() != prefs_->rx2DbMax())
+            subDbMax->setValue(prefs_->rx2DbMax());
+    });
+    form->addRow(tr("SUB RX ceiling"), subDbMax);
+    auto *subDbMaxLab = qobject_cast<QLabel *>(form->labelForField(subDbMax));
+
+    auto showSubDb = [this, subDbMin, subDbMax, subDbMinLab, subDbMaxLab]() {
+        const bool dual = stream_ && stream_->dualAdc();
+        subDbMin->setVisible(dual);
+        subDbMax->setVisible(dual);
+        if (subDbMinLab) subDbMinLab->setVisible(dual);
+        if (subDbMaxLab) subDbMaxLab->setVisible(dual);
+    };
+    showSubDb();
+    if (stream_) {
+        connect(stream_, &lyra::ipc::HL2Stream::dualAdcChanged,
+                page, showSubDb);
+    }
+
+    auto applyPdAuto = [dbMin, dbMax, this]() {
+        const bool a = prefs_->dbAuto();
         dbMin->setEnabled(!a);
         dbMax->setEnabled(!a);
     };
-    applyPdAuto(prefs_->dbAuto());
-    connect(prefs_, &Prefs::dbAutoChanged, page,
-            [this, pdAuto, applyPdAuto]() {
-                const bool a = prefs_->dbAuto();
-                if (pdAuto->isChecked() != a) pdAuto->setChecked(a);
-                applyPdAuto(a);
-            });
-
-
-    // Gray ALL four manual floor/ceiling spinboxes out while Auto is on
-    // (Auto applies to whichever pair is currently live — driven by
-    // the panadapter's noise-floor / peak tracking).
-    auto applyWfAuto = [wfMin, wfMax, wfTxMin, wfTxMax](bool a) {
+    auto applyWfAuto = [wfMin, wfMax, wfTxMin, wfTxMax, this]() {
+        const bool a = prefs_->waterfallDbAuto();
         wfMin->setEnabled(!a);
         wfMax->setEnabled(!a);
         wfTxMin->setEnabled(!a);
         wfTxMax->setEnabled(!a);
     };
-    applyWfAuto(prefs_->waterfallDbAuto());
+    applyPdAuto();
+    applyWfAuto();
+    connect(prefs_, &Prefs::dbAutoChanged, page, [this, pdAuto, applyPdAuto]() {
+        const bool a = prefs_->dbAuto();
+        if (pdAuto->isChecked() != a)
+            pdAuto->setChecked(a);
+        applyPdAuto();
+    });
     connect(prefs_, &Prefs::waterfallDbAutoChanged, page,
             [this, wfAuto, applyWfAuto]() {
-                const bool a = prefs_->waterfallDbAuto();
-                if (wfAuto->isChecked() != a) wfAuto->setChecked(a);
-                applyWfAuto(a);
-            });
+        const bool a = prefs_->waterfallDbAuto();
+        if (wfAuto->isChecked() != a)
+            wfAuto->setChecked(a);
+        applyWfAuto();
+    });
 
     // --- Spectrum fill on/off + fill colour ---
     // The fill colour applies in SOLID trace mode (lets the fill differ
@@ -8942,8 +10770,8 @@ QWidget *SettingsDialog::buildVisualsTab() {
     // --- Tooltips on/off (global) ---
     auto *tips = new QCheckBox(tr("Show tooltips"), page);
     tips->setChecked(prefs_->tooltipsEnabled());
-    tips->setToolTip(tr("Show the hover help bubbles on controls across the "
-                        "whole app. Turn off for a quieter, no-popup UI."));
+    tips->setToolTip(tr("Show the parked Help card (hover a control; drag the "
+                        "card onto the spectrum or waterfall). Turn off to hide it."));
     connect(tips, &QCheckBox::toggled, prefs_, &Prefs::setTooltipsEnabled);
     connect(prefs_, &Prefs::tooltipsEnabledChanged, page, [this, tips]() {
         if (tips->isChecked() != prefs_->tooltipsEnabled())
@@ -8999,6 +10827,94 @@ QWidget *SettingsDialog::buildVisualsTab() {
         form->addRow(QString(), note);
     }
 
+    // --- SUB second-spectrum layout (two-converter radios) ---
+    {
+        auto *hdr = new QLabel(tr("SUB (second spectrum)"), page);
+        hdr->setStyleSheet(QStringLiteral(
+            "QLabel{color:#7fd6ef;font-weight:700;padding-top:6px;}"));
+        form->addRow(hdr);
+    }
+    auto *subEn = new QCheckBox(
+        tr("Use a saved layout when SUB is on"), page);
+    subEn->setChecked(prefs_->subLayoutEnabled());
+    subEn->setToolTip(
+        tr("Off: SUB splits the panadapter in place without stretching the "
+           "control docks. On: SUB recalls the named layout chosen below "
+           "(save that arrangement with SUB on via View → Layouts → Save). "
+           "Turning SUB off always restores the layout that was running "
+           "just before SUB came on — window size, docks and spectrum split."));
+    auto *subSlot = new QComboBox(page);
+    auto fillSubSlots = [subSlot]() {
+        const int keep = subSlot->currentData().toInt();
+        subSlot->blockSignals(true);
+        subSlot->clear();
+        QSettings s;
+        for (int i = 1; i <= 4; ++i) {
+            QString name = s.value(QStringLiteral("layouts/%1/name").arg(i))
+                               .toString();
+            const bool empty =
+                s.value(QStringLiteral("layouts/%1/windowState").arg(i))
+                    .toByteArray().isEmpty();
+            if (name.isEmpty())
+                name = QCoreApplication::translate(
+                    "SettingsDialog", "Layout %1").arg(i);
+            subSlot->addItem(
+                empty ? QCoreApplication::translate(
+                            "SettingsDialog", "%1 — (empty)").arg(name)
+                      : name,
+                i);
+        }
+        int idx = subSlot->findData(keep > 0 ? keep : 1);
+        if (idx < 0) idx = 0;
+        subSlot->setCurrentIndex(idx);
+        subSlot->blockSignals(false);
+    };
+    fillSubSlots();
+    {
+        const int idx = subSlot->findData(prefs_->subLayoutSlot());
+        if (idx >= 0) subSlot->setCurrentIndex(idx);
+    }
+    auto refreshSubLayoutUi = [this, subEn, subSlot]() {
+        const bool dual = stream_ && stream_->dualAdc();
+        subEn->setEnabled(dual);
+        subSlot->setEnabled(dual && prefs_->subLayoutEnabled());
+    };
+    refreshSubLayoutUi();
+    connect(subEn, &QCheckBox::toggled, this, [this, refreshSubLayoutUi](bool on) {
+        prefs_->setSubLayoutEnabled(on);
+        refreshSubLayoutUi();
+    });
+    connect(prefs_, &Prefs::subLayoutEnabledChanged, page,
+            [this, subEn, refreshSubLayoutUi]() {
+        if (subEn->isChecked() != prefs_->subLayoutEnabled())
+            subEn->setChecked(prefs_->subLayoutEnabled());
+        refreshSubLayoutUi();
+    });
+    connect(subSlot, &QComboBox::activated, this, [this, subSlot](int i) {
+        prefs_->setSubLayoutSlot(subSlot->itemData(i).toInt());
+    });
+    connect(prefs_, &Prefs::subLayoutSlotChanged, page, [this, subSlot]() {
+        const int idx = subSlot->findData(prefs_->subLayoutSlot());
+        if (idx >= 0 && subSlot->currentIndex() != idx)
+            subSlot->setCurrentIndex(idx);
+    });
+    if (stream_) {
+        connect(stream_, &lyra::ipc::HL2Stream::dualAdcChanged,
+                page, refreshSubLayoutUi);
+    }
+    form->addRow(tr("SUB layout"), subEn);
+    form->addRow(tr("Layout"), subSlot);
+    {
+        auto *note = new QLabel(
+            tr("Turning SUB off restores the previous running layout. "
+               "Save a SUB arrangement in View → Layouts if you tick the "
+               "option above. Two-converter radios only."),
+            page);
+        note->setWordWrap(true);
+        note->setStyleSheet(QStringLiteral("QLabel{color:#8fa0aa;}"));
+        form->addRow(QString(), note);
+    }
+
     // --- Graphics backend (advanced; restart to apply) ---
     // The Qt RHI backend is fixed at startup, so this writes a QSettings
     // key (read in main.cpp before the app launches) rather than applying
@@ -9044,6 +10960,47 @@ QWidget *SettingsDialog::buildVisualsTab() {
         gh->addStretch(1);
 
         form->addRow(tr("Graphics backend"), gbox);
+
+        // MSAA is the same restart-to-apply surface format as the backend
+        // (set in main.cpp before QApplication).  Default 4× matches the
+        // historical hard-wire.  8× is for a strong GPU; --safe / software
+        // still force Off.
+        {
+            auto *mbox = new QWidget(page);
+            auto *mh = new QHBoxLayout(mbox);
+            mh->setContentsMargins(0, 0, 0, 0);
+            mh->setSpacing(8);
+
+            auto *msaa = new QComboBox(mbox);
+            msaa->addItem(tr("Off"), 0);
+            msaa->addItem(QStringLiteral("2×"), 2);
+            msaa->addItem(QStringLiteral("4× (recommended)"), 4);
+            msaa->addItem(QStringLiteral("8×"), 8);
+            int curMsaa = QSettings()
+                .value(QStringLiteral("ui/msaaSamples"), 4).toInt();
+            if (curMsaa != 0 && curMsaa != 2 && curMsaa != 4 && curMsaa != 8)
+                curMsaa = 4;
+            const int midx = std::max(0, msaa->findData(curMsaa));
+            msaa->setCurrentIndex(midx);
+            msaa->setToolTip(tr("Smooths panadapter edges. 4× is the usual "
+                                "choice. 8× needs a strong GPU. Off / 2× "
+                                "help weak laptop graphics. Restart to apply."));
+            auto persistMsaa = [msaa](int i) {
+                QSettings s;
+                s.setValue(QStringLiteral("ui/msaaSamples"),
+                           msaa->itemData(i).toInt());
+            };
+            connect(msaa, &QComboBox::currentIndexChanged, msaa, persistMsaa);
+            connect(msaa, &QComboBox::activated, msaa, persistMsaa);
+            mh->addWidget(msaa);
+
+            auto *mnote = new QLabel(tr("Restart Lyra to apply"), mbox);
+            mnote->setStyleSheet(QStringLiteral("QLabel{color:#8a9aac;}"));
+            mh->addWidget(mnote);
+            mh->addStretch(1);
+
+            form->addRow(tr("Anti-aliasing (MSAA)"), mbox);
+        }
 
         // If a prior startup crash forced graphics safe mode, say so here and
         // point back to this control (the notice at launch does too).
@@ -9928,6 +11885,159 @@ QWidget *SettingsDialog::buildWeatherTab() {
     return page;
 }
 
+QWidget *SettingsDialog::buildAppsTab() {
+    auto *page = new QWidget(this);
+    auto *outer = new QVBoxLayout(page);
+
+    auto *intro = new QLabel(
+        tr("Name the programs you use alongside Lyra (FLDigi, Open-SSTV, "
+           "WSJT-X, …). They appear on the header <b>Apps</b> chip — click "
+           "the name to launch. Hardware → Startup (SDRLogger+ and the two "
+           "path slots) is unchanged and still fires at boot. Tick "
+           "<b>Auto-start with Lyra</b> only if you also want that named "
+           "app to open a few seconds after Lyra starts."), page);
+    intro->setWordWrap(true);
+    intro->setTextFormat(Qt::RichText);
+    outer->addWidget(intro);
+
+    struct Row {
+        QLineEdit *name = nullptr;
+        QLineEdit *path = nullptr;
+        QLineEdit *args = nullptr;
+        QCheckBox *autoStart = nullptr;
+    };
+    auto rows = std::make_shared<QVector<Row>>();
+    auto persist = [rows]() {
+        QVector<lyra::AppShortcut> list;
+        list.reserve(lyra::AppShortcuts::kMax);
+        for (const Row &r : *rows) {
+            lyra::AppShortcut e;
+            e.name      = r.name->text().trimmed();
+            e.path      = r.path->text().trimmed();
+            e.args      = r.args->text();
+            e.autoStart = r.autoStart->isChecked();
+            list.append(e);
+        }
+        lyra::AppShortcuts::save(list);
+    };
+
+    const auto saved = lyra::AppShortcuts::load();
+    auto *grid = new QGridLayout();
+    grid->setHorizontalSpacing(8);
+    grid->setVerticalSpacing(6);
+    int r = 0;
+    grid->addWidget(new QLabel(tr("Name")), r, 0);
+    grid->addWidget(new QLabel(tr("Program")), r, 1);
+    grid->addWidget(new QLabel(tr("")), r, 2);
+    grid->addWidget(new QLabel(tr("Args")), r, 3);
+    grid->addWidget(new QLabel(tr("Auto-start")), r, 4);
+    grid->addWidget(new QLabel(tr("")), r, 5);
+    ++r;
+
+    for (int i = 0; i < lyra::AppShortcuts::kMax; ++i) {
+        const lyra::AppShortcut e =
+            i < saved.size() ? saved[i] : lyra::AppShortcut{};
+        auto *name = new QLineEdit(e.name, page);
+        name->setPlaceholderText(tr("e.g. FLDigi"));
+        name->setMinimumWidth(110);
+        auto *path = new QLineEdit(e.path, page);
+        path->setPlaceholderText(tr("Browse to the .exe"));
+        auto *browse = new QPushButton(tr("Browse…"), page);
+        auto *args = new QLineEdit(e.args, page);
+        args->setPlaceholderText(tr("optional"));
+        args->setMinimumWidth(80);
+        auto *autoStart = new QCheckBox(page);
+        autoStart->setChecked(e.autoStart);
+        autoStart->setToolTip(
+            tr("If ticked, this app also starts a few seconds after Lyra "
+               "opens (same delay as Hardware → Startup). Default off."));
+        auto *launch = new QPushButton(tr("Launch"), page);
+        launch->setToolTip(tr("Start this program now (skipped if already running)."));
+
+        grid->addWidget(name, r, 0);
+        grid->addWidget(path, r, 1);
+        grid->addWidget(browse, r, 2);
+        grid->addWidget(args, r, 3);
+        grid->addWidget(autoStart, r, 4, Qt::AlignCenter);
+        grid->addWidget(launch, r, 5);
+        grid->setColumnStretch(1, 1);
+        ++r;
+
+        rows->append(Row{name, path, args, autoStart});
+
+        connect(name, &QLineEdit::editingFinished, this, persist);
+        connect(path, &QLineEdit::editingFinished, this, persist);
+        connect(args, &QLineEdit::editingFinished, this, persist);
+        connect(autoStart, &QCheckBox::toggled, this, persist);
+        connect(browse, &QPushButton::clicked, this, [this, path, persist]() {
+            const QString start = path->text().trimmed().isEmpty()
+                ? QString()
+                : QFileInfo(path->text()).absolutePath();
+            const QString f = QFileDialog::getOpenFileName(
+                this, tr("Choose program"), start,
+                tr("Programs (*.exe *.bat *.cmd);;All files (*.*)"));
+            if (f.isEmpty()) return;
+            path->setText(QDir::toNativeSeparators(f));
+            persist();
+        });
+        connect(launch, &QPushButton::clicked, this,
+                [this, name, path, args, autoStart]() {
+                    lyra::AppShortcut e;
+                    e.name = name->text();
+                    e.path = path->text();
+                    e.args = args->text();
+                    e.autoStart = autoStart->isChecked();
+                    QString msg;
+                    lyra::AppShortcuts::launch(e, &msg);
+                    if (msg.isEmpty()) return;
+                    if (auto *mw = qobject_cast<MainWindow *>(parentWidget()))
+                        mw->statusBar()->showMessage(msg, 5000);
+                });
+    }
+
+    outer->addLayout(grid);
+
+    auto *recGrp = new QGroupBox(tr("Tested with and recommended"), page);
+    QFont recFont = recGrp->font();
+    recFont.setPointSizeF(recFont.pointSizeF() + 2.0);
+    recGrp->setFont(recFont);
+    auto *recV = new QVBoxLayout(recGrp);
+    auto *recHint = new QLabel(
+        tr("Lyra does not ship these programs. Install them yourself, then "
+           "<b>Browse</b> to the <tt>.exe</tt> in a row above. Click a link "
+           "to open the project page."), recGrp);
+    recHint->setWordWrap(true);
+    recHint->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+    recV->addWidget(recHint);
+    auto *recLinks = new QLabel(
+        tr("<ul>"
+           "<li><b>Digimode console</b> — "
+           "<a href=\"https://github.com/N8SDR1/STD/releases\">STD</a> "
+           "(N8SDR's digital-modes app; connects to Lyra over TCI, which "
+           "carries rig control and audio — "
+           "<a href=\"https://n8sdr1.github.io/STD/\">details</a>)</li>"
+           "<li><b>SSTV</b> — "
+           "<a href=\"https://bucknova.github.io/Open-SSTV/\">Open SSTV</a></li>"
+           "<li><b>FT8 / FT4</b> — "
+           "<a href=\"http://lz2hv.org/mshv\">MSHV</a> or "
+           "<a href=\"https://wsjtx.github.io/wsjtx/index.html\">WSJT-X</a></li>"
+           "<li><b>VARA chat</b> — "
+           "<a href=\"https://www.varac-hamradio.com/\">VarAC</a></li>"
+           "<li><b>MIDI controller</b> — not native; a MIDI→TCI sidecar such as "
+           "<a href=\"https://github.com/ftl/midi2tci\">midi2tci</a> "
+           "(point it at Lyra TCI, default port <b>40001</b>)</li>"
+           "</ul>"), recGrp);
+    recLinks->setWordWrap(true);
+    recLinks->setTextFormat(Qt::RichText);
+    recLinks->setOpenExternalLinks(true);
+    recLinks->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    recV->addWidget(recLinks);
+    outer->addWidget(recGrp);
+
+    outer->addStretch(1);
+    return page;
+}
+
 // #49 — TX/RX Profile editor.  Whole-set capture/apply via
 // ProfileManager (decoupled from Prefs/stream/engine through
 // ProfileBindings).  Manual select only — no auto-detect by call;
@@ -9940,11 +12050,11 @@ QWidget *SettingsDialog::buildProfilesTab() {
     auto *outer = new QVBoxLayout(page);
 
     auto *intro = new QLabel(
-        tr("A profile bundles the operator TX/RX chain (mode, bandwidth + "
+        tr("A profile bundles the operator TX/RX chain (bandwidth + "
            "lock, mic source/gain, drive, TCI gains, AGC, auto-mute, TX "
-           "timeout) and is recalled as a unit.  Switching is manual; the "
-           "per-mode table at the bottom optionally auto-recalls a profile "
-           "when you change mode."), page);
+           "timeout) — not the operating mode.  Switching is manual; the "
+           "per-mode table at the bottom auto-recalls a profile when you "
+           "change mode, and also at startup for the restored mode."), page);
     intro->setWordWrap(true);
     outer->addWidget(intro);
 
@@ -9966,7 +12076,10 @@ QWidget *SettingsDialog::buildProfilesTab() {
                            "live settings."));
     saveAsBtn->setToolTip(tr("Capture the current live settings into a new "
                              "named profile."));
-    defaultBtn->setToolTip(tr("Apply this profile automatically at startup."));
+    defaultBtn->setToolTip(tr(
+        "Fallback at startup if the restored mode has no profile binding "
+        "and there is no last-used profile.  Bind FM/CW/… below if you "
+        "want that family's chain on every launch."));
     for (auto *b : {saveBtn, saveAsBtn, loadBtn, renameBtn, deleteBtn, defaultBtn})
         btnCol->addWidget(b);
     btnCol->addStretch(1);
@@ -10007,9 +12120,8 @@ QWidget *SettingsDialog::buildProfilesTab() {
     auto *loSpin = new QSpinBox(editGrp);
     loSpin->setRange(0, 5000); loSpin->setSingleStep(10);
     loSpin->setSuffix(tr(" Hz"));
-    // TX filter low mirrors the SAME shared low edge (Profile.filterLow —
-    // RX+TX share one low edge today, Task #53).  Shown for RX/TX symmetry;
-    // editing either box moves both.
+    // TX filter low is its own edge.  While "Lock TX/RX BW" is checked
+    // in this editor, the two lows stay equal.
     auto *txLoSpin = new QSpinBox(editGrp);
     txLoSpin->setRange(0, 5000); txLoSpin->setSingleStep(10);
     txLoSpin->setSuffix(tr(" Hz"));
@@ -10099,7 +12211,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
     // record.  Shows the amber notice + enables Apply/Revert only when there's
     // something to save.  syncEdit() re-baselines (clean); the widget-change
     // connects below re-evaluate live.
-    auto editDirty = [this, selectedName, rxBwSpin, txBwSpin, loSpin, lockChk,
+    auto editDirty = [this, selectedName, rxBwSpin, txBwSpin, loSpin, txLoSpin, lockChk,
                       micCombo, micGainSpin, micBoostChk, agcCombo, levelerChk,
                       phrotChk, autoMuteChk]() -> bool {
         const QString name = selectedName();
@@ -10109,6 +12221,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
         return rxBwSpin->value()   != p.rxBandwidth
             || txBwSpin->value()   != p.txBandwidth
             || loSpin->value()     != p.filterLow
+            || txLoSpin->value()   != p.txFilterLow
             || lockChk->isChecked() != p.bwLocked
             || micCombo->currentData().toString() != p.micSource
             || qAbs(micGainSpin->value() - p.micGainDb) > 0.05
@@ -10125,12 +12238,21 @@ QWidget *SettingsDialog::buildProfilesTab() {
         applyEditBtn->setEnabled(d);
         revertEditBtn->setEnabled(d);
     };
-    // RX/TX filter-low mirror the single shared low edge — editing either
-    // moves both so they always match (guarded so it can't loop).
+    // While the profile's lock is on, the two lows stay equal.
     connect(loSpin, QOverload<int>::of(&QSpinBox::valueChanged), editGrp,
-            [txLoSpin](int v) { if (txLoSpin->value() != v) txLoSpin->setValue(v); });
+            [txLoSpin, lockChk](int v) {
+                if (lockChk->isChecked() && txLoSpin->value() != v)
+                    txLoSpin->setValue(v);
+            });
     connect(txLoSpin, QOverload<int>::of(&QSpinBox::valueChanged), editGrp,
-            [loSpin](int v) { if (loSpin->value() != v) loSpin->setValue(v); });
+            [loSpin, lockChk](int v) {
+                if (lockChk->isChecked() && loSpin->value() != v)
+                    loSpin->setValue(v);
+            });
+    connect(lockChk, &QCheckBox::toggled, editGrp, [loSpin, txLoSpin](bool on) {
+        if (on && txLoSpin->value() != loSpin->value())
+            txLoSpin->setValue(loSpin->value());
+    });
     // Re-evaluate dirty on any edit.
     for (QSpinBox *s : {rxBwSpin, txBwSpin, loSpin, txLoSpin})
         connect(s, QOverload<int>::of(&QSpinBox::valueChanged), editGrp,
@@ -10305,7 +12427,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
         rxBwSpin->setValue(p.rxBandwidth);
         txBwSpin->setValue(p.txBandwidth);
         loSpin->setValue(p.filterLow);
-        txLoSpin->setValue(p.filterLow);   // shared low edge — mirror
+        txLoSpin->setValue(p.txFilterLow);
         lockChk->setChecked(p.bwLocked);
         { int i = micCombo->findData(p.micSource);
           micCombo->setCurrentIndex(i < 0 ? 0 : i); }
@@ -10322,7 +12444,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
     // Write the quick-edit widgets back into the selected profile's stored
     // record (never touches live state).  updateStoredProfile re-evaluates
     // the "● modified" flag when the active profile's baseline moves.
-    auto applyEdit = [this, selectedName, rxBwSpin, txBwSpin, loSpin, lockChk,
+    auto applyEdit = [this, selectedName, rxBwSpin, txBwSpin, loSpin, txLoSpin, lockChk,
                       micCombo, micGainSpin, micBoostChk, agcCombo, levelerChk,
                       phrotChk, autoMuteChk, updateEditDirty]() {
         const QString name = selectedName();
@@ -10332,6 +12454,7 @@ QWidget *SettingsDialog::buildProfilesTab() {
         p.rxBandwidth  = rxBwSpin->value();
         p.txBandwidth  = txBwSpin->value();
         p.filterLow    = loSpin->value();
+        p.txFilterLow  = txLoSpin->value();
         p.bwLocked     = lockChk->isChecked();
         p.micSource    = micCombo->currentData().toString();
         p.micGainDb    = micGainSpin->value();

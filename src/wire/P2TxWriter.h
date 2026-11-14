@@ -1,67 +1,60 @@
-// Paced Protocol 2 TX-IQ packet producer.
+// Dedicated Protocol 2 DUC-IQ sender (port 1029).
 //
-// The writer owns pacing and sequence numbers but not a socket. P2Session
-// supplies the packet sink so every P2 datagram continues to use the one
-// session socket. This phase can produce zero-IQ priming frames internally;
-// P2Session exposes no method that starts it.
+// Matches DeskHPSDR `new_protocol_txiq_thread` / Thetis ChannelMaster
+// outbound: a native thread waits until 240 samples are in the FIFO,
+// then sendto()s one 1444-byte packet. Cadence is the DSP producer, not
+// a Qt 1 ms timer on the P2 session loop.
 
 #pragma once
 
 #include "P2TxFifo.h"
 #include "P2TxPackets.h"
 
-#include <QElapsedTimer>
-#include <QObject>
-#include <QTimer>
+#include <QByteArray>
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
+#include <thread>
 #include <utility>
 
 namespace lyra::wire {
 
-class P2TxWriter final : public QObject {
+class P2TxWriter final {
 public:
-    using PacketSink = std::function<void(const QByteArray &)>;
-    using FaultSink = std::function<void()>;
+    using PacketSink = std::function<bool(const QByteArray &)>;
 
-    explicit P2TxWriter(QObject *parent = nullptr);
+    P2TxWriter() = default;
+    ~P2TxWriter() { stop(); }
+
+    P2TxWriter(const P2TxWriter &) = delete;
+    P2TxWriter &operator=(const P2TxWriter &) = delete;
 
     void setPacketSink(PacketSink sink) { packetSink_ = std::move(sink); }
-    void setFaultSink(FaultSink sink) { faultSink_ = std::move(sink); }
     void setInputFifo(P2TxFifo *fifo) { inputFifo_ = fifo; }
 
-    void startZeroPriming();
     void startFromInput();
     void stop();
-    bool isRunning() const { return running_; }
-    quint32 nextSequence() const { return sequence_; }
-    std::uint64_t droppedPackets() const { return droppedPackets_; }
-
-    // Deterministic test seam used by the real timer path too.
-    int produceDueForElapsedNs(qint64 elapsedNs);
+    bool isRunning() const { return running_.load(std::memory_order_acquire); }
+    quint32 nextSequence() const {
+        return sequence_.load(std::memory_order_relaxed);
+    }
+    std::uint64_t packetsSent() const {
+        return packetsSent_.load(std::memory_order_relaxed);
+    }
 
     static constexpr int kSampleRateHz = P2TxFifo::kSampleRateHz;
-    static constexpr int kTimerPeriodMs = 1;
-    // Windows commonly coalesces 1 ms timers for several milliseconds.
-    // A 20 ms bounded recovery window tolerates normal scheduler jitter;
-    // anything longer is treated as a transport fault, not replayed.
-    static constexpr std::uint64_t kMaxCatchupPackets = 16;
 
 private:
-    void onTimer();
+    void threadMain();
 
-    QTimer timer_;
-    QElapsedTimer elapsed_;
     PacketSink packetSink_;
-    FaultSink faultSink_;
     P2TxFifo *inputFifo_ = nullptr;
-    std::array<P2TxIqSample, P2TxPackets::kIqSamplesPerPacket> zeros_{};
-    bool zeroPriming_ = true;
-    bool running_ = false;
-    quint32 sequence_ = 0;
-    std::uint64_t scheduledPackets_ = 0;
-    std::uint64_t droppedPackets_ = 0;
+    std::thread thread_;
+    std::atomic<bool> running_{false};
+    std::atomic<bool> stop_{false};
+    std::atomic<quint32> sequence_{0};
+    std::atomic<std::uint64_t> packetsSent_{0};
 };
 
 } // namespace lyra::wire

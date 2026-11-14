@@ -13,32 +13,44 @@
 class QLabel;
 class QToolButton;
 
+namespace lyra::ipc { class HL2Stream; }
 namespace lyra::solar { class SolarService; }
 
 namespace lyra::ui {
 
+class BandMemory;
+class GenSlots;
 class NcdxfFollow;
 
 class SolarPanel : public QWidget {
     Q_OBJECT
 public:
     SolarPanel(lyra::solar::SolarService *svc, NcdxfFollow *follow,
-               QWidget *parent = nullptr);
+               lyra::ipc::HL2Stream *stream, BandMemory *bandMem,
+               GenSlots *gen, QWidget *parent = nullptr);
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    void tipBelow(QWidget *w);
     QWidget *makeValueBox(const QString &key, QLabel **valueOut);
     void buildFollowButton();
     void refreshFollowLabel();
     void refresh();
+    void tuneVfoA(const QString &meters);
 
     lyra::solar::SolarService *svc_ = nullptr;
     NcdxfFollow               *follow_ = nullptr;
+    lyra::ipc::HL2Stream      *stream_ = nullptr;
+    BandMemory                *bandMem_ = nullptr;
+    GenSlots                  *gen_ = nullptr;
     QToolButton               *followBtn_ = nullptr;
     QLabel  *sfiVal_ = nullptr;
     QLabel  *aVal_   = nullptr;
     QLabel  *kVal_   = nullptr;
     QWidget *sfiBox_ = nullptr;            // tooltip carrier for extras
-    QHash<QString, QLabel *> bandCells_;   // band → coloured cell
+    QHash<QString, QToolButton *> bandCells_;   // band → coloured chip
 };
 
 } // namespace lyra::ui

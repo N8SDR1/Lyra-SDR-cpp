@@ -1,308 +1,167 @@
-# Lyra — C++23 / Qt 6 Rebuild
+# Lyra
 
-**🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc)
+**v0.25.41 Sulafat** — native **C++23 / Qt 6** SDR transceiver for HPSDR radios.
 
-Native rebuild of [Lyra](../lyra) (the Python+Qt6 desktop SDR transceiver
-for the Hermes Lite 2 / 2+).  The Python tree is preserved in `../lyra/`
-as the protocol research + doc archive reference; this is a clean ground-
-up rewrite using the architecture the project should have started with.
+**Windows 10 / 11 x64 only** for the published installer. Dual RX1/RX2 panadapters and waterfalls, independent **SUB / RX2**, **Diversity** (dual-ADC phase/gain combine), **PureSignal** + Amp View, **WDSP 2.10**, built-in **CW decode**, native CW TX/sidetone, **APF** / **BIN**, and a studio TX rack. **ASIO for VAC is in test** (opt-in, default off).
 
-> **Acknowledgments at a glance:** Lyra-cpp incorporates code ported
-> from two GPL-compatible open-source projects:
-> **[WDSP](https://github.com/TAPR/OpenHPSDR-wdsp)** (Dr. Warren Pratt,
-> NR0V) for DSP algorithms, and the **[MI0BOT openHPSDR-Thetis
-> fork](https://github.com/mi0bot/OpenHPSDR-Thetis)** (Reid MI0BOT/GI8TME,
-> building on Richie Samphire ramdor's upstream maintained at
-> https://github.com/ramdor/Thetis) for the TX baseline ChannelMaster
-> architecture.  Both upstream projects are GPL v3+; per-file copyright
-> headers are preserved in every ported file.  See [NOTICE.md](NOTICE.md)
-> and [CREDITS.md](CREDITS.md) for full attribution (including testers
-> and development assistance from Cursor Grok 4.6).
+**🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** ·
+[Latest installer](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest) ·
+[Discord](https://discord.gg/BwjsQvjcSc) ·
+[Facebook](https://www.facebook.com/groups/1994335921523916) ·
+[Wiki](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki)
 
-> ## ⚠️ Platform support — Windows only (for now)
->
-> **Lyra builds and runs on Windows only at this time.** Linux and macOS
-> support is **planned but not yet implemented** — the source will *not* build
-> or run cleanly on those platforms today. The bundled DSP engine ships as
-> Windows binaries (`wdsp.dll` + FFTW/RNNoise/SpecBleach DLLs) and the wire
-> layer still uses Windows-specific socket/timer code, so a Linux/macOS build
-> will fail. **Please don't try to build or run Lyra on Linux or macOS yet** —
-> the errors you'll hit are expected, not bugs to report. There is also no
-> sound-device selection on those platforms because the audio path isn't wired
-> for them. The native Windows installer (see the
-> [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) page) is the
-> only supported way to run Lyra right now.
->
-> Linux and macOS will come **after** RX/TX is stable on Windows — the porting
-> plan is captured in [docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md).
+Download **`Lyra-Setup-0.25.41.exe`** from
+[GitHub Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest)
+or the [landing page](https://n8sdr1.github.io/Lyra-SDR-cpp/).
+Install over Sheliak; the app identity stays **Lyra-cpp** (settings stay).
+**v0.25.40** is the previous public build. **v0.25.22** remains the long
+return point. If you come from ≤0.25.31, **turn Drive down and walk it up
+before your first TX on a Protocol 2 radio**.
 
-## Architecture
+GPL v3 or later. Attribution: [NOTICE.md](NOTICE.md) · [CREDITS.md](CREDITS.md).
 
-| Layer            | Choice                                                                                              |
-|------------------|-----------------------------------------------------------------------------------------------------|
-| Language         | C++23                                                                                               |
-| UI framework     | Qt 6 (Qt Quick / QML) — Lyra-native                                                                 |
-| Graphics         | Qt RHI — Direct3D 12 / Vulkan / OpenGL fallback on Windows (Metal/macOS auto-selects once the port lands) |
-| RX DSP           | WDSP DSP engine (Warren Pratt NR0V, GPL v3+) — loaded natively                                      |
-| RX architecture  | Lyra-native (no Python, no GIL) + Lyra-native flair (NPE modes, AEPF, captured-profile IQ-domain NR, per-band bounds memory, EiBi overlay, NCDXF beacon follow, ...) |
-| **TX baseline**  | **Ported from [openHPSDR Thetis (MI0BOT fork)](https://github.com/mi0bot/OpenHPSDR-Thetis) ChannelMaster (cmaster, aamix, ilv, supporting modules) — GPL v3+, attributed per file** |
-| **TX DSP additions** | **Lyra-native** (Combinator multiband compressor, Plate Reverb, parametric EQ, formant boost, sibilance enhance, DX cut-through, de-esser, auto-AGC — sit BEFORE the ported TXA chain) |
-| FFT              | FFTW3 (per-host wisdom-cached on first launch)                                                      |
-| Wire I/O         | Native UDP (`QUdpSocket`) on dedicated OS threads — no GIL                                          |
-| Threading        | `std::jthread` + Qt thread pools, OS-priority + MMCSS later                                         |
-| Build            | CMake 3.21+                                                                                         |
-| Compiler         | MSVC v143 (VS 2022/2026), **Windows only today** — Linux clang/gcc + macOS Apple Clang are planned, not yet buildable (see [docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md)) |
-| License          | GPL v3+ (matches both upstream projects)                                                            |
+---
 
-**No Python. No GIL. No cffi-on-the-wire-path. No in-process bottleneck.**
+## What it is (v0.25.41)
 
-## Features
+A single-window, dockable Qt 6 console — not Thetis tear-off skins. GPU
+panadapters (Vulkan / Direct3D 11; OpenGL fallback) are heavier on a weak
+iGPU. HPSDR I/Q and audio stay native C++ (no Python, no GIL).
 
-A full receive **and transmit** SDR transceiver for HPSDR radios — the
-Hermes Lite 2 / 2+ (Protocol 1) and the BrickSDR2 (Protocol 2) — native
-C++ end to end.  Lyra transmits every voice mode (SSB / AM / DSB /
-SAM / FM) plus CW and digital via TCI, and ships a complete native TX audio
-processing rack. Dual receive (**SUB / RX2**) and **SPLIT** pile-up
-(VFO B TX, independent of SUB) are live on **Hermes Lite 2** (Protocol 1)
-and **BrickSDR2** (Protocol 2) — one ADC; N2ADR follows RX1 (cross-band
-SUB is much weaker). Still on the roadmap: PureSignal — see below.
+| | Shipped in Sulafat |
+|---|---|
+| **OS** | **Windows 10 (1809+) / Windows 11, 64-bit** installer only |
+| **Protocol 1** | Hermes Lite 2 / 2+ (Open). Brick / ANAN on P1 **Discover but do not Open** |
+| **Protocol 2** | BrickSDR2, Brick3SDR (beta), ANAN-10/10E/100-series/200D, 7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 — pick the marketed model in Settings → Hardware |
+| **G2 / Saturn** | Protocol 2 **wired**; TX is **dummy-load arm** until on-air validated — not battle-tested like Thetis |
+| **RX display** | Dual panadapters + waterfalls for RX1 and RX2 on two-converter radios; overlay + same-ADC SUB on one-converter boxes |
+| **SUB / RX2** | Independent of **SPLIT**. Second DDC; own pane on Brick3 / 100D / 200D / 7000 / 8000 |
+| **Diversity** | Dual-ADC **phase/gain** mix on one frequency (**DIV** chip). RX2 jack / Ext1, not ANT2. Not a second VFO. Drops while keyed or while PureSignal is live |
+| **PureSignal** | HL2 / HL2+ coupler mod; Brick2 ADC0 pad; Brick3 rear **PS** jack; Amp View (Snap / Hold). Attestation default off |
+| **DSP** | WDSP 2.10 receive (NR 1–4 **or** NNR, ANF, LMS, NB, AGC, squelch) plus IQ-domain captured-noise **NR-C** |
+| **TX rack** | 8-band EQ, Combinator, plate reverb, speech, VOX, profiles, ALC + Leveler |
+| **CW** | Native TX + sidetone + keyer/macros; on-screen **Classic** (fldigi) and **DeepFist** (N9BC) decode; **APF** peaking; **BIN** binaural |
+| **VAC / ASIO** | VAC1 / VAC2 for digital apps. **ASIO for VAC is in test** — Settings → Audio → Enable ASIO devices for VAC, restart; default **off**. Not Thetis **CMASIO**. Not a WING used as the radio mixer |
+| **Remote** | **Lyra Remote** is a **LAN** browser desk (separate download). Not Thetis-style WAN remote. Do not port-forward TCI to the internet |
 
-* **Radio** — HPSDR Protocol 1 + Protocol 2 discovery (multi-NIC, dual
-  limited + subnet-directed broadcast) + **Add by IP** unicast probe for
-  fixed-IP / cross-subnet radios; live RX off the HL2 / HL2+ and BrickSDR2
-  on dedicated OS threads;
-  multi-radio list (double-click to Open, connected radio marked);
-  auto-connect to the last radio.  The installer adds the firewall rules so
-  it connects without admin rights.
-* **DSP** — WDSP RX chain: USB/LSB/CW/AM/FM/DIG modes, per-mode filters,
-  AGC, NR, auto-notch, manual notches, squelch, an 8-band parametric RX EQ,
-  a signature captured-noise reducer (NR-C), and centre-tune (CTUN) lock.
-  Audio out the HL2 jack (AK4951) or PC sound card.
-* **Frequency calibration** — a guided **Freq Cal** instrument (and a
-  Settings tab) that measures your radio's oscillator error against a time
-  station (WWV / WWVH / CHU) and nudges every RX/TX frequency so the dial
-  reads true.  Pick a station, watch the error null to zero, Apply.
-* **Transmit** — every voice mode: SSB, AM, DSB, SAM, FM (proper carrier +
-  both sidebands on AM/SAM, suppressed-carrier DSB), plus digital via TCI /
-  virtual audio cable.  TX power / drive, separate tune drive, AM carrier
-  level, mic gain + boost, always-on ALC + operator Leveler.
-* **CW** — internal iambic keyer (paddle / straight key on the HL2 KEY jack)
-  plus a keyboard send line and a contest-grade **macro bank**: named
-  click / F-key (F1–F12) memories, defaults + a "My macros" group you build
-  out, `{tokens}` (contact + your own personal tokens) with a click-to-insert
-  palette, and a Repeat caller.  QSK / semi / manual break-in, adjustable
-  sidetone.  The meter shows forward power and the VFO goes red on-air
-  while you send CW — console keyer *and* a paddle / key into the radio.
-  An **external keyer / Winkeyer** works too (its KEY line into the HL2 jack,
-  Iambic off), plus an optional **serial CW-key input** for a key wired to a
-  COM-port pin.
-* **VOX (voice-operated transmit)** — key up just by talking, with its own
-  Settings tab: adjustable threshold, open-delay + hang times, and
-  **anti-VOX** so your own receiver audio can't trip it.  Two live bar
-  meters (mic level + anti-VOX) make it easy to set; voice-modes only, never
-  overrides a manual/foot-switch key, and an instant kill.  PureSignal-safe
-  (read-only taps, keying decision only).
-* **Native TX DSP rack** — a studio audio chain built into the radio, ahead
-  of the modulator: an 8-band parametric EQ with a draggable curve + live
-  RTA, a multi-stage Speech section (noise gate, auto-AGC, de-esser), a
-  5-band Combinator multiband compressor, and a Plate reverb for ESSB air.
-* **TX profiles & metering** — save/recall the whole transmit chain as named
-  profiles; multimeter (PO / SWR / MIC / COMP / ALC / PA current); hot-mic
-  monitor (HL2 jack, a PC device, or over TCI).  A profile can optionally
-  **launch its companion digital-mode app** (VarAC / MSHV / WSJT-X) when you
-  pick it — a per-PC binding that's never part of the shared profile.
-* **Per-band TX power (PA Gain tab)** — a per-band **PA Gain** table that
-  calibrates what your drive % means in real watts on each band (measure
-  each band into a dummy load and nudge its number), plus an **auto-tuning
-  watts-output cap** to protect a low-drive amp: key TUN on a band and Lyra
-  walks the power up *from below* and parks that band on the highest drive
-  step that stays *under* your cap (live green/red "Cap tuned" marks), then
-  holds it in SSB without chasing voice peaks.  Never overshoots — safe for
-  an SS amp.  The on-screen watts are calibrated per band so the meter, the
-  cap, and your external watt-meter all agree.  PureSignal-safe.
-* **TX safety** — ATT-on-TX RX-front-end protection, TR-sequencing for amp
-  hot-switch safety, an operator TX time-out, and a hard External TX Inhibit
-  lockout (for sharing the antenna/bench with sensitive gear).
-* **Waterfall callsign ID** — an optional courtesy ID that paints your
-  callsign as a readable image in the SSB passband (USB/LSB), armed from the
-  header — a visual hello on the band (not a replacement for legal ID).  It's
-  now **locked to amateur bands** for your region — it can't be armed or
-  fired outside a ham allocation (no rastering your call into a broadcast or
-  CB segment).
-* **Tuner memory (manual-ATU reminder)** — a built-in tuning-memory panel
-  for manual antenna tuners: three named antennas, each with a
-  frequency-keyed Input / Output / Inductor table, live colour-coded SWR,
-  and a nearest-point view that brackets your dial (the saved settings just
-  above and below where you're tuned) so you start a re-tune from the right
-  place instead of from scratch — no third-party app, no paper sheets.
-* **Panadapter + waterfall** — Vulkan/RHI scene-graph spectrum with
-  glassy fill/glow, peak-hold markers, noise-floor line, palettes; click/
-  drag/wheel tuning; draggable RX passband; collapsible waterfall.
-* **Session recorder** — capture a whole listening session to a timestamped
-  folder: the receive audio to WAV plus timed panadapter/waterfall snapshots,
-  driven from a header **Recorder** chip that turns into a live REC timer.
-  A low-priority offline **Convert to MP4** (uses ffmpeg if present) turns a
-  session into one video — the snapshots play as a slideshow synced to the
-  audio — with a Settings → Recording tab for the folder, snapshot rate,
-  auto-split, storage cap, and a Convert / Open / Rename / Delete sessions
-  list.  Recording ham radio you receive for personal use is normal; get the
-  other operators' OK before publishing.
-* **Dockable UI** — drag a panel by its title bar and a cyan zone previews
-  where it lands: snap to an edge, split a neighbour, tab behind it, or
-  float it free.  Cyan-on-hover resize separators; **four named layout
-  slots** + a factory default; **Lock panels** freezes move *and* resize
-  and survives a restart.  Dropped a panel in the wrong spot?  **View →
-  Layouts → Undo layout change** walks the last one or two moves back where
-  they came from.
-* **Backup & Restore** — a dedicated **Settings → Backup & Restore** tab:
-  export your whole config to a `.lyra` file, or **selectively restore** just
-  the section you broke (Radio / Audio / TX / CW / Display / Layout / … — tick
-  what to bring back).  Lyra also keeps **automatic dated snapshots** every so
-  many launches (adjustable), stored on disk so they **survive an
-  uninstall/reinstall** — a fresh install can restore your old setup from the
-  snapshot folder.  Machine-specific keys (IP, graphics backend) never travel.
-  Its **Maintenance & recovery** tools also rebuild the one-time FFT
-  optimization (after a CPU change) and, when all else fails, **reset every
-  setting to factory defaults** — a safety snapshot is taken first so it's
-  undoable.
-* **Crash-safe graphics** — Lyra picks the best graphics backend for your GPU
-  (Vulkan / Direct3D / OpenGL, at the bottom of Settings → Visuals).  If a
-  launch ever dies during start-up (a flaky GPU driver), the **next** launch
-  automatically drops to a safer backend so you're never stuck editing the
-  registry to get back in.
-* **Band switching + per-band memory** — three rows (Ham / BC / Gen),
-  returns to each band's last frequency, mode, and panadapter/waterfall dB
-  ranges; optional 11m/CB band with all-40-channel panadapter markers
-  (channel numbers + the fun nicknames — Super Bowl, Emergency, Highway…).
-* **GEN / TIME / Memory** — three general-coverage slots, an HF
-  time-station cycle (WWV/WWVH/CHU/BPM/RWM/…, ordered by your callsign),
-  and a 20-slot frequency memory bank with CSV import/export.
-* **EiBi shortwave overlay** — the EiBi broadcast schedule on the
-  panadapter, on-air-now aware (cyan = live, grey = scheduled), click to
-  tune in AM; in-app download or manual CSV import.
-* **Band-plan overlay** — per-region (US / IARU R1 / R3) sub-band
-  segments, band-edge warnings, digital + NCDXF beacon markers with
-  click-to-tune and live beacon-station tooltips; out-of-band advisory.
-* **TCI server** — TCI v1.9/2.0 (Expert Electronics) over WebSocket:
-  drive frequency / mode / filter / volume from SDRLogger+, Log4OM,
-  N1MM, etc.; a header indicator shows connected-client count; optional
-  audio + IQ binary streaming and Thetis-style emulation/option toggles.
-* **Kenwood CAT + serial PTT** — control Lyra from any logger / digital app
-  that speaks **Kenwood TS-480 / TS-2000 CAT** (frequency / mode / PTT), over
-  a **COM port** *or* **TCP** (no com0com needed for TCP); two independent,
-  labelled CAT instances run side-by-side.  Plus a **serial-PTT input** so a
-  digital app (WSJT-X, VarAC, fldigi) keys Lyra over an RTS/DTR line.  All
-  under **Settings → CAT / Serial**, which now auto-lists **virtual COM
-  ports** (com0com, VSPManager) the way the reference does.
-* **DX-cluster spots** — TCI cluster spots painted on the panadapter
-  (country-tagged, CW-pitch-aware placement), with show/max/lifetime
-  controls, own-callsign highlight + color, a toast when you're spotted
-  (on/off + re-notify cooldown), and a Clear button.
-* **Solar / propagation panel** — HamQSL SFI/A/K + 10-band day/night
-  heat-map, plus NCDXF beacon auto-follow.
-* **Weather alerts** — lightning / wind / severe-storm badges from
-  Blitzortung / NWS / Ambient / Ecowitt.
-* **Quality-of-life** — header clocks with NTP drift check, GitHub
-  update notifications, in-app diagnostic log viewer (no console window),
-  operator/station identity + band-plan region in Settings.
+Full checklist: **[Feature Status](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Feature-Status)** ·
+operator manual: **[User Guide](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/User-Guide)** ·
+this release: [`docs/releases/v0.25.41.md`](docs/releases/v0.25.41.md).
 
-Every feature landed gated by an operator HL2 bench test.
+### Radios at a glance
+
+| Radio | Open | Notes |
+|---|---|---|
+| Hermes Lite 2 / 2+ | ✅ P1 | SUB overlay (one ADC). PS with coupler mod. HL2+ codec jack |
+| BrickSDR2 | ✅ P2 | SUB overlay (one ADC). PS on ADC0 pad |
+| Brick3SDR | ✅ P2 (beta) | Dual pan + **Diversity**. PS rear jack. MAP ANT/RX |
+| ANAN-10 / 10E | 🚧 P2 | Brick2-class TX. One ADC |
+| ANAN-100 / 100B | 🚧 P2 | Brick3-class TX. One ADC |
+| ANAN-100D / 200D | 🚧 P2 | Dual pan + Diversity |
+| ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 | ✅ P2 | Brick3-class TX (Enable PA + MOX + Drive). Dummy load on first TX |
+| ANAN-G2 / G2-1K | 🚧 P2 | Saturn BPF. **Dummy-load arm** — wired, not on-air mature |
+| Brick / ANAN still on **Protocol 1** FPGA | ❌ | Listed in Discover; **Open refused**. Flash P2 |
+
+---
+
+## Not yet / not this
+
+Honest gaps — do not expect these in the published Windows installer:
+
+- **Linux / macOS published builds** (macOS is a separate tester branch; Linux is planned)
+- **Protocol 1 Open on ANAN or Brick** (HL2 TX layout would be wrong)
+- **G2 / G2-1K on-air maturity** comparable to Thetis
+- **WAN / internet remote** like Thetis remote
+- **Multi-monitor Thetis tear-off skins** (Lyra docks and floats inside one Qt window)
+- **CMASIO** and a **Behringer WING / X32 as the radio mixer** (48-channel ChannelMaster routing)
+
+---
+
+## Features (operator surface)
+
+- **Radio** — P1 + P2 discovery (multi-NIC) + **Add by IP**; last-radio auto-connect; installer firewall rules.
+- **Dual receive** — **SUB** on HL2, Brick, and P2 ANAN. Two-converter boxes get a **second panadapter/waterfall**. **SPLIT** TX on VFO B is independent of SUB.
+- **Diversity** — two converters, same frequency, operator phase (−180…+180°) and gain (−27…+27 dB). Confirmed on Brick3; same path on 100D / 200D.
+- **DSP** — USB/LSB/CW/AM/FM/DIG/SPEC, per-mode filters, AGC, NR or NNR, ANF, LMS, NB, squelch, 8-band RX EQ, **NR-C**, CTUN, RIT/XIT, **APF**, **BIN**.
+- **Transmit** — SSB / AM / DSB / SAM / FM / CW; TCI + VAC digital; drive, tune drive, mic, ALC, Leveler; per-band PA Gain / watts cap.
+- **PureSignal** — compact dock + **Amp View**; auto-att persists across PTT / per TX band.
+- **CW** — iambic / straight / serial / keyboard / macros / QSK; sidetone; Classic + DeepFist decode (pitch lock in 0.25.38).
+- **TX rack** — EQ + RTA, Combinator, plate reverb, speech, voice keyer, VOX, named profiles.
+- **UI** — dockable panels, four layout slots, lock, GPU panafall (HiDPI ribbon in 0.25.39). Weak iGPU: prefer a safer backend in Settings → Visuals.
+- **Station** — TCI, Kenwood CAT, serial PTT, USB-BCD, OC / Filters-BCD (ANAN/Brick3 lamps in 0.25.40), Xvtr (eight slots), tuner memory, Freq Cal, spots, EiBi, solar, recorder, backup/restore.
+- **Lyra Remote** — LAN browser desk ([separate repo](https://github.com/N8SDR1/Lyra-Remote/releases/latest)). **Lyra to Lyra** is a laptop desk on the shack session (beta).
+
+Every public feature is gated by bench on real hardware. Brick3 remains **beta testing**.
+
+---
+
+## ASIO for VAC (test stage)
+
+Default **off**. Qt speaker **Out** and the HL2 jack are unchanged.
+
+1. Settings → Audio → **Enable ASIO devices for VAC**, then **restart**.
+2. VAC Driver = **ASIO**. Use the **same** driver for Input and Output (full duplex, 48 kHz).
+3. Close any other program that owns that ASIO driver first.
+
+If Lyra did not finish starting while loading ASIO, Enable is forced off.
+This is **not** Thetis CMASIO and **not** parking RX/TX on a WING bus.
+Steinberg ASIO SDK is included under its **GPLv3 option** — see [NOTICE.md](NOTICE.md).
+
+---
 
 ## Download & run (Windows)
 
-Just want to operate? You don't need to build anything.
+1. [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest) → **`Lyra-Setup-0.25.41.exe`**.
+2. Run the installer, launch Lyra, click **▶ Start**, pick the radio.
+3. First start runs a one-time FFT optimization (cached per machine).
 
-1. Go to the **[Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases)**.
-2. Download the latest **`Lyra-Setup-X.Y.Z.exe`** installer and run it.
-3. Launch Lyra. First start does a one-time FFT optimization (cached per
-   machine), then auto-discovers your HL2 / HL2+ on the network.
+Requires Windows 10 64-bit **v1809** (build 17763)+ or Windows 11.
+**1600 × 900** is the operating minimum; **1920 × 1080** holds every panel.
+Wired Ethernet to the radio. GPU panadapters: DirectX 11 / OpenGL 3.3 minimum;
+Vulkan preferred. See [PC Requirements](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/PC-Requirements).
 
-Requires Windows 10 (1809+) or 11, 64-bit — see **System requirements**
-below. The build-from-source instructions further down are only needed if
-you want to develop or build it yourself.
+Build-from-source is only for developers (below).
 
-## System requirements
+---
 
-Lyra is a native **64-bit Windows** app. Its panadapter and waterfall render
-on the GPU, so graphics capability matters more here than in a typical desktop
-app — but it runs comfortably on modest hardware, and integrated graphics are
-fine.
+## Getting help
 
-| Component | Minimum | Recommended | Maxed+ |
-|---|---|---|---|
-| **OS** | Windows 10 64-bit, **v1809 (build 17763)**+; or Windows 11 | Windows 11 / Win10 22H2 | Windows 11, current |
-| **CPU — Intel** | 4th-gen Core (Haswell) or newer, e.g. i3-4000 | Core i5 / i7, 10th-gen+ | Core i7 / i9, 12th-gen+ |
-| **CPU — AMD** | Any Ryzen, or AVX-capable FX/A-series | Ryzen 5 / 7, 3000-series+ | Ryzen 7 / 9, 5000-series+ |
-| **Cores** | Dual (quad preferred) | Quad+ with AVX2 | High-core-count, AVX2 |
-| **RAM** | 4 GB (8 GB comfortable) | 16 GB | 32 GB |
-| **GPU** | DirectX 11 / OpenGL 3.3 (integrated OK) | **Vulkan 1.1-capable** | **Vulkan 1.3-capable** dedicated, ample VRAM |
-| &nbsp;&nbsp;NVIDIA | GeForce GT 700-series+ | GTX 10-series / RTX+ | RTX 30/40-series |
-| &nbsp;&nbsp;AMD | Radeon HD 7000 (GCN)+, incl. iGPU | RX 400/500 / Vega / RX 5000–9000 | RX 6000/7000/9000 (RDNA 2/3/4) |
-| &nbsp;&nbsp;Intel | HD 4000 (Ivy Bridge)+ / UHD / Iris | UHD 620 / Iris Xe / Arc | Arc A-series+ |
-| **Storage** | ~300 MB free (SSD recommended) | SSD, ~500 MB free | NVMe Gen4 SSD |
-| **Network** | 100 Mbit **wired** to the radio | Gigabit, dedicated NIC ideal | Dedicated 1/2.5 GbE, wired to the radio |
-| **Display** | 1600 × 900 | 1920 × 1080 | Dual/triple; 1440p or 4K |
+See **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** before filing a duplicate.
 
-**About the display minimum.** Lyra's front panel is a set of dockable panels,
-and they need real estate. At **1600 × 900** you get the panels you need to
-operate — **Panadapter + waterfall, Tuning, Band, Filters, Audio, Meter and
-TX** — laid out with everything reachable. That's what Lyra ships arranged for
-at that size, and it's a genuinely usable radio.
+- **Discord:** <https://discord.gg/BwjsQvjcSc>
+- **Facebook:** <https://www.facebook.com/groups/1994335921523916>
+- **Issues:** [github.com/N8SDR1/Lyra-SDR-cpp/issues](https://github.com/N8SDR1/Lyra-SDR-cpp/issues)
 
-The other panels — **Solar / Propagation, Display, and Profiles** — are closed
-by default at that size and available any time from the **View** menu, but
-opening them will want more screen. **Solar / Propagation** in particular is a
-wide strip and needs about 780 px of width on its own. At **1920 × 1080** you
-can have everything open at once with room to spare.
+Include Lyra version (Help → About), Windows version, radio model (HL2 / Brick / ANAN),
+steps, and `%APPDATA%\N8SDR\Lyra-cpp\logs\lyra-log.txt`.
 
-Height is what actually binds: below about 900 px there isn't room for the
-panadapter *and* the operating panels without something being cut off, so 1366 ×
-768 is not enough — even for the minimal set.
+---
 
-Lyra draws the spectrum and waterfall on the GPU. It works on any DirectX 11 /
-OpenGL-class card, but the **Vulkan** path is smoother, lower-CPU, and
-vendor-neutral (NVIDIA, AMD, and Intel alike) — that's why the higher tiers
-call for a Vulkan-capable GPU. The extra headroom in **Maxed+** isn't about
-*whether* it runs (Recommended is plenty) — it's about running everything at
-once (dual RX, the full TX rack, spots, high-refresh waterfalls on a big
-screen) with margin to spare.
+## Architecture (developers)
 
-Two things that matter on any tier: a **wired** connection to the Hermes Lite
-is the single biggest factor in glitch-free audio (Wi-Fi in the radio path is
-the top cause of pops/dropouts), and the one-time first-run FFT optimization
-finishes quicker on a faster CPU.
+| Layer | Choice |
+|---|---|
+| Language | C++23 |
+| UI | Qt 6 (Qt Quick / QML), dockable single window |
+| Graphics | Qt RHI — Vulkan / Direct3D / OpenGL on Windows |
+| RX DSP | WDSP 2.10 (Warren Pratt NR0V, GPL v3+), bundled DLL |
+| TX baseline | Port of openHPSDR Thetis (MI0BOT fork) ChannelMaster — GPL v3+, per-file headers |
+| TX extras | Lyra-native rack ahead of TXA (EQ, Combinator, reverb, speech) |
+| Wire | Native UDP on OS threads |
+| Build | CMake 3.21+, MSVC v143 (VS 2022/2026) |
+| License | GPL v3+ |
 
-## Getting help & reporting bugs
+Lyra-cpp is a ground-up native rewrite of the earlier Python Lyra. WDSP and
+the ChannelMaster TX baseline are attributed in [NOTICE.md](NOTICE.md).
 
-Lyra is in active development — testers and bug reports are welcome.
-See **[KNOWN_ISSUES.md](KNOWN_ISSUES.md)** first for current rough edges and
-what hasn't been built yet (so you don't report a planned feature as a bug).
+### Prerequisites
 
-* **Discord:** <https://discord.gg/BwjsQvjcSc> — questions, feature ideas,
-  and quick help.
-* **Bug reports:** open a
-  **[GitHub issue](https://github.com/N8SDR1/Lyra-SDR-cpp/issues)** (or post
-  in Discord). To make a report actionable, please include:
-  * Lyra version (Help → About, or the installer filename),
-  * Windows version, and whether your radio is an **HL2 or HL2+**,
-  * what you did and what happened (steps to reproduce),
-  * the in-app **diagnostic log** (in Lyra, open the diagnostic log viewer
-    and copy the relevant lines — no console window needed).
+Visual Studio 2022 or 2026 Community (Desktop C++ / MSVC v143 / Windows 11 SDK / CMake)
+and **Qt 6.11.1** MSVC 2022 64-bit.
 
-## Prerequisites (Windows)
-
-* **Visual Studio 2022 or 2026 Community** with the "Desktop development
-  with C++" workload + **MSVC v143** toolchain + Windows 11 SDK + CMake.
-* **Qt 6.11.1** installed at `C:\Qt\6.11.1\` with the **MSVC 2022 64-bit**
-  binding (add via Qt's `MaintenanceTool.exe` if the curated installer
-  only pulled MinGW).
-
-## Build (Windows command-line)
-
-From an **x64 Native Tools Command Prompt for VS 2026**:
+From an **x64 Native Tools** prompt, in this repository:
 
 ```bat
-cd Y:\Claude local\SDRProject\lyra-cpp
 cmake -B build -G Ninja ^
       -DCMAKE_BUILD_TYPE=Release ^
       -DCMAKE_PREFIX_PATH=C:/Qt/6.11.1/msvc2022_64
@@ -310,63 +169,16 @@ cmake --build build
 build\lyra.exe
 ```
 
-Or **Visual Studio 2026**: File -> Open -> CMake -> point at `CMakeLists.txt`
-in this directory.  VS auto-configures, then F5 to build + run.
+Linux and macOS source will not produce a supported public binary today.
+Port notes: [docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md).
 
-Or **Qt Creator**: File -> Open File or Project -> pick `CMakeLists.txt`,
-let it configure, hit the green Run button.
+---
 
 ## License
 
-GPL v3 or later — matches WDSP, openHPSDR Thetis, and the parent
-[Lyra](../lyra) Python project.  See [LICENSE](LICENSE) for the full
-license text, [NOTICE.md](NOTICE.md) for upstream-project attribution
-(WDSP + Thetis), and [CREDITS.md](CREDITS.md) for the full
-acknowledgments and contributor list.
+GPL v3 or later — [LICENSE](LICENSE). Upstream: WDSP, openHPSDR Thetis
+ChannelMaster, fldigi CW receive, Steinberg ASIO SDK (GPLv3 option).
+See [NOTICE.md](NOTICE.md) and [CREDITS.md](CREDITS.md).
 
-### Why this matters
-
-Two open-source projects make Lyra-cpp possible without years of
-ground-up implementation:
-
-- **[WDSP](https://github.com/TAPR/OpenHPSDR-wdsp)** — Dr. Warren
-  Pratt NR0V's DSP engine.  RX audio chain (NR, AGC, ANF, LMS, NB,
-  AEPF, bandpass, demod, panel pan), TX audio chain (ALC, leveler,
-  compressor, CFC, PHROT), and the planned PureSignal port (calcc +
-  iqc).  Lyra-cpp links the bundled WDSP DLL and calls into
-  it from native C++; the bundled DLL itself carries WDSP's GPL v3+
-  license and copyright.
-
-- **[openHPSDR Thetis (MI0BOT fork)](https://github.com/mi0bot/OpenHPSDR-Thetis)**
-  — the HL2-focused fork of Richie Samphire (ramdor)'s
-  [upstream Thetis](https://github.com/ramdor/Thetis), maintained by
-  Reid (MI0BOT / GI8TME) with the HL2/HL2+ specific work that makes
-  the Hermes Lite 2 family first-class.  Lyra-cpp's TX baseline ports
-  the Thetis ChannelMaster layer (cmaster.c + aamix.c + ilv.c +
-  supporting modules) with full per-file GPL attribution.  This
-  brings tested, debugged, multi-radio (HL2/HL2+/ANAN/Orion/...) TX
-  dispatch into Lyra-cpp; Lyra-native TX DSP enhancements layer on
-  top.
-
-### Contributors
-
-- **Rick Langford (N8SDR)** — project author, architecture, bench operator.
-- **Brent Crier (N9BC)** — co-contributor and tester.
-- **Timmy Davis (KC8TYK)** — tester (v0.1 tester flight).
-- **W5UDX** — DSP2024P Plate Reverb presets and verification.
-- **Cursor Grok 4.6** ([@cursoragent](https://github.com/cursoragent),
-  SpaceXAI / Cursor) — coding assistant for implementation and debug
-  pairing on the native C++ rebuild.  Rick remains the project author;
-  this is pairing help, not a licensed-operator co-author credit.
-
-See [CREDITS.md](CREDITS.md) for testers, upstream authors, and
-full attribution.
-
-The Python Lyra (`../lyra/`) and Lyra-cpp are both N8SDR's projects;
-Lyra-cpp is the C++23 rebuild that makes hard-realtime audio + wire
-I/O practical on Windows / macOS / Linux without Python's GIL.
-
-Cross-platform support (macOS / Linux) is planned once the transmit
-feature set settles; Qt 6 + modern C++ stdlib handles most of the cross-platform
-lifting, with platform-shim modules for Win32-specific items (MMCSS
-thread priority, WSAEventSelect → epoll/kqueue, etc.).
+**Rick Langford (N8SDR)** — author. **Brent Crier (N9BC)** — co-contributor
+(DeepFist). Testers and upstream authors are listed in CREDITS.

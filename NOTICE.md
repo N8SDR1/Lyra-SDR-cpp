@@ -222,9 +222,28 @@ the IVAC rings).  PortAudio is © 1999-2006 Ross Bencina and
 Phil Burk and is distributed under the MIT license; its full
 license text is preserved verbatim at
 `third_party/portaudio/LICENSE.txt`.  PortAudio's MIT terms are
-compatible with Lyra-cpp's GPL v3+.  Unlike the WDSP/reference
-ports, PortAudio is unmodified upstream source — its copyright
-notice is retained as the MIT license requires.
+compatible with Lyra-cpp's GPL v3+.  Its copyright notice is
+retained as the MIT license requires.  The copy carries local
+changes (64-bit float sample converters inherited with the source,
+and the removal of an inherited ASIO-driver filter that read another
+program's registry settings — `src/hostapi/asio/pa_asio.cpp`, marked
+"[Lyra local patch]").
+
+---
+
+## Steinberg ASIO SDK (vendored, GPL v3 option)
+
+Lyra-cpp vendors the host-side files of the **Steinberg ASIO SDK
+2.3.4** (15 October 2025) under `third_party/asiosdk/`, used by
+PortAudio's ASIO host so the Virtual Audio Cable engine can open ASIO®
+audio interfaces.  The SDK is dual-licensed (Steinberg proprietary
+licence / GNU GPL version 3); Lyra uses it under the **GPL version 3**
+option, and a Lyra build that includes ASIO support is distributed
+under GPL v3.  The SDK's licence text is kept verbatim at
+`third_party/asiosdk/LICENSE.txt`; what is included and the one local
+change are listed in `third_party/asiosdk/LYRA-NOTES.md`.
+
+ASIO is a registered trademark of Steinberg Media Technologies GmbH.
 
 ---
 
@@ -260,6 +279,4 @@ are compatible with Lyra-cpp's GPL v3+.
 **Lyra-cpp** is N8SDR (Rick Langford)'s project, building on
 top of the upstream open-source work credited above.  See
 [CREDITS.md](CREDITS.md) for the full contributor list
-including testers, field reports, and development assistance
-from **Cursor Grok 4.6** ([@cursoragent](https://github.com/cursoragent),
-SpaceXAI / Cursor).
+including testers and field reports.

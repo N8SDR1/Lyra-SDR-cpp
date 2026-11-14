@@ -1,8 +1,7 @@
 # P2 TX + PureSignal — catch-up plan (solo, Lyra-native)
 
-Status: T0 + Brick **T1 largely done** (2026-09, operator-benched dummy-load
-RF). T2/T3 PureSignal still open. Owner: N8SDR. Supersedes the "wait on
-Jerry" posture — P2 TX on Brick is in-house.
+Status: Brick **T1 done**. PureSignal **T2/T3 live** on HL2 coupler-mod and
+Brick ADC0 (dummy-load benches). Owner: N8SDR.
 
 ## 0. Method (unchanged, proven)
 
@@ -34,8 +33,8 @@ Already shipped / present:
   mic → modulator (see `p2_tx_mic_modulation.md`). Two-tone on the TX
   panel. ANAN G2/Saturn still need per-model bring-up (not Brick-complete
   ≠ ANAN-complete).
-- **PureSignal:** WDSP calcc/iqc APIs are bound; `src/ps/` is still stubs,
-  not a live linearizer. T2/T3 below remain the work.
+- **PureSignal:** live host path (`src/ps/`, docks, auto-att). Dummy-load
+  first; not a substitute for the kill-test before antenna.
 - **TX design docs**: `tx1_ssb_design.md`, `cw_tx_design.md`,
   `fm_tx_design.md`, `tx_power_model_design.md`, `tx_protection_design.md`,
   `tx_audio_path_reference.md`, `STAGE_7_TX_WIRE_DESIGN.md`,

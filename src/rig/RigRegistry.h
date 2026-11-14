@@ -85,8 +85,16 @@ RigProfile        rig(const QString &rigId);   // invalid profile if absent
 bool              exists(const QString &rigId);
 
 // Insert or update a rig profile's identity record.  Does NOT touch the
-// rig's `rig/<rigId>/…` config subtree.
+// rig's `rig/<rigId>/…` config subtree.  A coarse family label is
+// rewritten to the stored model name before the write (see
+// adoptHardwareLabel).
 void upsertRig(const RigProfile &p);
+
+// Replace a coarse family label ("ANAN (Protocol 2)") or a previous
+// catalog model name with the marketed name of hardwareModelKey.
+// An operator rename that is neither of those is left alone.  Returns
+// true when label changed.  Does not write settings.
+bool adoptHardwareLabel(RigProfile &p);
 
 // Remove a rig's identity record.  Does NOT delete its config subtree
 // (that is a separate, deliberate operator action handled later).

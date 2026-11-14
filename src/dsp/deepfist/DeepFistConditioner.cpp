@@ -47,23 +47,50 @@ void DeepFistConditioner::fft(std::vector<std::complex<double>>& a) const {
 }
 
 float DeepFistConditioner::detectTone(const float* audio, int n) const {
-    if (!audio || n < 8) return kOutPitch;
-    const int m   = std::min(kToneNfft, n);
-    const int off = n - m;                       // analyse the most recent samples
+    return detectTone(audio, n, ToneSearch{});
+}
 
-    std::vector<std::complex<double>> buf(kToneNfft, {0.0, 0.0});
-    for (int i = 0; i < m; ++i)
-        buf[i] = std::complex<double>(audio[off + i], 0.0);   // no window (matches Rust)
-    fft(buf);
+float DeepFistConditioner::detectTone(const float* audio, int n,
+                                      const ToneSearch& s) const {
+    if (!audio || n < 8) return s.centerHz > 0.0f ? s.centerHz : kOutPitch;
 
     const double binHz = static_cast<double>(kSr) / kToneNfft;
-    int lo = std::max(1, static_cast<int>(std::floor(kBandLoHz / binHz)));
-    int hi = std::min(kToneNfft / 2, static_cast<int>(std::ceil(kBandHiHz / binHz)));
+    double loHz = kBandLoHz, hiHz = kBandHiHz;
+    if (s.centerHz > 0.0f) {
+        loHz = std::max<double>(kBandLoHz, s.centerHz - s.halfSpanHz);
+        hiHz = std::min<double>(kBandHiHz, s.centerHz + s.halfSpanHz);
+        if (hiHz <= loHz) return s.centerHz;     // pitch outside the band
+    }
+    const int lo = std::max(1, static_cast<int>(std::floor(loHz / binHz)));
+    // Default range is the original exclusive [lo, hi); a pinned window is
+    // inclusive of its top bin.
+    const int hi = std::min(kToneNfft / 2,
+                            static_cast<int>(std::ceil(hiHz / binHz))
+                                + (s.centerHz > 0.0f ? 1 : 0));
+
+    // Magnitude spectrum: newest 4096 samples (default, matches the trained
+    // front-end), or the mean power over every 4096 block of the window.
+    std::vector<double> mag(static_cast<size_t>(kToneNfft / 2 + 1), 0.0);
+    std::vector<std::complex<double>> buf(kToneNfft);
+    auto accumulate = [&](int off, int m) {
+        std::fill(buf.begin(), buf.end(), std::complex<double>(0.0, 0.0));
+        for (int i = 0; i < m; ++i)
+            buf[i] = std::complex<double>(audio[off + i], 0.0);  // no window (matches Rust)
+        fft(buf);
+        for (int b = lo; b < hi; ++b) mag[static_cast<size_t>(b)] += std::norm(buf[b]);
+    };
+    if (s.wholeWindow && n > kToneNfft) {
+        const int hop = kToneNfft / 2;
+        for (int off = 0; off + kToneNfft <= n; off += hop) accumulate(off, kToneNfft);
+    } else {
+        const int m = std::min(kToneNfft, n);
+        accumulate(n - m, m);                    // analyse the most recent samples
+    }
+
     int    best = lo;
     double bv   = -1.0;
     for (int b = lo; b < hi; ++b) {
-        const double mag = std::abs(buf[b]);
-        if (mag > bv) { bv = mag; best = b; }
+        if (mag[static_cast<size_t>(b)] > bv) { bv = mag[static_cast<size_t>(b)]; best = b; }
     }
     return static_cast<float>(best * binHz);
 }

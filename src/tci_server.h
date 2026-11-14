@@ -22,11 +22,14 @@
 
 #pragma once
 
+#include <QByteArray>
 #include <QElapsedTimer>
 #include <QHash>
+#include <QHostAddress>
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <QStringList>
 
 #include <cstdint>
 #include <vector>
@@ -44,6 +47,7 @@ class Prefs;
 class SpotStore;
 class MeterModel;
 class CwMacroModel;
+class DeskLink;
 
 class TciServer : public QObject {
     Q_OBJECT
@@ -99,6 +103,25 @@ public:
     void setCwMacros(CwMacroModel *m);
     bool comboEnabled() const { return comboEnabled_; }
     void setComboEnabled(bool on);   // persist + announce lyra_combo:on/off
+    // Names any address currently locked out of a voice-session proof.
+    // Empty when none are locked.
+    QString remoteLockText() const;
+    // One transmit owner. The desk link and a browser voice token
+    // cannot both hold the microphone.
+    bool browserOwnsVoice() const { return voiceSessionWs_ != nullptr; }
+    bool deskOwnsVoice() const { return deskOwnsVoice_; }
+    bool setDeskOwnsVoice(bool on);
+    // Desk digital-app path. Null when this Lyra is the host or is
+    // not attached. Loopback TCI then carries the host receiver and
+    // forwards transmit audio to the shack.
+    void setDeskLink(DeskLink *desk);
+    bool deskRelay() const { return deskRelay_; }
+    // 48 kHz int16 mono, pre-volume, from the desk audio socket.
+    void offerDeskRx(const qint16 *mono, int nframes);
+    // Host TX input for a digital key. Does not step the speech rack
+    // aside and does not change the Mic-slider setting.
+    void armDeskDigitalInput();
+    void releaseDeskDigitalInput();
 
     // TX-rip Phase 1 (Q2): setTciMicSource / setTxDspWorker removed
     // here and at main.cpp.  Inbound TCI TX_AUDIO_STREAM frames are
@@ -109,6 +132,9 @@ signals:
     void runningChanged();
     void clientCountChanged(int n);
     void statusMessage(const QString &msg);
+    // Empty when no address is locked. Otherwise names the locked
+    // address. Does not carry a password, a proof, or a token.
+    void remoteLockChanged(const QString &text);
     // Lyra is RX-only and the TCI server can't reach the connect flow
     // directly; MainWindow wires these to its Start/Stop handler.
     void startRequested();
@@ -169,6 +195,8 @@ private:
     void sendTo(QWebSocket *ws, const QString &line);
     void broadcast(const QString &key, const QString &line); // rate-limited
     void broadcastNow(const QString &line);        // unthrottled (edges)
+    void syncSensorTimer();
+    void dropCwTerminalKey();
     void pruneDeadClients();                       // drop non-connected sockets
     void recomputeStreaming();                     // enable engine taps iff a client wants them
     // Radio-signal handlers → broadcasts.
@@ -230,6 +258,9 @@ private:
     QTimer                *smeterTimer_ = nullptr;
     QTimer                *maintTimer_  = nullptr;   // ping + prune dead clients
     bool                   sensorsEnabled_ = false;
+    bool                   txSensorsEnabled_ = false;
+    bool                   cwTerminal_ = false;
+    double                 txSensorPeakW_ = 0.0;
     QString                bindError_;   // last listen() failure reason ("" = ok)
 
     // Match the reference's RX-audio packetisation cadence (per
@@ -305,6 +336,10 @@ private:
     QTimer                *chronoTimer_       = nullptr;
     int                    chronoOutstanding_ = 0;
     qint64                 chronoLastInboundMs_    = 0;    // monotonic ms
+    // Desk digital forward: samples handed to the host and not yet
+    // played at 48 kHz. The local TciTxBridge is empty on that path.
+    int                    deskAheadSamples_ = 0;
+    qint64                 deskAheadMs_ = 0;
     // Dynamic client-negotiated parameters (default to MSHV values).
     // Updated when the client sends AUDIO_SAMPLERATE / AUDIO_STREAM_
     // SAMPLES / TX_STREAM_AUDIO_BUFFERING; consumed every CHRONO tick.
@@ -320,6 +355,10 @@ private:
     // CHRONO consumer).  Default 2 matches Lyra's outbound
     // advertisement on Connect (sendInit line ~949).
     int                    requestChannels_  = 2;
+    // Negotiated AUDIO_STREAM_SAMPLE_TYPE for TX_CHRONO (0 int16 / 1
+    // int24 / 2 int32 / 3 float32).  Default float32 matches the
+    // TCI v2 handshake default.
+    int                    requestFmt_       = 3;
     // Modern-length-semantics flag, mirrors the reference's
     // m_seenModernTxAudioNegotiation (TCIServer.cs:5528 + :5946).
     // Set true the moment any modern handshake command arrives
@@ -364,14 +403,9 @@ private:
     QString  bindHost_         = QStringLiteral("127.0.0.1");
     int      rateLimitMs_      = 20;      // ~50 Hz
     bool     sendInitialState_ = true;
-    bool     emulateExpertSdr3_= false;
-    bool     emulateSunSdr2_   = false;
+    bool     emulateExpertSdr3_= true;
+    bool     emulateSunSdr2_   = true;
     bool     cwluBecomesCw_    = true;
-    // Set true while a TCI `tune:` command holds the key, so the wire-edge
-    // onMoxActiveChanged mirrors the edge on the `tune:` channel (Thetis emits
-    // tune: from its TuneChange event on the real edge, never a pre-edge reply).
-    // Cleared on the falling edge.
-    bool     tciTuneActive_    = false;
     // Task #75 — TCI RX-out linear-gain multiplier.  Cached from
     // Prefs.tciRxGainDb on every tciRxGainDbChanged emit so the
     // hot path in onTciAudioBlock is one std::atomic load (or a
@@ -379,11 +413,6 @@ private:
     // ingress + main-thread Prefs setter never race).  Default
     // 1.0 = unity = pre-#75 byte-identical wire.
     double   rxGainLinear_     = 1.0;
-    // Task #108 — symmetric INBOUND gain cache (MSHV → Lyra TXA).
-    // Cached from Prefs.tciTxGainDb on every tciTxGainDbChanged emit
-    // so the per-sample multiply in onTciAudioBlock doesn't pay
-    // std::pow.  Default 1.0 = unity = pre-#108 byte-identical wire.
-    double   txGainLinear_     = 1.0;
 
     // Per-key broadcast rate limiter + soft DSP-parameter store.
     QHash<QString, qint64> lastSent_;
@@ -395,6 +424,48 @@ private:
     QTimer                *rlFlushTimer_ = nullptr;
     QHash<QString, QString> soft_;
     QElapsedTimer          rateClock_;
+
+    // Voice-session proof. Memory only. A token is bound to one socket.
+    // An address lock survives that socket closing. Receiver commands
+    // and localhost keying do not pass through this state.
+    struct VoiceHold {
+        QByteArray nonce;
+        QByteArray token;
+    };
+    struct VoiceGate {
+        int    fails = 0;
+        qint64 waitUntilMs = 0;
+        qint64 lockedUntilMs = 0;
+    };
+    QHash<QWebSocket *, VoiceHold> voiceHold_;
+    QHash<QString, VoiceGate>      voiceGate_;
+    // One voice owner. Live mic / rack / leveler for that socket only.
+    // Key and unkey do not clear it. Settings are not rewritten.
+    QPointer<QWebSocket>           voiceSessionWs_;
+    bool                           voiceLive_ = false;
+    bool                           deskOwnsVoice_ = false;
+    DeskLink                      *desk_ = nullptr;
+    bool                           deskRelay_ = false;
+    bool                           deskListenOverride_ = false;
+    QString                        deskSavedHost_;
+    void ensureDeskLoopback();
+    void handleDeskTrx(QWebSocket *ws, const QStringList &args);
+    bool                           voiceLevelerParked_ = false;
+    QString                        lastLockNotice_;
+
+    void handleLyraVoice(QWebSocket *ws, const QString &cmd,
+                         const QStringList &args);
+    QHostAddress voicePeer(const QWebSocket *ws) const;
+    QString voicePeerKey(const QWebSocket *ws) const;
+    bool voicePeerLocal(const QWebSocket *ws) const;
+    void dropVoiceHold(QWebSocket *ws);
+    void beginVoiceSession(QWebSocket *ws);
+    void applyVoiceLive();
+    void restoreVoiceLive();
+    bool voiceModeBlocksSession() const;
+    void noteVoiceFailure(const QString &peerKey);
+    void publishVoiceLocks();
+    int voiceSecondsLeft(qint64 untilMs) const;
 };
 
 } // namespace lyra::ui

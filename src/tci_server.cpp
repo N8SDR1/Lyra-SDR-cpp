@@ -2,6 +2,7 @@
 
 #include "tci_server.h"
 
+#include "desk_link.h"
 #include "CwMacroModel.h"
 #include "bandmemory.h"
 #include "hl2_stream.h"
@@ -15,9 +16,11 @@
 // is dropped; R-H2 mic-source force/restore returns with the rebuild.
 #include "tci/TciTxBridge.h"   // TCI TX-audio re-home sink (TX_ARCH §4.6/§10.3)
 #include "wdsp_engine.h"
+#include "wire/CMaster.h"
 
 #include <QDateTime>
 #include <QHostAddress>
+#include <QRandomGenerator>
 #include <QSettings>
 #include <QTimer>
 #include <QWebSocket>
@@ -40,9 +43,11 @@ constexpr auto kKeyEsdr3    = "tci/emulate_expertsdr3";
 constexpr auto kKeySunSdr   = "tci/emulate_sunsdr2";
 constexpr auto kKeyCwlu     = "tci/cwlu_becomes_cw";
 constexpr auto kKeyCombo    = "tci/combo_sdrloggerplus";   // Lyra↔SDRLogger+ combo link
-// vfo_limits advertised to clients (HL2 receive range, Hz).
+// vfo_limits advertised to clients.  Native HL2 IF is HF/6 m; the
+// dial is RF when an Xvtr slot is active (2 m / 70 cm / 23 cm), so
+// the high bound matches the VFO LED (signed-int Hz ceiling).
 constexpr qint64 kVfoLo = 10000;
-constexpr qint64 kVfoHi = 55000000;
+constexpr qint64 kVfoHi = 2147483647;
 
 double dbToLinear(double db) {
     if (db <= -60.0) return 0.0;
@@ -163,7 +168,7 @@ std::vector<float> decodeTciTxAudio(const char *data, int dataBytes,
 
     if (channels == 1) {
         for (int f = 0; f < frames; ++f)
-            mono.push_back(sanitize(decodeScalar(f)));
+            mono.push_back(decodeScalar(f));
     } else {
         // 2-channel inbound: average left + right into a single mono
         // float per audio frame.  This matches the working reference's
@@ -185,9 +190,32 @@ std::vector<float> decodeTciTxAudio(const char *data, int dataBytes,
         for (int f = 0; f < frames; ++f) {
             const float l = decodeScalar(f * 2);
             const float r = decodeScalar(f * 2 + 1);
-            mono.push_back(sanitize(0.5f * (l + r)));
+            mono.push_back(0.5f * (l + r));
         }
     }
+    // Some clients label the header FLOAT32 but store the sample as
+    // the integer count (16-bit or 24-bit) in the float. A tone at
+    // 8000 then survives the ±4 clamp as ±4, and the int16 desk hop
+    // turns every slider position into a full-scale square. Divide
+    // back to ±1 before that clamp so the slider still sets the height.
+    if (fmt == FMT_FLOAT32 && !mono.empty()) {
+        int hot = 0;
+        float peak = 0.0f;
+        for (float s : mono) {
+            if (!std::isfinite(s)) continue;
+            const float a = std::fabs(s);
+            if (a > peak) peak = a;
+            if (a > 16.0f) ++hot;
+        }
+        if (peak > 16.0f && hot * 4 > int(mono.size())) {
+            const float div = (peak > 8388608.0f) ? 2147483648.0f
+                            : (peak > 32768.0f)   ? 8388608.0f
+                                                  : 32768.0f;
+            for (float &s : mono)
+                if (std::isfinite(s)) s /= div;
+        }
+    }
+    for (float &s : mono) s = sanitize(s);
     return mono;
 }
 QByteArray streamHeader(quint32 receiver, quint32 rate, quint32 fmt,
@@ -255,8 +283,11 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                                  QStringLiteral("127.0.0.1")).toString();
     rateLimitMs_       = s.value(QString::fromLatin1(kKeyRate), 20).toInt();
     sendInitialState_  = s.value(QString::fromLatin1(kKeyInitial), true).toBool();
-    emulateExpertSdr3_ = s.value(QString::fromLatin1(kKeyEsdr3), false).toBool();
-    emulateSunSdr2_    = s.value(QString::fromLatin1(kKeySunSdr), false).toBool();
+    // Default ON: JTDX / WSJT-X drop the socket unless protocol: is a
+    // name they already know (ExpertSDR3). MSHV / Open SSTV accept any
+    // identity. Operator can un-tick in Settings to advertise Lyra.
+    emulateExpertSdr3_ = s.value(QString::fromLatin1(kKeyEsdr3), true).toBool();
+    emulateSunSdr2_    = s.value(QString::fromLatin1(kKeySunSdr), true).toBool();
     cwluBecomesCw_     = s.value(QString::fromLatin1(kKeyCwlu), true).toBool();
     comboEnabled_      = s.value(QString::fromLatin1(kKeyCombo), false).toBool();
 
@@ -318,6 +349,23 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
         // pump.  Keeps TCI-server state coherent with the real wire.
         connect(stream_, &lyra::ipc::HL2Stream::moxActiveChanged,
                 this, &TciServer::onMoxActiveChanged);
+        connect(stream_, &lyra::ipc::HL2Stream::tuneEnabledChanged,
+                this, [this](bool on) {
+                    broadcastNow(QStringLiteral("tune:0,%1").arg(
+                        on ? QStringLiteral("true") : QStringLiteral("false")));
+                });
+        connect(stream_, &lyra::ipc::HL2Stream::cwMacrosDrained, this, [this] {
+            if (cwTerminal_)
+                broadcastNow(QStringLiteral("cw_macros_empty"));
+        });
+        connect(stream_, &lyra::ipc::HL2Stream::cwCallsignSent, this,
+                [this](const QString &cs) {
+                    broadcastNow(QStringLiteral("callsign_send:%1").arg(cs));
+                });
+        connect(stream_, &lyra::ipc::HL2Stream::cwTerminalHoldDropped, this, [this] {
+            cwTerminal_ = false;
+            broadcastNow(QStringLiteral("cw_terminal:false"));
+        });
     }
     // Task #33 — TX_CHRONO outbound pump.  Always constructed; only
     // ticks when the timer is started (in tryAcquireActiveTxAudioListener).
@@ -348,17 +396,8 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
             rxGainLinear_ =
                 std::pow(10.0, prefs_->tciRxGainDb() / 20.0);
         });
-        // Task #108 — symmetric INBOUND (MSHV → Lyra TXA) gain cache.
-        // Seeded from the persisted value at ctor; refreshed on every
-        // tciTxGainDbChanged emit (operator drags the Settings slider,
-        // future TX-profile recall, etc.).  Hot path applies the
-        // multiplier in onTciAudioBlock right before TciMicSource->
-        // submitFromTci, AFTER decode + resample.
-        txGainLinear_ =
-            std::pow(10.0, prefs_->tciTxGainDb() / 20.0);
-        connect(prefs_, &Prefs::tciTxGainDbChanged, this, [this]() {
-            txGainLinear_ =
-                std::pow(10.0, prefs_->tciTxGainDb() / 20.0);
+        connect(prefs_, &Prefs::micSourceChanged, this, [this]() {
+            if (voiceLive_) applyVoiceLive();
         });
     }
     if (engine_) {
@@ -374,10 +413,26 @@ TciServer::TciServer(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                 this, &TciServer::onPassbandChanged);
         connect(engine_, &lyra::dsp::WdspEngine::passbandRx2Changed,
                 this, &TciServer::onPassbandRx2Changed);
+        // Connected after the desk mode handler, so a voice session
+        // re-asserts its rack bypass on the same turn.
+        connect(engine_, &lyra::dsp::WdspEngine::modeChanged,
+                this, [this]() {
+            if (!voiceSessionWs_) return;
+            if (voiceModeBlocksSession()) {
+                if (voiceLive_) restoreVoiceLive();
+                return;
+            }
+            applyVoiceLive();
+        });
         // Binary streams arrive from the DSP worker thread — queued onto
         // ours so the QWebSocket sends happen on the right thread.
         connect(engine_, &lyra::dsp::WdspEngine::tciAudioBlock,
-                this, &TciServer::onTciAudioBlock, Qt::QueuedConnection);
+                this, [this](const QByteArray &mono, int rate) {
+            // Attached as the desk: receiver audio is the host tap,
+            // not this PC's idle radio.
+            if (deskRelay_) return;
+            onTciAudioBlock(mono, rate);
+        }, Qt::QueuedConnection);
         connect(engine_, &lyra::dsp::WdspEngine::tciIqBlock,
                 this, &TciServer::onTciIqBlock, Qt::QueuedConnection);
     }
@@ -453,7 +508,7 @@ void TciServer::onLogQsoRequested() {
     const QString call = cwMacros_->hisCall().trimmed().toUpper();
     if (call.isEmpty()) return;
     const QString rst  = cwMacros_->rst().trimmed();            // single Lyra RST → sent+rcvd
-    const QString mode = prefs_ ? prefs_->mode() : QStringLiteral("CW");
+    QString mode = prefs_ ? prefs_->mode() : QStringLiteral("CW");
     const qint64  carrier = (stream_ ? qint64(stream_->rx1FreqHz()) : 0)
                             + (engine_ ? engine_->markerOffsetHz() : 0);
     // lyra_log:<call>,<rstSent>,<rstRcvd>,<mode>,<freqHz>
@@ -470,6 +525,17 @@ void TciServer::setPort(int p) {
     if (running()) { stop(); start(); }
 }
 void TciServer::setBindHost(const QString &h) {
+    if (deskRelay_) {
+        // Remember the operator's choice. The desk listener stays on
+        // loopback until detach. Do not open Tailscale or every interface.
+        QSettings().setValue(QString::fromLatin1(kKeyHost), h);
+        deskSavedHost_ = h;
+        if (!deskListenOverride_ && h != QLatin1String("127.0.0.1")
+            && h.compare(QLatin1String("localhost"), Qt::CaseInsensitive) != 0)
+            deskListenOverride_ = true;
+        ensureDeskLoopback();
+        return;
+    }
     if (h == bindHost_) return;
     bindHost_ = h;
     QSettings().setValue(QString::fromLatin1(kKeyHost), h);
@@ -498,6 +564,13 @@ void TciServer::setCwluBecomesCw(bool on) {
 void TciServer::setEnabled(bool on) {
     enabled_ = on;
     QSettings().setValue(QString::fromLatin1(kKeyEnabled), on);
+    // While this Lyra is the desk, digital apps need the loopback
+    // listener even if the operator turns the local-radio TCI off.
+    // The saved checkbox is restored when the desk detaches.
+    if (deskRelay_) {
+        ensureDeskLoopback();
+        return;
+    }
     if (on) start(); else stop();
 }
 
@@ -553,12 +626,22 @@ void TciServer::stop() {
     // teardown.)
     chronoTimer_->stop();
     chronoOutstanding_ = 0;
+    if (voiceLive_ || voiceSessionWs_) {
+        voiceSessionWs_ = nullptr;
+        restoreVoiceLive();
+    }
     if (txAudioOwner_) {
         txAudioOwner_ = nullptr;
-        if (stream_) stream_->requestMoxFromTci(false);
+        if (deskRelay_ && desk_)
+            desk_->requestRemoteDigital(false);
+        else if (stream_)
+            stream_->requestMoxFromTci(false);
     }
     lyra::tci::TciTxBridge::instance().clear();   // drop stale TX backlog (no replay next session)
     sensorsEnabled_ = false;
+    txSensorsEnabled_ = false;
+    txSensorPeakW_ = 0.0;
+    dropCwTerminalKey();
     streams_.clear();
     recomputeStreaming();    // turn the engine taps back off
     destroyTxResampler();    // Task #68 — free WDSP resampler if any
@@ -575,6 +658,25 @@ void TciServer::onNewConnection() {
     pruneDeadClients();   // clear any ghost before counting the new one
     while (server_ && server_->hasPendingConnections()) {
         QWebSocket *ws = server_->nextPendingConnection();
+        // Address lists from Setup → Remote. Blank lists accept every
+        // reachable peer. This computer is always accepted. A refused
+        // peer never joins the client list and never sees radio state.
+        if (deskRelay_ && !voicePeerLocal(ws)) {
+            qInfo("[tci] desk digital refused %s",
+                  qPrintable(ws->peerAddress().toString()));
+            ws->close(QWebSocketProtocol::CloseCodePolicyViolated,
+                      QStringLiteral("desk TCI is local only"));
+            ws->deleteLater();
+            continue;
+        }
+        if (prefs_ && !prefs_->remotePeerAllowed(ws->peerAddress())) {
+            qInfo("[remote] refused %s",
+                  qPrintable(ws->peerAddress().toString()));
+            ws->close(QWebSocketProtocol::CloseCodePolicyViolated,
+                      QStringLiteral("address refused"));
+            ws->deleteLater();
+            continue;
+        }
         connect(ws, &QWebSocket::textMessageReceived,
                 this, &TciServer::onTextMessage);
         // Task #33: TCI v2 binary frames (TX_AUDIO_STREAM in, RX/IQ
@@ -593,6 +695,11 @@ void TciServer::onNewConnection() {
 void TciServer::onClientDisconnected() {
     auto *ws = qobject_cast<QWebSocket *>(sender());
     if (!ws) return;
+    dropVoiceHold(ws);
+    // The session pointer can already be clear while the browser mic
+    // path is still armed. Put the desk path back once nobody owns it.
+    if (voiceLive_ && !voiceSessionWs_)
+        restoreVoiceLive();
     // Task #33 — release TX-audio ownership cleanly if the dropping
     // client was the owner.  Drops in-flight TX_AUDIO_STREAM frames
     // (binary handler gates on owner identity), stops the CHRONO
@@ -603,7 +710,10 @@ void TciServer::onClientDisconnected() {
         chronoTimer_->stop();
         emit statusMessage(QStringLiteral(
             "TCI: TX-audio ownership released (client disconnected)"));
-        if (stream_) stream_->requestMoxFromTci(false);
+        if (deskRelay_ && desk_)
+            desk_->requestRemoteDigital(false);
+        else if (stream_)
+            stream_->requestMoxFromTci(false);
         // TX-rip Phase 1 (Q2): R-H2 activeMicSource_ save/restore
         // returns with the new TX DSP worker per
         // docs/TX_ARCHITECTURAL_MAPPING.md §10.3.
@@ -611,7 +721,13 @@ void TciServer::onClientDisconnected() {
     clients_.removeAll(ws);
     streams_.remove(ws);
     ws->deleteLater();
-    if (clients_.isEmpty()) { smeterTimer_->stop(); sensorsEnabled_ = false; }
+    if (clients_.isEmpty()) {
+        sensorsEnabled_ = false;
+        txSensorsEnabled_ = false;
+        txSensorPeakW_ = 0.0;
+        smeterTimer_->stop();
+        dropCwTerminalKey();
+    }
     recomputeStreaming();
     emit clientCountChanged(clients_.size());
 }
@@ -621,13 +737,22 @@ void TciServer::pruneDeadClients() {
     for (int i = clients_.size() - 1; i >= 0; --i) {
         QWebSocket *ws = clients_[i];
         if (!ws || ws->state() != QAbstractSocket::ConnectedState) {
+            dropVoiceHold(ws);
+            if (voiceLive_ && !voiceSessionWs_)
+                restoreVoiceLive();
             clients_.removeAt(i);
             streams_.remove(ws);
             if (ws) ws->deleteLater();
         }
     }
     if (clients_.size() != before) {
-        if (clients_.isEmpty()) { smeterTimer_->stop(); sensorsEnabled_ = false; }
+        if (clients_.isEmpty()) {
+        sensorsEnabled_ = false;
+        txSensorsEnabled_ = false;
+        txSensorPeakW_ = 0.0;
+        smeterTimer_->stop();
+        dropCwTerminalKey();
+    }
         recomputeStreaming();
         emit clientCountChanged(clients_.size());
     }
@@ -895,48 +1020,85 @@ void TciServer::onBinaryMessage(const QByteArray &frame) {
         }
     }
     if (txAudioOwner_ == nullptr || ws != txAudioOwner_) return;
-    // Note arrival of an inbound TX_AUDIO_STREAM block for the
-    // CHRONO outstanding-counter timeout reset (working reference:
-    // cmaster.cs:1303-1305 decrement on dequeue).
-    if (chronoOutstanding_ > 0) --chronoOutstanding_;
-    chronoLastInboundMs_ = QDateTime::currentMSecsSinceEpoch();
 
     if (frame.size() < 64) return;
     const char *p = frame.constData();
-    const quint32 sampleRate = getU32(p + 4);
+    quint32 sampleRate = getU32(p + 4);
     const quint32 fmt        = getU32(p + 8);
     const quint32 length     = getU32(p + 20);  // scalar count requested
     const quint32 type       = getU32(p + 24);
     const quint32 headerChan = getU32(p + 28);
     if (type != STREAM_TX_AUDIO || length == 0) return;
+    // Credit one outstanding TX_CHRONO only on a real TX_AUDIO payload
+    // (the host DSP pump decrements on TX-audio dequeue, not on any
+    // binary frame).
+    if (chronoOutstanding_ > 0) --chronoOutstanding_;
+    chronoLastInboundMs_ = QDateTime::currentMSecsSinceEpoch();
 
     const int dataOffset = 64;
     const int dataBytes  = frame.size() - dataOffset;
-    const int bps        = bytesPerSample(int(fmt));
-    if (bps == 0 || dataBytes < bps) return;
-
-    // Channel inference — modern (1 or 2) per the working reference's
-    // header convention.  Legacy clients send channels=0 in the
-    // header and rely on payload size to disambiguate (TCIServer.cs:
-    // 5630-5652): if payload has 2× length scalars, it's stereo
-    // interleaved; otherwise mono.  Preserve that compatibility so
-    // older JTDX-style clients also work.
-    int channels = int(headerChan);
-    if (channels != 1 && channels != 2) {
-        const int actualScalars = dataBytes / bps;
-        channels = (actualScalars >= int(length) * 2) ? 2 : 1;
-    }
+    if (bytesPerSample(int(fmt)) == 0 && dataBytes < 2) return;
 
     // Cap decode to whatever the header advertised in `length`, but
     // never read past the actual payload.  `length` is in scalars
     // (samples × channels) per the working reference's convention.
-    int decodeScalars = std::min<int>(int(length), dataBytes / bps);
+    //
+    // The format field is not always the payload. MSHV's TX slider
+    // scales an int16 (or int24) tone; a CHRONO reply can still say
+    // float32 / 48000 / stereo because that is what we asked for.
+    // Reading those int16 bytes as float32 produces values far outside
+    // ±1. The desk hop then clamps every one of them to full scale, so
+    // the slider does nothing and the DIGU passband fills with the
+    // harmonics of a square wave. Trust the byte count when it says
+    // the payload is 2 or 3 bytes per advertised sample.
+    int useFmt = int(fmt);
+    if (length > 0 && dataBytes >= int(length)) {
+        const int per = dataBytes / int(length);
+        if (per == 2 && useFmt != FMT_INT16)
+            useFmt = FMT_INT16;
+        else if (per == 3 && useFmt != FMT_INT24)
+            useFmt = FMT_INT24;
+    }
+    const int useBps = bytesPerSample(useFmt);
+    if (useBps == 0 || dataBytes < useBps) return;
+    if (useFmt == FMT_FLOAT32 && dataBytes >= 32) {
+        int bad = 0;
+        const int n = std::min(dataBytes / 4, 64);
+        for (int i = 0; i < n; ++i) {
+            float v;
+            std::memcpy(&v, p + dataOffset + i * 4, 4);
+            if (!std::isfinite(v) || std::fabs(v) > 1.0e5f) ++bad;
+        }
+        // int16 PCM mislabeled as float32. A real tone is finite and
+        // inside ±4; these bit patterns are not.
+        if (n >= 8 && bad * 8 > n)
+            useFmt = FMT_INT16;
+    }
+    const int bpsUse = bytesPerSample(useFmt);
+    if (bpsUse == 0 || dataBytes < bpsUse) return;
+    // Channel inference — modern (1 or 2) per the working reference's
+    // header convention.  Legacy clients send channels=0 in the
+    // header and rely on payload size to disambiguate (TCIServer.cs:
+    // 5630-5652): if payload has 2× length scalars, it's stereo
+    // interleaved; otherwise mono.  Uses the repaired format so an
+    // int16 payload is not counted with a float stride.
+    int channels = int(headerChan);
+    if (channels != 1 && channels != 2) {
+        const int actualScalars = dataBytes / bpsUse;
+        channels = (actualScalars >= int(length) * 2) ? 2 : 1;
+    }
+    int decodeScalars = std::min<int>(int(length), dataBytes / bpsUse);
+    // A lying length (float scalar count over an int16 payload) would
+    // keep only half the tone. When the format repair above fired,
+    // the payload itself is the sample count.
+    if (useFmt != int(fmt))
+        decodeScalars = dataBytes / bpsUse;
     if (channels == 2) decodeScalars -= decodeScalars % 2;  // pair-align
     if (decodeScalars <= 0) return;
 
     std::vector<float> mono = decodeTciTxAudio(p + dataOffset,
-                                               decodeScalars * bps,
-                                               int(fmt), channels);
+                                               decodeScalars * bpsUse,
+                                               useFmt, channels);
     if (mono.empty()) return;
 
     // Match the reference (cmaster.cs:1431-1473 resampleTCITxSamples)
@@ -948,6 +1110,12 @@ void TciServer::onBinaryMessage(const QByteArray &frame) {
     // non-48 kHz native rate (uncommon for digital-modes clients
     // — MSHV / JTDX / WSJT-X all use 48 kHz — but a divergence
     // from the reference for zero benefit).
+    // A zero rate is not a reason to drop the frame. Dropping a
+    // stretch of them is a hole in the waterfall while the key is
+    // still down. 8000 / 12000 / 24000 still resample below.
+    if (sampleRate == 0)
+        sampleRate = requestRate_ > 0 ? quint32(requestRate_)
+                                      : quint32(kTciTxTargetRate);
     if (sampleRate != kTciTxTargetRate) {
         mono = resampleTxIn(mono, int(sampleRate), kTciTxTargetRate);
         if (mono.empty()) {
@@ -963,11 +1131,33 @@ void TciServer::onBinaryMessage(const QByteArray &frame) {
     }
 
     // TCI TX-audio re-home (TX_ARCHITECTURAL_MAPPING.md §4.6 data model):
-    // the decoded + gained (#108) + resampled-to-TXA-rate (#68) mono goes
-    // into the TciTxBridge.  The verbatim cm_main TX pump drains it through
+    // the decoded + resampled-to-TXA-rate (#68) mono goes into the
+    // TciTxBridge as-is — no host-side gain stage.  The level is set by
+    // the client app's own TX/drive slider, Lyra's digital drive %, and
+    // the TXA ALC.  The verbatim cm_main TX pump drains it through
     // the InboundTCITxAudio seam (CMaster.cpp xcmaster case 1) when the
     // operator has selected TCI as the mic source (use_tci_audio); on the
     // wire only while MOX (sendProtocol1Samples zeroes outIQbufp at !XmitBit).
+    if (deskRelay_ && desk_) {
+        // Host runs the modulator. The laptop Mic slider is not applied.
+        // Count what actually left for the host. The local TciTxBridge
+        // stays empty on this path, so the CHRONO pull was treating
+        // every reply as "queue empty" and then as a full packet even
+        // when MSHV sent a short 8 kHz block. The host then played
+        // zeros in the middle of a key that was still down.
+        if (desk_->digitalKey()) {
+            desk_->sendDigitalMono(mono.data(), int(mono.size()));
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (deskAheadMs_ > 0) {
+                const int played = int((now - deskAheadMs_) * kTciTxTargetRate
+                                       / 1000);
+                deskAheadSamples_ = std::max(0, deskAheadSamples_ - played);
+            }
+            deskAheadMs_ = now;
+            deskAheadSamples_ += int(mono.size());
+        }
+        return;
+    }
     lyra::tci::TciTxBridge::instance().pushMono(mono);
 }
 
@@ -989,12 +1179,20 @@ void TciServer::onChronoTick() {
     // it was delivering audio at our cadence rather than its own
     // (the operator-bench-confirmed FT8 zero-spots symptom
     // 2026-06-01).
-    if (!txAudioOwner_ || !stream_ || !stream_->moxActive()) return;
+    const bool keyed = deskRelay_
+        ? (desk_ && desk_->digitalKey())
+        : (stream_ && stream_->moxActive());
+    if (!txAudioOwner_ || !keyed) {
+        if (!keyed) {
+            deskAheadSamples_ = 0;
+            deskAheadMs_ = 0;
+        }
+        return;
+    }
     if (txAudioOwner_->state() != QAbstractSocket::ConnectedState) {
-        // Owner dropped without disconnect signal yet — release now.
-        txAudioOwner_ = nullptr;
-        chronoTimer_->stop();
-        if (stream_) stream_->requestMoxFromTci(false);
+        // Do not unkey from the CHRONO tick.  Disconnect / TRX-off
+        // own PTT release.  A brief socket state flicker must not
+        // drop a live TX.
         return;
     }
 
@@ -1040,7 +1238,20 @@ void TciServer::onChronoTick() {
     // queuedSamples = current TX-mic-source inbound depth = the
     // TciTxBridge backlog the cm_main pump hasn't drained yet.  Feeds the
     // reference CHRONO dynamic-pull so the client is backpressured.
-    const int queuedSamples = lyra::tci::TciTxBridge::instance().queuedSamples();
+    int queuedSamples = lyra::tci::TciTxBridge::instance().queuedSamples();
+    if (deskRelay_) {
+        // Samples were forwarded to the host, not parked in the local
+        // bridge. Drain the count at the 48 kHz play rate so a short
+        // packet is not credited as a full CHRONO block.
+        const qint64 nowAhead = QDateTime::currentMSecsSinceEpoch();
+        if (deskAheadMs_ > 0) {
+            const int played = int((nowAhead - deskAheadMs_) * kTciTxTargetRate
+                                   / 1000);
+            deskAheadSamples_ = std::max(0, deskAheadSamples_ - played);
+        }
+        deskAheadMs_ = nowAhead;
+        queuedSamples = deskAheadSamples_;
+    }
 
     // futureSamples = what we'll have after all outstanding requests
     // get answered with predictedPacketSamples each.
@@ -1057,35 +1268,24 @@ void TciServer::onChronoTick() {
     }
 
     // Emit up to requestsNeeded CHRONO requests this tick, bounded
-    // by kTciTxMaxOutstanding (reference TCI_TX_MAX_OUTSTANDING).
-    //
-    // Channels + length matches the reference's SendTxChrono
-    // (TCIServer.cs:5515-5532):
-    //   - channels field = negotiated requestChannels_ (1 or 2)
-    //   - length = useModernLengthSemantics ? samples * channels
-    //                                       : samples
-    //
-    // Modern flag flips true the moment a client sends
-    // AUDIO_STREAM_CHANNELS or AUDIO_STREAM_SAMPLE_TYPE during
-    // handshake (TCIServer.cs:5930 + 5946).  Legacy/JTDX-style
-    // clients leave it false; they expect length = samples
-    // scalars regardless of channels.  Both are protocol-correct.
-    //
-    // Earlier Lyra hardcoded channels=1 / length=samples
-    // regardless of negotiation — for MSHV-class clients that
-    // negotiated channels=2 this meant Lyra was asking MSHV for
-    // half-sized response frames, which MSHV may interpret as a
-    // "send me less" hint and reduce its TX-audio rate to match.
+    // by kTciTxMaxOutstanding.  Header stamp is the CLIENT-negotiated
+    // AUDIO_SAMPLERATE / AUDIO_STREAM_SAMPLES / CHANNELS / SAMPLE_TYPE
+    // (TCI v2 TX_CHRONO).  predictedPacketSamples stays in the
+    // request-count math only (host TXA is 48 kHz); putting that
+    // resampled size in the CHRONO length/rate fields asked the
+    // client for the wrong packet.
     const int chFld = (requestChannels_ == 2) ? 2 : 1;
     const quint32 lenFld =
         seenModernTxNeg_
-            ? quint32(predictedPacketSamples * chFld)
-            : quint32(predictedPacketSamples);
+            ? quint32(requestSamples * chFld)
+            : quint32(requestSamples);
+    const int chronoFmt = (requestFmt_ >= 0 && requestFmt_ <= 3)
+                              ? requestFmt_ : int(FMT_FLOAT32);
     while (requestsNeeded > 0
            && chronoOutstanding_ < kTciTxMaxOutstanding) {
         QByteArray hdr = streamHeader(0,
-                                      /*rate=*/quint32(targetRate),
-                                      /*fmt=*/FMT_FLOAT32,
+                                      /*rate=*/quint32(requestRate),
+                                      /*fmt=*/quint32(chronoFmt),
                                       /*length=*/lenFld,
                                       /*type=*/STREAM_TX_CHRONO,
                                       /*channels=*/quint32(chFld));
@@ -1120,16 +1320,6 @@ void TciServer::onMoxActiveChanged(bool on) {
     // Spec- AND operator-verified 2026-07-18 (MSHV vs WSJT-X).
     broadcastNow(QStringLiteral("trx:0,%1").arg(
         on ? QStringLiteral("true") : QStringLiteral("false")));
-
-    // TCI-tune mirror: if this key edge is a TCI `tune:` command, emit the
-    // tune: confirmation HERE, on the real wire edge — Thetis emits tune: from
-    // its TuneChange event on the edge (TCIServer.cs:1096-1099), never a pre-
-    // edge reply.  Clear the flag on the falling edge.
-    if (tciTuneActive_) {
-        broadcastNow(QStringLiteral("tune:0,%1").arg(
-            on ? QStringLiteral("true") : QStringLiteral("false")));
-        if (!on) tciTuneActive_ = false;
-    }
 
     // Task #33 — SyncTciPttToMox (working reference at TCIServer.cs:
     // 5560-5577, called from the MOX-change emit sites at :6884/6899).
@@ -1184,7 +1374,6 @@ void TciServer::sendInit(QWebSocket *ws) {
     const qint64 half = rate / 2;
     const QString mode = prefs_ ? toTciMode(prefs_->mode()) : QStringLiteral("USB");
     const qint64 hz = stream_ ? qint64(stream_->rx1FreqHz()) : 7074000;
-    const bool run = stream_ && stream_->isRunning();
 
     const QString proto = emulateExpertSdr3_ ? QStringLiteral("ExpertSDR3")
                                              : QStringLiteral("Lyra");
@@ -1195,6 +1384,7 @@ void TciServer::sendInit(QWebSocket *ws) {
     sendTo(ws, QStringLiteral("device:%1").arg(dev));
     sendTo(ws, QStringLiteral("receive_only:false"));
     sendTo(ws, QStringLiteral("trx_count:1"));
+    sendTo(ws, QStringLiteral("channel_count:2"));    // spec name
     sendTo(ws, QStringLiteral("channels_count:2"));   // RX1 + RX2 (SUB); TCI ch1 = RX2
     sendTo(ws, QStringLiteral("vfo_limits:%1,%2").arg(kVfoLo).arg(kVfoHi));
     sendTo(ws, QStringLiteral("if_limits:%1,%2").arg(-half).arg(half));
@@ -1218,7 +1408,6 @@ void TciServer::sendInit(QWebSocket *ws) {
     sendTo(ws, QStringLiteral("audio_stream_samples:%1")
                    .arg(audioOutSamples_));
     sendTo(ws, QStringLiteral("tx_stream_audio_buffering:50"));
-    sendTo(ws, QStringLiteral("ready"));
 
     // Lyra ↔ SDRLogger+ Combo link: tell a freshly-connected client whether
     // Combo is on, so its "Lyra Combo: Linked" indicator is correct from the
@@ -1305,7 +1494,13 @@ void TciServer::sendInit(QWebSocket *ws) {
     sendTo(ws, QStringLiteral("iq_stop:0"));                    // sendIQStartStop(0,false)
     sendTo(ws, QStringLiteral("iq_samplerate:%1")               // sendIQSampleRate (clamp 48k..384k)
                    .arg(std::clamp(rate, 48000, 384000)));
-    sendTo(ws, run ? QStringLiteral("start") : QStringLiteral("stop"));
+    // WSJT-X / JTDX latch "SDR switched on" from `start;` and evaluate
+    // that flag at `ready;`. Sending ready first (or sending stop) is
+    // exactly "TCI SDR is not switched on" even when the TCI checkbox
+    // is on. Advertise start in the connect burst; echo of a later
+    // client START is in dispatch(). READY last (spec).
+    sendTo(ws, QStringLiteral("start"));
+    sendTo(ws, QStringLiteral("ready"));
 }
 
 void TciServer::sendTo(QWebSocket *ws, const QString &line) {
@@ -1419,7 +1614,13 @@ void TciServer::onTextMessage(const QString &raw) {
     // always-on cost is negligible and the diagnostic value is high.
     // Once the first-light bench is closed and the audio path is
     // working, this can move under the verbose gate.
-    qInfo("[tci-rx-text] %s", qPrintable(msg));
+    // A voice proof and a session token stay out of this dump. The
+    // command name is enough to see that a client asked.
+    const QString head = msg.left(msg.indexOf(QLatin1Char(':'))).trimmed().toUpper();
+    const bool redact = head == QLatin1String("LYRA_VOICE_PROOF")
+                     || head == QLatin1String("LYRA_VOICE_TOKEN");
+    qInfo("[tci-rx-text] %s",
+          qPrintable(redact ? head : msg));
     QString cmd;
     QStringList args;
     const int colon = msg.indexOf(QLatin1Char(':'));
@@ -1433,14 +1634,592 @@ void TciServer::onTextMessage(const QString &raw) {
     dispatch(ws, cmd, args);
 }
 
+namespace {
+
+constexpr int kVoiceBackoffSec[] = {1, 2, 4, 8, 16};
+
+QByteArray voiceRandom(int n) {
+    QByteArray out(n, '\0');
+    auto *dst = reinterpret_cast<uchar *>(out.data());
+    for (int i = 0; i < n; ) {
+        const quint32 word = QRandomGenerator::system()->generate();
+        const int take = std::min(4, n - i);
+        std::memcpy(dst + i, &word, size_t(take));
+        i += take;
+    }
+    return out;
+}
+
+bool voiceHex32(const QString &s, QByteArray *out) {
+    if (s.size() != 64) return false;
+    for (const QChar c : s) {
+        const ushort u = c.unicode();
+        const bool hex = (u >= '0' && u <= '9')
+                      || (u >= 'a' && u <= 'f')
+                      || (u >= 'A' && u <= 'F');
+        if (!hex) return false;
+    }
+    const QByteArray raw = QByteArray::fromHex(s.toLatin1());
+    if (raw.size() != 32) return false;
+    if (out) *out = raw;
+    return true;
+}
+
+bool voiceBytesEqual(const QByteArray &a, const QByteArray &b) {
+    const int n = a.size();
+    unsigned diff = unsigned(n ^ b.size());
+    for (int i = 0; i < n; ++i) {
+        const quint8 got = (i < b.size()) ? quint8(b.at(i)) : 0;
+        diff |= unsigned(quint8(a.at(i)) ^ got);
+    }
+    return diff == 0;
+}
+
+}  // namespace
+
+QHostAddress TciServer::voicePeer(const QWebSocket *ws) const {
+    if (!ws) return {};
+    const QHostAddress addr = ws->peerAddress();
+    if (addr.protocol() == QAbstractSocket::IPv6Protocol) {
+        bool ok = false;
+        const quint32 v4 = addr.toIPv4Address(&ok);
+        if (ok) return QHostAddress(v4);
+    }
+    return addr;
+}
+
+QString TciServer::voicePeerKey(const QWebSocket *ws) const {
+    return voicePeer(ws).toString();
+}
+
+bool TciServer::voicePeerLocal(const QWebSocket *ws) const {
+    return voicePeer(ws).isLoopback();
+}
+
+bool TciServer::voiceModeBlocksSession() const {
+    if (!engine_) return false;
+    const QString m = engine_->mode().toUpper();
+    return m == QLatin1String("DIGU")
+        || m == QLatin1String("DIGL")
+        || m == QLatin1String("DRM");
+}
+
+void TciServer::applyVoiceLive() {
+    lyra::wire::SetTXTCIAudio(0, 1);
+    lyra::wire::SetTXVacAudio(0, 0);
+    // The browser page has its own transmit EQ, so that path steps the
+    // shack rack aside. The laptop has no separate EQ. Its mic runs
+    // through the shack rack, including a recalled desk profile.
+    if (deskOwnsVoice_ && !voiceSessionWs_) {
+        voiceLive_ = true;
+        return;
+    }
+    lyra::wire::SetTxRackBypass(1);
+    if (stream_ && stream_->levelerOn()) {
+        voiceLevelerParked_ = true;
+        stream_->pushLevelerRun(false);
+    }
+    voiceLive_ = true;
+}
+
+void TciServer::restoreVoiceLive() {
+    // Clear first. A mic-source signal during the desk write must not
+    // call applyVoiceLive() and leave the browser path armed.
+    voiceLive_ = false;
+    if (prefs_ && engine_) {
+        const QString src = prefs_->micSource();
+        const bool tci = src == QLatin1String("tci");
+        const bool vac = engine_->applyMicSourceToVacTx(src);
+        lyra::wire::SetTXTCIAudio(0, tci ? 1 : 0);
+        lyra::wire::SetTXVacAudio(0, vac ? 1 : 0);
+        if (!tci) lyra::tci::TciTxBridge::instance().clear();
+    }
+    if (engine_) {
+        const QString m = engine_->mode().toUpper();
+        const bool bypass = m == QLatin1String("DIGU")
+            || m == QLatin1String("DIGL")
+            || m == QLatin1String("DRM")
+            || m == QLatin1String("FM");
+        lyra::wire::SetTxRackBypass(bypass ? 1 : 0);
+    }
+    if (voiceLevelerParked_ && stream_)
+        stream_->pushLevelerRun(stream_->levelerOn());
+    voiceLevelerParked_ = false;
+}
+
+void TciServer::setDeskLink(DeskLink *desk)
+{
+    if (desk_ == desk) return;
+    desk_ = desk;
+    if (!desk_) return;
+    connect(desk_, &DeskLink::digitalState, this, [this](bool on) {
+        if (!deskRelay_) return;
+        if (on) {
+            if (txAudioOwner_) {
+                chronoOutstanding_ = 0;
+                chronoLastInboundMs_ = QDateTime::currentMSecsSinceEpoch();
+                if (chronoTimer_) chronoTimer_->start();
+            }
+            broadcastNow(QStringLiteral("trx:0,true"));
+            return;
+        }
+        if (chronoTimer_) chronoTimer_->stop();
+        chronoOutstanding_ = 0;
+        const bool had = txAudioOwner_ != nullptr;
+        txAudioOwner_ = nullptr;
+        if (had)
+            broadcastNow(QStringLiteral("trx:0,false"));
+    });
+    connect(desk_, &DeskLink::changed, this, [this]() {
+        const bool side = desk_ && desk_->deskSide();
+        if (side && deskRelay_) {
+            if (!running()) ensureDeskLoopback();
+            return;
+        }
+        if (!side && !deskRelay_) return;
+        if (side) {
+            deskRelay_ = true;
+            if (voiceSessionWs_) dropVoiceHold(voiceSessionWs_);
+            ensureDeskLoopback();
+            broadcastNow(QStringLiteral("start"));
+            return;
+        }
+        if (desk_ && desk_->digitalKey())
+            desk_->requestRemoteDigital(false);
+        deskRelay_ = false;
+        if (deskListenOverride_) {
+            stop();
+            bindHost_ = deskSavedHost_;
+            deskListenOverride_ = false;
+            if (enabled_) start();
+            return;
+        }
+        // The operator turned the local-radio TCI off during the
+        // desk session. The loopback listener does not stay up.
+        if (!enabled_ && running()) stop();
+    });
+    if (desk_->deskSide()) {
+        deskRelay_ = true;
+        ensureDeskLoopback();
+    }
+}
+
+void TciServer::ensureDeskLoopback()
+{
+    const bool loop = running()
+        && (bindHost_ == QLatin1String("127.0.0.1")
+            || bindHost_.compare(QLatin1String("localhost"), Qt::CaseInsensitive) == 0);
+    if (loop) return;
+    if (!deskListenOverride_) {
+        deskListenOverride_ = true;
+        deskSavedHost_ = bindHost_;
+    }
+    if (running()) stop();
+    // Session only. Do not write tci/bind_host or tci/enabled, and do
+    // not listen on Tailscale or on every interface.
+    bindHost_ = QStringLiteral("127.0.0.1");
+    start();
+}
+
+void TciServer::offerDeskRx(const qint16 *mono, int nframes)
+{
+    if (!deskRelay_ || !mono || nframes <= 0) return;
+    bool any = false;
+    for (auto it = streams_.cbegin(); it != streams_.cend(); ++it) {
+        if (it.value().audio) { any = true; break; }
+    }
+    if (!any) return;
+    QByteArray block(nframes * int(sizeof(float)), Qt::Uninitialized);
+    auto *dst = reinterpret_cast<float *>(block.data());
+    for (int i = 0; i < nframes; ++i)
+        dst[i] = static_cast<float>(mono[i]) / 32768.0f;
+    onTciAudioBlock(block, 48000);
+}
+
+void TciServer::armDeskDigitalInput()
+{
+    lyra::wire::SetTXTCIAudio(0, 1);
+    lyra::wire::SetTXVacAudio(0, 0);
+    // MSHV / JTDX / SSTV. A steady DIGU tone through the leveler
+    // climbs for a few seconds, ALC clips it, the tone drops, then
+    // it climbs again. Speech and the combinator compressor sit in
+    // the same rack. Browser voice already steps that rack aside.
+    // Desk SSB keeps it. This key does not.
+    lyra::wire::SetTxRackBypass(1);
+    if (stream_ && stream_->levelerOn() && !voiceLevelerParked_) {
+        voiceLevelerParked_ = true;
+        stream_->pushLevelerRun(false);
+    }
+    // The host Mic slider (the +6 dB on the TX panel) is a voice trim.
+    // It sits on the modulator after these samples. A full-scale DIGU
+    // tone plus that trim clips, and the clip fills the passband. The
+    // app slider is the level. Hold the panel at unity until unkey.
+    if (stream_)
+        stream_->holdMicGainUnity(true);
+}
+
+void TciServer::releaseDeskDigitalInput()
+{
+    if (voiceSessionWs_) return;
+    lyra::tci::TciTxBridge::instance().clear();
+    if (voiceLevelerParked_ && stream_)
+        stream_->pushLevelerRun(stream_->levelerOn());
+    voiceLevelerParked_ = false;
+    if (stream_)
+        stream_->holdMicGainUnity(false);
+    if (engine_) {
+        const QString m = engine_->mode().toUpper();
+        const bool bypass = m == QLatin1String("DIGU")
+            || m == QLatin1String("DIGL")
+            || m == QLatin1String("DRM")
+            || m == QLatin1String("FM");
+        lyra::wire::SetTxRackBypass(bypass ? 1 : 0);
+    }
+    if (deskOwnsVoice_ && !voiceModeBlocksSession()) {
+        lyra::wire::SetTXTCIAudio(0, 1);
+        lyra::wire::SetTXVacAudio(0, 0);
+        return;
+    }
+    if (prefs_ && engine_) {
+        const QString src = prefs_->micSource();
+        const bool tci = src == QLatin1String("tci");
+        const bool vac = engine_->applyMicSourceToVacTx(src);
+        lyra::wire::SetTXTCIAudio(0, tci ? 1 : 0);
+        lyra::wire::SetTXVacAudio(0, vac ? 1 : 0);
+    }
+}
+
+void TciServer::handleDeskTrx(QWebSocket *ws, const QStringList &args)
+{
+    bool okc = false;
+    const int ch = args.size() >= 1 ? parseChannel(args[0], &okc) : -1;
+    if (!okc || !ws) return;
+    if (ch != 0) return;
+    const bool keyed = desk_ && desk_->digitalKey();
+    if (args.size() < 2) {
+        sendTo(ws, QStringLiteral("trx:0,%1%2")
+                       .arg(keyed ? QStringLiteral("true") : QStringLiteral("false"),
+                            keyed ? QStringLiteral(",tci") : QString()));
+        return;
+    }
+    const bool wantsTx = parseBool(args[1]);
+    if (!wantsTx) {
+        if (txAudioOwner_ && txAudioOwner_ != ws) return;
+        if (desk_) desk_->requestRemoteDigital(false);
+        else {
+            txAudioOwner_ = nullptr;
+            if (chronoTimer_) chronoTimer_->stop();
+        }
+        return;
+    }
+    if (!voicePeerLocal(ws)) {
+        sendTo(ws, QStringLiteral("trx:0,false"));
+        return;
+    }
+    // A browser token on this server, or on the host, is the other owner.
+    if (voiceSessionWs_ && voiceSessionWs_ != ws) {
+        emit statusMessage(tr("A browser voice session holds the microphone."));
+        sendTo(ws, QStringLiteral("trx:0,false"));
+        return;
+    }
+    if (!desk_ || !desk_->voiceHeld()) {
+        emit statusMessage(tr(
+            "Start voice in Settings → Remote before the digital app can transmit."));
+        sendTo(ws, QStringLiteral("trx:0,false"));
+        return;
+    }
+    if (txAudioOwner_ && txAudioOwner_ != ws) {
+        emit statusMessage(QStringLiteral(
+            "TCI: TX-audio acquire denied — another client owns TX audio"));
+        sendTo(ws, QStringLiteral("trx:0,false"));
+        return;
+    }
+    txAudioOwner_ = ws;
+    chronoOutstanding_ = 0;
+    desk_->requestRemoteDigital(true);
+}
+
+bool TciServer::setDeskOwnsVoice(bool on) {
+    if (on) {
+        if (voiceSessionWs_) return false;
+        if (deskOwnsVoice_) return true;
+        deskOwnsVoice_ = true;
+        if (!voiceModeBlocksSession()) applyVoiceLive();
+        return true;
+    }
+    if (!deskOwnsVoice_) return true;
+    deskOwnsVoice_ = false;
+    if (voiceLive_) restoreVoiceLive();
+    lyra::tci::TciTxBridge::instance().clear();
+    return true;
+}
+
+void TciServer::beginVoiceSession(QWebSocket *ws) {
+    if (!ws) return;
+    if (voiceSessionWs_ && voiceSessionWs_ != ws) return;
+    voiceSessionWs_ = ws;
+    if (voiceModeBlocksSession()) {
+        if (voiceLive_) restoreVoiceLive();
+        return;
+    }
+    applyVoiceLive();
+}
+
+void TciServer::dropVoiceHold(QWebSocket *ws) {
+    if (ws && voiceSessionWs_ == ws) {
+        // Drop the pointer before the desk write. A mode change on this
+        // turn re-asserts the browser path while the pointer is still
+        // set, and that write was landing after the restore.
+        voiceSessionWs_ = nullptr;
+        restoreVoiceLive();
+        if (txAudioOwner_ == ws) {
+            txAudioOwner_ = nullptr;
+            chronoOutstanding_ = 0;
+            if (chronoTimer_) chronoTimer_->stop();
+            if (stream_) stream_->requestMoxFromTci(false);
+        }
+    }
+    if (ws) voiceHold_.remove(ws);
+}
+
+int TciServer::voiceSecondsLeft(qint64 untilMs) const {
+    const qint64 left = untilMs - rateClock_.elapsed();
+    if (left <= 0) return 0;
+    return int((left + 999) / 1000);
+}
+
+QString TciServer::remoteLockText() const {
+    const qint64 now = rateClock_.elapsed();
+    struct Row { QString addr; int min; };
+    QList<Row> rows;
+    for (auto it = voiceGate_.cbegin(); it != voiceGate_.cend(); ++it) {
+        if (it->lockedUntilMs <= now) continue;
+        const int sec = int((it->lockedUntilMs - now + 999) / 1000);
+        rows.append({it.key(), std::max(1, (sec + 59) / 60)});
+    }
+    if (rows.isEmpty()) return {};
+    std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
+        return a.addr < b.addr;
+    });
+    if (rows.size() == 1) {
+        return QStringLiteral("Remote %1 is locked (%2 min left).")
+            .arg(rows.at(0).addr)
+            .arg(rows.at(0).min);
+    }
+    QStringList names;
+    for (const Row &row : rows)
+        names << QStringLiteral("%1 (%2 min left)").arg(row.addr).arg(row.min);
+    return QStringLiteral("Remote addresses locked: %1.")
+        .arg(names.join(QStringLiteral(", ")));
+}
+
+void TciServer::publishVoiceLocks() {
+    const qint64 now = rateClock_.elapsed();
+    for (auto it = voiceGate_.begin(); it != voiceGate_.end(); ) {
+        const bool idle = it->fails == 0 && it->waitUntilMs <= now
+                       && it->lockedUntilMs <= now;
+        const bool expired = it->lockedUntilMs > 0 && it->lockedUntilMs <= now
+                          && it->waitUntilMs <= now;
+        if (idle || expired) it = voiceGate_.erase(it);
+        else ++it;
+    }
+    const QString text = remoteLockText();
+    if (text == lastLockNotice_) return;
+    lastLockNotice_ = text;
+    emit remoteLockChanged(text);
+}
+
+void TciServer::noteVoiceFailure(const QString &peerKey) {
+    VoiceGate gate = voiceGate_.value(peerKey);
+    gate.fails += 1;
+    const qint64 now = rateClock_.elapsed();
+    qInfo("[remote] voice proof failed from %s (%d)",
+          qPrintable(peerKey), gate.fails);
+    if (gate.fails >= Prefs::kRemoteMaxAttempts) {
+        gate.lockedUntilMs = now + qint64(Prefs::kRemoteLockoutSec) * 1000;
+        gate.waitUntilMs = gate.lockedUntilMs;
+        voiceGate_.insert(peerKey, gate);
+        qInfo("[remote] locked %s for 15 min", qPrintable(peerKey));
+        publishVoiceLocks();
+        const int left = voiceSecondsLeft(gate.lockedUntilMs);
+        QTimer::singleShot(std::max(1, left) * 1000, this, [this]() {
+            publishVoiceLocks();
+        });
+        return;
+    }
+    const int idx = std::clamp(gate.fails - 1, 0, 4);
+    gate.waitUntilMs = now + qint64(kVoiceBackoffSec[idx]) * 1000;
+    voiceGate_.insert(peerKey, gate);
+}
+
+void TciServer::handleLyraVoice(QWebSocket *ws, const QString &cmd,
+                                const QStringList &args) {
+    if (!ws) return;
+    const QString peerKey = voicePeerKey(ws);
+    const bool local = voicePeerLocal(ws);
+
+    if (cmd == QLatin1String("LYRA_VOICE_RELEASE")) {
+        dropVoiceHold(ws);
+        sendTo(ws, QStringLiteral("lyra_voice:released"));
+        return;
+    }
+
+    if (cmd == QLatin1String("LYRA_VOICE_TOKEN")) {
+        QByteArray presented;
+        const VoiceHold hold = voiceHold_.value(ws);
+        const bool held = !hold.token.isEmpty()
+                       && voiceHex32(args.value(0), &presented)
+                       && voiceBytesEqual(hold.token, presented);
+        sendTo(ws, held ? QStringLiteral("lyra_voice:held")
+                        : QStringLiteral("lyra_voice:denied"));
+        return;
+    }
+
+    auto sendGranted = [this, ws](const QByteArray &token) {
+        sendTo(ws, QStringLiteral("lyra_voice:granted,%1")
+                       .arg(QString::fromLatin1(token.toHex())));
+    };
+
+    if (cmd == QLatin1String("LYRA_VOICE")) {
+        // This computer is the desk. A browser token is taken on the
+        // host, and it cannot also be taken here.
+        if (deskRelay_) {
+            sendTo(ws, QStringLiteral("lyra_voice:denied"));
+            return;
+        }
+        if (deskOwnsVoice_) {
+            sendTo(ws, QStringLiteral("lyra_voice:denied"));
+            return;
+        }
+        VoiceHold hold = voiceHold_.value(ws);
+        if (!hold.token.isEmpty()) {
+            sendGranted(hold.token);
+            beginVoiceSession(ws);
+            return;
+        }
+        if (local) {
+            hold.nonce.clear();
+            hold.token = voiceRandom(32);
+            voiceHold_.insert(ws, hold);
+            sendGranted(hold.token);
+            beginVoiceSession(ws);
+            return;
+        }
+        if (!prefs_ || !prefs_->remotePasswordSet()) {
+            sendTo(ws, QStringLiteral("lyra_voice:denied,no_password"));
+            return;
+        }
+        const qint64 now = rateClock_.elapsed();
+        VoiceGate gate = voiceGate_.value(peerKey);
+        if (gate.lockedUntilMs > 0 && now >= gate.lockedUntilMs) {
+            voiceGate_.remove(peerKey);
+            gate = VoiceGate{};
+            publishVoiceLocks();
+        }
+        if (gate.lockedUntilMs > now) {
+            sendTo(ws, QStringLiteral("lyra_voice:locked,%1")
+                           .arg(voiceSecondsLeft(gate.lockedUntilMs)));
+            return;
+        }
+        if (gate.waitUntilMs > now) {
+            sendTo(ws, QStringLiteral("lyra_voice:wait,%1")
+                           .arg(voiceSecondsLeft(gate.waitUntilMs)));
+            return;
+        }
+        if (!hold.nonce.isEmpty()) {
+            QByteArray salt;
+            int iters = 0;
+            prefs_->remotePasswordChallenge(&salt, &iters);
+            sendTo(ws, QStringLiteral("lyra_voice:challenge,%1,%2,%3")
+                           .arg(QString::fromLatin1(hold.nonce.toHex()),
+                                QString::fromLatin1(salt.toBase64()),
+                                QString::number(iters)));
+            return;
+        }
+        hold.nonce = voiceRandom(32);
+        voiceHold_.insert(ws, hold);
+        QByteArray salt;
+        int iters = 0;
+        prefs_->remotePasswordChallenge(&salt, &iters);
+        sendTo(ws, QStringLiteral("lyra_voice:challenge,%1,%2,%3")
+                       .arg(QString::fromLatin1(hold.nonce.toHex()),
+                            QString::fromLatin1(salt.toBase64()),
+                            QString::number(iters)));
+        return;
+    }
+
+    // LYRA_VOICE_PROOF. A missing challenge, a lock, or a wait does
+    // not count as another try and does not key the radio.
+    if (cmd != QLatin1String("LYRA_VOICE_PROOF")) return;
+    if (local) {
+        sendTo(ws, QStringLiteral("lyra_voice:denied"));
+        return;
+    }
+    const qint64 now = rateClock_.elapsed();
+    const VoiceGate gate = voiceGate_.value(peerKey);
+    if (gate.lockedUntilMs > now) {
+        sendTo(ws, QStringLiteral("lyra_voice:locked,%1")
+                       .arg(voiceSecondsLeft(gate.lockedUntilMs)));
+        return;
+    }
+    VoiceHold hold = voiceHold_.value(ws);
+    if (hold.nonce.isEmpty()) {
+        sendTo(ws, QStringLiteral("lyra_voice:denied"));
+        return;
+    }
+    QByteArray mac;
+    const bool wellFormed = voiceHex32(args.value(0), &mac);
+    const bool match = wellFormed && prefs_
+                    && prefs_->remoteVoiceProofMatches(hold.nonce, mac);
+    hold.nonce.clear();
+    if (!match) {
+        voiceHold_.insert(ws, hold);
+        noteVoiceFailure(peerKey);
+        const VoiceGate after = voiceGate_.value(peerKey);
+        if (after.lockedUntilMs > rateClock_.elapsed()) {
+            sendTo(ws, QStringLiteral("lyra_voice:locked,%1")
+                           .arg(voiceSecondsLeft(after.lockedUntilMs)));
+        } else {
+            sendTo(ws, QStringLiteral("lyra_voice:wait,%1")
+                           .arg(voiceSecondsLeft(after.waitUntilMs)));
+        }
+        return;
+    }
+    voiceGate_.remove(peerKey);
+    publishVoiceLocks();
+    hold.token = voiceRandom(32);
+    voiceHold_.insert(ws, hold);
+    sendGranted(hold.token);
+    beginVoiceSession(ws);
+}
+
 void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                          const QStringList &args) {
     const qint64 curHz = stream_ ? qint64(stream_->rx1FreqHz()) : 0;
 
     // ── lifecycle ────────────────────────────────────────────────
-    if (cmd == QStringLiteral("START")) { emit startRequested(); return; }
-    if (cmd == QStringLiteral("STOP"))  { emit stopRequested();  return; }
+    if (cmd == QStringLiteral("START")) {
+        sendTo(ws, QStringLiteral("start"));   // WSJT-X waits for this echo
+        // The desk has no local radio. START must not open one.
+        if (!deskRelay_) emit startRequested();
+        return;
+    }
+    if (cmd == QStringLiteral("STOP")) {
+        sendTo(ws, QStringLiteral("stop"));
+        emit stopRequested();
+        return;
+    }
     if (cmd == QStringLiteral("SET_IN_FOCUS")) return;   // no-op
+
+    // Voice-session proof. Returns without touching TRX, the mic
+    // source, or any receiver command.
+    if (cmd == QLatin1String("LYRA_VOICE")
+        || cmd == QLatin1String("LYRA_VOICE_PROOF")
+        || cmd == QLatin1String("LYRA_VOICE_RELEASE")
+        || cmd == QLatin1String("LYRA_VOICE_TOKEN")) {
+        handleLyraVoice(ws, cmd, args);
+        return;
+    }
 
     // ── Lyra ↔ SDRLogger+ Combo link ─────────────────────────────
     // Inbound from a linked SDRLogger+: the callbook name-back (and, later,
@@ -1691,9 +2470,8 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
     if (cmd == QStringLiteral("CW_MACROS")) {
         // cw_macros:<tcvr>,<text> — arg[0] = transceiver index (ignored).
         // Raw commas in text are escaped to ~, so the text is a single arg;
-        // the join+unescape is robust regardless.  Inline | | prosign-combine
-        // and < > speed-step are macro-text niceties (follow-on); plain text
-        // keys correctly today (CwMorse skips unknown glyphs like | < >).
+        // the join+unescape is robust regardless.  |SK| sends as one
+        // prosign; < and > step the speed 5 WPM for the letters after them.
         if (stream_ && args.size() >= 2) {
             const QString text = cwUnescape(args.mid(1).join(QLatin1Char(',')));
             if (!text.isEmpty())
@@ -1704,41 +2482,64 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         return;
     }
     if (cmd == QStringLiteral("CW_MSG")) {
-        // cw_msg:<tcvr>,<prefix>,<callsign>,<suffix> (spec §3.2.2) — the
-        // contest exchange; "$N" after the callsign repeats it N times.
-        // The 1-arg callsign-edit form (cw_msg:<tcvr>;) + the CW_MSG-over-
-        // CW_MACROS interrupt/priority semantics are a follow-on (this cut
-        // assembles + sends the full message).
-        if (stream_ && args.size() >= 4) {
-            QString call = args[2];
-            int rep = 1;
-            const int dollar = call.indexOf(QLatin1Char('$'));
-            if (dollar >= 0) {
-                bool ok = false; const int n = call.mid(dollar + 1).toInt(&ok);
-                if (ok && n > 0) rep = n;
-                call = call.left(dollar);
-            }
-            QStringList parts;
-            if (!args[1].isEmpty()) parts << cwUnescape(args[1]);      // prefix
-            for (int i = 0; i < rep; ++i) parts << cwUnescape(call);   // callsign ×N
-            if (!args[3].isEmpty()) parts << cwUnescape(args[3]);      // suffix
-            const QString text = parts.join(QLatin1Char(' '));
-            if (!text.isEmpty())
-                QMetaObject::invokeMethod(stream_, "sendCw",
-                                          Qt::QueuedConnection,
-                                          Q_ARG(QString, text));
+        // Four fields: transceiver, prefix, callsign, suffix. "$N" after
+        // the callsign repeats it. The callsign stays in the editable
+        // tail until its letters start, so a later one-field line
+        // (cw_msg:<newcall>;) can replace what has not gone out yet.
+        // A letter that has already started is left alone.
+        if (!stream_) return;
+        if (args.size() == 1) {
+            stream_->cwCorrectCallsign(cwUnescape(args[0]));
+            return;
         }
+        if (args.size() < 4) return;
+        QString call = args[2];
+        int rep = 1;
+        const int dollar = call.indexOf(QLatin1Char('$'));
+        if (dollar >= 0) {
+            bool ok = false; const int n = call.mid(dollar + 1).toInt(&ok);
+            if (ok && n > 0) rep = n;
+            call = call.left(dollar);
+        }
+        call = cwUnescape(call);
+        QString prefix = cwUnescape(args[1]);
+        for (int i = 1; i < rep; ++i) {
+            if (!prefix.isEmpty()) prefix += QLatin1Char(' ');
+            prefix += call;
+        }
+        const QString suffix = cwUnescape(args[3]);
+        stream_->cwQueueMessage(prefix, call, suffix);
+        return;
+    }
+    if (cmd == QStringLiteral("CW_TERMINAL")) {
+        // Empty args: report the switch. With an arg: set it and echo.
+        // Turning it off finishes the letters already queued; it does
+        // not chop the one on the air.
+        if (!args.isEmpty()) {
+            cwTerminal_ = parseBool(args[0]);
+            if (stream_) stream_->setCwTerminal(cwTerminal_);
+        }
+        broadcastNow(cwTerminal_ ? QStringLiteral("cw_terminal:true")
+                                 : QStringLiteral("cw_terminal:false"));
         return;
     }
 
     // ── sensors / S-meter ────────────────────────────────────────
     if (cmd == QStringLiteral("RX_SENSORS_ENABLE")) {
         sensorsEnabled_ = !args.isEmpty() && parseBool(args[0]);
-        if (sensorsEnabled_ && !clients_.isEmpty()) smeterTimer_->start();
-        else smeterTimer_->stop();
+        syncSensorTimer();
         return;
     }
-    if (cmd == QStringLiteral("TX_SENSORS_ENABLE")) return;  // RX-only
+    if (cmd == QStringLiteral("TX_SENSORS_ENABLE")) {
+        // Client asks for the TX meter line. The optional second field
+        // is a requested interval; the report stays on the shared 250 ms
+        // tick (inside the 30–1000 ms window) so the S-meter rate does
+        // not move.
+        txSensorsEnabled_ = !args.isEmpty() && parseBool(args[0]);
+        if (!txSensorsEnabled_) txSensorPeakW_ = 0.0;
+        syncSensorTimer();
+        return;
+    }
 
     // ── Task #33 commit 3.4: TCI handshake-config commands MUST be
     //    echoed back so the client knows the SET took effect.  MSHV
@@ -1813,9 +2614,9 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                     destroyRxResampler();
                 }
             } else if (cmd == QStringLiteral("AUDIO_STREAM_SAMPLES")) {
-                requestSamples_ = n;  // TX-CHRONO (unchanged)
-                // #180 — RX-out packet size, explicit operator choice.
-                // Spec range 100..2048 (TCI Protocol AUDIO_STREAM_SAMPLES).
+                // TX_CHRONO and RX-out share the spec range 100..2048.
+                requestSamples_ = std::clamp(n, 100, 2048);
+                seenModernTxNeg_ = true;
                 const int s = std::clamp(n, 100, 2048);
                 audioOutSamplesExplicit_ = true;
                 if (s != audioOutSamples_) {
@@ -1836,6 +2637,20 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                 bufferingMs_ = std::max(n, 50);   // reference floor
             }
         }
+        if (cmd == QStringLiteral("AUDIO_STREAM_SAMPLE_TYPE")) {
+            // Names, not integers — toInt("float32") fails so this
+            // cannot live inside the n>0 branch.  TX_CHRONO stamps
+            // this format in the binary header.
+            seenModernTxNeg_ = true;
+            const QString t = val.trimmed().toLower();
+            requestFmt_ = (t == QStringLiteral("int16")) ? int(FMT_INT16)
+                        : (t == QStringLiteral("int24")) ? int(FMT_INT24)
+                        : (t == QStringLiteral("int32")) ? int(FMT_INT32)
+                                                         : int(FMT_FLOAT32);
+            auto it = streams_.find(ws);
+            if (it != streams_.end())
+                it->fmt = requestFmt_;
+        }
         softSet(cmd, val);
         // Echo the APPLIED value for the RX-out params (reference echoes
         // m_audioSampleRate / m_audioStreamSamples, not the raw arg), and
@@ -1853,69 +2668,33 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         }
         return;
     }
-    // TUNE — TCI v1.9/v2 separate TX path for tune-carrier (operator
-    // hits a "TUNE" button in the client).  Working reference's
-    // handleTune (TCIServer.cs:4343-4364) sets a TUN flag distinct
-    // from MOX, but Lyra doesn't yet have a separate tune-carrier
-    // mode — treat tune like trx for MOX engagement so MSHV's TUNE
-    // button keys the rig.  Future v0.2.x: wire a real tune-carrier
-    // generator (Task #50/#52 chain) for proper TUN behaviour.
+    // TUNE — same as the TX panel Tune button.  Parsed RX index is
+    // accepted (0 or 1); SET does not reply.  Query reports the TUN
+    // flag, not MOX.
     if (cmd == QStringLiteral("TUNE")) {
-        bool okc = false;
-        const int ch = args.size() >= 1 ? parseChannel(args[0], &okc) : -1;
-        if (!okc || ch != 0 || !stream_) {
+        if (deskRelay_) {
+            // Tune stays on the desk's Tune button. Do not key the
+            // idle local radio from a digital-app TUNE.
             sendTo(ws, QStringLiteral("tune:0,false"));
             return;
         }
+        bool okc = false;
+        (void)(args.size() >= 1 ? parseChannel(args[0], &okc) : -1);
         if (args.size() < 2) {
-            // 1-arg query — report current state (we don't track a
-            // separate TUN flag yet; report based on wire MOX).
+            if (!okc || !stream_) return;
             sendTo(ws, QStringLiteral("tune:0,%1").arg(
-                stream_->moxActive() ? QStringLiteral("true")
-                                     : QStringLiteral("false")));
+                stream_->tuneEnabled() ? QStringLiteral("true")
+                                       : QStringLiteral("false")));
             return;
         }
+        if (!okc || !stream_) return;
         const bool wantsTune = parseBool(args[1]);
+        if (stream_->tuneEnabled() == wantsTune) return;
         if (wantsTune) {
-            // Acquire TCI audio ownership IF operator has Mic source =
-            // tci (so the client's audio reaches the WDSP TXA chain;
-            // matches the trx:0,true behaviour below).
-            const bool wantTciAudio =
-                prefs_ && prefs_->micSource() == QStringLiteral("tci");
-            if (wantTciAudio) {
-                if (txAudioOwner_ != nullptr && txAudioOwner_ != ws) {
-                    sendTo(ws, QStringLiteral("tune:0,false"));
-                    return;
-                }
-                if (txAudioOwner_ == nullptr) {
-                    txAudioOwner_ = ws;
-                    chronoOutstanding_ = 0;
-                    chronoLastInboundMs_ =
-                        QDateTime::currentMSecsSinceEpoch();
-                    chronoTimer_->start();
-                    emit statusMessage(QStringLiteral(
-                        "TCI: TX-audio ownership ACQUIRED (tune)"));
-                }
-            }
-            // Mark this as a TCI-tune key so the wire-edge onMoxActiveChanged
-            // mirrors it on the tune: channel — NO pre-edge direct reply (same
-            // Thetis single-on-edge-authority model as TRX; handleTune sets TUN
-            // and returns, sendTune fires from TuneChange on the real edge —
-            // TCIServer.cs:4343-4362 → 7040 → 1096-1099).
-            tciTuneActive_ = true;
-            stream_->requestMoxFromTci(true);
+            stream_->setTuneEnabled(true);
+            stream_->requestMox(true);
         } else {
-            if (txAudioOwner_ == ws) {
-                txAudioOwner_ = nullptr;
-                chronoOutstanding_ = 0;
-                chronoTimer_->stop();
-                emit statusMessage(QStringLiteral(
-                    "TCI: TX-audio ownership RELEASED (tune)"));
-            }
-            // NO pre-edge direct reply — the tune: confirmation is mirrored on
-            // the real wire edge in onMoxActiveChanged (Thetis model).  Leave
-            // tciTuneActive_ set; the falling edge clears it after broadcasting.
-            stream_->requestMoxFromTci(false);
+            stream_->requestMox(false);
         }
         return;
     }
@@ -1927,23 +2706,17 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
     //    via TRX without source, TUNE / RIT_ENABLE / XIT_ENABLE /
     //    SPLIT_ENABLE) keep the v0.2.2 acknowledge-inactive stub.
     if (cmd == QStringLiteral("TRX")) {
+        if (deskRelay_) {
+            handleDeskTrx(ws, args);
+            return;
+        }
         bool okc = false; const int ch = args.size() >= 1 ? parseChannel(args[0], &okc) : -1;
         const bool wantsTx = args.size() >= 2 && parseBool(args[1]);
         const bool useTciAudio = args.size() >= 3
                               && args[2].compare(QStringLiteral("tci"),
                                                  Qt::CaseInsensitive) == 0;
-        if (!okc || ch != 0 || !stream_) {
-            const QString idx = args.isEmpty() ? QStringLiteral("0") : args[0];
-            sendTo(ws, QStringLiteral("trx:%1,false").arg(idx));
-            return;
-        }
-        // Thetis handleTRX: a 1-arg `trx:<rx>` is a QUERY — report current MOX,
-        // change NOTHING (TCIServer.cs:3555-3558 → sendMOX(rx, MOX,
-        // m_txUsesTCIAudio)).  sendMOX appends the `,tci` source token when the
-        // active TX is using TCI audio; Lyra's equivalent is "a TCI client owns
-        // the TX-audio path" (txAudioOwner_ set).  The old code let a bare
-        // `trx:0` fall through to the un-key path below and drop TX.
         if (args.size() < 2) {
+            if (!okc || !stream_) return;
             const bool mox = stream_->moxActive();
             const QString tok = (mox && txAudioOwner_) ? QStringLiteral(",tci")
                                                        : QString();
@@ -1952,6 +2725,9 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                            .arg(tok));
             return;
         }
+        if (!okc || !stream_) return;
+        if (ch != 0 && !(ch == 1 && stream_->subEnabled()))
+            return;
         if (wantsTx) {
             // Thetis-faithful: ALWAYS key MOX on trx:0,true regardless
             // of source token.  Working reference TCIServer.cs:3536-3537
@@ -1974,14 +2750,14 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                 || (prefs_ && prefs_->micSource()
                                   == QStringLiteral("tci"));
             if (wantTciAudio) {
-                if (txAudioOwner_ != nullptr && txAudioOwner_ != ws) {
+                const bool sessionElsewhere =
+                    voiceSessionWs_ && voiceSessionWs_ != ws;
+                if (sessionElsewhere
+                    || (txAudioOwner_ != nullptr && txAudioOwner_ != ws)) {
                     emit statusMessage(QStringLiteral(
                         "TCI: TX-audio acquire denied — another client "
                         "owns TX audio"));
-                    sendTo(ws, QStringLiteral("trx:0,false"));
-                    return;
-                }
-                if (txAudioOwner_ == nullptr) {
+                } else if (txAudioOwner_ == nullptr) {
                     txAudioOwner_ = ws;
                     chronoOutstanding_ = 0;
                     chronoLastInboundMs_ =
@@ -1990,13 +2766,17 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                     emit statusMessage(QStringLiteral(
                         "TCI: TX-audio ownership ACQUIRED"));
                 }
-                // Auto-flip the operator picker ONLY on the explicit
-                // ",tci" token — bare trx:0,true with operator-set
-                // Mic source=tci already matches, and we don't want
-                // to flip the picker on a generic TCI-client keying
-                // request that didn't specifically ask for TCI audio.
-                if (useTciAudio && prefs_)
+                // A voice session already moved the live microphone.
+                // Do not write "tci" into Settings for that span.
+                if (useTciAudio && prefs_ && !voiceSessionWs_)
                     prefs_->setMicSource(QStringLiteral("tci"));
+            }
+            if (voiceSessionWs_ == ws && txAudioOwner_ == nullptr) {
+                txAudioOwner_ = ws;
+                chronoOutstanding_ = 0;
+                chronoLastInboundMs_ =
+                    QDateTime::currentMSecsSinceEpoch();
+                chronoTimer_->start();
             }
             // R-H2 — diagnostic snapshot + token-agnostic source force.
             //
@@ -2038,9 +2818,11 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
                         .arg(useTciAudio ? QStringLiteral("1")
                                          : QStringLiteral("0")));
             }
-            // Key MOX (Thetis-faithful) — records PttSource::Tci on
-            // the FSM since the request arrived via the TCI WebSocket.
-            stream_->requestMoxFromTci(true);
+            // If already transmitting, do not re-assert PTT (audio
+            // ownership above still refreshed).  Re-key while live
+            // overwrites the PTT source and can drop TUN/MOX.
+            if (!stream_->moxActive())
+                stream_->requestMoxFromTci(true);
             // NO direct/pre-edge trx reply here.  As Thetis (handleTrxMessage
             // sets TCIPTT and returns with NO reply, TCIServer.cs:3459-3559), the
             // SOLE trx confirmation to clients is the on-wire-edge broadcast from
@@ -2155,7 +2937,7 @@ void TciServer::dispatch(QWebSocket *ws, const QString &cmd,
         || cmd == QStringLiteral("RIT_OFFSET") || cmd == QStringLiteral("XIT_OFFSET")
         || cmd == QStringLiteral("KEYER")
         || cmd.startsWith(QStringLiteral("CW_MACROS"))
-        || cmd == QStringLiteral("CW_MSG") || cmd == QStringLiteral("CW_TERMINAL")
+        || cmd == QStringLiteral("CW_MSG")
         || cmd == QStringLiteral("CW_KEYER_SPEED"))
         return;
 
@@ -2410,11 +3192,33 @@ void TciServer::onPassbandRx2Changed() {
 }
 void TciServer::onRunningChanged() {
     if (!stream_) return;
+    // The desk's local radio stays closed. Digital apps follow the
+    // host, which is already on, so a local stop must not clear them.
+    if (deskRelay_) {
+        broadcastNow(QStringLiteral("start"));
+        return;
+    }
     broadcastNow(stream_->isRunning() ? QStringLiteral("start")
                                       : QStringLiteral("stop"));
 }
+void TciServer::syncSensorTimer() {
+    if ((sensorsEnabled_ || txSensorsEnabled_) && !clients_.isEmpty())
+        smeterTimer_->start();
+    else
+        smeterTimer_->stop();
+}
+
+void TciServer::dropCwTerminalKey() {
+    if (!cwTerminal_) return;
+    cwTerminal_ = false;
+    if (!stream_) return;
+    stream_->setCwTerminal(false);
+    stream_->abortCw();
+}
+
 void TciServer::onSmeterTick() {
-    if (!sensorsEnabled_ || clients_.isEmpty() || !engine_) return;
+    if (clients_.isEmpty()) return;
+    if (sensorsEnabled_ && engine_) {
     // Broadcast the SAME calibrated RX S-meter dBm the on-screen meter
     // shows.  MeterModel owns the one calibration (WDSP RXA_S_PK in-passband
     // + operator calDb trim − LNA gain), so the front-panel meter and every
@@ -2451,6 +3255,46 @@ void TciServer::onSmeterTick() {
         broadcast(QStringLiteral("lyra_snr"),
                   QStringLiteral("lyra_snr:%1")
                       .arg(QString::number(meter_->rxSnrDb(), 'f', 1)));
+    }
+
+    if (!txSensorsEnabled_ || !stream_) return;
+    double mic = -200.0;
+    if (engine_) {
+        const double pk = engine_->txMeterRaw(0);
+        if (std::isfinite(pk)) mic = pk;
+    }
+    if (mic <= -199.0) mic = stream_->voxMicDbfs();
+    double rms = stream_->fwdPowerCalW();
+    if (!std::isfinite(rms) || rms < 0.0) rms = 0.0;
+    if (rms > txSensorPeakW_) txSensorPeakW_ = rms;
+    const double peak = txSensorPeakW_;
+    txSensorPeakW_ = rms;
+    const double fwd = stream_->fwdPowerW();
+    const double rev = stream_->revPowerW();
+    double swr = 1.0;
+    if (std::isfinite(fwd) && std::isfinite(rev) && fwd >= 0.5 && rev >= 0.0) {
+        double rho = std::sqrt(std::min(rev / fwd, 1.0));
+        if (rho > 0.999) rho = 0.999;
+        swr = (1.0 + rho) / (1.0 - rho);
+        if (swr > 99.0) swr = 99.0;
+    }
+    // Fifth field is ALC headroom, the same number the front-panel ALC
+    // meter shows: max(0, TXA_ALC_GAIN + the operator ALC ceiling). It is
+    // only meaningful while keyed. −200 while receiving, so a client that
+    // reads the first four numbers is unchanged.
+    double alc = -200.0;
+    if (engine_ && (stream_->moxActive() || stream_->tuneEnabled())) {
+        const double raw = engine_->txMeterRaw(14);   // TXA_ALC_GAIN
+        if (std::isfinite(raw))
+            alc = std::max(0.0, raw + stream_->alcMaxGainLinear());
+    }
+    broadcast(QStringLiteral("tx_sensors"),
+              QStringLiteral("tx_sensors:0,%1,%2,%3,%4,%5")
+                  .arg(QString::number(mic, 'f', 1))
+                  .arg(QString::number(rms, 'f', 1))
+                  .arg(QString::number(peak, 'f', 1))
+                  .arg(QString::number(swr, 'f', 1))
+                  .arg(QString::number(alc, 'f', 1)));
 }
 
 } // namespace lyra::ui

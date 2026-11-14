@@ -46,6 +46,10 @@ constexpr double kNoiseLeak     = 0.05;   // floor leaks up ~1 dB/s
 constexpr double kSmooth        = 0.55;
 constexpr int    kHistory       = 90;     // ~4.5 s trail
 
+int clampMeterStyle(int s) {
+    return std::clamp(s, 0, 5);
+}
+
 constexpr auto kKeyStyle    = "meter/style";
 constexpr auto kKeyTxStyle  = "meter/txStyle";     // TX visual style
 constexpr auto kKeySepStyle = "meter/separateStyle"; // swap style on MOX
@@ -131,10 +135,10 @@ MeterModel::MeterModel(lyra::ipc::HL2Stream *stream,
                        lyra::dsp::WdspEngine *wdsp, QObject *parent)
     : QObject(parent), stream_(stream), wdsp_(wdsp) {
     QSettings s;
-    style_ = std::clamp(s.value(QString::fromLatin1(kKeyStyle), 0).toInt(),
-                        0, 2);
-    txStyle_ = std::clamp(s.value(QString::fromLatin1(kKeyTxStyle), 0).toInt(),
-                          0, 2);
+    style_ = clampMeterStyle(
+        s.value(QString::fromLatin1(kKeyStyle), 0).toInt());
+    txStyle_ = clampMeterStyle(
+        s.value(QString::fromLatin1(kKeyTxStyle), 0).toInt());
     separateStyle_ = s.value(QString::fromLatin1(kKeySepStyle), false).toBool();
     // Seeds from the global active-rig scope; setP2Bridge() re-reads through
     // rxCalKey() and reloadRxCal() switches it to the live P2 rig's own scope.
@@ -147,7 +151,7 @@ MeterModel::MeterModel(lyra::ipc::HL2Stream *stream,
     // cap indicator's hang/decay; THIS one controls the main needle
     // hold via the sliding-window MAX detector's window length).
     pwrPeakHoldMs_ = std::clamp(
-        s.value(QString::fromLatin1(kKeyPwrPeakHold), 3000).toInt(),
+        s.value(QString::fromLatin1(kKeyPwrPeakHold), kDefaultPwrPeakHoldMs).toInt(),
         100, 10000);
     pwrWinSamples_ = std::clamp(pwrPeakHoldMs_ / kTickMs,
                                  1, kPwrWindowSamplesMax);
@@ -267,7 +271,7 @@ void MeterModel::applyKeyStateSource() {
     // (independent of whether the source also changed; a mode where RX and
     // TX share a source still wants the style to flip).
     if (separateStyle_ && style_ != txStyle_) {
-        if (activeStyle() == 2) buildLadderRows(); else ladderRows_.clear();
+        if (clusterLive()) buildLadderRows(); else ladderRows_.clear();
         emit activeStyleChanged();
     }
     const Source target = keyed ? txSource_ : rxSource_;
@@ -358,28 +362,34 @@ int MeterModel::activeStyle() const {
     return (separateStyle_ && keyed) ? txStyle_ : style_;
 }
 
+bool MeterModel::clusterLive() const {
+    const int a = activeStyle();
+    // Ladder, Helios TX chips, Cluster.  Sonar (3) uses the S/PWR tick.
+    return a == 2 || a == 4 || a == 5;
+}
+
 void MeterModel::setStyle(int s) {
-    // 0=HorizonArc (default), 1=PlasmaBar, 2=VerticalLadder (Multi).
+    // 0=HorizonArc, 1=PlasmaBar, 2=VerticalLadder, 3=Sonar, 4=Helios, 5=Cluster.
     // This is the RX / default style.
-    s = std::clamp(s, 0, 2);
+    s = clampMeterStyle(s);
     if (s == style_) return;
     const int prevActive = activeStyle();
     style_ = s;
     QSettings().setValue(QString::fromLatin1(kKeyStyle), style_);
     // Populate/clear the Ladder rows for whatever style is showing NOW.
-    if (activeStyle() == 2) buildLadderRows(); else ladderRows_.clear();
+    if (clusterLive()) buildLadderRows(); else ladderRows_.clear();
     emit styleChanged();
     if (activeStyle() != prevActive) emit activeStyleChanged();
     emit updated();
 }
 
 void MeterModel::setTxStyle(int s) {
-    s = std::clamp(s, 0, 2);
+    s = clampMeterStyle(s);
     if (s == txStyle_) return;
     const int prevActive = activeStyle();
     txStyle_ = s;
     QSettings().setValue(QString::fromLatin1(kKeyTxStyle), txStyle_);
-    if (activeStyle() == 2) buildLadderRows(); else ladderRows_.clear();
+    if (clusterLive()) buildLadderRows(); else ladderRows_.clear();
     emit txStyleChanged();
     if (activeStyle() != prevActive) emit activeStyleChanged();
     emit updated();
@@ -390,7 +400,7 @@ void MeterModel::setSeparateStyle(bool on) {
     const int prevActive = activeStyle();
     separateStyle_ = on;
     QSettings().setValue(QString::fromLatin1(kKeySepStyle), separateStyle_);
-    if (activeStyle() == 2) buildLadderRows(); else ladderRows_.clear();
+    if (clusterLive()) buildLadderRows(); else ladderRows_.clear();
     emit separateStyleChanged();
     if (activeStyle() != prevActive) emit activeStyleChanged();
     emit updated();
@@ -779,6 +789,10 @@ QString MeterModel::formatTxAlcGSecondary() const {
 
 
 QVariantList MeterModel::tickMarks() const {
+    return tickMarksFor(int(source_));
+}
+
+QVariantList MeterModel::tickMarksFor(int source) const {
     QVariantList out;
     auto addAt = [&](double pos, const QString &label, bool major) {
         QVariantMap m;
@@ -787,8 +801,9 @@ QVariantList MeterModel::tickMarks() const {
         m[QStringLiteral("major")] = major;
         out.append(m);
     };
+    const Source src = static_cast<Source>(source);
     // S-meter: existing S1/S3/S5/S7/S9/+20/+40/+60 — unchanged.
-    if (source_ == RX_SMETER) {
+    if (src == RX_SMETER) {
         for (int sl = 1; sl <= 9; sl += 2)
             addAt(normForDbm(s9Dbm_ - (9 - sl) * kDbPerS),
                   QString::number(sl), sl == 9);
@@ -797,7 +812,7 @@ QVariantList MeterModel::tickMarks() const {
         addAt(normForDbm(s9Dbm_ + 60.0), QStringLiteral("+60"), false);
         return out;
     }
-    if (source_ == PWR) {
+    if (src == PWR) {
         // Watts scale: 0 .. pwrScaleMaxW_ (= 2 * rated max).  Tick
         // spacing scales with the rated max so the labels stay readable
         // whether the operator is on a 5 W bare HL2+ or a 100 W amp.
@@ -822,7 +837,7 @@ QVariantList MeterModel::tickMarks() const {
         addAt(1.0,           fmt(m),               true);   // scale max
         return out;
     }
-    if (source_ == SWR) {
+    if (src == SWR) {
         // SWR scale: 1.0 (perfect match) on the left, 3.0+ on the right
         // (above 3:1 the meter pegs).  Danger threshold at 2.0 sits at
         // (2-1)/(3-1) = 0.5 on the renderer's 0..1 axis — half-scale,
@@ -841,7 +856,7 @@ QVariantList MeterModel::tickMarks() const {
         addAt(pos(3.0), QStringLiteral("3.0"), true);
         return out;
     }
-    if (source_ == PA_CURRENT) {
+    if (src == PA_CURRENT) {
         // PA bias current scale: 0 .. 3.0 A (matches kPaScaleMaxA in
         // computePaCurrent's anonymous namespace).  Operator-relevant
         // landmarks: 0.2 A idle bias on a typical HL2+, 1.8 A full
@@ -859,7 +874,7 @@ QVariantList MeterModel::tickMarks() const {
         addAt(1.0,        QStringLiteral("3"),    true);
         return out;
     }
-    if (source_ == PA_VOLTS) {
+    if (src == PA_VOLTS) {
         // PA supply / VDD scale: 0 .. 16 V (matches kVScaleMaxV).
         // Operator landmarks: 12 V nominal HL2 supply, 13.8 V typical
         // 13.8 V bench supply, 14 V danger threshold.
@@ -875,7 +890,7 @@ QVariantList MeterModel::tickMarks() const {
         addAt(1.0,        QStringLiteral("16"),   true);
         return out;
     }
-    if (source_ == TEMP) {
+    if (src == TEMP) {
         // HL2 board temperature: 0 .. 80 °C (matches kTempScaleMaxC).
         // Operator landmarks: 25 °C ambient/idle, 30 °C full-tune
         // typical, 60 °C danger threshold.
@@ -907,10 +922,17 @@ void MeterModel::ladderRowFor(int src, double *level, double *danger) const {
     if (!stream_) return;
     switch (src) {
     case PWR: {
-        const double raw = (p2_ && p2_->isRunning())
-            ? p2_->forwardPowerW() : stream_->fwdPowerCalW();
-        const double w = (std::isnan(raw) || raw < 0.0) ? 0.0 : raw;
-        *level = std::clamp(w / std::max(pwrScaleMaxW_, 1e-9), 0.0, 1.0);
+        // When PWR is the face, the bar matches the needle (interval
+        // max, then the hold window).  Other faces already drained
+        // that maximum this tick, so the row falls back to the live word.
+        if (source_ == PWR) {
+            *level = level_;
+        } else {
+            const double raw = (p2_ && p2_->isRunning())
+                ? p2_->forwardPowerW() : stream_->fwdPowerCalW();
+            const double w = (std::isnan(raw) || raw < 0.0) ? 0.0 : raw;
+            *level = std::clamp(w / std::max(pwrScaleMaxW_, 1e-9), 0.0, 1.0);
+        }
         *danger = std::clamp(pwrRatedMaxW_ / std::max(pwrScaleMaxW_, 1e-9),
                               0.0, 1.0);
         return;
@@ -1001,9 +1023,12 @@ void MeterModel::ladderRowFor(int src, double *level, double *danger) const {
         return;
     }
     case RX_SMETER: {
-        // RX-mode hero row: reuse the active S-meter level/danger so
-        // the Ladder's primary line matches what the Arc/Bar would show.
-        *level = level_;
+        // Use the live Arc ballistic when S is the primary; otherwise
+        // a one-shot calibrated reading for the Ladder S row.
+        if (source_ == RX_SMETER)
+            *level = level_;
+        else if (wdsp_)
+            *level = normForDbm(calibratedSMeterDbm(wdsp_->sMeterDbm()));
         *danger = normAtS9();
         return;
     }
@@ -1021,22 +1046,26 @@ void MeterModel::buildLadderRows() {
     // stays RX on the wire) — follow the same keyed-state OR the single
     // meter uses, so the Ladder flips to the TX rows when sending CW.
     const bool tx = stream_->moxActive() || stream_->cwKeyingActive();
+    const int style = activeStyle();
+    const bool helios = style == 4;
     QList<int> srcs;
     QStringList labels;
     if (tx) {
-        // TX: full telemetry stack.  #160 — the TX audio chain has
-        // landed, so the live MIC / ALC / ALC-G rows now sit between
-        // SWR and the hardware telemetry (PA / VDD / T), matching the
-        // reference TX multimeter.  Leveler rows stay off the stack
-        // until the leveler runs (it's bypassed → would read floor);
-        // they remain selectable as secondary readouts.
-        srcs   = {PWR, SWR, MIC, ALC_PK, ALC_G, LVL_PK,
-                  PA_CURRENT, PA_VOLTS, TEMP};
-        labels = {QStringLiteral("PWR"), QStringLiteral("SWR"),
-                  QStringLiteral("MIC"), QStringLiteral("ALC"),
-                  QStringLiteral("ALC G"), QStringLiteral("LEV"),
-                  QStringLiteral("PA"),  QStringLiteral("VDD"),
-                  QStringLiteral("T")};
+        // Helios: title+value only (MIC/ALC/GAIN).
+        // Ladder / Cluster: full telemetry stack.
+        if (helios) {
+            srcs   = {MIC, ALC_PK, ALC_G};
+            labels = {QStringLiteral("MIC"), QStringLiteral("ALC"),
+                      QStringLiteral("GAIN")};
+        } else {
+            srcs   = {PWR, SWR, MIC, ALC_PK, ALC_G, LVL_PK,
+                      PA_CURRENT, PA_VOLTS, TEMP};
+            labels = {QStringLiteral("PWR"), QStringLiteral("SWR"),
+                      QStringLiteral("MIC"), QStringLiteral("ALC"),
+                      QStringLiteral("ALC G"), QStringLiteral("LEV"),
+                      QStringLiteral("PA"),  QStringLiteral("VDD"),
+                      QStringLiteral("T")};
+        }
     } else {
         // RX: three-row degraded view.  The S-meter row is the hero
         // (matches the operator's RX expectation); noise floor + SNR
@@ -1052,10 +1081,13 @@ void MeterModel::buildLadderRows() {
         QVariantMap row;
         row.insert(QStringLiteral("label"), labels[i]);
         row.insert(QStringLiteral("value"),
-                   srcs[i] == RX_SMETER ? text_
-                                        : formatSecondaryText(srcs[i]));
+                   (srcs[i] == RX_SMETER
+                    || (srcs[i] == PWR && source_ == PWR))
+                       ? text_
+                       : formatSecondaryText(srcs[i]));
         row.insert(QStringLiteral("level"),  level);
         row.insert(QStringLiteral("danger"), danger);
+        row.insert(QStringLiteral("source"), srcs[i]);
         ladderRows_.append(row);
     }
 
@@ -1083,6 +1115,12 @@ void MeterModel::buildLadderRows() {
 }
 
 void MeterModel::tick() {
+    // Drop the forward-power interval max when this tick is not drawing
+    // PWR.  Otherwise a stretch on ALC or S would dump the whole
+    // transmission's peak into the first PWR frame.
+    if (source_ != PWR && stream_ && !(p2_ && p2_->isRunning()))
+        stream_->takeFwdPowerIntervalMaxCalW();
+
     // Dispatch to the source-specific compute.  Each compute fn fills
     // level_/peak_/text_/etc. and emits updated() at the end.  Sources
     // not yet implemented fall through to a passive no-op (render stays
@@ -1114,6 +1152,17 @@ void MeterModel::tick() {
                   wdsp_->txMeterRaw(14), wdsp_->txMeterRaw(5),
                   wdsp_->txMeterRaw(6),  wdsp_->txMeterRaw(15));
         }
+    }
+
+    // Radar's hero is always S on RX / PWR on TX.  Click-cycle on Arc
+    // can leave source_ on PWR/SWR, which skipped computeSMeter() and
+    // froze NF/SNR (those only update in the S-meter tick).
+    if (activeStyle() == 3 || activeStyle() == 4) {  // Sonar / Helios
+        const bool keyed = stream_ &&
+            (stream_->moxActive() || stream_->cwKeyingActive());
+        if (keyed) computePwr();
+        else       computeSMeter();
+        return;
     }
 
     switch (source_) {
@@ -1164,17 +1213,34 @@ void MeterModel::computeSMeter() {
         if (lastFrontEndDb_ < -1e8) {
             lastFrontEndDb_ = frontEnd;          // first read: adopt, no hold
         } else if (std::abs(frontEnd - lastFrontEndDb_) > 0.01) {
+            const double delta = std::abs(frontEnd - lastFrontEndDb_);
             lastFrontEndDb_ = frontEnd;
-            frontEndHoldTicks_ = kFrontEndSettleTicks;
+            // Hold only on a real pad jump (manual slider / Auto +3 dB
+            // backoff). Auto Step's 1 dB creep would otherwise retrigger
+            // this ~1.2 s freeze every 100 ms and pin the S-meter for the
+            // whole acquire — that was the last Auto/S-meter interaction
+            // to get wrong. Comp still tracks every 1 dB via
+            // calibratedSMeterDbm (add ATT, never subtract LNA on P2).
+            if (delta >= 2.0)
+                frontEndHoldTicks_ = kFrontEndSettleTicks;
         }
     } else {
         frontEndHoldTicks_ = 0;
     }
 
-    if (frontEndHoldTicks_ > 0)
-        --frontEndHoldTicks_;                    // hold: freeze the reading
-    else
-        dispDbm_ += kSmooth * (dbm - dispDbm_);
+    // Don't chase WDSP's ≈−200 "not running" sentinel — it drags
+    // dispDbm_ into the basement, the rolling-min floor follows it
+    // instantly, and SNR pins at the 99 dB display cap until the
+    // 1 dB/s leak crawls back (Radar made this obvious because it
+    // always ticks the S-meter path).
+    if (raw > -190.0) {
+        if (frontEndHoldTicks_ > 0)
+            --frontEndHoldTicks_;                // hold: freeze the reading
+        else
+            dispDbm_ += kSmooth * (dbm - dispDbm_);
+    } else if (frontEndHoldTicks_ > 0) {
+        --frontEndHoldTicks_;
+    }
     const double n = normForDbm(dispDbm_);
     level_ = n;
 
@@ -1201,14 +1267,22 @@ void MeterModel::computeSMeter() {
     // sMeterDbm() returns on stop/start + rate changes — feeding it pinned
     // the floor at −200 with no recovery, which is what jammed SNR at 99.
     if (raw > -190.0) {
-        if (dispDbm_ < noiseFloorDbm_) noiseFloorDbm_ = dispDbm_;
-        else noiseFloorDbm_ = std::min(dispDbm_, noiseFloorDbm_ + kNoiseLeak);
+        // A passband S-meter on SSB rarely has 50 dB of true SNR; a
+        // gap that big means the floor followed a sentinel. Snap it
+        // back so Radar/Arc don't sit on "99 dB" for a minute.
+        constexpr double kMaxSnrDb = 50.0;
+        if (dispDbm_ - noiseFloorDbm_ > kMaxSnrDb)
+            noiseFloorDbm_ = dispDbm_ - kMaxSnrDb;
+        else if (dispDbm_ < noiseFloorDbm_)
+            noiseFloorDbm_ = dispDbm_;
+        else
+            noiseFloorDbm_ = std::min(dispDbm_, noiseFloorDbm_ + kNoiseLeak);
     }
     noiseLevel_ = normForDbm(noiseFloorDbm_);
     const double snr = dispDbm_ - noiseFloorDbm_;
     snrText_ = (level_ <= 0.01 || snr < 1.0)
                    ? QStringLiteral("—")
-                   : QStringLiteral("SNR %1 dB").arg(std::lround(std::min(snr, 99.0)));
+                   : QStringLiteral("SNR %1 dB").arg(std::lround(std::min(snr, 50.0)));
     // The second secondary readout (task #37) is a TX-only feature; RX
     // already shows dBm + SNR on the two small lines.  Clear it so a
     // stale TX-source value doesn't render under the S-meter on swap.
@@ -1221,11 +1295,13 @@ void MeterModel::computeSMeter() {
     text_ = sLabel(dispDbm_);
     dbmText_ = QStringLiteral("%1 dBm").arg(dispDbm_, 0, 'f', 0);
 
-    if (activeStyle() == 2) buildLadderRows();
+    if (clusterLive()) buildLadderRows();
     emit updated();
 }
 
 double MeterModel::calibratedSMeterDbm(double raw) const {
+    // A Lyra-to-Lyra desk already received the shack's displayed dBm.
+    if (wdsp_ && wdsp_->deskMeterFresh()) return raw;
     // SINGLE source of truth for the RX S-meter calibration (see the header
     // decl).  RXA_S_PK is measured after the hardware PGA, so subtract the
     // current LNA gain on P1 to stay true-to-source across LNA changes.
@@ -1276,41 +1352,40 @@ double MeterModel::rxSMeterDbmRx2() const {
 }
 
 void MeterModel::computePwr() {
-    // PWR — forward TX power in watts.  Reads HL2Stream::fwdPowerCalW
-    // (raw ADC → W formula x the operator's per-band trim, so it already
-    // matches the external watt-meter — the same value the watts cap
-    // servo uses) and maps it onto a 0..pwrScaleMaxW_ scale.  Renderer's
-    // "danger zone"
-    // (the historical normAtS9 binding the QML uses for the red zone)
-    // lands at the operator's rated max (pwrRatedMaxW_, default 5 W
-    // for a bare HL2+ on-board PA — pwrScaleMaxW_ is 2× that).
-    //
-    // No noise floor / SNR concept — those are RX-specific.  The text
-    // readouts are "X.X W" / "X.XX W peak" so the operator can read
-    // the watt-meter without crunching the scale.
-    const double raw = (p2_ && p2_->isRunning())
+    // PWR — forward TX power in watts, mapped onto 0..pwrScaleMaxW_.
+    // The danger zone lands at the operator's rated max (pwrRatedMaxW_,
+    // default 5 W for a bare on-board PA; the scale is 2× that).
+    // Peak and PEP read the highest coupler sample since the previous
+    // tick.  The watts cap, SWR, and calibration stay on the live word.
+    // P2 keeps its smoothed forwardPowerW() for every ballistic.
+    // HL2 AVG stays on the live calibrated word.  HL2 PEAK and PEP
+    // use the highest count since the previous take, so a syllable
+    // between ticks is kept.  The take still runs in AVG so a later
+    // switch to Peak cannot show a piled-up maximum.  fwdPowerCalW()
+    // itself is unchanged — the watts cap and SWR keep the live word.
+    const bool onP2 = p2_ && p2_->isRunning();
+    const double liveRaw = onP2
         ? p2_->forwardPowerW()
         : (stream_ ? stream_->fwdPowerCalW()
                    : std::numeric_limits<double>::quiet_NaN());
-    // Telemetry sentinel: NaN means the slot hasn't arrived yet (stream
-    // not running, or pre-first-statsChanged).  Display zero state so
-    // the renderer doesn't show stale-bogus levels from a previous
-    // source's history.
-    const double w = (std::isnan(raw) || raw < 0.0)
-                          ? 0.0
-                          : raw;
+    const double liveW = (std::isnan(liveRaw) || liveRaw < 0.0) ? 0.0 : liveRaw;
+    double peakW = liveW;
+    if (!onP2 && stream_) {
+        const double interval = stream_->takeFwdPowerIntervalMaxCalW();
+        if (!std::isnan(interval) && interval > peakW) peakW = interval;
+    }
+    const bool useInterval = !onP2 &&
+        (pwrBallistic_ == PWR_PEAK || pwrBallistic_ == PWR_PEP);
+    const double w = useInterval ? peakW : liveW;
 
     // PWR ballistic — one of three modes the operator picks in
     // Settings → Meter:
     //
     //   PWR_PEAK (default) — sliding-window MAX over the last
     //     pwrWinSamples_ ticks (operator-tunable hold via the PWR
-    //     Peak Hold spin box; default 60 samples × 50 ms = 3000 ms).
-    //     The 2026-05-31 bench-fix ballistic: brief voice peaks are
-    //     captured and held for the full window duration so the
-    //     digital bar parks at the peak long enough to read
-    //     (compensates for the lack of analog-needle damping in a
-    //     digital renderer).
+    //     Peak Hold spin box; factory 14 samples × 50 ms = 700 ms).
+    //     Each sample is already the highest coupler count in that
+    //     tick.  A saved meter/pwrPeakHoldMs is left alone.
     //
     //   PWR_PEP — sliding-window MAX over a FIXED 10 ticks (= 500 ms
     //     at the 50 ms tick rate).  Tight, snappy "PEP" ballistic —
@@ -1410,7 +1485,7 @@ void MeterModel::computePwr() {
                 : QStringLiteral("%1 W").arg(std::lround(dispW));
     dbmText_.clear();
 
-    if (activeStyle() == 2) buildLadderRows();
+    if (clusterLive()) buildLadderRows();
     emit updated();
 }
 
@@ -1522,7 +1597,7 @@ void MeterModel::computeSwr() {
     if (int(hist_.size()) > kHistory) hist_.pop_front();
     for (int i = 0; i < kHistory; ++i) history_[i] = hist_[i];
 
-    if (activeStyle() == 2) buildLadderRows();
+    if (clusterLive()) buildLadderRows();
     emit updated();
 }
 
@@ -1601,7 +1676,7 @@ void MeterModel::computePaCurrent() {
     hist_.push_back(n);
     if (int(hist_.size()) > kHistory) hist_.pop_front();
     for (int i = 0; i < kHistory; ++i) history_[i] = hist_[i];
-    if (activeStyle() == 2) buildLadderRows();
+    if (clusterLive()) buildLadderRows();
     emit updated();
 }
 
@@ -1647,7 +1722,7 @@ void MeterModel::computePaVolts() {
     hist_.push_back(n);
     if (int(hist_.size()) > kHistory) hist_.pop_front();
     for (int i = 0; i < kHistory; ++i) history_[i] = hist_[i];
-    if (activeStyle() == 2) buildLadderRows();
+    if (clusterLive()) buildLadderRows();
     emit updated();
 }
 
@@ -1688,7 +1763,7 @@ void MeterModel::computeTemp() {
     hist_.push_back(n);
     if (int(hist_.size()) > kHistory) hist_.pop_front();
     for (int i = 0; i < kHistory; ++i) history_[i] = hist_[i];
-    if (activeStyle() == 2) buildLadderRows();
+    if (clusterLive()) buildLadderRows();
     emit updated();
 }
 
@@ -1784,7 +1859,7 @@ void MeterModel::computeLevelMeterFromDb(double rawDb,
     hist_.push_back(n);
     if (int(hist_.size()) > kHistory) hist_.pop_front();
     for (int i = 0; i < kHistory; ++i) history_[i] = hist_[i];
-    if (activeStyle() == 2) buildLadderRows();
+    if (clusterLive()) buildLadderRows();
     emit updated();
 }
 
@@ -1837,7 +1912,7 @@ void MeterModel::computeGainMeterFromDb(double rawDb,
     hist_.push_back(n);
     if (int(hist_.size()) > kHistory) hist_.pop_front();
     for (int i = 0; i < kHistory; ++i) history_[i] = hist_[i];
-    if (activeStyle() == 2) buildLadderRows();
+    if (clusterLive()) buildLadderRows();
     emit updated();
 }
 

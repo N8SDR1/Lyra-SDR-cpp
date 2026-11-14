@@ -4,8 +4,9 @@
 // loop on the EP6 socket (per §5.10 / §1-C Stage 4B); parses
 // each datagram, dispatches per-DDC samples to per-stream rings
 // via an INLINE per-`nddc` switch (matches the reference
-// `MetisReadThreadMainLoop_HL2:544-558` switch verbatim — no
-// separate DdcMap class).
+// `MetisReadThreadMainLoop_HL2:544-558` switch). Host remux for
+// PureSignal (Thetis HL2 MOX+PS: DDC0+DDC1 → pscc, skip DDC1
+// xrouter) is a state-product overlay — see lyra::ps::ddc_map.
 //
 // Source mirror:
 //   `ChannelMaster/networkproto1.c:422-586`
@@ -105,8 +106,8 @@ using Ep6TxClipSource = std::function<bool(int n_pairs, double* iq_pairs)>;
 using Ep6MicRecordTap = std::function<void(int n_pairs, const double* iq_pairs)>;
 
 // Sink for the I2C-readback overlay (when C0 bit 7 is set per
-// `MetisReadThreadMainLoop_HL2:500-508`).  Inert on this build
-// until I2C consumers register.
+// `MetisReadThreadMainLoop_HL2:500-508`).  Receives C0..C4 (5 bytes)
+// so the consumer can check the echoed I2C command address in C0.
 using Ep6I2cSink = std::function<void(const uint8_t* bytes,
                                       int n_bytes)>;
 

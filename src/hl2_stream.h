@@ -71,6 +71,7 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <QVariantList>
 #include <atomic>
 #include <limits>
 #include <complex>
@@ -88,6 +89,7 @@
 // is at namespace-pulling distance so the destructor + getter +
 // open()/close() wiring sites all compile without forward-declaring.
 #include "wire/Ep6RecvThread.h"
+#include "wire/Hl2IoBoard.h"
 // Stage 2b2: Router.h needed for the inline setIqSink shim's
 // register_sink() + router_instance(0) calls (the post-rxWorker_
 // IQ-dispatch path).
@@ -99,6 +101,8 @@
 
 // #105 CW-3a — host CW keyer (CWX); the full type is pulled in the .cpp.
 namespace lyra::tx { class CwKeyer; }
+namespace lyra::ps { class PsFsm; }
+namespace lyra::ui { class XvtrSlots; }
 
 namespace lyra::ipc {
 
@@ -137,10 +141,28 @@ class HL2Stream : public QObject {
     // path — so PS, whenever it lands, samples the split VFO unchanged.
     Q_PROPERTY(bool    splitEnabled READ splitEnabled WRITE setSplitEnabled NOTIFY splitEnabledChanged)
     Q_PROPERTY(quint32 vfoBHz       READ vfoBHz       WRITE setVfoBHz       NOTIFY vfoBHzChanged)
+    // RPT (FM repeater offset) is layered on SPLIT (VFO B = RX1 ± offset).
+    // rptActive says WHY split is on: true = the RPT button / a repeater
+    // memory armed it; false = operator SPLIT.  Only RPT-split is dropped
+    // when RX1 crosses a band edge (DL1VE: a 2 m repeater offset otherwise
+    // rode along to HF and put the TX NCO / IO-board TX regs 600 kHz out
+    // of band).  Operator SPLIT persists across band changes unchanged.
+    // Cleared whenever split goes off; persisted as tx/rptActive.
+    Q_PROPERTY(bool    rptActive    READ rptActive    WRITE setRptActive    NOTIFY rptActiveChanged)
     // SUB / RX2 — second DDC on the same ADC (HL2 + Brick).  Default OFF:
     // DDC1 keeps mirroring RX1 (SUB-off wire identity).  When on, DDC1
     // follows rx2FreqHz (VFO B if SPLIT is also on).  focusedRx is 1 or 2.
     Q_PROPERTY(bool    subEnabled READ subEnabled WRITE setSubEnabled NOTIFY subEnabledChanged)
+    // True when the selected radio (or the live connection) has two
+    // converters. The second spectrum follows this and subEnabled.
+    Q_PROPERTY(bool    dualAdc READ dualAdc NOTIFY dualAdcChanged)
+    // Diversity: two converters, one carrier, mixed into RX1.  The chip
+    // is absent unless capable.  Armed is the operator preference; the
+    // wire overlay drops itself while transmitting or PureSignal is live.
+    Q_PROPERTY(bool   diversityCapable READ diversityCapable NOTIFY diversityCapableChanged)
+    Q_PROPERTY(bool   diversityArmed READ diversityArmed WRITE setDiversityArmed NOTIFY diversityArmedChanged)
+    Q_PROPERTY(double diversityGainDb READ diversityGainDb WRITE setDiversityGainDb NOTIFY diversityGainDbChanged)
+    Q_PROPERTY(double diversityPhaseDeg READ diversityPhaseDeg WRITE setDiversityPhaseDeg NOTIFY diversityPhaseDegChanged)
     Q_PROPERTY(quint32 rx2FreqHz  READ rx2FreqHz  WRITE setRx2FreqHz  NOTIFY rx2FreqChanged)
     Q_PROPERTY(int     focusedRx  READ focusedRx  WRITE setFocusedRx  NOTIFY focusedRxChanged)
     // RIT (RX incremental tuning) + XIT (TX incremental tuning) — signed
@@ -182,6 +204,10 @@ class HL2Stream : public QObject {
     Q_PROPERTY(bool filterBoardEnabled READ filterBoardEnabled
                WRITE setFilterBoardEnabled NOTIFY filterBoardChanged)
     Q_PROPERTY(int  ocBits             READ ocBits NOTIFY ocBitsChanged)
+    // HL2 / HL2+ IO-board RX SMA.  0 = RF1, 2 = Alt RX (Thetis
+    // REG_RF_INPUTS).  Protocol 1 only.  Does not write analog BYTE0–4.
+    Q_PROPERTY(int hl2RxPort READ hl2RxPort WRITE setHl2RxPort
+               NOTIFY hl2RxPortChanged)
     // TX-0a — HL2 telemetry decoded from the EP6 status rotation
     // (C0&0xF8 address field).  RF-SAFE: pure read of the radio→host
     // stream, zero effect on what we transmit.  Temp + supply are
@@ -312,6 +338,42 @@ class HL2Stream : public QObject {
                NOTIFY tuneEnabledChanged)
     Q_PROPERTY(bool twoToneEnabled READ twoToneEnabled WRITE setTwoToneEnabled
                NOTIFY twoToneEnabledChanged)
+    // PureSignal calibration stimulus: male-voice shaped noise into
+    // the TX chain.  Most energy under 1 kHz, falling through 3 kHz.
+    // Mutually exclusive with Tune and two-tone.  Level is dB, −12..+3.
+    Q_PROPERTY(bool noiseEnabled READ noiseEnabled WRITE setNoiseEnabled
+               NOTIFY noiseEnabledChanged)
+    Q_PROPERTY(int psNoiseLevelDb READ psNoiseLevelDb WRITE setPsNoiseLevelDb
+               NOTIFY psNoiseLevelDbChanged)
+    Q_PROPERTY(bool psAttestation READ psAttestation WRITE setPsAttestation
+               NOTIFY psAttestationChanged)
+    Q_PROPERTY(bool psArmed READ psArmed WRITE setPsArmed
+               NOTIFY psArmedChanged)
+    // Live coupler/calibrator enable: operator Arm AND-gated with
+    // attestation and not DIGU/DIGL/DRM/CWL/CWU/FM (mode lock-out).
+    Q_PROPERTY(bool psLiveArmed READ psLiveArmed NOTIFY psLiveArmedChanged)
+    Q_PROPERTY(bool psDigitalLockout READ psDigitalLockout
+               NOTIFY psLiveArmedChanged)
+    Q_PROPERTY(int psFeedbackLevel READ psFeedbackLevel
+               NOTIFY psFeedbackLevelChanged)
+    Q_PROPERTY(int psAutoAttDb READ psAutoAttDb NOTIFY psAutoAttDbChanged)
+    Q_PROPERTY(int psFsmState READ psFsmState NOTIFY psFsmStateChanged)
+    Q_PROPERTY(bool psCorrecting READ psCorrecting NOTIFY psCorrectingChanged)
+    Q_PROPERTY(int psCalCount READ psCalCount NOTIFY psCalCountChanged)
+    Q_PROPERTY(int psDdc0Dbfs READ psDdc0Dbfs NOTIFY psDdc0DbfsChanged)
+    Q_PROPERTY(int psDdc1Dbfs READ psDdc1Dbfs NOTIFY psDdc1DbfsChanged)
+    Q_PROPERTY(int psFeedSpr READ psFeedSpr NOTIFY psFeedSprChanged)
+    Q_PROPERTY(double psHwPeak READ psHwPeak WRITE setPsHwPeak
+               NOTIFY psHwPeakChanged)
+    Q_PROPERTY(double psMaxTx READ psMaxTx NOTIFY psMaxTxChanged)
+    Q_PROPERTY(double psGetPk READ psGetPk NOTIFY psGetPkChanged)
+    Q_PROPERTY(bool psAmpPlotHeld READ psAmpPlotHeld WRITE setPsAmpPlotHeld
+               NOTIFY psAmpPlotHeldChanged)
+    Q_PROPERTY(QVariantList psAmpMagX READ psAmpMagX NOTIFY psAmpPlotChanged)
+    Q_PROPERTY(QVariantList psAmpMagY READ psAmpMagY NOTIFY psAmpPlotChanged)
+    Q_PROPERTY(QVariantList psAmpCorrX READ psAmpCorrX NOTIFY psAmpPlotChanged)
+    Q_PROPERTY(QVariantList psAmpCorrY READ psAmpCorrY NOTIFY psAmpPlotChanged)
+    Q_PROPERTY(QVariantList psInfo READ psInfo NOTIFY psInfoChanged)
     // TX-1 component 6 — SSB modulator I/Q injection.  When TRUE
     // *and* the wire MOX bit is high, the EP2 writer pulls 126
     // complex<float> samples per datagram from the registered TX
@@ -475,6 +537,10 @@ class HL2Stream : public QObject {
                WRITE setAttOnTxEnabled NOTIFY attOnTxEnabledChanged)
     Q_PROPERTY(int  attOnTxDb       READ attOnTxDb
                WRITE setAttOnTxDb       NOTIFY attOnTxDbChanged)
+    // Dual-ADC analog isolate: ground/disconnect the RX2 jack while
+    // keyed. Default ON. Hidden on one-converter radios (no RX2 jack).
+    Q_PROPERTY(bool rx2GroundOnTx READ rx2GroundOnTx
+               WRITE setRx2GroundOnTx NOTIFY rx2GroundOnTxChanged)
     // #94 — External TX Inhibit.  Operator hard lockout: blocks ALL keying
     // (MOX / HW-PTT / CW / TUN / TCI / Auto-ID) at the requestMox funnel, to
     // protect external gear (a 2nd SDR / scope) sharing the setup.  Engaging
@@ -582,6 +648,14 @@ class HL2Stream : public QObject {
                WRITE setCtcssEnabled  NOTIFY ctcssEnabledChanged)
     Q_PROPERTY(double ctcssToneHz   READ ctcssToneHz
                WRITE setCtcssToneHz   NOTIFY ctcssToneHzChanged)
+    Q_PROPERTY(double ctcssDlHz     READ ctcssDlHz
+               WRITE setCtcssDlHz     NOTIFY ctcssDlHzChanged)
+    Q_PROPERTY(int    fmBurstHz     READ fmBurstHz
+               WRITE setFmBurstHz     NOTIFY fmBurstHzChanged)
+    Q_PROPERTY(int    fmBurstMs     READ fmBurstMs
+               WRITE setFmBurstMs     NOTIFY fmBurstMsChanged)
+    Q_PROPERTY(bool   fmBurstActive READ fmBurstActive
+               NOTIFY fmBurstActiveChanged)
     // FM pre-emphasis selector: 0 = Off (flat — true bypass, for digital/data
     // + warm HF), 1 = Comm (the native 6 dB/oct 300–3000 Hz communications
     // curve; voice default).  50/75 µs broadcast curves are a later option.
@@ -689,9 +763,20 @@ public:
         // 30787-30801) — replaces the retired legacy DC-injection that
         // died with the EP2 packer.  Empty = no-op (pre-registration).
         std::function<void(bool)> setTune;
+        // Brick CW-chip carrier. Same postgen tone as Tune (0 Hz in CW,
+        // because the TX NCO is already the carrier). 1 = element down,
+        // 0 = silence while the message PTT is still held (generator
+        // stays up so the microphone does not pass), -1 = message over.
+        // Does not arm Tune and does not change the Drive slider.
+        std::function<void(int)> setCwCarrier;
         // Continuous two-tone post-generator control. Empty before TX
         // channel registration.
         std::function<void(bool)> setTwoTone;
+        // Band-limited Gaussian noise for PureSignal calibration.
+        // (on, linear magnitude). Injected before the TX bandpass, so
+        // the operator's TX filter sets the occupied bandwidth.
+        // Empty until the TX channel is open.
+        std::function<void(bool, double)> setCalNoise;
         // #109 — PHROT (phase rotator) run.  Symmetrizes asymmetric
         // speech to lower peak-to-average ratio (more average talk power
         // for the same ALC ceiling).  Operator on/off, mirrors the
@@ -735,7 +820,18 @@ public:
     quint32 rx1FreqHz()         const { return rx1FreqHz_.load(std::memory_order_relaxed); }
     bool    splitEnabled()      const { return splitEnabled_.load(std::memory_order_relaxed); }
     quint32 vfoBHz()            const { return vfoBHz_.load(std::memory_order_relaxed); }
+    bool    rptActive()         const { return rptActive_.load(std::memory_order_relaxed); }
+    // Band identity of an RF frequency for the RPT band-edge drop: the
+    // Xvtr slot ("xvtr:N") when one matches, else BandMemory's ham / BC /
+    // CB name ("15m", "bc_49m", "cb_11m"), else "" (gap).  Same notion
+    // BandMemory::applyBand fires on, plus Xvtr slot identity.
+    Q_INVOKABLE QString bandIdFor(quint32 rfHz) const;
     bool    subEnabled()        const { return subEnabled_.load(std::memory_order_relaxed); }
+    bool    dualAdc()           const { return dualAdc_.load(std::memory_order_relaxed); }
+    bool    diversityCapable()  const { return diversityCapable_.load(std::memory_order_relaxed); }
+    bool    diversityArmed()    const { return diversityArmed_.load(std::memory_order_relaxed); }
+    double  diversityGainDb()   const { return diversityGainDb_; }
+    double  diversityPhaseDeg() const { return diversityPhaseDeg_; }
     quint32 rx2FreqHz()         const { return rx2FreqHz_.load(std::memory_order_relaxed); }
     int     focusedRx()         const { return focusedRx_.load(std::memory_order_relaxed); }
     // Effective TX carrier the wire NCO is set to (0x02/0x08/0x0a).  Tracks
@@ -792,6 +888,30 @@ public:
     static constexpr int kTuneCwPitchHz = 600;
     static constexpr int kTwoToneFreq1Hz = 700;
     static constexpr int kTwoToneFreq2Hz = 1900;
+
+    // WDSP TXA: 0 LSB, 1 USB, 2 DSB, 3 CWL, 4 CWU, 5 FM, 6 AM, 7 DIGU,
+    // 9 DIGL, 10 SAM.
+    static constexpr bool txModeIsLsbFamily(int tm) {
+        return tm == 0 || tm == 3 || tm == 9;
+    }
+    static constexpr bool txModeIsDsbFamily(int tm) {
+        return tm == 2 || tm == 5 || tm == 6 || tm == 10;
+    }
+    static constexpr bool txModeIsCw(int tm) {
+        return tm == 3 || tm == 4;
+    }
+    // Postgen TUN tone (Hz).  USB-side +pitch + DDS −pitch (LSB inverse)
+    // cancel at the dial.  CW TUN uses the keyed-CW NCO, so tone is 0 Hz
+    // (carrier on the marker, same as MOX).
+    static int postGenTuneToneHz(int tm) {
+        if (txModeIsCw(tm) || txModeIsDsbFamily(tm))
+            return 0;
+        return txModeIsLsbFamily(tm) ? -kTuneCwPitchHz : kTuneCwPitchHz;
+    }
+    // Two-tone audio-tone sign: LSB family −1, else +1 (USB/CWU/DIGU/DSB).
+    static double postGenUsbSideSign(int tm) {
+        return txModeIsLsbFamily(tm) ? -1.0 : 1.0;
+    }
     bool    filterBoardEnabled() const { return filterBoardEnabled_; }
     int     ocBits()             const { return ocPattern_; }
     // #199 Stage 4 — the editable OC table for the Settings "Filters / BCD"
@@ -812,6 +932,10 @@ public:
     // watts-cap servo, so "5 W cap" == "5 W on the meter".  (fwdPowerW stays
     // RAW for the SWR ratio + CW-keying detect, where a trim would be wrong.)
     double  fwdPowerCalW() const;
+    // Calibrated watts of the highest forward-power count since the
+    // previous take, then the maximum is cleared.  PWR needle only —
+    // fwdPowerW() / fwdPowerCalW() stay the live word.
+    double  takeFwdPowerIntervalMaxCalW() const;
     double  revPowerW()  const;
     // P2/Brick forward+reverse power ingest.  The P1/HL2 path decodes fwd/rev
     // from the EP6 `prn` telemetry inside fwdPowerW()/revPowerW(); the P2 wire
@@ -823,6 +947,8 @@ public:
     // UI thread (lock-free atomics).
     void    setPowerTelemetry(double fwdW, double revW);
     void    clearPowerTelemetry();   // P2 session teardown → fall back to prn
+    // Lyra-to-Lyra desk: show the shack's watts without a local radio.
+    void    postDeskPower(double fwdW, double revW);
     // TX-0c-fsm — true while the radio is wire-level keyed (post-keydown
     // settle, pre-keyup-clear).  Read by the UI red-on-air indicator.
     bool    moxActive()  const { return moxActive_; }
@@ -863,9 +989,16 @@ public:
     }
     // When true, applyTxPower_ uses the P2 analog-drive formula (linear
     // 0..255 byte, no HL2 16-step DAC divisor) and keeps IQ fixed-gain at
-    // unity so watts live on HP [345] only.  Set by the P2 bridge on
-    // open/close.  Does not change the operator slider.
+    // unity so watts live on HP [345] only (tx/TxDriveSplit.h; unity IQ
+    // is what lets the radio's TX-DAC replica reach the PureSignal SetPk
+    // at any drive).  Set by the P2 bridge on open/close.  Does not
+    // change the operator slider.
     void    setP2DrivePath(bool on);
+    // Bind PA-gain / watts-cap / PWR-trim persistence to a specific
+    // radio profile (the connected P2 rig). Empty restores the active
+    // rig. Reloads the table immediately so Brick3 does not inherit
+    // HL2 or Brick2 numbers when that radio is opened.
+    void    setTxCalRigId(const QString &rigId);
     // TX power model Stage 3 — per-band "PA Gain By Band" (Thetis port).
     // gbb is a per-band multiplier in the RadioVolume formula (default
     // 100 = neutral).  The operator measures each band into a dummy load
@@ -932,6 +1065,29 @@ public:
     // whenever MOX is active"; auto-clears on the next MOX-off edge.
     bool    tuneEnabled() const { return tuneEnabled_.load(std::memory_order_relaxed); }
     bool    twoToneEnabled() const { return twoToneEnabled_.load(std::memory_order_relaxed); }
+    bool    noiseEnabled() const { return noiseEnabled_.load(std::memory_order_relaxed); }
+    int     psNoiseLevelDb() const { return psNoiseLevelDb_; }
+    bool    psAttestation() const { return psAttestation_; }
+    bool    psArmed() const { return psArmed_; }
+    bool    psDigitalLockout() const;
+    bool    psLiveArmed() const;
+    int     psFeedbackLevel() const;
+    int     psAutoAttDb() const;
+    int     psFsmState() const;
+    bool    psCorrecting() const;
+    int     psCalCount() const;
+    int     psDdc0Dbfs() const;
+    int     psDdc1Dbfs() const;
+    int     psFeedSpr() const;
+    double  psHwPeak() const;
+    double  psMaxTx() const;
+    double  psGetPk() const;
+    bool    psAmpPlotHeld() const;
+    QVariantList psAmpMagX() const;
+    QVariantList psAmpMagY() const;
+    QVariantList psAmpCorrX() const;
+    QVariantList psAmpCorrY() const;
+    QVariantList psInfo() const;
     // TX-1 component 6 — SSB modulator I/Q injection gate (Q_PROPERTY
     // getter).  See the Q_PROPERTY decl above for the full contract.
     bool    injectTxIq() const { return injectTxIq_.load(std::memory_order_relaxed); }
@@ -957,6 +1113,9 @@ public:
     bool    phrotEnabled()          const { return phrotEnabled_;          }
     // §15.31 — ATT-on-TX operator surface getters.
     bool    attOnTxEnabled()        const { return attOnTxEnabled_;        }
+    bool    rx2GroundOnTx()         const {
+        return rx2GroundOnTx_.load(std::memory_order_relaxed);
+    }
     bool    txInhibit()             const { return txInhibit_;             }
     int     attOnTxDb()             const { return attOnTxDb_;             }
     // #201 — transient convert lockout: the offline MP4 converter blocks
@@ -1023,6 +1182,10 @@ public:
     double  fmDeviationHz()         const { return fmDeviationHz_;         }
     bool    ctcssEnabled()          const { return ctcssEnabled_;          }
     double  ctcssToneHz()           const { return ctcssToneHz_;           }
+    double  ctcssDlHz()             const { return ctcssDlHz_;             }
+    int     fmBurstHz()             const { return fmBurstHz_;             }
+    int     fmBurstMs()             const { return fmBurstMs_;             }
+    bool    fmBurstActive()         const { return fmBurstActive_;         }
     int     fmEmphasisMode()        const { return fmEmphasisMode_;        }
 
     // Step 3d: register a sink for DDC0 baseband IQ.  Called ONCE per
@@ -1086,10 +1249,12 @@ public slots:
     void setFreqCorrection(double factor);
     double freqCorrection() const;
 
-    // Auto-LNA controls (main thread).  setAutoLna(false) restores the
-    // operator's persisted manual gain; setAutoLna(true) hands the LNA
-    // to the overload-protection loop.  Undo + hold time are persisted.
-    void setAutoLna(bool on);
+    // Auto-LNA controls (main thread).  setAutoLna(false) leaves the
+    // gain where it is; setAutoLna(true) hands the LNA to the
+    // overload-protection loop.  armAcquire (default true) starts the
+    // post-band-change fast climb; band/slot restore passes false so a
+    // stored LNA is not walked away on the next 100 ms tick.
+    void setAutoLna(bool on, bool armAcquire = true);
     void setAutoLnaUndo(bool on);
     void setAutoLnaHoldSec(int sec);
 
@@ -1100,13 +1265,29 @@ public slots:
     // (atomic).  Ignores 48 k (EP2 cadence, like old Lyra).
     void setSampleRate(int hz);
 
-    // Enable/disable N2ADR / IO-board OC (filters + analog J3 band
-    // voltage via I2C 0x20).  When on, the per-band OC pattern is driven
-    // on frame-0 C2 and re-applied on every band change; when off, C2 OC
-    // pins are cleared (0).  Default ON (Thetis/Quisk-parity).  Persisted
-    // to QSettings (hw/filterBoard).  Thread-safe (atomic C2; readout on
-    // the main thread).
+    // Enable/disable N2ADR OC filters (frame-0 C2 → gateware I2C 0x20).
+    // Protocol 1 / HL2 / HL2+ only.  The IO board (I2C2 0x1D) is not
+    // gated here — its sequencer runs while an IO board is detected or
+    // forced present.  Default ON.  Persisted as hw/filterBoard.  J3 Band
+    // Volts is a separate box.
     void setFilterBoardEnabled(bool on);
+    // Off = emit 0. N2adr = stamp HF N2ADR map (Xvtr rows stay 0).
+    // Custom = emit the grid as edited (Thetis / DeskHPSDR). A tick while
+    // N2adr promotes to Custom.
+    lyra::oc::OcAccessory ocAccessory() const { return ocAccessory_; }
+    void setOcAccessory(lyra::oc::OcAccessory mode);
+    void noteOcGridEdited();   // checkbox on the OC grid
+    // Optional helper: fill pins 1–4 with a Yaesu A–D example and switch
+    // to Custom. Does not auto-follow; operator must verify vs the amp.
+    void stampOcYaesuExample();
+
+    // HL2 IO-board RX jack.  0 = RF1, 2 = Alt RX.  Other values → RF1.
+    // Carried in the IO-board snapshot as register 11 (0 or 2), written
+    // every sequencer cycle while an IO board is detected or forced.
+    int  hl2RxPort() const {
+        return hl2RxPort_.load(std::memory_order_relaxed);
+    }
+    Q_INVOKABLE void setHl2RxPort(int port);
 
     // ---- TX-state C&C registers (TX-0b foundation) -----------------
     // Operator / PTT-FSM RF-transmit state.  Each setter clamps + stores
@@ -1149,7 +1330,19 @@ public slots:
     // the split TX VFO and re-pushes the TX NCO when split is on.
     void setSplitEnabled(bool on);
     void setVfoBHz(quint32 hz);
+    // Mark the live split as RPT (repeater offset) or operator split.  See
+    // the rptActive Q_PROPERTY doc.  Turning split off clears it.
+    void setRptActive(bool on);
+    // While keyed: refuse a VFO write that would change amateur-band
+    // region (filters / OC / PA band under RF).  Stay transmitting.
+    // Status bar: "Frequency change ignored while transmitting."
     void setSubEnabled(bool on);
+    void setDualAdc(bool on);
+    void setDiversityCapable(bool on);
+    void setDiversityArmed(bool on);
+    void setDiversityGainDb(double db);
+    void setDiversityPhaseDeg(double deg);
+    void refreshDualAdcFromSettings();
     void setRx2FreqHz(quint32 hz);
     void setFocusedRx(int rx);
     // RIT/XIT — RIT offsets only the RX DDC NCO (via pushEffectiveRxFreq);
@@ -1172,8 +1365,28 @@ public slots:
     void setCtuneDisplaySpanHz(double hz);
     void setCtuneFilterEdges(int lowHz, int highHz);
     void setTxDriveLevel(int level);
+    // While Tune is armed and a separate tune level is selected, the
+    // carrier uses this raw 0..255 instead of the Drive slider. -1
+    // means Tune follows the Drive slider. Does not move or save Drive.
+    void setTuneDriveOverride(int raw);
     void setTxStepAttnDb(int db);
+    // HL2: TX step-att. Brick/Hermes P2: ADC0 coupler pad (0..31, seed 0).
+    void bindPsAttnWriter(std::function<void(int)> fn,
+                          int minDb, int maxDb, int moxSeed);
+    void syncPsAttToTxBand();
     void setPaEnabled(bool on);
+    void setXvtrSlots(lyra::ui::XvtrSlots *xvtrSlots);
+    lyra::ui::XvtrSlots *xvtrSlots() const { return xvtr_; }
+    // Display RF → radio IF/DDS (identity when no Xvtr slot matches).
+    int ddsHzForRf(quint32 rfHz) const;
+    // Enabled Xvtr slot index containing displayed RF, or -1.
+    int xvtrMatchingSlot(qint64 rfHz) const;
+    // OcControl row for J16 (amateur row, or a broadcast/SWL row —
+    // OcControl::rowForHz precedence).  Returns -1 on an Xvtr chip (those
+    // use OcControl xvtr masks, DeskHPSDR-style — not the IF/10 m row)
+    // and for CB / GEN / out-of-table.
+    int ocBandIndexForRf(quint32 rfHz) const;
+    void applyPaWire();
     void setMicBoost(bool on);
     void setBandVoltsOutput(bool on);
     // TX-0c-tune — arm/disarm the tune-tone generator.  The EP2 writer
@@ -1183,9 +1396,37 @@ public slots:
     // safety so a stray MOX click after a tune session can't re-emit
     // the carrier.  Not persisted — operator must explicitly arm.
     void setTuneEnabled(bool on);
-    // Arm/disarm the Thetis-compatible continuous two-tone generator.
-    // Mutually exclusive with Tune and auto-cleared when MOX drops.
+    // Arm/disarm the continuous two-tone generator.
+    // Mutually exclusive with Tune and the noise stimulus, and
+    // auto-cleared when MOX drops.
     void setTwoToneEnabled(bool on);
+    // Arm/disarm the male-voice calibration noise (PureSignal stimulus).
+    // Mutually exclusive with Tune and two-tone.  Auto-cleared when
+    // MOX drops.  Not persisted — an explicit operator gesture.
+    void setNoiseEnabled(bool on);
+    // −12..+3 dB.  Persisted.  The TX bandpass keeps only the
+    // passband, so average power stays below a full carrier.
+    // Re-applied live while the noise stimulus is running.
+    void setPsNoiseLevelDb(int db);
+    void setPsAttestation(bool on);
+    // Operator PS ON (dock / desk). First ON also sets attestation.
+    // Unchecking the Settings coupler box still forces this off.
+    void setPsArmed(bool on);
+    Q_INVOKABLE void resetPureSignal();
+    // Desk display of the shack's PureSignal readout. Does not arm
+    // this process and does not write settings.
+    void postDeskPureSignal(bool live, int fb, int att, bool correcting,
+                            int cal, int fsm, int d0, int d1, int spr);
+    void postDeskPsPlot(const QVariantList &magX, const QVariantList &magY,
+                        const QVariantList &corrX, const QVariantList &corrY);
+    void clearDeskPureSignal();
+    Q_INVOKABLE void capturePsGetPk();
+    Q_INVOKABLE void setPsAmpPlotHeld(bool on);
+    void setPsHwPeak(double peak);
+    // Seed SetPSHWPeak from this radio's catalog (P2) or 0.233 (HL2).
+    // A per-rig Amp View SetPk spin wins if already saved; do not copy the
+    // unscoped HL2 0.233 onto a P2 radio that publishes a different peak.
+    void applyPsHwPeakDefault(double catalogPeak);
 
     // ---- TX-0c-fsm: MOX/PTT sequencer (single funnel) ----------------
     // Operator/CAT/PTT/TUN intent gets funneled here.  Internally drives
@@ -1222,6 +1463,22 @@ public slots:
     void requestMox(bool on);                       // PttSource::Manual
 
 public:
+    // HL2 IO board (I2C2 0x1D) policies — Settings → Filters / BCD.
+    // Each setter persists its hw/ key, then republishes the snapshot.
+    // Transverter bands: false = hold the last HF TX Hz (default),
+    // true = send the on-air RF on every band.
+    bool ioboardXvtrOnAirRf() const {
+        return ioboardXvtrAnalog_ == lyra::wire::hl2iob::XvtrPolicy::OnAirRf;
+    }
+    void setIoboardXvtrAnalog(bool onAirRf);
+    bool ioboardSendRxFcodes() const { return ioboardSendRxFcodes_; }
+    void setIoboardSendRxFcodes(bool on);
+    // DIY Pico without the PCA9536: skip detection, write every cycle.
+    bool ioboardForcePresent() const { return ioboardForcePresent_; }
+    void setIoboardForcePresent(bool on);
+    enum class IoboardStatus { NotDetected, Detected, ForcedPresent, Protocol2 };
+    IoboardStatus ioboardStatus() const;
+
     // Task #33 — PTT source tracking (Thetis-faithful TCIPTT-vs-MOX
     // pattern, see docs/refs/mshv_tci/README.md §"Thetis TCI TX
     // architecture").  The 2-arg overload records which subsystem
@@ -1289,6 +1546,14 @@ public slots:
     // keyer; on HL2 a serial key can't reach the gateware key jack, so the
     // host keys via cwx (the HL2 KEY jack stays the lower-jitter path).
     Q_INVOKABLE void requestCwKeyFromSerial(bool down);
+    // Desk key and macros call this before the radio exists. The host
+    // applies the same CWX bits a local key uses.
+    void setCwEdgeHook(std::function<void(bool key, bool ptt)> hook);
+    void applyRemoteCw(bool key, bool ptt);
+    // Protocol 2 is the open radio. CW-chip edges then key with MOX
+    // plus the postgen carrier. HL2 leaves this false and keeps cwx.
+    void setP2CwHost(bool on);
+    void setSuppressLocalTxBadge(bool on);
 
     // #175 bench (increment 2a) — render `callsign` as a waterfall-ID raster
     // (lyra::dsp::WaterfallId, 48 kHz to match the TXA in-rate), clear + push
@@ -1344,6 +1609,12 @@ public slots:
     // and forwards to the registered TxControl callback.
     void setAlcDecayMs(int decay_ms);
     void setLevelerOn(bool on);
+    // Live run flag only. The desk checkbox and tx/levelerOn stay put,
+    // so a crash still comes up on the saved profile.
+    void pushLevelerRun(bool on);
+    // Live panel gain only. The saved Mic slider and tx/micGainDb stay
+    // put. Digital TCI audio is already at the level the app sent.
+    void holdMicGainUnity(bool hold);
     void setLevelerMaxGainLinear(double linear);
     void setLevelerDecayMs(int decay_ms);
     void setPhrotEnabled(bool on);   // #109 phase rotator on/off
@@ -1351,6 +1622,7 @@ public slots:
     // emit the changed signal, and (if keyed right now) re-apply to the
     // wire live so the operator sees the effect mid-TX.
     void setAttOnTxEnabled(bool on);
+    void setRx2GroundOnTx(bool on);
     void setTxInhibit(bool on);   // #94 External TX Inhibit (hard keying lockout)
     void setAttOnTxDb(int db);
     // #169 — SWR-protection operator surface.  Each persists under
@@ -1401,6 +1673,15 @@ public slots:
     // host stays RX, exactly like the paddle.  Thread-safe.
     Q_INVOKABLE void sendCw(const QString& text);
     Q_INVOKABLE void abortCw();
+    // Terminal switch. Off (the default) leaves macros, the paddle, and
+    // the on-screen window alone. On keeps cwx_ptt up after a message
+    // so the next letter does not click the TR relay. Does not assert
+    // the wire MOX bit.
+    Q_INVOKABLE void setCwTerminal(bool on);
+    bool cwTerminal() const { return cwTerminal_.load(std::memory_order_relaxed); }
+    Q_INVOKABLE void cwQueueMessage(const QString& prefix, const QString& call,
+                                    const QString& suffix);
+    Q_INVOKABLE void cwCorrectCallsign(const QString& call);
 
     // #105 CW-3b — CWX "send as you type" (type-ahead).  cwTypeAhead
     // appends each character of `s` to the keyer's editable staging tail;
@@ -1421,6 +1702,12 @@ public slots:
     void setFmDeviationHz(double hz);   // clamp 1000..6000
     void setCtcssEnabled(bool on);      // mode-gated run via applyCtcssRun()
     void setCtcssToneHz(double hz);     // snapped to the standard tone table
+    void setCtcssDlHz(double hz);       // 0 = same as UL / unused (no RX TSQ yet)
+    void setFmBurstHz(int hz);          // 0 or 1750 — memory recipe only
+    void setFmBurstMs(int ms);          // 500 / 2000 / 3000 / 4000
+    Q_INVOKABLE void fireFmBurst();     // 1750 Hz chip (FM TX mic mix)
+    // CMaster TX pump: mix a 1750 Hz sine into pcm->in after the mic rack.
+    static void mixFm1750Tx(int nsamples, double* buff);
     void setFmEmphasisMode(int mode);   // 0=Off, 1=Comm; forward via TxControl
 
     // TX-1 component 8a-tx-mode — push WDSP TXA mode (0=LSB, 1=USB)
@@ -1433,12 +1720,15 @@ public slots:
     // current sideband selection.  No-op if TxControl not registered
     // or if the callback is null.
     void setTxMode(int wdspMode);
+    // DIGU/DIGL/DRM/CWL/CWU/FM lock-out for PureSignal — driven from the
+    // Mode combo (focused RX), not only the TXA integer.  TX can still
+    // sit at USB while the operator is looking at DIGU on RX2; the lamp
+    // and coupler must follow the mode they switched.
+    void setPsUiMode(const QString &uiMode);
 
-    // P4.b TUN — TX NCO freq for the current state: the dial when not
-    // tuning, dial ∓ kTuneCwPitchHz while tuning (USB −, LSB +) so the
-    // ±kTuneCwPitchHz postgen tone nets to a zero-beat carrier at the
-    // dial.  Mirrors Thetis's tx_freq computation gated on chkTUN
-    // (console.cs:32574-32587).
+    // TX NCO: not tuning → dial + keyed-CW marker offset.  SSB/DIG TUN
+    // → dial ∓ kTuneCwPitchHz (USB-side −, LSB-side +) so postgen
+    // ±kTuneCwPitchHz nets to the dial.  CW TUN → same NCO as keyed CW.
     int txDdsHzForTune(quint32 dialHz) const;
     // #105 CW-2 — VFO − DDS carrier offset for the current TX mode (CWU
     // +pitch / CWL −pitch / other 0), == WdspEngine::cwMarkerOffsetForMode,
@@ -1452,13 +1742,11 @@ public slots:
     // txAnalyzerOffsetChanged → WdspEngine::setTxAnalyzerOffsetHz.
     int txAnalyzerOffsetHz() const;
 
-    // TX-1 component 8c / Task #53 — operator TX bandpass.  Forwards
-    // (low, high) Hz straight to TxControl.setBandpass.  Pulled
-    // through from Prefs.filterLow (shared with the RX bandpass) +
-    // Prefs.txBandwidth — see the QObject::connect block in
-    // main.cpp.  TxChannel internally sign-codes per WDSP mode
-    // (USB pass-through, LSB negate-and-swap), so we always pass
-    // positive edges.  No-op if hz<=0 or no TxControl registered.
+    // Operator TX bandpass.  Forwards (low, high) Hz straight to
+    // TxControl.setBandpass.  Low comes from Prefs.txFilterLow, high
+    // from Prefs.txBandwidth — see the connect block in main.cpp.
+    // The channel sign-codes the edges (USB pass-through, LSB
+    // negate-and-swap), so we always pass positive edges.
     void setTxBandpass(int lowHz, int highHz);
     void setTxStopDelayMs(int ms);
 
@@ -1491,7 +1779,16 @@ signals:
     void rx1FreqChanged();
     void splitEnabledChanged();
     void vfoBHzChanged();
+    void rptActiveChanged();
+    // RPT split was dropped because RX1 crossed a band edge; <leftBand> is
+    // the band / Xvtr slot RX1 left (status-bar line in MainWindow).
+    void rptDropped(const QString& leftBand);
     void subEnabledChanged();
+    void dualAdcChanged();
+    void diversityCapableChanged();
+    void diversityArmedChanged(bool on);
+    void diversityGainDbChanged();
+    void diversityPhaseDegChanged();
     void rx2FreqChanged();
     void focusedRxChanged();
     void ritChanged();   // RIT enable and/or offset
@@ -1506,10 +1803,13 @@ signals:
     // capturing an auto-roamed value.
     void lnaSetByOperator(int db);
     void autoLnaChanged();
+    void hl2RxPortChanged();
     void adcOverloadChanged();
     void filterBoardChanged(bool on);
+    void ocAccessoryChanged();
     void ocBitsChanged(int pattern);
     void logLine(QString line);
+    void txBandChangeBlocked();
     // TX-0c-fsm — fires when the wire MOX state changes after a TR-delay
     // transition completes (true at end of keydown rf_delay; false at end
     // of keyup ptt_out_delay).  Does NOT fire on mid-transition states.
@@ -1520,6 +1820,12 @@ signals:
     // already keyed / locked (on the air), `pending` = the still-editable
     // tail.  Emitted on this QObject's thread whenever either changes.
     void cwTypeAheadTextChanged(const QString& committed, const QString& pending);
+    // Last queued letter has started; the key line is held for more text.
+    void cwMacrosDrained();
+    // The callsign's last letter just started. Text is what actually keyed.
+    void cwCallsignSent(const QString& callsign);
+    // The 30 s idle hold dropped the key line and cleared the switch.
+    void cwTerminalHoldDropped();
     // #105 — display TX-state (moxActive || cwKeyingActive) changed.
     void txDisplayActiveChanged(bool on);
     // Fires ONCE per requestMox(true) call (MOX button click, TUN arm,
@@ -1544,13 +1850,37 @@ signals:
     void paEnabledChanged(bool on);
     void micBoostChanged(bool on);
     void bandVoltsOutputChanged(bool on);
+    // IO board: status changed (detected, forced, protocol) or a policy
+    // setter ran.
+    void ioboardStatusChanged();
+    void ioboardSettingsChanged();
     // TX-0c-pa-drive — operator-tunable drive DAC level changed (via
     // Settings SpinBox or persistence reload).  Raw 0..255 wire value.
     void txDriveLevelChanged(int level);
     // TX-0c-tune — tune-tone armed state changed (via TX panel button,
     // operator unarm, or the moxActiveChanged(false) safety auto-clear).
     void tuneEnabledChanged(bool on);
+    void tuneDriveOverrideChanged();
     void twoToneEnabledChanged(bool on);
+    void noiseEnabledChanged(bool on);
+    void psNoiseLevelDbChanged(int db);
+    void psAttestationChanged(bool on);
+    void psArmedChanged(bool on);
+    void psLiveArmedChanged(bool on);
+    void psFeedbackLevelChanged(int level);
+    void psAutoAttDbChanged(int db);
+    void psFsmStateChanged(int state);
+    void psCorrectingChanged(bool on);
+    void psCalCountChanged(int n);
+    void psDdc0DbfsChanged(int db);
+    void psDdc1DbfsChanged(int db);
+    void psFeedSprChanged(int n);
+    void psHwPeakChanged(double peak);
+    void psMaxTxChanged(double v);
+    void psGetPkChanged(double v);
+    void psAmpPlotHeldChanged(bool on);
+    void psAmpPlotChanged();
+    void psInfoChanged();
     // P4.b TUN display-honesty — the TX-analyzer NCO−dial offset (Hz)
     // changed.  Wired to WdspEngine::setTxAnalyzerOffsetHz so the panadapter
     // crop renders the TUN carrier at its true RF (the dial) rather than
@@ -1579,6 +1909,7 @@ signals:
     void phrotEnabledChanged(bool on);   // #109 phase rotator
     // §15.31 — ATT-on-TX operator surface.
     void attOnTxEnabledChanged(bool on);
+    void rx2GroundOnTxChanged(bool on);
     void txInhibitChanged(bool on);   // #94
     void voxEnabledChanged(bool on);  // #91
     void voxKeyingChanged(bool on);   // #91
@@ -1618,6 +1949,10 @@ signals:
     void fmDeviationHzChanged(double hz);   // #107
     void ctcssEnabledChanged(bool on);      // #107
     void ctcssToneHzChanged(double hz);     // #107
+    void ctcssDlHzChanged(double hz);
+    void fmBurstHzChanged(int hz);
+    void fmBurstMsChanged(int ms);
+    void fmBurstActiveChanged();
     // Fires once when the safety timeout actually expires and the FSM
     // auto-clears MOX.  Useful for a status-bar toast / log highlight;
     // the actual MOX-off is driven through requestMox(false) regardless.
@@ -1638,6 +1973,9 @@ private slots:
     void onFatalError(QString reason);
 
 private:
+    double applyPwrTrim(double rawW) const;
+    void pushCalNoise();
+
     // Mirror a safety-critical TX/wire event to BOTH the in-app log
     // dock (emit logLine) AND the Qt logging surface (qInfo / qCritical
     // → stderr + any installed file handler).  Operator-facing record
@@ -1654,6 +1992,7 @@ private:
     void safetyLog(const QString& msg);
     void fatalLog(const QString& msg);
     void lnaLog(const QString& msg);   // Auto-LNA / overload diagnostics
+    void refreshPsWire();
 
     // (§7) txWorkerLoop retired — EP2 writer is the verbatim
     // sendProtocol1Samples thread (prn->hWriteThreadMain).
@@ -1728,6 +2067,15 @@ private:
     // to the WDSP TX channel.  Called from the operator toggle, every TX
     // mode change, and channel open.  Auto-OFF in DIGU/DIGL (mode 7/9).
     void applyPhrotRun();
+    // Push the EFFECTIVE ALC ceiling and Leveler run.  In DIGU/DIGL (mode
+    // 7/9) the ALC max gain is held at 1.0 or below, so it only limits
+    // peaks over full scale, and the Leveler is off: both ride the gain of
+    // a variable-envelope signal (OFDM digital voice, PSK) and distort it.
+    // This covers any TCI or VAC client, not only a DeskLink digital key.
+    // Voice modes use the operator values (and levelerRunHeldOff_).
+    // Called from those setters, pushLevelerRun, every TX mode change,
+    // and channel open.
+    void applyDigitalTxLevels();
     // #107 — push the EFFECTIVE CTCSS run (ctcssEnabled_ && FM mode) to the
     // WDSP TX channel.  Called from the operator toggle, every setTxMode
     // edge, and channel open.  CTCSS is an FM-only modulator stage (WDSP
@@ -1737,6 +2085,18 @@ private:
     // on, else VFO A (rx1).  The SINGLE TX-freq writer for split paths so
     // PureSignal's feedback DDCs (which read tx[0].frequency) follow it.
     void pushEffectiveTxFreq();
+    // HL2 / HL2+ P1 IO board: the ONLY writer of the sequencer snapshot
+    // (Hl2IoBoard.h).  Updates lastHfTxHz_, then publishes
+    // compute_snapshot(inputs, lastHfTxHz_).  Every path that changes TX
+    // Hz, RX1/RX2 dial, SUB, RF1/Alt or an IO-board policy ends here.
+    // Qt thread only; inert on Protocol 2.
+    void publishIoboardState();
+    lyra::wire::hl2iob::Inputs ioboardInputs() const;
+    void pollIoboardSession();
+    void drainIoboardRecords();
+    void updateIoboardStatus();
+    void persistLastHfTxHz();
+    bool refuseTxBandJump(quint32 fromHz, quint32 toHz);
     // Writes the RX DDC NCOs from rx1FreqHz_ + (ritEnabled ? ritOffsetHz : 0)
     // — the single RX-NCO writer, mirror of pushEffectiveTxFreq.  Called by
     // setRx1FreqHz (every dial gesture) and the RIT setters.
@@ -1762,6 +2122,8 @@ private:
     // Every drive-byte write + every TX band change funnels here.  No-op
     // until create_xmtr (set_drive_level/SetTXFixedGain are guarded).
     void   applyTxPower_(int requestedRaw);
+    QString txCalKey_(const QString &logical) const;
+    void    loadTxPowerCal_();
     // Thetis HL2: RadioVolume = min(drive% · gbb[band]/100 / 93.75, 1).
     double radioVolumeFor_(int requestedRaw) const;
     // Stage 3b/B — the watts-cap drive ceiling (0..255 raw) for the active
@@ -1794,12 +2156,18 @@ private:
     // the FSM keydown/keyup hooks pass true/false to switch at the
     // right TR-sequenced moments.
     void updateOcPattern(bool transmitting = false);
+    void applyRx2GroundBit(bool transmitting);
     // #199 Stage 2 — OC wire sink (the write-tail of the old updateOcPattern)
     // + the N2ADR preset seeder for the editable OcControl table.
     void setOcOutput(quint8 bits);
-    void seedOcN2adr();
-    void loadOcSettings();        // override the N2ADR seed from oc/* if present
-    void saveOcSettings() const;  // persist the editable OC table to oc/*
+    void seedOcN2adr();           // ham rows only (also the first-run default)
+    void seedOcSwlN2adr();        // SWL rows — explicit operator action only
+    void seedOcYaesuExample();
+    void seedOcEmpty();
+    bool loadOcSettings();        // true if this rig has a saved table
+    void saveOcSettings() const;
+    void reloadOcFromDisk();      // family default, then per-rig oc/*
+    QString ocGroupKey() const;   // same rig bucket as PA cal (txCalKey_)
     // Apply an LNA gain to the live wire value WITHOUT persisting it —
     // used by Auto-LNA so its transient adjustments never overwrite the
     // operator's manual set point in QSettings.  Emits lnaGainChanged
@@ -1854,6 +2222,10 @@ private:
     std::atomic<bool>    p2PowerActive_{false};
     std::atomic<double>  pushedFwdW_{std::numeric_limits<double>::quiet_NaN()};
     std::atomic<double>  pushedRevW_{std::numeric_limits<double>::quiet_NaN()};
+    std::atomic<double>  deskFwdW_{0};
+    std::atomic<double>  deskRevW_{0};
+    std::atomic<qint64>  deskPowerMs_{0};
+    bool deskPowerFresh() const;
     // Stage 2b2: txSeq_ retired — metis_write_frame() owns the wire
     // sequence counter via the TU-scope MetisOutBoundSeqNum, shared
     // with the priming path for PureSignal-correct posture.
@@ -1974,7 +2346,18 @@ private:
     // mirror in setRx1FreqHz, now gated on !splitEnabled_).
     std::atomic<bool>    splitEnabled_{false};
     std::atomic<quint32> vfoBHz_{7074000};
+    // Why split is on (RPT vs operator) — see the rptActive Q_PROPERTY.
+    std::atomic<bool>    rptActive_{false};
     std::atomic<bool>    subEnabled_{false};
+    std::atomic<bool>    dualAdc_{false};
+    std::atomic<bool>    diversityCapable_{false};
+    std::atomic<bool>    diversityArmed_{false};
+    double               diversityGainDb_{0.0};
+    double               diversityPhaseDeg_{0.0};
+    // Band the live pair belongs to.  A null on one band is the wrong
+    // phase on the next (spacing versus wavelength), so each band keeps
+    // its own pair.  Empty until the ctor names the restored RX1 band.
+    QString              diversityBand_;
     std::atomic<quint32> rx2FreqHz_{7074000};
     int lastSubWarnBandA_{-1};
     int lastSubWarnBandB_{-1};
@@ -1991,8 +2374,10 @@ private:
     std::atomic<int>     ctuneFiltLoHz_{0};   // #174 CTUNE Stage2 — signed RX filter low edge (Hz)
     std::atomic<int>     ctuneFiltHiHz_{3000};// #174 CTUNE Stage2 — signed RX filter high edge (Hz)
     std::atomic<int>     txDriveLevel_{0};      // 0..255 operator setpoint
+    std::atomic<int>     tuneDriveOverrideRaw_{-1}; // -1 = Tune uses Drive
     std::atomic<int>     txEmittedDriveByte_{0}; // applyTxPower_ output (wire)
     std::atomic<bool>    p2DrivePath_{false};   // P2 analog drive vs HL2 P1
+    QString              txCalRigId_;           // empty = active-rig PA cal
     // TX power model Stage 3 — per-band "PA Gain By Band".
     // amateurBands() 160m..6m plus 11m (kPaPowerBandElevenM). Default 100 =
     // neutral.  Atomic per element: read on the power chokepoint
@@ -2027,8 +2412,8 @@ private:
     // reading that falls well under the cap.  QSettings pa_gain/<band>/capSettled.
     std::atomic<bool>    capServoSettled_[kNumPaGainBands];
     // Per-band PWR-meter trim (1.0 = raw formula, no correction).  Applied
-    // by fwdPowerCalW() so the displayed watts + the cap servo share ONE
-    // calibrated basis.  QSettings meter/pwrTrim/<idx>.
+    // by applyPwrTrim() so the live word, the PWR-needle interval max, and
+    // the cap servo share one calibrated basis.  QSettings meter/pwrTrim/<idx>.
     std::atomic<double>  pwrTrimByBand_[kNumPaGainBands];
     // Cap ARM gate (2026-07-03) — the cap only limits when armed.  Default
     // false.  QSettings tx/capArmed.  See capActive_() / capArmed().
@@ -2051,13 +2436,32 @@ private:
     // Last TX band applyTxPower_ ran for — so a freq dial tick only
     // re-applies the power when the band (gbb) actually changed.
     std::atomic<int>     lastTxBand_{-2};
+    std::atomic<int>     hl2RxPort_{0};  // 0 RF1, 2 Alt RX; P1 IO-board only
+    // HL2 IO board (Hl2IoBoard.h).  Qt thread only.
+    lyra::wire::hl2iob::XvtrPolicy ioboardXvtrAnalog_ =
+        lyra::wire::hl2iob::XvtrPolicy::OnAirRf;
+    bool                 ioboardSendRxFcodes_ = true;
+    bool                 ioboardForcePresent_ = false;
+    std::uint64_t        lastHfTxHz_ = 0;     // last TX Hz outside a transverter slot
+    std::uint64_t        lastHfTxHzSaved_ = 0;   // value last written to hw/ioboardLastHfTxHz
+    IoboardStatus        ioboardStatusShown_ = IoboardStatus::NotDetected;
+    // Per-session report state (reset in open()).
+    bool                 iobPresentReported_ = false;
+    bool                 iobAbsentReported_ = false;
+    std::uint64_t        iobStaleReported_ = 0;
+    // One-shot "[iob] TX regs follow VFO B" diagnostic: set when the
+    // published TX word first differs from RX1 under SPLIT, re-armed
+    // when it stops (never logs every poll cycle).
+    bool                 iobFollowBReported_ = false;
     std::atomic<int>     txStepAttnDb_{0};      // 0..31 dB; 0x1C C3 (31-db)
     std::atomic<int>     txMode_{1};            // 0=LSB 1=USB; mirror of the WDSP TXA mode, for the TUN DDS-offset sign (txDdsHzForTune)
+    std::atomic<bool>    psUiDigital_{false};   // focused RX DIG/DRM/CW/FM lock-out
     // #105 CW-2 — the single live CW pitch (shared with the RX pitch +
     // marker; fed from WdspEngine::cwPitchHz via setCwPitchHz, wired in
     // main.cpp).  Drives the keyed CW carrier offset + the HW sidetone freq.
     std::atomic<int>     cwPitchHz_{600};
     std::atomic<bool>    paOn_{false};          // 0x12 C2 bit 3 (active-high)
+    lyra::ui::XvtrSlots *xvtr_ = nullptr;
     std::atomic<bool>    micBoost_{false};      // 0x12 C2 bit 0 (+20 dB HW boost)
     std::atomic<bool>    bandVolts_{false};     // 0x00 C3 bit 3 (band-volts enable)
     // TX-0c-tune — operator-armed tune-tone generator.  Atomic so the
@@ -2066,6 +2470,41 @@ private:
     // needed since only that thread mutates it).
     std::atomic<bool>    tuneEnabled_{false};
     std::atomic<bool>    twoToneEnabled_{false};
+    std::atomic<bool>    noiseEnabled_{false};
+    int                  psNoiseLevelDb_{0};
+    bool                 psAttestation_{false};
+    bool                 psArmed_{false};
+    bool                 deskPs_{false};
+    bool                 deskPsLive_{false};
+    int                  deskPsFb_{0};
+    int                  deskPsAtt_{0};
+    bool                 deskPsCorr_{false};
+    int                  deskPsCal_{0};
+    int                  deskPsFsm_{0};
+    int                  deskPsD0_{-999};
+    int                  deskPsD1_{-999};
+    int                  deskPsSpr_{0};
+    QVariantList         deskMagX_;
+    QVariantList         deskMagY_;
+    QVariantList         deskCorrX_;
+    QVariantList         deskCorrY_;
+    bool                 subPausedForPs_{false};
+    std::unique_ptr<lyra::ps::PsFsm> psFsm_;
+    QString              psAttBand_;
+    int                  psAttMoxSeed_{0};
+
+    QString psTxAttBandKey() const;
+    QString psTxAttSettingsKey(const QString &band) const;
+    void persistPsTxAtt(int db);
+    void syncAttOnTxWithPs();
+
+    // Diversity pair follows the RX1 band.  A band with no saved pair
+    // is 0 dB / 0°.  The on/off switch stays one radio-wide setting.
+    QString diversityBandName() const;
+    static QString diversityBandGainKey(const QString &band);
+    static QString diversityBandPhaseKey(const QString &band);
+    void persistLiveDiversity();
+    void syncDiversityToRxBand();
 
     // Task #36 — Hardware PTT input forwarder.
     //
@@ -2176,6 +2615,7 @@ private:
     // Owned by this QObject (parent = this), runs on this thread.
     QTimer              *txSafetyTimer_    = nullptr;
     bool                 filterBoardEnabled_ = true;
+    lyra::oc::OcAccessory ocAccessory_ = lyra::oc::OcAccessory::N2adr;
     int                  ocPattern_ = 0;   // live 7-bit J16 pattern
     // #199 — the editable OC table + emit choke (Stage 1 core).  Stage 2
     // routes updateOcPattern() through it; seeded with the N2ADR preset so
@@ -2384,6 +2824,10 @@ private:
     double alcMaxGainLinear_       = kDefaultAlcMaxGainLinear;
     int    alcDecayMs_             = kDefaultAlcDecayMs;
     bool   levelerOn_              = kDefaultLevelerOn;
+    // Digital key: panel mic gain held at unity, leveler run held off.
+    // The checkbox values above are not rewritten.
+    bool   micGainParked_          = false;
+    bool   levelerRunHeldOff_      = false;
     double levelerMaxGainLinear_   = kDefaultLevelerMaxGainLinear;
     int    levelerDecayMs_         = kDefaultLevelerDecayMs;
     // #109 — PHROT (phase rotator) enable.  Default ON = WDSP create-time
@@ -2396,7 +2840,15 @@ private:
     // Q_PROPERTY setters on the Qt main thread; the FSM reads them on
     // the same thread (keydown/keyup run via QTimer::singleShot here).
     static constexpr bool kDefaultAttOnTxEnabled = true;
+    static constexpr bool kDefaultRx2GroundOnTx  = true;
     bool   attOnTxEnabled_         = kDefaultAttOnTxEnabled;
+    // Thetis AutoAttenuate: PS ON forces ATT-on-TX on. Remember the
+    // operator checkbox and restore it when PS is not live. Do not
+    // change attOnTxDb_ (that is not the PS coupler pad).
+    bool   attOnTxSavedForPs_      = kDefaultAttOnTxEnabled;
+    bool   attOnTxHeldByPs_        = false;
+    // UI write / wire-thread read (P1 apply + P2 HP overlay).
+    std::atomic<bool> rx2GroundOnTx_{kDefaultRx2GroundOnTx};
     bool   txInhibit_             = false;   // #94 External TX Inhibit (persisted)
     bool   convertLockout_        = false;   // #201 transient MP4-convert keying lockout
     int    attOnTxDb_              = kAttOnTxDb;   // 0..31; default 31
@@ -2477,6 +2929,19 @@ private:
     // builds it on first use; close() aborts it before prn teardown.
     void   setCwxKey(bool down);   // → tx[0].cwx     (per-element key)
     void   setCwxPtt(bool on);     // → tx[0].cwx_ptt (message-level hold)
+    void   noteCwEdge();
+    // Stream thread. Protocol 2 only: MOX for cwx_ptt, carrier for cwx.
+    void   applyP2CwCarrier();
+    void   releaseP2CwCarrier();
+    void   queueP2CwCarrier();
+    std::function<void(bool, bool)> cwEdgeHook_;
+    std::mutex cwEdgeMtx_;
+    std::atomic<bool> cwxKeyDown_{false};
+    std::atomic<bool> cwxPttDown_{false};
+    std::atomic<bool> p2CwHost_{false};
+    int               p2CwTone_ = -1;       // stream thread: -1 off, 0 hold, 1 element
+    bool              p2CwRaisedMox_ = false;
+    std::atomic<bool> suppressLocalTxBadge_{false};
     // #105 — set the UI-facing CW keyed state (cwKeyingActive_) + emit the
     // change.  Call on this QObject's thread only (the CwKeyer onState hook
     // marshals via QueuedConnection).  Dedups; does NOT touch wire MOX.
@@ -2487,6 +2952,7 @@ private:
     void   updateTxDisplayActive();
     void   ensureCwKeyer();
     std::unique_ptr<lyra::tx::CwKeyer> cwKeyer_;
+    std::atomic<bool> cwTerminal_{false};
     // #171 — break-in hang for the serial straight-key path: on key-up we
     // drop tx[0].cwx immediately but hold cwx_ptt for cwHangDelayMs_ so
     // inter-element gaps don't drop TX (lazy-created, single-shot, main thread).
@@ -2505,6 +2971,11 @@ private:
     double fmDeviationHz_          = kDefaultFmDeviationHz;
     bool   ctcssEnabled_          = false;
     double ctcssToneHz_           = kDefaultCtcssToneHz;
+    double ctcssDlHz_             = 0.0;   // 0 = linked to UL / unused
+    int    fmBurstHz_             = 0;     // 0 or 1750
+    int    fmBurstMs_             = 2000;  // 0.5 / 2 / 3 / 4 s
+    bool   fmBurstActive_         = false;
+    QTimer fmBurstTimer_;
     int    fmEmphasisMode_        = 1;   // 0=Off, 1=Comm (voice default)
 
     // §3.9-5 revert (operator-rejected 2026-06-06): the Lyra-native

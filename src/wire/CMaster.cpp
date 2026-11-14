@@ -469,6 +469,13 @@ void xcmaster (int stream)
 			if (pcm->TxPlateProcess)
 				(*pcm->TxPlateProcess)(pcm->xcm_insize[stream], pcm->in[stream]);
 		}
+		if (pcm->TxBurstProcess)
+			(*pcm->TxBurstProcess)(pcm->xcm_insize[stream], pcm->in[stream]);
+		// Speech-shaped cal stimulus.  Last writer before the modulator
+		// so the mic rack cannot recolor it.  No-op unless armed.
+		if (pcm->TxCalNoise)
+			(*pcm->TxCalNoise)(pcm->xcm_insize[stream], pcm->in[stream],
+				pcm->xcm_inrate[stream]);
 		// #90 TX-monitor tap — capture the post-rack mic (== the fexchange0
 			// input, "what you sound like") for the operator monitor.  Sits
 			// OUTSIDE the rack-bypass gate so digital/CW are captured too (just
@@ -574,6 +581,12 @@ void SendpTxMonitorTap (void (*Tap)(int nsamples, double* buff))			// #90
 	pcm->TxMonitorTap = Tap;
 }
 
+PORT
+void SendpTxCalNoise (void (*Fill)(int nsamples, double* buff, int rate))
+{
+	pcm->TxCalNoise = Fill;
+}
+
 // #88 — register the native TX speech pre-processor (runs before the EQ).
 PORT
 void SendpTxSpeechProcessor (void (*Process)(int nsamples, double* buff))
@@ -593,6 +606,12 @@ PORT
 void SendpTxPlateProcessor (void (*Process)(int nsamples, double* buff))
 {
 	pcm->TxPlateProcess = Process;
+}
+
+PORT
+void SendpTxBurstProcessor (void (*Process)(int nsamples, double* buff))
+{
+	pcm->TxBurstProcess = Process;
 }
 
 // #50 — gate the whole native TX rack on/off (digital-mode bypass).

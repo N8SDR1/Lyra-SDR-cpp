@@ -7,7 +7,7 @@
 // (normalized by the shared dbMin/dbMax window), and scrolls one new
 // row in at the top each frame — newest at top, history falling down.
 //
-// Render model: an internal QImage history buffer (binCount × kHistory)
+// Render model: an internal QImage history buffer (binCount × history_)
 // is scrolled by one row per frame and uploaded as a QSGImageNode
 // texture, which the scene graph scales (linear-filtered) to fill the
 // item — so the waterfall stays smooth at any panel size and shares the
@@ -41,6 +41,9 @@ class Waterfall : public QQuickItem {
     Q_OBJECT
     Q_PROPERTY(QObject *engine READ engineObj WRITE setEngineObj
                NOTIFY engineChanged)
+    // 1 = first receiver (default). 2 = second receiver, full converter span.
+    Q_PROPERTY(int receiver READ receiver WRITE setReceiver
+               NOTIFY receiverChanged)
     Q_PROPERTY(double dbMin READ dbMin WRITE setDbMin NOTIFY rangeChanged)
     Q_PROPERTY(double dbMax READ dbMax WRITE setDbMax NOTIFY rangeChanged)
     Q_PROPERTY(int targetFps READ targetFps WRITE setTargetFps
@@ -63,6 +66,8 @@ public:
 
     QObject *engineObj() const;
     void     setEngineObj(QObject *o);
+    int      receiver() const { return receiver_; }
+    void     setReceiver(int v);
 
     double dbMin() const { return dbMin_; }
     void   setDbMin(double v);
@@ -86,6 +91,7 @@ public:
 
 signals:
     void engineChanged();
+    void receiverChanged();
     void rangeChanged();
     void targetFpsChanged();
     void paletteChanged();
@@ -106,11 +112,13 @@ private:
     void rebuildLut();   // refresh lut_ from paletteIndex_ / strengthColor_
 
     lyra::dsp::WdspEngine *engine_ = nullptr;
-    QImage               img_;            // history buffer (binCount × kHistory)
+    int                    receiver_ = 1;
+    QImage               img_;            // history buffer (binCount × history_)
     std::vector<float>   row_;            // scratch: latest dB frame
     std::vector<float>   pendingMax_;     // peak-hold accumulator between rows
     QElapsedTimer        rowClock_;       // paces row pushes by speed_
     qint64               lastRowMs_ = -1; // ms of the last row push
+    qint64               lastFrameMs_ = -1; // skip PreciseTimer catch-up bursts
     bool                 dirty_ = false;  // new row since last paint?
     double               dbMin_ = -130.0;
     double               dbMax_ = -20.0;
@@ -124,7 +132,14 @@ private:
     lyra::palettes::Lut  lut_;            // active 256-entry colour LUT
     QTimer              *frameTimer_ = nullptr;
 
-    static constexpr int kHistory = 512;  // rows of time history retained
+    // Rows of time history retained.  Starts at kMinHistory and GROWS
+    // (never shrinks, so a splitter drag can't wipe history) to the
+    // pane's height in SCREEN pixels, so a tall pane on a 150 % / 4K
+    // display isn't a 512-row image stretched ~2x into a soft blur.
+    static constexpr int kMinHistory = 512;
+    static constexpr int kMaxHistory = 1024;   // texture-upload budget cap
+    int                  history_ = kMinHistory;
+    int  wantedHistory() const;
 };
 
 } // namespace lyra::ui

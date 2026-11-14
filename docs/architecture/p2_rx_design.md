@@ -214,6 +214,42 @@ until the gate passes.
   — the Brick's STM32 wants extra DDCs (DDC2/DDC3) enabled in some modes,
   unlike a stock ANAN. Out of scope for single-RX P2-2 but note it so a
   future diversity/RX2 pass doesn't rediscover it.
+
+## Diversity
+
+**Authoritative include plan:**
+`docs/architecture/diversity_include_plan.md`. D0 through D4
+and the polar plane are in the tree as of 2026-10-14. Armed
+defaults off. The DIV chip opens the dock; the switch inside
+arms the mix. Dummy-load only; no VK amp.
+
+**Operator locks (2026-10-14):** first hardware is Brick3SDR, then
+100D, dummy load. Extra-DDC `0x0F` stays off (D6 only). DIV is
+exclusive with SUB. Second RF is the RX2 jack (Alex Ext1), not
+ANT2. PS live or TX/MOX/TUN drops the DIV overlay; the operator
+"armed" flag stays true. Plain-TX drop is a deliberate divergence
+from Thetis.
+
+Diversity is **not** SUB, **not** MAP, **not** the Settings ADC combo.
+
+| Surface | What it actually is |
+|---|---|
+| **SUB / RX2** | Second VFO (DDC1). On Brick2 / HL2 both DDCs sit on **one** ADC. |
+| **MAP / ANT / RX chips** | Front-end jack (TRX / Ext1 / XVTR). Brick3 Ext1 silk = **RX2**. |
+| **Settings ADC** | Which ADC RX1 listens on. Lyra still programs **DDC0–3 to that same ADC**. |
+| **Diversity** (reference) | Two ADCs, **same frequency**, operator phase/gain, WDSP `divEXT` combiner. |
+
+Hardware that *can* (adcCount>1): Brick3 / 100D / 200D / 7000 / 8000 / G2.
+`RadioCapabilities::diversityCapable` is **true** on AnanP2.
+The chip reads it. Brick2 / HL2: one ADC → `diversityCapable=false`.
+
+While armed and receiving, DDC0→ADC0 / DDC1→ADC1 at the RX1 VFO
+and the host mixes them through `divEXT`. Phase/gain UI is D4.
+`P1_en_diversity` stays 0. Brick3 extra-DDC (`0x0F`) stays off
+unless that image needs D6. **Off while PureSignal is live, and
+off while transmitting** — PS owns the second ADC / coupler; a
+plain key-up also drops the overlay.
+
 - **Windows UDP flow-state (Jerry, Windows-only note).** Windows Firewall
   drops inbound UDP unless the host recently sent outbound to that exact
   remote port, so the HP-status stream (radio→PC `:1025`) goes silent

@@ -18,8 +18,8 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.24.5
-    DESCRIPTION "Lyra — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
+    VERSION 0.25.41
+    DESCRIPTION "Lyra Sulafat — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -59,6 +59,29 @@ find_package(Vulkan QUIET)
 set(PA_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(PA_BUILD_TESTS       OFF CACHE BOOL "" FORCE)
 set(PA_BUILD_EXAMPLES    OFF CACHE BOOL "" FORCE)
+# ASIO host support (docs/architecture/asio_vac_plan.md).  The Steinberg
+# ASIO SDK 2.3.4 host files are vendored in third_party/asiosdk (GPL v3
+# option, see LYRA-NOTES.md).  Defining ASIO::host here makes PortAudio
+# skip its own SDK lookup / internet download.  Compiled in, but OFF at
+# run time until the operator ticks "Enable ASIO devices" — no ASIO
+# driver is loaded otherwise (PaLyra_SetAsioEnabled, pa_win_hostapis.c).
+option(LYRA_WITH_ASIO "Build ASIO host support (opt-in at run time)" ON)
+if(WIN32 AND LYRA_WITH_ASIO)
+    set(LYRA_ASIOSDK "${CMAKE_CURRENT_SOURCE_DIR}/third_party/asiosdk")
+    add_library(ASIO::host INTERFACE IMPORTED)
+    target_sources(ASIO::host INTERFACE
+        "${LYRA_ASIOSDK}/common/asio.cpp"
+        "${LYRA_ASIOSDK}/host/asiodrivers.cpp"
+        "${LYRA_ASIOSDK}/host/pc/asiolist.cpp")
+    target_include_directories(ASIO::host INTERFACE
+        "${LYRA_ASIOSDK}/common"
+        "${LYRA_ASIOSDK}/host"
+        "${LYRA_ASIOSDK}/host/pc")
+    target_link_libraries(ASIO::host INTERFACE ole32 uuid)
+    set(PA_USE_ASIO ON CACHE BOOL "" FORCE)
+else()
+    set(PA_USE_ASIO OFF CACHE BOOL "" FORCE)
+endif()
 add_subdirectory(third_party/portaudio EXCLUDE_FROM_ALL)
 
 # --- ONNX Runtime (DeepFist neural CW decoder) ------------------------
@@ -92,6 +115,7 @@ qt_add_executable(lyra
     src/mic_source.h
     src/mic_source.cpp
     src/win_perf.cpp
+    src/hid_vfo_wheel.cpp
     # Multi-rig Stage 1 — per-family capability descriptor (inert
     # scaffolding; see docs/architecture/multi_rig_design.md).
     src/rig/RadioCapabilities.h
@@ -184,6 +208,8 @@ qt_add_executable(lyra
     src/wire/RbpFilter.cpp
     src/wire/FrameComposer.h
     src/wire/FrameComposer.cpp
+    src/wire/Hl2IoBoard.h
+    src/wire/Hl2IoBoard.cpp
     src/wire/Ep6RecvThread.h
     src/wire/Ep6RecvThread.cpp
     src/wire/Router.h
@@ -192,9 +218,8 @@ qt_add_executable(lyra
     src/wire/MetisFrame.cpp
     src/wire/ForceCandC.h
     src/wire/ForceCandC.cpp
-    # P2 TX: fail-closed safety, packet encoders, paced writer and bounded
-    # CMaster-to-session IQ FIFO. The writer is not started by production
-    # code, so MOX/drive/PA/transmit remain RF-inert.
+    # P2 TX: fail-closed safety, packet encoders, native DUC-IQ writer,
+    # 48 kHz CMaster pump, and bounded CMaster-to-writer IQ FIFO.
     src/wire/P2TxSafety.h
     src/wire/P2TxSafety.cpp
     src/wire/P2TxPackets.h
@@ -207,6 +232,8 @@ qt_add_executable(lyra
     src/wire/P2TxPump.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
+    src/wire/P2NativeUdp.h
+    src/wire/P2NativeUdp.cpp
     # Protocol 2 (Saturn / ANAN G2) Phase B — control-plane session
     # (general packet + HP run-bit keepalive + status stream parse).
     # WIRE-INERT in the app today: compiled so it tracks the tree, but
@@ -297,6 +324,8 @@ qt_add_executable(lyra
     src/dsp/deepfist/DeepFistConditioner.cpp
     src/dsp/deepfist/DeepFistCtc.h
     src/dsp/deepfist/DeepFistCtc.cpp
+    src/dsp/deepfist/DeepFistCommit.h
+    src/dsp/deepfist/DeepFistCommit.cpp
     src/dsp/deepfist/DeepFistScp.h
     src/dsp/deepfist/DeepFistScp.cpp
     src/dsp/deepfist/DeepFistRescore.h
@@ -396,6 +425,8 @@ qt_add_executable(lyra
     src/profile/ProfileManager.cpp
     src/profile/CompanionLauncher.h
     src/profile/CompanionLauncher.cpp
+    src/appsstore.h
+    src/appsstore.cpp
     src/profileui.h
     src/profileui.cpp
     # #158 DL-5 — src/ivac_audio.{h,cpp} (the Qt two-stream device layer)
@@ -409,6 +440,8 @@ qt_add_executable(lyra
     src/ps/PsCalcThread.cpp
     src/ps/PsFsm.h
     src/ps/PsFsm.cpp
+    src/ps/DdcMap.h
+    src/ps/DdcMap.cpp
     src/iqstft.h
     src/iqstft.cpp
     src/capturedprofile.h
@@ -453,6 +486,9 @@ qt_add_executable(lyra
     src/backup.cpp
     src/genslots.h
     src/genslots.cpp
+    src/xvtr_math.h
+    src/xvtrslots.h
+    src/xvtrslots.cpp
     src/time_stations.h
     src/time_stations.cpp
     src/memorystore.h
@@ -461,6 +497,8 @@ qt_add_executable(lyra
     src/eibistore.cpp
     src/tci_server.h
     src/tci_server.cpp
+    src/desk_link.h
+    src/desk_link.cpp
     src/spotstore.h
     src/spotstore.cpp
     src/spothole_feeder.h
@@ -490,6 +528,10 @@ qt_add_executable(lyra
     src/usb_bcd.cpp
     src/help.h
     src/help.cpp
+    src/helphint.h
+    src/helphint.cpp
+    src/helpcard.h
+    src/helpcard.cpp
     src/helpdialog.h
     src/helpdialog.cpp
     src/logbuffer.h
@@ -521,10 +563,15 @@ qt_add_qml_module(lyra
         src/qml/LyraSlider.qml
         src/qml/LyraSpinBox.qml
         src/qml/LyraComboBox.qml
+        src/qml/LyraHoverHelp.qml
         src/qml/PanadapterPanel.qml
+        src/qml/Rx2PanadapterPanel.qml
         src/qml/TuningPanel.qml
         src/qml/AudioPanel.qml
         src/qml/TxPanel.qml
+        src/qml/PsPanel.qml
+        src/qml/AmpViewPanel.qml
+        src/qml/DiversityPanel.qml
         src/qml/EqPanel.qml
         src/qml/RxEqPanel.qml
         src/qml/SpeechPanel.qml
@@ -539,12 +586,17 @@ qt_add_qml_module(lyra
         src/qml/ProfilePanel.qml
         src/qml/DisplayPanel.qml
         src/qml/BandPanel.qml
+        src/qml/MemoryRecallPopup.qml
         src/qml/ModeFilterPanel.qml
         src/qml/MeterPanel.qml
         src/qml/TunerPanel.qml
         src/qml/HorizonArc.qml
         src/qml/PlasmaBar.qml
         src/qml/VerticalLadder.qml
+        src/qml/MeterInk.js
+        src/qml/MeterSonar.qml
+        src/qml/LyraHelios.qml
+        src/qml/MeterCluster.qml
     RESOURCES
         src/assets/watermarks/lyra-watermark.jpg
         src/assets/logo/lyra-icon-128.png
@@ -569,6 +621,17 @@ qt_add_resources(lyra "lyra_data"
     FILES
         data/dxcc_prefix.csv
 )
+
+# ASIO Compatible logo (Steinberg artwork, unaltered) — the ASIO Usage
+# Guidelines require it in every dialog that enables / configures ASIO.
+if(WIN32 AND LYRA_WITH_ASIO)
+    qt_add_resources(lyra "lyra_asio"
+        PREFIX "/asio"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/asiosdk/logo"
+        FILES
+            third_party/asiosdk/logo/ASIO-compatible-logo-white-transparent-RGB.png
+    )
+endif()
 
 # Panadapter shaders: qsb-compiles GLSL → SPIR-V/MSL/HLSL/GLSL and
 # embeds the .qsb in the binary at ":/shaders/<name>.qsb".  QML uses
@@ -613,10 +676,16 @@ target_include_directories(lyra PRIVATE src)
 # project(... VERSION ...) above flows to code as LYRA_VERSION, and the
 # GitHub repo coordinates as LYRA_REPO_OWNER/LYRA_REPO_NAME.  The About
 # dialog and the update checker both read these (no hardcoded strings).
+# Settings / app-data identity.  A side-by-side test build can set
+# -DLYRA_APP_NAME=Lyra-cpp-ASIO so it reads and writes its own registry
+# key and app-data folders and never touches the normal Lyra settings.
+set(LYRA_APP_NAME "Lyra-cpp" CACHE STRING "Settings / app-data name")
 target_compile_definitions(lyra PRIVATE
     LYRA_VERSION="${PROJECT_VERSION}"
+    LYRA_VERSION_NAME="Sulafat"
     LYRA_REPO_OWNER="N8SDR1"
     LYRA_REPO_NAME="Lyra-SDR-cpp"
+    LYRA_APP_NAME="${LYRA_APP_NAME}"
 )
 
 # Embed the application icon into lyra.exe (Explorer / taskbar / shortcut
@@ -638,7 +707,7 @@ if(WIN32)
     #           system-wide UDP RX counters at stream start/close
     #           so we can tell whether EP6 seq-error drops happen
     #           in the kernel UDP buffer or upstream (NIC ring).
-    target_link_libraries(lyra PRIVATE ws2_32 winmm iphlpapi)
+    target_link_libraries(lyra PRIVATE ws2_32 winmm iphlpapi user32)
 endif()
 
 # Step 3a: bundle the WDSP DSP engine DLLs (`wdsp.dll` +
@@ -785,6 +854,42 @@ if(MSVC)
     target_compile_options(test_profile PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
+# P1 byte+fixed-gain vs P2 byte-only (unity IQ) TX drive split.
+add_executable(test_tx_drive_split EXCLUDE_FROM_ALL
+    scratch/test_tx_drive_split.cpp
+)
+target_include_directories(test_tx_drive_split PRIVATE src)
+if(MSVC)
+    target_compile_options(test_tx_drive_split PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+add_executable(test_ps_att_hunt EXCLUDE_FROM_ALL
+    scratch/test_ps_att_hunt.cpp
+)
+target_include_directories(test_ps_att_hunt PRIVATE src)
+if(MSVC)
+    target_compile_options(test_ps_att_hunt PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+add_executable(test_puresignal_ddc_map EXCLUDE_FROM_ALL
+    scratch/test_puresignal_ddc_map.cpp
+    src/ps/DdcMap.cpp
+)
+target_include_directories(test_puresignal_ddc_map PRIVATE src)
+target_link_libraries(test_puresignal_ddc_map PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_puresignal_ddc_map PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+add_executable(test_p2_ctune EXCLUDE_FROM_ALL
+    scratch/test_p2_ctune.cpp
+)
+target_include_directories(test_p2_ctune PRIVATE src)
+target_link_libraries(test_p2_ctune PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_p2_ctune PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
 # P2 Phase B — Saturn / ANAN G2 control-plane session bench test.
 # EXCLUDE_FROM_ALL; `cmake --build build --target test_p2_session`.
 # Console tool: opens a P2 session (general + HP run=1), prints the
@@ -804,6 +909,8 @@ add_executable(test_p2_session EXCLUDE_FROM_ALL
     src/wire/P2TxPump.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
+    src/wire/P2NativeUdp.h
+    src/wire/P2NativeUdp.cpp
 )
 target_include_directories(test_p2_session PRIVATE src)
 target_link_libraries(test_p2_session PRIVATE Qt6::Core Qt6::Network)
@@ -827,6 +934,8 @@ add_executable(test_p2_g2_profile EXCLUDE_FROM_ALL
     src/wire/P2TxPump.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
+    src/wire/P2NativeUdp.h
+    src/wire/P2NativeUdp.cpp
     scratch/p2_tx_cmaster_test_stubs.cpp
 )
 target_include_directories(test_p2_g2_profile PRIVATE src)
@@ -851,12 +960,39 @@ add_executable(test_p2_tx_packets EXCLUDE_FROM_ALL
     src/wire/P2TxPump.cpp
     src/wire/P2TxWriter.h
     src/wire/P2TxWriter.cpp
+    src/wire/P2NativeUdp.h
+    src/wire/P2NativeUdp.cpp
     scratch/p2_tx_cmaster_test_stubs.cpp
 )
 target_include_directories(test_p2_tx_packets PRIVATE src)
 target_link_libraries(test_p2_tx_packets PRIVATE Qt6::Core Qt6::Network)
 if(MSVC)
     target_compile_options(test_p2_tx_packets PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# Diversity D2+D3: packet overlay only. No WDSP, no UI, no socket.
+add_executable(test_div_overlay EXCLUDE_FROM_ALL
+    scratch/test_div_overlay.cpp
+    src/wire/P2Session.h
+    src/wire/P2Session.cpp
+    src/wire/P2TxSafety.h
+    src/wire/P2TxSafety.cpp
+    src/wire/P2TxPackets.h
+    src/wire/P2TxPackets.cpp
+    src/wire/P2TxFifo.h
+    src/wire/P2TxFifo.cpp
+    src/wire/P2TxPump.h
+    src/wire/P2TxPump.cpp
+    src/wire/P2TxWriter.h
+    src/wire/P2TxWriter.cpp
+    src/wire/P2NativeUdp.h
+    src/wire/P2NativeUdp.cpp
+    scratch/p2_tx_cmaster_test_stubs.cpp
+)
+target_include_directories(test_div_overlay PRIVATE src)
+target_link_libraries(test_div_overlay PRIVATE Qt6::Core Qt6::Network)
+if(MSVC)
+    target_compile_options(test_div_overlay PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # #199 OC Control Stage 1 — pure compute() + change-gate unit test.
@@ -874,6 +1010,62 @@ target_include_directories(test_oc_control PRIVATE src)
 target_link_libraries(test_oc_control PRIVATE Qt6::Core)
 if(MSVC)
     target_compile_options(test_oc_control PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# HL2 I/O board sequencer — frame-level harness (plan §5): module-level
+# driver plus the real write_main_loop_hl2.  EXCLUDE_FROM_ALL.
+add_executable(test_hl2_ioboard_frames EXCLUDE_FROM_ALL
+    scratch/test_hl2_ioboard_frames.cpp
+    scratch/hl2_ioboard_test_stubs.cpp
+    src/wire/Hl2IoBoard.h
+    src/wire/Hl2IoBoard.cpp
+    src/wire/FrameComposer.h
+    src/wire/FrameComposer.cpp
+    src/wire/RbpFilter.h
+    src/wire/RbpFilter.cpp
+)
+target_include_directories(test_hl2_ioboard_frames PRIVATE src)
+target_link_libraries(test_hl2_ioboard_frames PRIVATE Qt6::Core)
+set_target_properties(test_hl2_ioboard_frames PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+if(MSVC)
+    target_compile_options(test_hl2_ioboard_frames PRIVATE /utf-8 /Zc:preprocessor /W4)
+endif()
+
+# HL2 I/O board — every input-change path publishes the snapshot, and only
+# HL2Stream::publishIoboardState writes it (plan §5 publish_paths_static).
+#   ctest --test-dir build -R hl2_ioboard_publish_paths_static
+enable_testing()
+add_test(NAME hl2_ioboard_publish_paths_static
+         COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR}/src
+                 -P ${CMAKE_SOURCE_DIR}/scratch/hl2_ioboard_publish_paths.cmake)
+
+# OC SWL rows — the broadcast J16 rows are stamped only by the explicit
+# N2ADR accessory pick, never by the first-run / rig-switch default, and
+# their TX seed is 0.  Static body scan of hl2_stream.cpp + OcControl.cpp.
+#   ctest --test-dir build -R oc_swl_seed_paths_static
+add_test(NAME oc_swl_seed_paths_static
+         COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR}/src
+                 -P ${CMAKE_SOURCE_DIR}/scratch/oc_swl_seed_paths.cmake)
+
+add_executable(test_band_jump EXCLUDE_FROM_ALL
+    scratch/test_band_jump.cpp
+    src/bands.h
+    src/bands.cpp
+)
+target_include_directories(test_band_jump PRIVATE src)
+target_link_libraries(test_band_jump PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_band_jump PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# Transverter RF→IF math (header-only).  EXCLUDE_FROM_ALL; no HL2Stream.
+add_executable(test_xvtrslots EXCLUDE_FROM_ALL
+    scratch/test_xvtrslots.cpp
+)
+target_include_directories(test_xvtrslots PRIVATE src)
+set_target_properties(test_xvtrslots PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+if(MSVC)
+    target_compile_options(test_xvtrslots PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # #158 Stage 1 — IVAC direct-port engine unit test (verbatim
@@ -991,6 +1183,16 @@ if(MSVC)
     target_compile_options(test_portaudio PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
+# Diversity D1 — divEXT rotate math against the bundled wdsp.dll.
+# EXCLUDE_FROM_ALL; `cmake --build build --target test_divext`.
+# Loads the DLL itself (no WdspNative, no radio, no wire).
+add_executable(test_divext EXCLUDE_FROM_ALL scratch/test_divext.cpp)
+target_link_libraries(test_divext PRIVATE Qt6::Core)
+set_target_properties(test_divext PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+if(MSVC)
+    target_compile_options(test_divext PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
 # #50 / #59 — native parametric EQ engine unit test (Lyra-native RBJ
 # biquad cascade; wire-INERT, no Qt — pure C++).  EXCLUDE_FROM_ALL; built
 # on demand via `cmake --build build --target test_parameq`.  Verifies the
@@ -1054,6 +1256,36 @@ add_executable(test_cw_decoder EXCLUDE_FROM_ALL
 target_include_directories(test_cw_decoder PRIVATE src)
 if(MSVC)
     target_compile_options(test_cw_decoder PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+# DeepFist neural CW decoder offline bench (synthetic CW -> streaming decode
+# -> CER / latency / cost per tone-lock and commit-delay variant).
+# EXCLUDE_FROM_ALL; `cmake --build build --target test_cw_neural_bench`, run
+# from the repo root so it finds models/.
+add_executable(test_cw_neural_bench EXCLUDE_FROM_ALL
+    scratch/test_cw_neural_bench.cpp
+    src/dsp/deepfist/DeepFistResampler.h
+    src/dsp/deepfist/DeepFistResampler.cpp
+    src/dsp/deepfist/DeepFistSpectrogram.h
+    src/dsp/deepfist/DeepFistSpectrogram.cpp
+    src/dsp/deepfist/DeepFistConditioner.h
+    src/dsp/deepfist/DeepFistConditioner.cpp
+    src/dsp/deepfist/DeepFistCtc.h
+    src/dsp/deepfist/DeepFistCtc.cpp
+    src/dsp/deepfist/DeepFistCommit.h
+    src/dsp/deepfist/DeepFistCommit.cpp
+    src/dsp/deepfist/DeepFistModel.h
+    src/dsp/deepfist/DeepFistModel.cpp
+)
+target_include_directories(test_cw_neural_bench PRIVATE src)
+target_link_libraries(test_cw_neural_bench PRIVATE onnxruntime)
+if(MSVC)
+    target_compile_options(test_cw_neural_bench PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+if(WIN32)
+    add_custom_command(TARGET test_cw_neural_bench POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ORT_DIR}/lib/onnxruntime.dll" "$<TARGET_FILE_DIR:test_cw_neural_bench>")
 endif()
 
 # #49 Stage 1 — TX DSP rack save/load round-trip (the four model states the

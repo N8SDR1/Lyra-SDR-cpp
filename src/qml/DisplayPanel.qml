@@ -23,7 +23,7 @@ import QtQuick.Layouts
 Rectangle {
     id: root
     implicitHeight: 100
-    implicitWidth: 700
+    implicitWidth: 620
     color: "#101820"
     border.color: "#2a4a5a"
 
@@ -82,21 +82,34 @@ Rectangle {
         Label {
             Layout.row: 0; Layout.column: 0
             text: qsTr("Zoom"); color: "#cccccc"; font.bold: true
+            HoverHandler { id: zoomLblHov }
+            LyraHoverHelp {
+                title: qsTr("Zoom")
+                text: qsTr("Panadapter span. Combo jumps 1× / 2× / 4× / 8× / 16×; the slider is fine zoom. Same control as Settings → Visuals.")
+                hovered: zoomLblHov.hovered
+            }
         }
         LyraComboBox {
             id: zoomCombo
+            helpTitle: qsTr("Zoom")
+            helpText: qsTr("Jump panadapter zoom to 1× / 2× / 4× / 8× / 16×. The slider next to it is fine zoom.")
             Layout.row: 0; Layout.column: 1
-            Layout.preferredWidth: 64
+            Layout.preferredWidth: 52
+            font.pixelSize: 12
+            textLeftPad: 4
+            textRightPad: 14
             model: ["1x", "2x", "4x", "8x", "16x"]
             currentIndex: root.zoomIndex(Prefs.zoom)
             onActivated: Prefs.zoom = root.zoomLevels[currentIndex]
         }
         LyraSlider {
             id: zoomSlider
+            helpTitle: qsTr("Zoom")
+            helpText: qsTr("Fine panadapter zoom, 1.0× to 16.0×. Wheel ±0.1. Same as Settings → Visuals.")
             Layout.row: 0; Layout.column: 2
-            Layout.preferredWidth: 110
+            Layout.preferredWidth: 88
             Layout.fillWidth: true          // the slider yields, not the panel
-            Layout.minimumWidth: 60
+            Layout.minimumWidth: 52
             from: 10; to: 160; stepSize: 1     // slider int = zoom × 10
             value: Prefs.zoom * 10
             onMoved: Prefs.zoom = Math.round(value) / 10
@@ -112,25 +125,39 @@ Rectangle {
             Layout.row: 0; Layout.column: 3
             text: Prefs.zoom.toFixed(1) + qsTr("x")
             color: "#cdd9e5"; font.family: "Consolas"; font.bold: true
-            Layout.preferredWidth: 40
+            Layout.preferredWidth: 36
         }
 
         // ── Row 1 (left group): Panafall scroll step + Exact/100 Hz ──
         // Panafall step = how far each mouse-wheel tick tunes over the
         // panadapter/waterfall (coarse band skim — distinct from the fine
-        // VFO step on the Tuning panel).  Exact/100 Hz quantizes the
-        // result of click/drag/wheel tuning to the 100 Hz grid when on.
+        // VFO step on the Tuning panel).  Settings → Hardware →
+        // Navigation "Snap VFO wheel to Step" lands the first wheel
+        // notch on that grid.  Exact/100 Hz quantizes click/drag
+        // (and 100 Hz overrides the Panafall grid).
         Label {
             Layout.row: 1; Layout.column: 0
             text: qsTr("Panafall"); color: "#cccccc"; font.bold: true
+            HoverHandler { id: panaLblHov }
+            LyraHoverHelp {
+                title: qsTr("Panafall")
+                text: qsTr("How far each mouse-wheel tick tunes over the panadapter/waterfall (coarse skim — not the VFO Step on Tuning). Exact / 100 Hz next to it quantizes click and drag.")
+                hovered: panaLblHov.hovered
+            }
         }
         LyraComboBox {
             id: stepCombo
+            helpTitle: qsTr("Panafall")
+            helpText: qsTr("Wheel-tune step over the panadapter and waterfall. Distinct from the VFO Step on the Tuning panel.")
             Layout.row: 1; Layout.column: 1
-            Layout.preferredWidth: 84
-            readonly property var steps: [1, 10, 50, 500, 1000, 5000, 10000, 25000, 100000]
+            Layout.preferredWidth: 76
+            font.pixelSize: 12
+            textLeftPad: 4
+            textRightPad: 14
+            readonly property var steps: [
+                1, 10, 50, 500, 1000, 5000, 6250, 8333, 10000, 12500, 25000, 100000]
             model: ["1 Hz", "10 Hz", "50 Hz", "500 Hz", "1 kHz", "5 kHz",
-                    "10 kHz", "25 kHz", "100 kHz"]
+                    "6.25 kHz", "8.33 kHz", "10 kHz", "12.5 kHz", "25 kHz", "100 kHz"]
             currentIndex: Math.max(0, steps.indexOf(Prefs.panScrollStepHz))
             onActivated: Prefs.panScrollStepHz = steps[currentIndex]
             // No hover tooltip — the popup covered the choice list / the
@@ -138,27 +165,40 @@ Rectangle {
             // self-explanatory; details are in the User Guide.
         }
         Button {
+            id: exactBtn
             Layout.row: 1; Layout.column: 2
-            Layout.preferredWidth: 72
+            Layout.preferredWidth: 64
             checkable: true
             checked: Prefs.panRound100
-            // Label is self-explanatory (Exact ⇄ 100 Hz); no hover tooltip
-            // here — it popped over the button and swallowed the click.
             text: Prefs.panRound100 ? qsTr("100 Hz") : qsTr("Exact")
             onToggled: Prefs.panRound100 = checked
+            HoverHandler { id: exactHov }
+            LyraHoverHelp {
+                title: Prefs.panRound100 ? qsTr("100 Hz") : qsTr("Exact")
+                text: qsTr("Click/drag quantization. Exact = hertz you clicked. 100 Hz snaps to the 100 Hz grid (and overrides the Panafall wheel grid).")
+                hovered: exactHov.hovered
+            }
         }
 
         // ── Row 1 (right group): Spectrum frame rate ──
         Label {
             Layout.row: 1; Layout.column: 4
             text: qsTr("Spec"); color: "#cccccc"; font.bold: true
+            HoverHandler { id: specLblHov }
+            LyraHoverHelp {
+                title: qsTr("Spec")
+                text: qsTr("Spectrum frame rate, 5–120 fps. Higher is smoother and costs more GPU. Same as Settings → Visuals.")
+                hovered: specLblHov.hovered
+            }
         }
         LyraSlider {
             id: fpsSlider
+            helpTitle: qsTr("Spec")
+            helpText: qsTr("Spectrum frame rate, 5–120 fps. Wheel ±1. Same as Settings → Visuals.")
             Layout.row: 1; Layout.column: 5
-            Layout.preferredWidth: 140
+            Layout.preferredWidth: 110
             Layout.fillWidth: true
-            Layout.minimumWidth: 60
+            Layout.minimumWidth: 52
             from: 5; to: 120; stepSize: 1
             value: Prefs.targetFps
             onMoved: Prefs.targetFps = Math.round(value)
@@ -183,11 +223,22 @@ Rectangle {
         Label {
             Layout.row: 2; Layout.column: 0
             text: qsTr("Peak Hold"); color: "#cccccc"; font.bold: true
+            HoverHandler { id: peakLblHov }
+            LyraHoverHelp {
+                title: qsTr("Peak Hold")
+                text: qsTr("Spectrum peak trace. Off / Live (follows instantly) / timed 1–30 s / Hold (until Clear). Decay applies to timed modes.")
+                hovered: peakLblHov.hovered
+            }
         }
         LyraComboBox {
             id: peakCombo
+            helpTitle: qsTr("Peak Hold")
+            helpText: qsTr("Off, Live, timed (1–30 s), or Hold until Clear. Timed modes use Decay.")
             Layout.row: 2; Layout.column: 1
-            Layout.preferredWidth: 80
+            Layout.preferredWidth: 64
+            font.pixelSize: 12
+            textLeftPad: 4
+            textRightPad: 14
             model: ["Off", "Live", "1 s", "2 s", "5 s", "10 s", "30 s", "Hold"]
             currentIndex: root.peakHoldIndex(Prefs.peakHoldSecs)
             onActivated: {
@@ -197,11 +248,24 @@ Rectangle {
         }
         RowLayout {
             Layout.row: 2; Layout.column: 2
-            spacing: 6
-            Label { text: qsTr("Decay"); color: "#cccccc" }
+            spacing: 4
+            Label {
+                text: qsTr("Decay"); color: "#cccccc"
+                HoverHandler { id: decayLblHov }
+                LyraHoverHelp {
+                    title: qsTr("Decay")
+                    text: qsTr("How fast a timed peak-hold trace falls (Fast / Med / Slow). Only used when Peak Hold is a timed mode.")
+                    hovered: decayLblHov.hovered
+                }
+            }
             LyraComboBox {
                 id: decayCombo
-                Layout.preferredWidth: 72
+                helpTitle: qsTr("Decay")
+                helpText: qsTr("Peak-hold decay rate: Fast / Med / Slow. Applies to timed Peak Hold only.")
+                Layout.preferredWidth: 56
+                font.pixelSize: 12
+                textLeftPad: 4
+                textRightPad: 14
                 model: ["Fast", "Med", "Slow"]
                 currentIndex: root.peakDecayIndex(Prefs.peakDecayDbps)
                 // Decay only applies to the timed hold modes.
@@ -209,11 +273,18 @@ Rectangle {
                 onActivated: Prefs.peakDecayDbps = root.peakDecayVals[currentIndex]
             }
             Button {
+                id: clearPeakBtn
                 text: qsTr("Clear")
-                Layout.preferredWidth: 60
+                Layout.preferredWidth: 52
                 // Off has nothing to clear; Live re-seeds itself every tick.
                 enabled: Prefs.peakEnabled && Prefs.peakHoldSecs !== -2
                 onClicked: Prefs.requestClearPeaks()
+                HoverHandler { id: clearHov }
+                LyraHoverHelp {
+                    title: qsTr("Clear")
+                    text: qsTr("Wipe the held peak trace. Off has nothing to clear; Live reseeds every tick.")
+                    hovered: clearHov.hovered
+                }
             }
         }
 
@@ -221,13 +292,21 @@ Rectangle {
         Label {
             Layout.row: 2; Layout.column: 4
             text: qsTr("WF"); color: "#cccccc"; font.bold: true
+            HoverHandler { id: wfLblHov }
+            LyraHoverHelp {
+                title: qsTr("WF")
+                text: qsTr("Waterfall scroll rate, 1–120 rows/s. Faster = more history rolling by. Same as Settings → Visuals.")
+                hovered: wfLblHov.hovered
+            }
         }
         LyraSlider {
             id: wfSlider
+            helpTitle: qsTr("WF")
+            helpText: qsTr("Waterfall scroll rate, 1–120 rows/s. Wheel ±1. Same as Settings → Visuals.")
             Layout.row: 2; Layout.column: 5
-            Layout.preferredWidth: 140
+            Layout.preferredWidth: 110
             Layout.fillWidth: true
-            Layout.minimumWidth: 60
+            Layout.minimumWidth: 52
             from: 1; to: 120; stepSize: 1
             value: Prefs.waterfallSpeed
             onMoved: Prefs.waterfallSpeed = Math.round(value)

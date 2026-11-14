@@ -129,6 +129,12 @@ using fn_SetRXAEMNRPosition_t   = void (*)(int channel, int position);
 // voice.  We drive post2Run with the AEPF control; params stay at the
 // WDSP create defaults (0.15 / 0.15 / 5.0 / 0.12) — not overridden.
 using fn_SetRXAEMNRpost2Run_t   = void (*)(int channel, int run);
+// Neural NR (WDSP 2.10+).  Optional on older DLLs — nullptr means
+// the NNR toggle is inert.  Model slot 0=Standard 1=Premium.
+// Mask floor is dB, typical −10 (more residual) .. −50 (max cut).
+using fn_SetRXANNRRun_t        = void (*)(int channel, int run);
+using fn_SetRXANNRMaskFloor_t  = void (*)(int channel, double floor_db);
+using fn_SetRXANNRModel_t      = int  (*)(int channel, int slot);
 // AGC time constants — set explicitly per mode so Fast/Med/Slow are
 // audibly distinct (decay/hang in ms; hang threshold 0..100).
 using fn_SetRXAAGCDecay_t         = void (*)(int channel, int decay);
@@ -197,6 +203,26 @@ using fn_destroy_nobEXT_t     = void (*)(int id);
 using fn_xnobEXT_t            = void (*)(int id, double *in, double *out);
 using fn_SetEXTNOBRun_t       = void (*)(int id, int run);
 using fn_SetEXTNOBThreshold_t = void (*)(int id, double thresh);
+// Diversity combiner (div.c external API).  Host-side mix of two
+// converters.  DivExt calls these only while the DDC0 overlay is live.
+//
+// create_div leaves Irotate/Qrotate at zero and output at 0.
+// Before SetEXTDIVRun(1) with a mix: SetEXTDIVOutput(id, nr)
+// (nr=2 → output 2 means "sum") AND SetEXTDIVRotate.  Rotate is
+// linear, not dB: path 0 is 1+j0; path 1 is amp·e^{jθ} with
+// amp = 10^(gain_dB/20).  Output==nr mixes; output 0 or 1 copies
+// that receiver.  run==0 copies stream 0.  Do not bind xdivEXTF.
+using fn_create_divEXT_t      = void (*)(int id, int run, int nr, int size);
+using fn_destroy_divEXT_t     = void (*)(int id);
+using fn_flush_divEXT_t       = void (*)(int id);
+using fn_xdivEXT_t            = void (*)(int id, int nsamples,
+                                        double **in, double *out);
+using fn_SetEXTDIVRun_t       = void (*)(int id, int run);
+using fn_SetEXTDIVBuffsize_t  = void (*)(int id, int size);
+using fn_SetEXTDIVNr_t        = void (*)(int id, int nr);
+using fn_SetEXTDIVOutput_t    = void (*)(int id, int output);
+using fn_SetEXTDIVRotate_t    = void (*)(int id, int nr,
+                                        double *Irotate, double *Qrotate);
 // APF — CW audio peaking filter (a single in-chain biquad).  Centre on
 // the CW pitch, narrow bandwidth, peak gain (dB→linear at the call site).
 // Mode-gated to CWU/CWL by the engine.
@@ -431,6 +457,9 @@ struct WdspApi {
     fn_SetRXAEMNRaeRun_t      SetRXAEMNRaeRun      = nullptr;
     fn_SetRXAEMNRPosition_t   SetRXAEMNRPosition   = nullptr;
     fn_SetRXAEMNRpost2Run_t   SetRXAEMNRpost2Run   = nullptr;
+    fn_SetRXANNRRun_t         SetRXANNRRun         = nullptr;   // optional (2.10+)
+    fn_SetRXANNRMaskFloor_t   SetRXANNRMaskFloor   = nullptr;   // optional
+    fn_SetRXANNRModel_t       SetRXANNRModel       = nullptr;   // optional
     fn_SetRXAAGCDecay_t         SetRXAAGCDecay         = nullptr;
     fn_SetRXAAGCHang_t          SetRXAAGCHang          = nullptr;
     fn_SetRXAAGCFixed_t         SetRXAAGCFixed         = nullptr;
@@ -458,6 +487,18 @@ struct WdspApi {
     fn_xnobEXT_t             xnobEXT             = nullptr;
     fn_SetEXTNOBRun_t        SetEXTNOBRun        = nullptr;
     fn_SetEXTNOBThreshold_t  SetEXTNOBThreshold  = nullptr;
+    // Diversity (div.c).  Bound at load; no radio consumer until the
+    // overlay + ingest land together.  See the typedef comment for
+    // the zero-rotate init order.
+    fn_create_divEXT_t       create_divEXT       = nullptr;
+    fn_destroy_divEXT_t      destroy_divEXT      = nullptr;
+    fn_flush_divEXT_t        flush_divEXT        = nullptr;
+    fn_xdivEXT_t             xdivEXT             = nullptr;
+    fn_SetEXTDIVRun_t        SetEXTDIVRun        = nullptr;
+    fn_SetEXTDIVBuffsize_t   SetEXTDIVBuffsize   = nullptr;
+    fn_SetEXTDIVNr_t         SetEXTDIVNr         = nullptr;
+    fn_SetEXTDIVOutput_t     SetEXTDIVOutput     = nullptr;
+    fn_SetEXTDIVRotate_t     SetEXTDIVRotate     = nullptr;
     fn_SetRXABiQuadRun_t       SetRXABiQuadRun       = nullptr;
     fn_SetRXABiQuadFreq_t      SetRXABiQuadFreq      = nullptr;
     fn_SetRXABiQuadBandwidth_t SetRXABiQuadBandwidth = nullptr;
@@ -563,7 +604,7 @@ public:
     //       fftw/, leave it untouched per CLAUDE.md §15.26
     //       isolation-by-directory rule);
     //
-    //   (b) if `wdspWisdom00` exists in that dir, calling
+    //   (b) if `wdspWisdom01` exists in that dir, calling
     //       api().WDSPwisdom(<dir>) IN-PROCESS — fast import,
     //       <100 ms typical;
     //

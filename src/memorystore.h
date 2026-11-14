@@ -31,7 +31,9 @@ public:
         // Repeater fields — recall programs SPLIT + CTCSS atop freq/mode:
         int     offsetHz    = 0;    // signed shift; TX (VFO B) = freq + offset.
                                     // 0 = simplex (recall turns SPLIT off).
-        double  ctcssToneHz = 0.0;  // FM CTCSS access tone (Hz); 0 = off.
+        double  ctcssToneHz = 0.0;  // FM CTCSS uplink (TX encode) Hz; 0 = off.
+        double  ctcssDlHz   = 0.0;  // Downlink (RX tone) Hz; 0 = same as UL / none.
+        int     burstHz     = 0;    // 1750 = remember a 1750 Hz burst; 0 = none.
     };
     static constexpr int kMax = 20;
     static constexpr int kMaxName = 30;
@@ -60,7 +62,8 @@ public:
     void remove(int index);
     void clearAll();
 
-    // CSV (columns: Name, Freq_Hz, Mode, RX_BW_Hz, Notes — old-Lyra order).
+    // CSV: Name, Freq_Hz, Mode, RX_BW_Hz, Notes, Offset_Hz, CTCSS_Hz
+    //      [, CTCSS_DL_Hz, Burst_Hz]. Older files still import.
     bool exportCsv(const QString &path) const;
     struct ImportResult { int added = 0; int skipped = 0; QString error; };
     ImportResult importCsv(const QString &path, bool replace);

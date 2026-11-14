@@ -11,6 +11,9 @@
 //   left                centre                              right
 //   [TX label]  [Drive ──●── 25 %]                              [ MOX ]
 //
+// Antenna jacks (ANT 1/2/3 + RX TRX/BYPS/EXT1/XVTR) live on the Band
+// dock — this strip is already packed.
+//
 // The MOX button is the largest, sits on the right (away from the LED
 // on the Tuning dock if they're docked side-by-side), and is lit red
 // whenever the wire-MOX bit is high (Stream.moxActive — the post-TR-
@@ -35,6 +38,18 @@ Rectangle {
     readonly property color cAccent:   "#00e5ff"
     readonly property color cText:     "#cdd9e5"
     readonly property color cMuted:    "#8a9aac"
+    // Desk: this is the laptop microphone into MIC1. Local radio: WDSP TXA.
+    readonly property real micGainShown: DeskLink.deskSide
+                                         ? DeskLink.micGainDb : Stream.micGainDb
+    function commitMicGain(db) {
+        var nv = Math.round(db)
+        if (nv < -90) nv = -90
+        if (nv > 40) nv = 40
+        if (DeskLink.deskSide)
+            DeskLink.setMicGainDb(nv)
+        else
+            Stream.setMicGainDb(nv)
+    }
     readonly property color cOn:       "#ff9a3c"   // tune-armed orange
     readonly property color cMox:      "#d11515"   // wire-MOX red
     readonly property color cMoxEdge:  "#ff8080"
@@ -93,6 +108,12 @@ Rectangle {
             color: root.cAccent
             font.bold: true
             font.pixelSize: 14
+            HoverHandler { id: txLblHov }
+            LyraHoverHelp {
+                title: qsTr("TX")
+                text: qsTr("TUN — dummy-load carrier at Drive %% (or the Tune slider if that mode is on). MOX — key. Space-bar uses the same path. VOX / ATT / PROT — lamps; knobs in Settings → TX.")
+                hovered: txLblHov.hovered
+            }
         }
 
         Rectangle {
@@ -130,27 +151,24 @@ Rectangle {
                 font.pixelSize: 11
             }
             HoverHandler { id: p2StateHover }
-            ToolTip.visible: p2StateHover.hovered && Prefs.tooltipsEnabled
-            ToolTip.delay: 600
-            ToolTip.text: P2Bridge.txStatus
-                + qsTr("\nDUC FIFO: %1 samples\nBench drive ceiling: %2%")
-                    .arg(P2Bridge.ducFifoSamples)
-                    .arg(P2Bridge.txDriveLimitPercent)
+            LyraHoverHelp {
+                title: qsTr("P2")
+                text: P2Bridge.txStatus
+                      + qsTr("\nDUC FIFO: %1 samples. Bench drive ceiling: %2%.")
+                          .arg(P2Bridge.ducFifoSamples)
+                          .arg(P2Bridge.txDriveLimitPercent)
+                hovered: p2StateHover.hovered
+            }
         }
 
-        // ── TX Drive % — operator tunes between QSOs ────────────────
-        // Help lives on the LABEL, not the slider — a ToolTip popup is
-        // window-clamped, so "above the slider" got shoved back onto the
-        // track when the panel sits high.  Hover the name instead; the
-        // slider stays clear (operator idea 2026-06-20).
         Label {
             text: qsTr("Drive"); color: root.cMuted
             HoverHandler { id: driveLblHov }
-            ToolTip.visible: (driveLblHov.hovered) && Prefs.tooltipsEnabled
-            ToolTip.delay: 600
-            ToolTip.text: qsTr("How hard the HL2 drives its PA.  0 % = no carrier "
-                + "even with PA + MOX.  Start LOW (5–10 %) on a dummy load; raise "
-                + "gradually while watching the watt-meter.  Wheel adjusts (Shift = 5 %).")
+            LyraHoverHelp {
+                title: qsTr("Drive")
+                text: driveSlider.helpText
+                hovered: driveLblHov.hovered
+            }
         }
         LyraSlider {
             id: driveSlider
@@ -158,6 +176,14 @@ Rectangle {
             from: 0; to: 100; stepSize: 1; snapMode: Slider.SnapAlways
             value: root.rawToPct(Stream.txDriveLevel)
             onMoved: Stream.setTxDriveLevel(root.pctToRaw(value))
+            helpTitle: qsTr("Drive")
+            helpText: {
+                var t = qsTr("How hard the radio drives its PA. 0 % = no carrier even with PA + MOX. Start LOW (5–10 %) on a dummy load; raise while watching the watt-meter. Wheel ±1 (Shift = 5 %).")
+                if (P2Bridge.running && !P2Bridge.txOnAirValidated)
+                    t += qsTr(" P2 bench ceiling is %1% (Settings → TX).")
+                         .arg(P2Bridge.txDriveLimitPercent)
+                return t
+            }
             WheelHandler {
                 onWheel: (ev) => {
                     var step = (ev.modifiers & Qt.ShiftModifier) ? 5 : 1
@@ -166,16 +192,30 @@ Rectangle {
                     Stream.setTxDriveLevel(root.pctToRaw(nv))
                 }
             }
-            // (Help moved to the "Drive" label above — slider stays clear.)
         }
         Label {
             // Live readback from the wire atomic — so an external
             // change (CAT, persistence reload) updates the readout.
-            text: root.rawToPct(Stream.txDriveLevel) + qsTr(" %")
-            color: cText
+            // Unvalidated P2 clamps analog drive to the bench ceiling
+            // (Settings → TX; default 50%): show that, not the slider,
+            // when the slider is above the cap.
+            readonly property int sliderPct: root.rawToPct(Stream.txDriveLevel)
+            readonly property bool p2Capped: P2Bridge.running
+                && !P2Bridge.txOnAirValidated
+                && P2Bridge.txDriveLimitPercent < sliderPct
+            text: (p2Capped ? P2Bridge.txDriveLimitPercent : sliderPct)
+                  + qsTr(" %")
+            color: p2Capped ? root.cOn : cText
             font.family: "Consolas"
             font.bold: true
             Layout.preferredWidth: 44
+            HoverHandler { id: drivePctHov }
+            LyraHoverHelp {
+                title: qsTr("Drive")
+                text: qsTr("Slider %1% — P2 bench ceiling %2% (Settings → TX).")
+                    .arg(sliderPct).arg(P2Bridge.txDriveLimitPercent)
+                hovered: drivePctHov.hovered && p2Capped
+            }
         }
 
         // ── Mic Gain (dB) — operator tunes between QSOs ────────────
@@ -190,43 +230,40 @@ Rectangle {
         Label {
             text: qsTr("Mic"); color: root.cMuted
             HoverHandler { id: micLblHov }
-            ToolTip.visible: (micLblHov.hovered) && Prefs.tooltipsEnabled
-            ToolTip.delay: 600
-            ToolTip.text: qsTr("Mic gain into the TX modulator (WDSP TXA "
-                + "PanelGain1).  0 dB = unity.  Raise toward +10 to +20 dB for "
-                + "typical SSB voice — watch the ALC meter (Settings → TX → "
-                + "ALC ceiling) and back off when ALC engages hard.  Wheel "
-                + "adjusts (Shift = 5 dB).  Settings → TX → Mic Gain offers "
-                + "a typed spin-box for the same value — both surfaces tune "
-                + "the same control bidirectionally.")
+            LyraHoverHelp {
+                title: qsTr("Mic")
+                text: micGainSlider.helpText
+                hovered: micLblHov.hovered
+            }
         }
         LyraSlider {
             id: micGainSlider
             Layout.preferredWidth: 90    // matches driveSlider — front-panel sliders kept short
             // Range matches the verified reference's Default TX profile
-            // (Max +40, Min -90) so the operator's full reference-style
-            // travel is preserved.  Live value bidirectionally binds
-            // with the Settings → TX Mic Gain spin-box so either
-            // surface tunes the same QSettings tx/micGainDb value.
+            // (Max +40, Min -90). On the local radio this is tx/micGainDb.
+            // While attached as the desk it is the laptop mic into MIC1
+            // (deskRemote/micGainDb) and does not write the host rack.
             from: -90; to: 40; stepSize: 1; snapMode: Slider.SnapAlways
-            value: Stream.micGainDb
-            onMoved: Stream.setMicGainDb(value)
+            value: root.micGainShown
+            onMoved: root.commitMicGain(value)
+            helpTitle: qsTr("Mic")
+            helpText: DeskLink.deskSide
+                ? qsTr("Laptop microphone level sent to the shack. Changes while you transmit. 0 dB leaves that input unchanged.")
+                : qsTr("Mic gain into the TX modulator. 0 dB = unity. Typical SSB +10 to +20 dB — watch ALC (Settings → TX) and back off when it hits hard. Wheel ±1 (Shift = 5 dB).")
             WheelHandler {
                 onWheel: (ev) => {
                     var step = (ev.modifiers & Qt.ShiftModifier) ? 5 : 1
                     var nv = micGainSlider.value + (ev.angleDelta.y > 0 ? step : -step)
                     nv = Math.max(-90, Math.min(40, nv))
-                    Stream.setMicGainDb(nv)
+                    root.commitMicGain(nv)
                 }
             }
-            // (Help moved to the "Mic" label above — slider stays clear.)
         }
         Label {
-            // Live readback from the persisted Q_PROPERTY — so an
-            // external change (Settings dialog, persistence reload,
-            // future profile-recall) refreshes the readout.
-            text: (Stream.micGainDb >= 0 ? "+" : "") +
-                  Math.round(Stream.micGainDb) + qsTr(" dB")
+            // Live readback. Desk shows the laptop input; the local
+            // radio shows the WDSP TXA mic gain.
+            text: (root.micGainShown >= 0 ? "+" : "") +
+                  Math.round(root.micGainShown) + qsTr(" dB")
             color: cText
             font.family: "Consolas"
             font.bold: true
@@ -300,13 +337,12 @@ Rectangle {
                 elide: Text.ElideRight
                 clip: true
             }
-            ToolTip.text: qsTr("ATT-on-TX — forces the HL2 step attenuator (RX LNA "
-                + "to minimum) while transmitting so TX coupling can't blind the "
-                + "RX ADC.  Orange = armed, red = engaged (keyed).  Click to "
-                + "toggle (also in Settings → TX); value set there too.  "
-                + "Disabling removes RX-ADC protection on TX.")
-            ToolTip.delay: 1000
-            ToolTip.visible: (hovered && !pressed) && Prefs.tooltipsEnabled
+            HoverHandler { id: attHov }
+            LyraHoverHelp {
+                title: qsTr("ATT on TX")
+                text: qsTr("RX front-end pad on key-down. Gray = off; orange = armed; red = engaged now. Click toggles (same as Settings → TX). PureSignal ON turns this on; PS off restores. Default ON.")
+                hovered: attHov.hovered
+            }
         }
 
         // ── SWR-protection lamp (#169) ──────────────────────────────
@@ -358,19 +394,12 @@ Rectangle {
                      : root.cText
                 font: protBtn.font
             }
-            ToolTip.text: protBtn.tripped
-                ? qsTr("TX protection acted: %1 (limit %2:1).  Re-key "
-                       + "(MOX/TUN) to reset once the antenna/feedline is "
-                       + "fixed — it won't recover on its own.")
-                      .arg(Stream.swrProtectReason)
-                      .arg(Stream.swrProtectLimit.toFixed(1))
-                : qsTr("SWR protection — on sustained reflected power "
-                       + "above %1:1 it cuts (or folds back) TX.  Limit, "
-                       + "action + enable in Settings → TX.  Green = "
-                       + "armed, red = acted.  Click to toggle.")
-                      .arg(Stream.swrProtectLimit.toFixed(1))
-            ToolTip.delay: 1000
-            ToolTip.visible: (hovered && !pressed) && Prefs.tooltipsEnabled
+            HoverHandler { id: protHov }
+            LyraHoverHelp {
+                title: qsTr("PROT")
+                text: qsTr("SWR protection. Gray = off; green = armed; red = tripped (TX cut until you re-key). Click toggles. Knobs in Settings → TX.")
+                hovered: protHov.hovered
+            }
         }
 
         // ── Amp-cap (Max Output) indicator ──────────────────────────
@@ -400,23 +429,18 @@ Rectangle {
                 font.pixelSize: 12
             }
             HoverHandler { id: capHov }
-            ToolTip.visible: capHov.hovered && Prefs.tooltipsEnabled
-            ToolTip.delay: 800
-            ToolTip.text: {
-                const armed = capChip.uncal
-                    ? qsTr("Max Output is armed but this band has not finished "
-                           + "TUN learning. Keep Tune keyed into a dummy load — "
-                           + "power should climb to the cap, then this chip "
-                           + "turns cyan. Or turn the cap off in Settings → PA Gain.")
-                    : qsTr("Max Output cap is locked for this band at your set "
-                           + "limit (%1 W). Raising Drive above that lock does "
-                           + "not raise RF. Adjust or disable in Settings → PA Gain.")
-                          .arg(Math.round(Stream.capLimitW))
-                return capChip.limiting
-                    ? armed
-                    : armed + "\n\n" + qsTr("Dim: Drive/Tune is under the locked "
-                                            + "ceiling — RF may drop, the cap "
-                                            + "value itself stays put.")
+            LyraHoverHelp {
+                title: qsTr("CAP")
+                text: {
+                    const armed = capChip.uncal
+                        ? qsTr("Max Output is armed but this band has not finished TUN learning. Keep Tune keyed into a dummy load until this chip turns cyan. Or turn the cap off in Settings → PA Gain.")
+                        : qsTr("Max Output cap locked for this band at %1 W. Raising Drive above that lock does not raise RF.")
+                              .arg(Math.round(Stream.capLimitW))
+                    return capChip.limiting
+                        ? armed
+                        : armed + " " + qsTr("Drive/Tune is under the locked ceiling — RF may drop, the cap stays put.")
+                }
+                hovered: capHov.hovered
             }
         }
 
@@ -432,15 +456,11 @@ Rectangle {
             color: root.cMuted
             visible: Prefs.tuneDriveMode === 1   // TuneDriveTune (live per-band tune slider)
             HoverHandler { id: tuneLblHov }
-            ToolTip.visible: (tuneLblHov.hovered) && Prefs.tooltipsEnabled
-            ToolTip.delay: 600
-            ToolTip.text: qsTr("Drive %% applied while TUN is armed. "
-                + "Per-band remembered (tune-into-amp on 80 m vs tune-"
-                + "into-tuner on 10 m get their own settings).  Lyra "
-                + "swaps to this on tune-arm and restores your main "
-                + "TX Drive %% on tune-release.  Wheel adjusts "
-                + "(Shift = 5 %%); Settings → TX → Tune Drive offers "
-                + "typed entry.")
+            LyraHoverHelp {
+                title: qsTr("Tune drive")
+                text: qsTr("Drive % applied only while TUN is armed. Per-band. Lyra swaps to this on tune-arm and restores TX Drive % on release.")
+                hovered: tuneLblHov.hovered
+            }
         }
         // Slider matches the Drive/Mic idiom — drag for fast set,
         // wheel-tunes (Shift = 5 %) for fine, Settings → TX provides
@@ -452,6 +472,8 @@ Rectangle {
             from: 0; to: 100; stepSize: 1; snapMode: Slider.SnapAlways
             value: Prefs.tuneDrivePct
             onMoved: Prefs.tuneDrivePct = value
+            helpTitle: qsTr("Tune drive")
+            helpText: qsTr("Drive % applied only while TUN is armed. Per-band. Watch drv=/iq= on the status line while you drag.")
             WheelHandler {
                 onWheel: (ev) => {
                     var step = (ev.modifiers & Qt.ShiftModifier) ? 5 : 1
@@ -469,7 +491,6 @@ Rectangle {
                         tuneDriveSlider.value = Prefs.tuneDrivePct
                 }
             }
-            // (Help moved to the "Tune" label above — slider stays clear.)
         }
         // Live percent readback next to the slider (matches the
         // Drive/Mic readback idiom).
@@ -533,13 +554,12 @@ Rectangle {
                 elide: Text.ElideRight
                 clip: true
             }
-            ToolTip.text: qsTr("VOX — voice-operated transmit.  Green = armed "
-                + "(listening to your mic); red = keying now.  Keys TX when you "
-                + "speak and drops after the hang time.  Voice modes only; never "
-                + "overrides a manual / foot-switch key.  Threshold, hang time + "
-                + "anti-VOX live in Settings → TX.  Click to arm / disarm.")
-            ToolTip.delay: 1000
-            ToolTip.visible: (hovered && !pressed) && Prefs.tooltipsEnabled
+            HoverHandler { id: voxHov }
+            LyraHoverHelp {
+                title: qsTr("VOX")
+                text: qsTr("Voice-operated TX. Click arms/disarms. Gray = off; green = listening; red = keying on your voice. Threshold / hang in Settings → TX.")
+                hovered: voxHov.hovered
+            }
         }
 
         // ── TUN — armed-tune button (carrier @ TX freq + 1 kHz) ─────
@@ -572,10 +592,14 @@ Rectangle {
             text: qsTr("Tune")
             font.bold: true
             font.pixelSize: 12
-            checked: Stream.tuneEnabled
+            checked: DeskLink.deskSide ? DeskLink.tuneLit : Stream.tuneEnabled
             enabled: !P2Bridge.running
                      || (P2Bridge.txBenchArmed && !P2Bridge.txFaultLatched)
             onClicked: {
+                if (DeskLink.deskSide) {
+                    DeskLink.requestRemoteTune(!DeskLink.tuneLit)
+                    return
+                }
                 if (!Stream.tuneEnabled) {
                     // Arming: set tone first so the very first EP2 frame
                     // after wire-MOX rises already carries the carrier.
@@ -589,28 +613,25 @@ Rectangle {
             }
             background: Rectangle {
                 radius: 4
-                color: Stream.tuneEnabled ? "#3a2a14" : "#1f2a35"
-                border.color: Stream.tuneEnabled ? root.cOn : "#3a5060"
+                color: (DeskLink.deskSide ? DeskLink.tuneLit : Stream.tuneEnabled) ? "#3a2a14" : "#1f2a35"
+                border.color: (DeskLink.deskSide ? DeskLink.tuneLit : Stream.tuneEnabled) ? root.cOn : "#3a5060"
                 border.width: 2
             }
             contentItem: Text {
                 text: tunBtn.text
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
-                color: Stream.tuneEnabled ? root.cOn : root.cText
+                color: (DeskLink.deskSide ? DeskLink.tuneLit : Stream.tuneEnabled) ? root.cOn : root.cText
                 font: tunBtn.font
                 elide: Text.ElideRight
                 clip: true
             }
-            ToolTip.text: qsTr("Tune carrier — emits a 1 kHz complex tone in the "
-                + "TX I/Q stream and keys MOX.  Carrier power = TX Drive %.  "
-                + "Auto-disarms when MOX clears for any reason (release, "
-                + "safety timer, etc.).  Set Drive low for first session.")
-            // Tooltip was intercepting clicks on the most-pressed button on
-            // the panel — long delay + hide-on-press so a fast tune-arm
-            // gesture isn't fighting a popup that's already up.
-            ToolTip.delay: 1500
-            ToolTip.visible: (hovered && !pressed) && Prefs.tooltipsEnabled
+            HoverHandler { id: tunHov }
+            LyraHoverHelp {
+                title: qsTr("Tune")
+                text: qsTr("Arms a dummy-load carrier at TX frequency and keys MOX. Click again to release. Useful when PA is on and Drive > 0%.")
+                hovered: tunHov.hovered
+            }
         }
 
         // ── MOX — the keying button, big + lit red on wire truth ────
@@ -628,12 +649,16 @@ Rectangle {
             text: qsTr('2-Tone')
             font.bold: true
             font.pixelSize: 12
-            checked: Stream.twoToneEnabled
-            enabled: (!P2Bridge.running
-                      || (P2Bridge.txBenchArmed && !P2Bridge.txFaultLatched))
-                     && (!Stream.tuneEnabled || Stream.twoToneEnabled)
+            checked: DeskLink.deskSide ? DeskLink.twoToneLit : Stream.twoToneEnabled
+            enabled: DeskLink.deskSide
+                     ? !(DeskLink.tuneLit && !DeskLink.twoToneLit)
+                     : ((!P2Bridge.running
+                         || (P2Bridge.txBenchArmed && !P2Bridge.txFaultLatched))
+                        && (!Stream.tuneEnabled || Stream.twoToneEnabled))
             onClicked: {
-                if (!Stream.twoToneEnabled) {
+                if (DeskLink.deskSide) {
+                    DeskLink.requestRemoteTwoTone(!DeskLink.twoToneLit)
+                } else if (!Stream.twoToneEnabled) {
                     Stream.setTwoToneEnabled(true)
                     Stream.requestMox(true)
                 } else {
@@ -643,18 +668,24 @@ Rectangle {
             }
             background: Rectangle {
                 radius: 4
-                color: Stream.twoToneEnabled ? '#302044' : '#1f2a35'
-                border.color: Stream.twoToneEnabled ? '#d68cff' : '#3a5060'
+                color: (DeskLink.deskSide ? DeskLink.twoToneLit : Stream.twoToneEnabled) ? '#302044' : '#1f2a35'
+                border.color: (DeskLink.deskSide ? DeskLink.twoToneLit : Stream.twoToneEnabled) ? '#d68cff' : '#3a5060'
                 border.width: 2
             }
             contentItem: Text {
                 text: twoToneBtn.text
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
-                color: Stream.twoToneEnabled ? '#d68cff' : root.cText
+                color: (DeskLink.deskSide ? DeskLink.twoToneLit : Stream.twoToneEnabled) ? '#d68cff' : root.cText
                 font: twoToneBtn.font
                 elide: Text.ElideRight
                 clip: true
+            }
+            HoverHandler { id: twoToneHov }
+            LyraHoverHelp {
+                title: qsTr("2-Tone")
+                text: qsTr("Two-tone test. Keys MOX with a two-tone source for linearity checks. Click again to release.")
+                hovered: twoToneHov.hovered
             }
         }
 
@@ -670,10 +701,17 @@ Rectangle {
             text: qsTr("MOX")
             font.bold: true
             font.pixelSize: 12
-            checked: Stream.moxActive
+            checked: DeskLink.deskSide
+                      ? (DeskLink.moxLit && DeskLink.deskOwnsKey)
+                      : Stream.moxActive
             enabled: !P2Bridge.running
                      || (P2Bridge.txBenchArmed && !P2Bridge.txFaultLatched)
-            onClicked: Stream.requestMox(!Stream.moxActive)
+            onClicked: {
+                if (DeskLink.deskSide)
+                    DeskLink.requestRemoteMox(!(DeskLink.moxLit && DeskLink.deskOwnsKey))
+                else
+                    Stream.requestMox(!Stream.moxActive)
+            }
             background: Rectangle {
                 // Three-way state: moxActive (wire MOX live) → red;
                 // pressIntent (operator pressed within last ~220 ms,
@@ -681,10 +719,12 @@ Rectangle {
                 // tinted dark fill; otherwise gray.  Matches the TUN
                 // armed visual idiom so operators read both buttons
                 // the same way.
-                color: Stream.moxActive ? root.cMox
+                color: (DeskLink.deskSide ? (DeskLink.moxLit && DeskLink.deskOwnsKey)
+                                      : Stream.moxActive) ? root.cMox
                      : root.pressIntent ? "#3a2a14"
                      : "#1f2a35"
-                border.color: Stream.moxActive ? root.cMoxEdge
+                border.color: (DeskLink.deskSide ? (DeskLink.moxLit && DeskLink.deskOwnsKey)
+                                                 : Stream.moxActive) ? root.cMoxEdge
                             : root.pressIntent ? root.cOn
                             : "#3a5060"
                 border.width: 2
@@ -692,7 +732,8 @@ Rectangle {
             }
             contentItem: Text {
                 text: moxBtn.text
-                color: Stream.moxActive ? "#ffffff"
+                color: (DeskLink.deskSide ? (DeskLink.moxLit && DeskLink.deskOwnsKey)
+                                      : Stream.moxActive) ? "#ffffff"
                      : root.pressIntent ? root.cOn
                      : root.cText
                 font: moxBtn.font
@@ -701,16 +742,12 @@ Rectangle {
                 elide: Text.ElideRight
                 clip: true
             }
-            ToolTip.text: qsTr("Key the radio (MOX).  Goes red the instant the "
-                + "wire-MOX bit settles after the TR-delay.  Space-bar momentary "
-                + "(when no text widget has focus) routes through the same FSM.")
-            // Operator-reported 2026-05-29: a tooltip that pops the instant
-            // the cursor lands on MOX intercepts the click — you end up
-            // hunting for the bottom edge of the button to dodge it.  Long
-            // delay + hide-on-press means hover-with-intent still gets the
-            // hint, but key-the-radio gestures are instant.
-            ToolTip.delay: 1500
-            ToolTip.visible: (hovered && !pressed) && Prefs.tooltipsEnabled
+            HoverHandler { id: moxHov }
+            LyraHoverHelp {
+                title: qsTr("MOX")
+                text: qsTr("Manual key. Space-bar uses the same path. Lights red when the wire is actually transmitting.")
+                hovered: moxHov.hovered
+            }
         }
     }
 }

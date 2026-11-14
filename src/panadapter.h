@@ -45,6 +45,10 @@ class Panadapter : public QQuickItem {
     Q_OBJECT
     Q_PROPERTY(QObject *engine READ engineObj WRITE setEngineObj
                NOTIFY engineChanged)
+    // 1 = first receiver (default). 2 = second receiver, full converter
+    // span, its own analyzer. The main panadapter stays on 1.
+    Q_PROPERTY(int receiver READ receiver WRITE setReceiver
+               NOTIFY receiverChanged)
     // dB display window (vertical scale).  Operator-tunable later.
     Q_PROPERTY(double dbMin READ dbMin WRITE setDbMin NOTIFY rangeChanged)
     Q_PROPERTY(double dbMax READ dbMax WRITE setDbMax NOTIFY rangeChanged)
@@ -135,6 +139,8 @@ public:
 
     QObject *engineObj() const;
     void     setEngineObj(QObject *o);
+    int      receiver() const { return receiver_; }
+    void     setReceiver(int v);
 
     double dbMin() const { return dbMin_; }
     void   setDbMin(double v);
@@ -194,6 +200,7 @@ public:
 
 signals:
     void engineChanged();
+    void receiverChanged();
     void rangeChanged();
     void autoScaleChanged();
     void effRangeChanged();   // effective (auto or manual) range changed
@@ -233,6 +240,7 @@ private:
     void passbandPx(int W, int *lo, int *hi) const;
 
     lyra::dsp::WdspEngine *engine_ = nullptr;
+    int                    receiver_ = 1;
     std::vector<float>     pix_;        // dB pixels (post-EWMA, what renders)
     std::vector<float>     rawPix_;     // latest raw frame from the analyzer
     bool                   smoothInit_ = false;  // pix_ seeded yet?
@@ -242,6 +250,7 @@ private:
     AutoScaler             autoScaler_;          // computes the auto range
     QElapsedTimer          autoClock_;           // throttles the auto feed
     qint64                 lastAutoMs_ = -1;
+    qint64                 lastFrameMs_ = -1;    // skip PreciseTimer catch-up bursts
     int                    targetFps_ = 60;
     int                    smoothing_ = 0;     // 0..100 spatial smoothing (off = Lyra-style raw trace)
     int                    gridLevel_ = 35;    // 0..100 gridline brightness
@@ -275,6 +284,11 @@ private:
     // Per-frame scratch (reused to avoid per-frame allocation): the
     // peak-per-column curve, then the spatially-smoothed curve.
     std::vector<float>     colDb_;
+    // Scratch for the trace / peak-line ribbon (points + premultiplied
+    // RGBA per point) — see buildRibbon in panadapter.cpp.
+    std::vector<float>         lineXs_;
+    std::vector<float>         lineYs_;
+    std::vector<unsigned char> lineRgba_;
     std::vector<float>     smoothDb_;
 };
 

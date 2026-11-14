@@ -31,10 +31,20 @@ Rectangle {
         anchors.margins: 8
         spacing: 8
 
-        Label { text: qsTr("Profile"); color: root.cAccent; font.bold: true }
+        Label {
+            text: qsTr("Profile"); color: root.cAccent; font.bold: true
+            HoverHandler { id: profLblHov }
+            LyraHoverHelp {
+                title: qsTr("Profile")
+                text: qsTr("Recall a saved TX/RX snapshot. Create / rename / delete and set the default in Settings → Profiles.")
+                hovered: profLblHov.hovered
+            }
+        }
 
         LyraComboBox {
             id: profCombo
+            helpTitle: qsTr("Profile")
+            helpText: qsTr("Recall a saved TX/RX profile. Create / rename / delete and set the default in Settings → Profiles.")
             // Fixed, sensible width — a long profile name elides in the
             // field but shows in full in the open dropdown list, so we
             // don't stretch the combo across the whole dock.
@@ -58,12 +68,6 @@ Rectangle {
                 function onActiveChanged() { profCombo.syncToActive() }
                 function onNamesChanged()  { profCombo.syncToActive() }
             }
-            ToolTip.text: qsTr("Recall a saved TX/RX profile. Create / rename / "
-                + "delete and set the default in Settings → Profiles.")
-            // Suppress the tooltip while the dropdown is open — it otherwise
-            // pops over the list you're trying to pick from.
-            ToolTip.visible: hovered && !popup.visible && Prefs.tooltipsEnabled
-            ToolTip.delay: 600
         }
 
         Item { Layout.fillWidth: true }   // absorb slack → dot + Save sit right
@@ -76,12 +80,15 @@ Rectangle {
             color: Profiles.modified ? root.cOn : "#26323c"
             border.width: 1
             border.color: Profiles.modified ? "#ffb060" : "#33424e"
-            ToolTip.text: Profiles.modified
-                ? qsTr("Modified — live settings differ from “%1”. Save to keep them.")
-                    .arg(Profiles.activeName)
-                : qsTr("Saved — live settings match the active profile.")
-            ToolTip.visible: dotMa.containsMouse && Prefs.tooltipsEnabled
             MouseArea { id: dotMa; anchors.fill: parent; hoverEnabled: true }
+            LyraHoverHelp {
+                title: qsTr("Profile")
+                text: Profiles.modified
+                    ? qsTr("Modified — live settings differ from “%1”. Save to keep them.")
+                        .arg(Profiles.activeName)
+                    : qsTr("Saved — live settings match the active profile.")
+                hovered: dotMa.containsMouse
+            }
         }
 
         // Save — always available.  Opens the native "Save Profile"
@@ -96,10 +103,12 @@ Rectangle {
             implicitHeight: 26; implicitWidth: 56
             font.pixelSize: 12
             onClicked: ProfileUi.openSaveDialog()
-            ToolTip.text: qsTr("Save the current live settings — overwrite the "
-                + "active profile, or create a new one (and optionally set "
-                + "which mode family auto-recalls it).")
-            ToolTip.visible: hovered && Prefs.tooltipsEnabled; ToolTip.delay: 400
+            HoverHandler { id: saveHov }
+            LyraHoverHelp {
+                title: qsTr("Save")
+                text: qsTr("Save the current live settings — overwrite the active profile, or create a new one (and optionally set which mode family auto-recalls it).")
+                hovered: saveHov.hovered
+            }
         }
     }
 }

@@ -4,6 +4,8 @@
 #include "dsp/deepfist/DeepFistModel.h"
 
 #include <array>
+#include <cmath>
+#include <complex>
 #include <fstream>
 #include <sstream>
 
@@ -69,6 +71,51 @@ std::vector<std::string> parseSidecarTokens(const std::string& path) {
     return out;
 }
 
+// In-place radix-2 complex FFT (n a power of two); inverse when inv.
+void fftInPlace(std::vector<std::complex<double>>& a, bool inv) {
+    const size_t n = a.size();
+    for (size_t i = 1, j = 0; i < n; ++i) {
+        size_t bit = n >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) std::swap(a[i], a[j]);
+    }
+    for (size_t len = 2; len <= n; len <<= 1) {
+        const double ang = 2.0 * 3.14159265358979323846 / static_cast<double>(len)
+                           * (inv ? 1.0 : -1.0);
+        const std::complex<double> wl(std::cos(ang), std::sin(ang));
+        for (size_t i = 0; i < n; i += len) {
+            std::complex<double> w(1.0, 0.0);
+            for (size_t k = 0; k < len / 2; ++k) {
+                const auto u = a[i + k];
+                const auto v = a[i + k + len / 2] * w;
+                a[i + k]           = u + v;
+                a[i + k + len / 2] = u - v;
+                w *= wl;
+            }
+        }
+    }
+    if (inv)
+        for (auto& x : a) x /= static_cast<double>(n);
+}
+
+// Keep only |f - centerHz| <= halfWidthHz of a real signal at `sr`.
+void bandMask(std::vector<float>& x, double sr, double centerHz, double halfWidthHz) {
+    if (x.empty() || halfWidthHz <= 0.0) return;
+    size_t n = 1;
+    while (n < x.size() * 2) n <<= 1;            // zero-pad: no circular wrap
+    std::vector<std::complex<double>> a(n, {0.0, 0.0});
+    for (size_t i = 0; i < x.size(); ++i) a[i] = x[i];
+    fftInPlace(a, false);
+    const double binHz = sr / static_cast<double>(n);
+    for (size_t b = 0; b < n; ++b) {
+        const double f = (b <= n / 2) ? b * binHz : (static_cast<double>(b) - n) * binHz;
+        if (std::abs(std::abs(f) - centerHz) > halfWidthHz) a[b] = 0.0;
+    }
+    fftInPlace(a, true);
+    for (size_t i = 0; i < x.size(); ++i) x[i] = static_cast<float>(a[i].real());
+}
+
 #ifdef _WIN32
 std::wstring widen(const std::string& s) {
     if (s.empty()) return {};
@@ -129,13 +176,22 @@ bool DeepFistModel::load(const std::string& modelDir) {
 
 bool DeepFistModel::infer(const float* audio, int n,
                           std::vector<float>& logits, int& T, int& C) {
+    if (!audio || n <= 0) { T = 0; C = 0; logits.clear(); return false; }
+    return inferAt(audio, n, cond_.detectTone(audio, n), logits, T, C);
+}
+
+bool DeepFistModel::inferAt(const float* audio, int n, float toneHz,
+                            std::vector<float>& logits, int& T, int& C) {
     T = 0; C = 0;
     logits.clear();
     if (!ready_ || !audio || n <= 0) return false;
 
     // fldigi-style conditioner FIRST (exp14+ models are trained on conditioned,
     // single-signal, 600 Hz-centred, level-normalised audio — train==inference).
-    condScratch_ = cond_.condition(audio, n);
+    condScratch_ = cond_.conditionAt(audio, n, toneHz);
+    if (outMaskHz_ > 0.0f && !condScratch_.empty())
+        bandMask(condScratch_, DeepFistConditioner::kSr,
+                 DeepFistConditioner::kOutPitch, outMaskHz_);
     const float* condAudio = condScratch_.empty() ? audio : condScratch_.data();
 
     int specT = 0;

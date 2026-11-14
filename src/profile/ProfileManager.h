@@ -53,8 +53,12 @@ public:
     Q_INVOKABLE void remove(const QString &name);
     Q_INVOKABLE void rename(const QString &oldName, const QString &newName);
     Q_INVOKABLE void setDefault(const QString &name);
-    // Apply the default profile (if set) — call once at startup.
-    Q_INVOKABLE void applyDefaultAtStartup();
+    // Startup chain (call once after MainWindow exists).  restoredMode is
+    // the prefs-restored operating mode.  Order: mode-family binding if
+    // set → last active profile → Default.  Profiles do not store mode, so
+    // Default must not clobber a last-session FM/CW/… chain just because
+    // Default is tagged SSB.
+    Q_INVOKABLE void applyDefaultAtStartup(const QString &restoredMode = QString());
 
     // Per-FAMILY auto-recall bindings.  <family> is one of modeFamilies()
     // (CW/SSB/Digital/AM/SAM/DSB/FM) — sidebands collapse, since the TX/RX

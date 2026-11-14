@@ -17,9 +17,22 @@ SpinBox {
     id: control
     editable: true
     implicitHeight: 24
+
+    property string helpTitle: ""
+    property string helpText: ""
+    ToolTip.visible: false
+    HoverHandler { id: helpHov }
+    LyraHoverHelp {
+        title: control.helpTitle
+        text: control.helpText
+        hovered: helpHov.hovered && control.helpText.length > 0
+    }
     font.pixelSize: 13
     // Reserve the right-hand column for the stacked chevrons.
     rightPadding: 18
+    // Default is centred; Tuning FM Dev left-aligns so the field can shrink.
+    property int valueHAlign: Qt.AlignHCenter
+    property int textLeftPad: 6
 
     // A few call sites carry their OWN WheelHandler with custom stepping
     // (e.g. RIT/XIT = 10 Hz wheel / 1 Hz arrows); those set this false so the
@@ -32,9 +45,9 @@ SpinBox {
         color: control.enabled ? "#f2f8fc" : "#5a6670"
         selectionColor: "#50d0ff"
         selectedTextColor: "#0a0e12"
-        horizontalAlignment: Qt.AlignHCenter
+        horizontalAlignment: control.valueHAlign
         verticalAlignment: Qt.AlignVCenter
-        leftPadding: 6
+        leftPadding: control.textLeftPad
         readOnly: !control.editable
         validator: control.validator
         inputMethodHints: Qt.ImhFormattedNumbersOnly

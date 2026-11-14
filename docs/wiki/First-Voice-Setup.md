@@ -18,26 +18,31 @@ see the [User Guide](User-Guide).)*
 
 ## 🟢 Path A — mic &amp; headphones plugged into the radio  ✅ simplest
 
-This needs an **HL2+ / AK4951** — the version with audio jacks on the box.
-Nothing touches Windows sound settings.
+This is the **HL2+ / AK4951** (jacks on the box) and the same idea on
+**BrickSDR2 / Brick3SDR / P2 ANAN** when you use the **radio mic**.
+HL2+ can keep headphones on the radio too. Brick / ANAN usually listen
+on a **PC sound device** and talk on the radio mic.
 
 1. Plug your headphones or speaker into the radio's **PHONES** jack.
 2. Plug your microphone into the radio's **MIC** jack.
-3. **Settings → Audio → Out = "HL2 audio jack (AK4951)"**.
-4. **Settings → TX → Mic source = "Mic In"**. If people say you're quiet, tick
-   **Mic Boost (+20 dB)**.
-5. Pick your mode and frequency — SSB (**USB** above 10 MHz, **LSB** below), or
+3. **Settings → Audio → Out** = **"HL2 audio jack (AK4951)"** on an HL2+,
+   or your **PC speakers** on Brick / ANAN / a plain HL2.
+4. **Settings → TX → Mic source = "Mic In"** (radio mic). If people say
+   you're quiet, tick **Mic Boost (+20 dB)** where the radio has it.
+5. **Settings → TX → Advanced → Enable PA** if that box is there (Brick /
+   ANAN). **Drive** above 0. Brick3 first RF: **dummy load**.
+6. Pick your mode and frequency — SSB (**USB** above 10 MHz, **LSB** below), or
    **AM** / **FM** as the band or net calls for.
-6. Hold your mic **PTT** (or a foot switch, or click **MOX**) and talk — watch
+7. Hold your mic **PTT** (or a foot switch, or click **MOX**) and talk — watch
    the **MIC** meter move as you speak. That means it's hearing you.
 
-That's it — no Windows sound settings needed.
+On an HL2+ with both jacks on the radio, nothing else in Windows is needed.
 
 ---
 
 ## 🔵 Path B — mic &amp; headphones plugged into the computer
 
-Works on any HL2 or HL2+.
+Works on any HL2 / HL2+ / BrickSDR2 / Brick3SDR.
 
 **Hearing the radio (RX):**
 
@@ -58,11 +63,19 @@ Works on any HL2 or HL2+.
    app or a hardware volume/mute — check it. Speak and confirm the Windows input
    bar moves.
 4. Point Lyra at it — **Settings → TX → Mic source = "PC Soundcard (VAC1)"**,
-   then **Settings → Audio → VAC1** and set the **Input device** to that same
-   Windows microphone.
-5. Pick your mode and frequency (as in Path A step 5), hold **MOX** (or your
-   PTT), and talk — watch Lyra's **MIC** meter move. No movement → go back to
-   step 3 (Windows).
+   then **Settings → Audio → VAC1**:
+   - tick **Enable VAC1**
+   - **Auto-enable for digital** **off** (on USB/LSB that switch **stops** VAC)
+   - **Input device** = that same Windows microphone (headset **mic**, not speakers)
+   - **Output device** = **`(none)`** for a USB headset used as a mic
+     (RX already uses **Out**; do not pick the headset twice)
+   - **Combine input (mono)** if the headset is stereo
+5. Dummy load. PA / Drive on. USB or LSB. **MOX** and talk — watch the
+   **MIC** meter move (not watts). **MON TX** on, raise **Monitor**, hear
+   yourself in the headset.
+
+**USB headset, no virtual cable.** **Out** = headset speakers, VAC1
+**Input** = headset mic, VAC1 **Output** = `(none)`. VB-CABLE is not required.
 
 ---
 

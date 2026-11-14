@@ -54,9 +54,11 @@ Rectangle {
     //   * bypassModes — modes where the EQ is auto-bypassed (dimmed header +
     //                   "bypassed" flag).  TX dims in digital + CW; the RX dock
     //                   passes just the digital data modes.
+    //   * panelTitle  — header chip ("TX EQ" vs "RX EQ").
     property var  eq:    Eq
     property real bwHz:  Prefs.txBandwidth
     property var  bypassModes: ["DIGU", "DIGL", "CWU", "CWL"]
+    property string panelTitle: qsTr("TX EQ")
 
     // The TX rack is bypassed in the digital data modes (DIGU/DIGL, gated by
     // SetTxRackBypass) and is moot in CW.  Gray the ON lamp + flag the header
@@ -161,7 +163,7 @@ Rectangle {
             spacing: 10
 
             Label {
-                text: qsTr("TX EQ")
+                text: root.panelTitle
                 color: root.cAccent
                 font.bold: true
                 font.pixelSize: 14

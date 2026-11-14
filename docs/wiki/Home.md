@@ -2,9 +2,9 @@
 
 <img src="https://n8sdr1.github.io/Lyra-SDR-cpp/logo.png" width="120" alt="Lyra logo">
 
-# Lyra — Hermes Lite 2 / 2+ and BrickSDR2 SDR Transceiver
+# Lyra — Hermes Lite 2 / 2+, Brick, and ANAN (P2)
 
-**A native C++23 / Qt 6 SDR transceiver for the Hermes Lite 2 / 2+ (Protocol 1) and BrickSDR2 (Protocol 2) — full receive *and* transmit, a GPU-accelerated panadapter, and a studio-grade TX audio rack. No Python, no GIL, nothing in the signal path but native code.**
+**v0.25.41 Sulafat** — native C++23 / Qt 6 SDR for **Windows 10 / 11 x64**. Protocol 1 **HL2 / 2+**; Protocol 2 **BrickSDR2 / Brick3SDR** and **ANAN** (G2 dummy-load arm). Dual RX1/RX2 panadapters, independent SUB, **Diversity** (dual-ADC phasing), PureSignal + Amp View, WDSP, CW TX + decode, LAN remote. **ASIO for VAC is in test** (default off).
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D6?logo=windows&logoColor=white)](PC-Requirements)
 [![Latest release](https://img.shields.io/github/v/release/N8SDR1/Lyra-SDR-cpp?label=latest&color=2f81f7)](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest)
@@ -44,12 +44,15 @@ wired Ethernet link to the radio.
 |---|---|
 | **Hermes Lite 2** | ✅ Supported (Protocol 1) |
 | **Hermes Lite 2+ (AK4951)** | ✅ Supported (Protocol 1) |
-| **BrickSDR2** | ✅ Supported (Protocol 2) |
-| **ANAN-10 / 10E / 100 / 100B / 100D / 200D** (P2) | 🚧 Dummy-load TX arm (classic Alex; pick model in Settings) |
+| **BrickSDR2** | ✅ Supported (**Protocol 2**). A P1 discovery row is listed but **not opened**. |
+| **Brick3SDR** | ✅ **Brick3 Beta Testing** (**Protocol 2**). TX like BrickSDR2 (no dummy-load arm). **SUB** opens a second panadapter. **RX2 jack isolate on TX**. First RF: dummy load. |
+| **ANAN-10 / 10E** (P2) | 🚧 BrickSDR2 TX (on-air, classic Alex). Pick model in Settings. |
+| **ANAN-100 / 100B / 100D / 200D** (P2) | 🚧 Brick3SDR TX (on-air, independent Enable PA). **100D / 200D**: SUB second pane. |
 | ANAN-G2 / G2-1K | 🚧 Dummy-load TX arm (Saturn BPF) |
-| ANAN-7000DLE / 8000 | 🗺️ Locked (OrionMkII BPF not in this pass) |
+| ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 | ✅ Protocol 2 TX like Brick3 (Enable PA + MOX + Drive; no Arm Protocol 2 TX). Dummy load on first TX. |
+| Brick / classic ANAN still on **Protocol 1** FPGA | ❌ Refused — HL2 TX layout would be wrong. Flash **P2**. |
 
-Full detail on the **[Supported Radios](Supported-Radios)** page.
+Full detail (why Open is refused, what TX would do, Brick flash help) on the **[Supported Radios](Supported-Radios)** page.
 
 ## Operating system
 
@@ -61,16 +64,18 @@ Full detail on the **[Supported Radios](Supported-Radios)** page.
 
 ## At a glance — what works now
 
-✅ Full **receive** (all modes, the complete WDSP noise/filter toolkit, RX EQ,
-captured-noise reduction, CTUN, RIT) · ✅ Full **transmit** — SSB / AM / SAM /
-DSB / FM / CW plus digital over TCI & VAC · ✅ **SUB / RX2 + SPLIT on HL2 and BrickSDR2** ·
-✅ a **native TX audio rack**
-(8-band EQ, multiband Combinator, plate reverb, speech processing, voice
-keyer, VOX, TX profiles) · ✅ **CW** send + on-screen **CW decode** · ✅
-**DX spots**, **frequency calibration**, **tuner memory**, **CAT / TCI /
-VAC**, a **session recorder**, backup & restore, and a **dockable** Vulkan UI.
+✅ Full **receive** (WDSP 2.10 NR or NNR, RX EQ, NR-C, CTUN, RIT, APF, BIN) ·
+✅ Full **transmit** — SSB / AM / SAM / DSB / FM / CW plus TCI / VAC ·
+✅ **Dual panadapters / waterfalls** (RX1 + RX2 on two-converter radios) ·
+✅ **SUB / RX2 + SPLIT** (independent) · ✅ **Diversity** (dual-ADC phase/gain) ·
+✅ **PureSignal** + Amp View · ✅ native **TX rack** · ✅ **CW** send + **decode**
+(Classic / DeepFist) · ✅ dockable Vulkan/D3D11 UI · ✅ **Lyra Remote on the LAN**
+(not WAN) · ✅ **ASIO for VAC in test** (v0.25.41, default off; not CMASIO).
 
 See the full checklist on **[Feature Status](Feature-Status)**.
+**ASIO for VAC is in test** (v0.25.41, default off). That is not Thetis
+CMASIO and not a WING used as the radio mixer —
+**[FAQ](FAQ-and-Troubleshooting#can-i-use-cmasio-or-a-behringer-wing--x32-with-lyra)**.
 
 ## A studio rack, inside the radio
 
@@ -81,14 +86,21 @@ gear — all native, all in front of the WDSP transmitter:
 |:---:|:---:|:---:|
 | [![TX EQ](https://n8sdr1.github.io/Lyra-SDR-cpp/feat-eq.jpg)](https://n8sdr1.github.io/Lyra-SDR-cpp/) | [![TX Combinator](https://n8sdr1.github.io/Lyra-SDR-cpp/feat-combinator.jpg)](https://n8sdr1.github.io/Lyra-SDR-cpp/) | [![TX Speech rack](https://n8sdr1.github.io/Lyra-SDR-cpp/feat-speech.jpg)](https://n8sdr1.github.io/Lyra-SDR-cpp/) |
 | Draggable response curve over a live analyzer | Multiband compression, X-Air-style | Noise gate, auto-AGC, de-esser, DX cut-through |
+| **PureSignal** | **Amp View** | |
+| [![PureSignal](https://n8sdr1.github.io/Lyra-SDR-cpp/feat-puresignal.jpg)](https://n8sdr1.github.io/Lyra-SDR-cpp/) | [![Amp View](https://n8sdr1.github.io/Lyra-SDR-cpp/feat-ampview.jpg)](https://n8sdr1.github.io/Lyra-SDR-cpp/) | |
+| Compact PS dock, FB chip, auto-att | Live GetPSDisp plot — Snap / Hold | |
 
 <sub>Screens from the [feature tour](https://n8sdr1.github.io/Lyra-SDR-cpp/). Plus plate reverb, voice keyer, VOX, and save/recall TX profiles — see **[Feature Status](Feature-Status)**.</sub>
 
-## On the roadmap
+## Shipped highlights
 
-🗺️ **PureSignal** adaptive predistortion · 🗺️
-**ANAN-7000DLE / 8000** · 🗺️ **Linux, then macOS** ·
-plus a second virtual-audio channel (VAC2).
+✅ **v0.25.41 Sulafat** (ASIO for VAC in **test**; default off; not CMASIO) · ✅ **v0.25.40 Sheliak** (previous public build — ANAN / Brick3 filters on Filters / BCD; HiDPI already in 0.25.39) · ✅ **v0.25.39 Sheliak** (HiDPI display, ANAN blank model, log on-screen; DeepFist already in 0.25.38) · ✅ **v0.25.38 Sheliak** (DeepFist CW pitch lock ±80 Hz + earlier commit; Classic unchanged; N9BC original decoder) · ✅ **v0.25.37 Sheliak** (7000DLE / 8000DLE TX, Xvtr on-air RF on BYTE0–4, Metis STOP) · ✅ **v0.25.36 Sheliak** (eight Xvtr slots, SWL J16 rows, digital-mode ALC) · ✅ **v0.25.35 Sheliak** (GEN RF1 / Alt + LNA per slot, RPT drops on band change) · ✅ **v0.25.34 Sheliak** (HL2 IO board sequencer + detection) · ✅ **v0.25.33 Sheliak** (stability upgrade for Protocol 2) · ✅ **OC on P2** · ✅ **USB-BCD FTDI** · ✅ **Parked Help balloon** · ✅ **v0.25.28 Sheliak** · ✅ **Pico RX fcodes** (GitHub #23) · ✅ **PureSignal dock ON** · ✅ **VFO LED digit vs Step** (GitHub #22) · ✅ **Helios TX SWR** · ✅ **View → Freq Cal** (GitHub #21) · ✅ **v0.25.22** (long return point) · ✅ **HL2 RF1 / Alt RX** · ✅ **Helios / Sonar / Cluster** meters · ✅ **Lyra Remote** (separate browser desk) · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
+Brick3 PS jack) · ✅ **VAC2** · ✅ **SUB / SPLIT** (second pan on Brick3 /
+100D; RX2 jack isolate on TX) · ✅ **Diversity** (Brick3 / 100D / 200D —
+RX2 jack / Ext1, not ANT2; not a second VFO) · ✅ **Band stack** (three
+frequencies per chip) · ✅ **Separate RX / TX filter lows** · 🚧 **ANAN-10…200D** P2
+(10/10E = Brick2 TX; 100-series = Brick3 TX; G2 dummy-load) ·
+✅ **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** (P2 TX, no Arm Protocol 2 TX) · 🗺️ **Linux, then macOS**.
 
 Details, ordering, and status on the **[Roadmap](Roadmap)**.
 
@@ -99,8 +111,10 @@ Details, ordering, and status on the **[Roadmap](Roadmap)**.
 - 🚀 **[Quick Start](Quick-Start)** — box on the desk to first signal in five minutes.
 - 🎙️ **[First Voice Setup](First-Voice-Setup)** — your first phone contact (SSB / AM / FM).
 - 💻 **[PC Requirements](PC-Requirements)** — CPU / GPU / video spec, in detail.
-- 📖 **[User Guide](User-Guide)** — the full operator's manual (also built into the app: **Help → User Guide**), including **[second receiver / SUB](User-Guide#second-receiver-sub--rx2--how-it-works)** on HL2 and BrickSDR2.
+- 📖 **[User Guide](User-Guide)** — the full operator's manual (also built into the app: **Help → User Guide**), including **[second receiver / SUB](User-Guide#second-receiver-sub--rx2--how-it-works)** on HL2, BrickSDR2, and Brick3SDR.
+- 🙏 **[Credits](Credits)** — DeskHPSDR, Heiko, Anton, testers, upstream.
 - 🔗 **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** — the two-way link with the companion logger (RST from RX1).
+- 🌐 **[Lyra Remote](Lyra-Remote)** — the browser desk (separate download).
 - ❓ **[FAQ &amp; Troubleshooting](FAQ-and-Troubleshooting)**
 
 ## Companion app — SDRLogger+
@@ -111,9 +125,22 @@ Lyra over TCI and flip on the **[Combo link](SDRLogger-Plus-Combo)** and the two
 work as one: copy a call once in Lyra's CW console and it lands in the log with a
 callbook lookup, the operator's name comes back to your `{NAME}` macro, RST-Rcvd
 auto-fills from Lyra's **RX1** calibrated S-meter (SUB RST is not Combo yet), and a `{LOG}` macro logs the QSO as you
-send 73. HL2 and BrickSDR2 **SUB / RX2** and **SPLIT** are on the same TCI socket —
+send 73. HL2, BrickSDR2, and Brick3SDR **SUB / RX2** and **SPLIT** are on the same TCI socket —
 see **[Combo](SDRLogger-Plus-Combo)** and **[User Guide → Second receiver](User-Guide#second-receiver-sub--rx2--how-it-works)**.
 → **[Get SDRLogger+](https://n8sdr1.github.io/SDRLoggerPlus/)**
+
+## Companion page — Lyra Remote
+
+**[Lyra Remote](Lyra-Remote)** is a browser desk for the Lyra that is already
+running. It is a separate package. Lyra does not host the page, and the
+installer does not contain it.
+
+Download the page from
+**[Lyra Remote releases](https://github.com/N8SDR1/Lyra-Remote/releases)**.
+How it works is in the
+**[Lyra Remote wiki](https://github.com/N8SDR1/Lyra-Remote/wiki)**.
+On the radio computer, **Settings → Remote** is the password and the voice
+session.
 
 ## Contributors
 
@@ -121,21 +148,23 @@ see **[Combo](SDRLogger-Plus-Combo)** and **[User Guide → Second receiver](Use
 - **Brent Crier (N9BC)** — co-contributor and tester.
 - **Timmy Davis (KC8TYK)** — tester (v0.1 tester flight).
 - **W5UDX** — DSP2024P Plate Reverb presets and verification.
-- **Cursor Grok 4.6** (SpaceXAI / Cursor) — coding assistant for
-  implementation and debug pairing on the native C++ rebuild.
-  Rick remains the project author; this is pairing help, not a
-  licensed-operator co-author credit.
 
-Full attribution (WDSP, Thetis, fldigi, testers):
-[CREDITS.md](https://github.com/N8SDR1/Lyra-SDR-cpp/blob/main/CREDITS.md).
+**Special thanks:** **Heiko (DL1BZ)** — DeskHPSDR, again — and
+**Anton (linoobs)** — BrickSDR FPGA / Protocol 2 flash help.
+
+Full attribution, **reference projects** (DeskHPSDR, pihpsdr, Quisk,
+linHPSDR, HL2 gateware), WDSP / Thetis / fldigi:
+**[Credits](Credits)** · [CREDITS.md](https://github.com/N8SDR1/Lyra-SDR-cpp/blob/main/CREDITS.md).
 
 ## Links
 
 - **[Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases)** — installers + release notes
+- **[Discord](https://discord.gg/BwjsQvjcSc)** — live help, logs, testers
+- **[Facebook group](https://www.facebook.com/groups/1994335921523916)** — screenshots, on-air reports, “will it Open”
 - **[Report a bug / request a feature](https://github.com/N8SDR1/Lyra-SDR-cpp/issues)**
 - **[README](https://github.com/N8SDR1/Lyra-SDR-cpp/blob/main/README.md)** — features + build from source
 - **License:** GPL-3.0-or-later (WDSP-compatible) — see [NOTICE](https://github.com/N8SDR1/Lyra-SDR-cpp/blob/main/NOTICE.md)
 
 ---
 
-*Lyra is built by Rick Langford (N8SDR) for the Hermes Lite 2 community, with development assistance from Cursor Grok 4.6. 73.*
+*Lyra is built by Rick Langford (N8SDR) for the Hermes Lite 2 and HPSDR community. 73.*

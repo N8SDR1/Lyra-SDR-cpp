@@ -30,6 +30,7 @@ class UsbBcd;
 class MemoryStore;
 class EibiStore;
 class TciServer;
+class DeskLink;
 class SpotStore;
 class SpotHoleFeeder;
 class DxClusterFeeder;
@@ -59,12 +60,15 @@ public:
                    lyra::cat::SerialCwKey *serialCwKey,
                    const QList<lyra::cat::CatServer *> &catServers,
                    lyra::wire::P2RxBridge *p2 = nullptr,
+                   DeskLink *desk = nullptr,
                    QWidget *parent = nullptr);
 
     // Raise the tab that owns <topic> (from a panel's "?" → Settings).
     // Returns true if a tab owns this topic (and was raised); false if
     // the panel has no Settings home (caller falls back to the guide).
     bool selectTopic(const QString &topic);
+    // Away desk. Calibration is the local radio's, so that tab stays hidden.
+    void setRemoteDesk(bool on);
 
 signals:
     // Emitted when the operator Opens a radio from the Hardware list whose
@@ -88,7 +92,9 @@ private:
     QWidget *buildWeatherTab();  // weather-alert sources + thresholds + keys
     QWidget *buildBandsTab();    // Memory bank (+ Time Stations / SW DB later)
     QWidget *buildNetworkTab();  // TCI server (logger / cluster integration)
-    QWidget *buildCatSerialTab();// serial PTT input + Kenwood CAT (COM-port)
+    QWidget *buildRemoteTab();   // remote access (TCI remote + later IP remote)
+    QWidget *buildCatSerialTab(); // serial PTT + Kenwood CAT (COM-port)
+    QWidget *buildAppsTab();     // named 3rd-party apps + header Apps chip
     QWidget *buildMeterTab();    // S-meter calibration trim
     QWidget *buildCalibrationTab(); // WWV/time-station frequency calibration
     QWidget *buildTunerTab();    // manual-ATU memory editor + match window
@@ -118,6 +124,7 @@ private:
     MemoryStore            *memory_    = nullptr;
     EibiStore              *eibi_      = nullptr;
     TciServer              *tci_       = nullptr;
+    DeskLink               *desk_      = nullptr;
     SpotStore              *spots_     = nullptr;
     SpotHoleFeeder         *spotHole_  = nullptr;
     DxClusterFeeder        *dxCluster_ = nullptr;

@@ -46,7 +46,20 @@
 #include "wire/CMaster.h"      // pcm — getbuffsize / cmMAXInRate (see include note above)
 #include "wire/wdspcalls.h"    // create_rmatchV / xrmatchIN / xrmatchOUT / forceRMatchVar / getRMatchDiags / ...
 #include <pa_win_wasapi.h>     // #158 DL-1 — PaWasapiStreamInfo / paWinWasapiExclusive / eThreadPriorityProAudio
+#ifdef PA_USE_ASIO
+#include <pa_asio.h>           // PaAsioStreamInfo (ASIO VAC, asio_vac_plan.md)
+#endif
+#include <QSettings>
+#include <QtGlobal>
+#include <atomic>
 #include <cstdint>             // intptr_t (width-safe userData round-trip)
+
+// [Lyra local patch] ASIO opt-in gate — pa_win_hostapis.c.
+extern "C" {
+void    PaLyra_SetAsioEnabled(int enabled);
+int     PaLyra_AsioCompiledIn(void);
+PaError PaLyra_AsioInitError(void);
+}
 #include <cstring>             // memset
 
 namespace lyra::wire {
@@ -198,6 +211,15 @@ IVAC ivacGet(int id)
 // unchanged.  `(void)frameCount` silences /W4 C4100 (the reference uses
 // a->vac_size, not frameCount — matching its own (void)timeInfo pattern).
 
+// [Lyra diag] VAC callbacks since the last read, per VAC id — logged ~1/s
+// to show whether the device calls back steadily (asio_vac_plan.md).
+static std::atomic<long> g_ivacCallbacks[MAX_EXT_VACS];
+long ivacTakeCallbackCount(int id)
+{
+	if (id < 0 || id >= MAX_EXT_VACS) return 0;
+	return g_ivacCallbacks[id].exchange(0, std::memory_order_relaxed);
+}
+
 static int CallbackIVAC(const void* input,
 	void* output,
 	unsigned long frameCount,
@@ -213,6 +235,7 @@ static int CallbackIVAC(const void* input,
 	(void)statusFlags;
 	(void)frameCount;
 
+	g_ivacCallbacks[id].fetch_add(1, std::memory_order_relaxed);
 	if (!a->run) return 0;
 									  // [2.10.3.12]MW0LGE handle mono input devices
 	if (a->inParam.channelCount == 1) // mono, dupe to stereo, some mics are mono only, and we require 2 channels
@@ -268,9 +291,50 @@ static int CallbackIVAC(const void* input,
 	return 0;
 }
 
+// Last Pa_OpenStream / Pa_StartStream error, for the VAC failure log.
+static PaError g_ivacLastPaError = paNoError;
+const char *ivacLastOpenErrorText()
+{
+	return Pa_GetErrorText(g_ivacLastPaError);
+}
+
+// [Lyra] ASIO ring re-centre (see ivacRecenterRings).
+static unsigned long g_ivacStreamGen[MAX_EXT_VACS];
+unsigned long ivacStreamGeneration(int id)
+{
+	if (id < 0 || id >= MAX_EXT_VACS) return 0;
+	return g_ivacStreamGen[id];
+}
+
+// The rate matcher starts each ring half full, but after one overflow it
+// holds the ring at full (one underflow: nearly empty).  With the ratio
+// pinned at 1.0 nothing walks it back, so a startup burst leaves the ring
+// at an edge for the whole session.  Rebuilding the ring (setRMatchRingsize
+// at the same size) restarts it half full and clears its counters; the
+// held ratio is kept.  Called once, a couple of seconds into an ASIO
+// stream, after the startup transients.
+void ivacRecenterRings(int id)
+{
+	if (id < 0 || id >= MAX_EXT_VACS) return;
+	IVAC a = pvac[id];
+	if (!a || !a->rmatchIN || !a->rmatchOUT) return;
+	int unf = 0, ovf = 0, rs = 0, nr = 0; double var = 0;
+	int unf2 = 0, ovf2 = 0, rs2 = 0, nr2 = 0; double var2 = 0;
+	getRMatchDiags(a->rmatchOUT, &unf, &ovf, &var, &rs, &nr);
+	getRMatchDiags(a->rmatchIN, &unf2, &ovf2, &var2, &rs2, &nr2);
+	EnterCriticalSection(&a->cs_ivac);
+	setRMatchRingsize(a->rmatchOUT, a->OUTringsize);
+	setRMatchRingsize(a->rmatchIN, a->INringsize);
+	LeaveCriticalSection(&a->cs_ivac);
+	qInfo("[asio] VAC%d: rings re-centred to half (were: TO VAC %d of %d, "
+	      "%d ovf / %d unf; FROM VAC %d of %d, %d ovf / %d unf)",
+	      id + 1, nr, rs, ovf, unf, nr2, rs2, ovf2, unf2);
+}
+
 PORT int StartAudioIVAC(int id)
 {
 	IVAC a = pvac[id];
+	if (id >= 0 && id < MAX_EXT_VACS) ++g_ivacStreamGen[id];
 	int error = 0;
 	int in_dev = Pa_HostApiDeviceIndexToDeviceIndex(a->host_api_index, a->input_dev_index);
 	int out_dev = Pa_HostApiDeviceIndexToDeviceIndex(a->host_api_index, a->output_dev_index);
@@ -278,8 +342,10 @@ PORT int StartAudioIVAC(int id)
 	int inChannelCount = 2;
 	int outChannelCount = 2;
 
+	// [Lyra] >= 0, not > 0: global index 0 is a real device (the reference
+	// treated it as "none").  Negative = no device.
 	const PaDeviceInfo* inDevInfo = NULL;
-	if (in_dev > 0)
+	if (in_dev >= 0)
 	{
 		inDevInfo = Pa_GetDeviceInfo(in_dev);
 		if (inDevInfo != NULL)
@@ -289,7 +355,7 @@ PORT int StartAudioIVAC(int id)
 		}
 	}
 	const PaDeviceInfo* outDevInfo = NULL;
-	if (out_dev > 0)
+	if (out_dev >= 0)
 	{
 		outDevInfo = Pa_GetDeviceInfo(out_dev);
 
@@ -312,6 +378,119 @@ PORT int StartAudioIVAC(int id)
 	a->outParam.suggestedLatency = a->pa_out_latency;
 	a->outParam.sampleFormat = paFloat64;
 	a->outParam.hostApiSpecificStreamInfo = NULL;
+
+	unsigned long framesPerBuffer = (unsigned long)a->vac_size;
+
+#ifdef PA_USE_ASIO
+	// [Lyra-native] ASIO stream setup, modelled on how a dedicated ASIO
+	// host runs a pro-audio driver:
+	//  * small driver blocks — ask for the engine's own audio block size
+	//    (falls back to the driver's preferred size if it can't do that),
+	//    and use it as the VAC block too, so audio moves in small even
+	//    steps instead of big 2048-frame lumps;
+	//  * the rate matcher's ratio pinned at 1.0 (ASIO runs at exactly the
+	//    requested rate; left adaptive, the loop only hunts on the
+	//    block-sized swings in ring level);
+	//  * the operator picks which ASIO channels carry the mic / the audio.
+	// Settings (audio/asio*) are read here, at stream start.  The IVAC is
+	// created fresh for every VAC rebuild, so these changes never leak
+	// into a later non-ASIO stream.
+	PaAsioStreamInfo asioIn, asioOut;
+	int asioInSel[2] = { 0, 1 };
+	int asioOutSel[2] = { 0, 1 };
+	bool isAsio = false;
+	{
+		const PaDeviceInfo* di = inDevInfo ? inDevInfo : outDevInfo;
+		const PaHostApiInfo* ha = di ? Pa_GetHostApiInfo(di->hostApi) : NULL;
+		isAsio = (ha != NULL && ha->type == paASIO);
+	}
+	if (isAsio)
+	{
+		QSettings s;
+		const bool pin = s.value(QStringLiteral("audio/asioPinRate"), true).toBool();
+		const int blockPref = s.value(QStringLiteral("audio/asioBlock"), 0).toInt();
+		const bool inMono = s.value(QStringLiteral("audio/asioInMono"), false).toBool();
+		int inCh = s.value(QStringLiteral("audio/asioInChannel"), 1).toInt() - 1;
+		int outCh = s.value(QStringLiteral("audio/asioOutChannel"), 1).toInt() - 1;
+
+		// Block size the driver will take.
+		long mn = -1, mx = -1, pref = -1, gran = -1;
+		const PaDeviceIndex qdev = (in_dev >= 0) ? in_dev : out_dev;
+		long block = 0;
+		if (PaAsio_GetAvailableBufferSizes(qdev, &mn, &mx, &pref, &gran) == paNoError)
+		{
+			const long want = (blockPref > 0) ? blockPref : (long)a->audio_size;
+			bool ok = want >= mn && want <= mx;
+			if (ok)
+			{
+				if (gran == 0)       ok = (want == pref);
+				else if (gran == -1) ok = (want & (want - 1)) == 0;   // powers of two
+				else                 ok = ((want - mn) % gran) == 0;
+			}
+			block = ok ? want : pref;
+		}
+		if (block <= 0) block = (long)a->vac_size;
+
+		// Channels, clamped to what the driver has.
+		const int inMax = inDevInfo ? inDevInfo->maxInputChannels : 0;
+		const int outMax = outDevInfo ? outDevInfo->maxOutputChannels : 0;
+		const int inCount = inMono ? 1 : 2;
+		if (inCh < 0) inCh = 0;
+		if (inCh + inCount > inMax) inCh = (inMax >= inCount) ? inMax - inCount : 0;
+		if (outCh < 0) outCh = 0;
+		if (outCh + 2 > outMax) outCh = (outMax >= 2) ? outMax - 2 : 0;
+		asioInSel[0] = inCh;     asioInSel[1] = inCh + 1;
+		asioOutSel[0] = outCh;   asioOutSel[1] = outCh + 1;
+
+		if (inDevInfo != NULL && inMax >= inCount)
+		{
+			a->inParam.channelCount = inCount;
+			asioIn.size = sizeof(PaAsioStreamInfo);
+			asioIn.hostApiType = paASIO;
+			asioIn.version = 1;
+			asioIn.flags = paAsioUseChannelSelectors;
+			asioIn.channelSelectors = asioInSel;
+			a->inParam.hostApiSpecificStreamInfo = &asioIn;
+		}
+		if (outDevInfo != NULL && outMax >= 2)
+		{
+			asioOut.size = sizeof(PaAsioStreamInfo);
+			asioOut.hostApiType = paASIO;
+			asioOut.version = 1;
+			asioOut.flags = paAsioUseChannelSelectors;
+			asioOut.channelSelectors = asioOutSel;
+			a->outParam.hostApiSpecificStreamInfo = &asioOut;
+		}
+
+		// Latency hint = one block, so the driver buffer IS the block.
+		const double blockSec = (double)block / (double)a->vac_rate;
+		a->inParam.suggestedLatency = blockSec;
+		a->outParam.suggestedLatency = blockSec;
+
+		// VAC block = driver block; pin (or not) the rate ratio.  Both take
+		// effect as the rings are rebuilt (create_resamps applies *force).
+		EnterCriticalSection(&a->cs_ivac);
+		a->INforce = pin ? 1 : 0;   a->INfvar = 1.0;
+		a->OUTforce = pin ? 1 : 0;  a->OUTfvar = 1.0;
+		a->vac_size = (int)block;
+		destroy_resamps(a);
+		create_resamps(a);
+		LeaveCriticalSection(&a->cs_ivac);
+		framesPerBuffer = (unsigned long)block;
+
+		if (inMono)
+			qInfo("[asio] VAC%d: block %ld frames (driver min %ld max %ld pref %ld "
+			      "gran %ld), rate ratio %s, mic ch %d (mono), out ch %d-%d",
+			      id + 1, block, mn, mx, pref, gran,
+			      pin ? "pinned 1.0" : "adaptive", inCh + 1, outCh + 1, outCh + 2);
+		else
+			qInfo("[asio] VAC%d: block %ld frames (driver min %ld max %ld pref %ld "
+			      "gran %ld), rate ratio %s, mic ch %d-%d, out ch %d-%d",
+			      id + 1, block, mn, mx, pref, gran,
+			      pin ? "pinned 1.0" : "adaptive", inCh + 1, inCh + 2,
+			      outCh + 1, outCh + 2);
+	}
+#endif
 
 	//attempt to get exlusive if wasapi devices
 	PaWasapiStreamInfo wasapiInputInfo;
@@ -350,14 +529,16 @@ PORT int StartAudioIVAC(int id)
 		&a->inParam,
 		&a->outParam,
 		a->vac_rate,
-		a->vac_size,	//paFramesPerBufferUnspecified,
+		framesPerBuffer,	// = vac_size (ASIO: the driver block chosen above)
 		0,
 		CallbackIVAC,
 		(void*)(intptr_t)id);	// pass 'id' as userData
 
+	g_ivacLastPaError = error;
 	if (error != 0) return -1;
 
 	error = Pa_StartStream(a->Stream);
+	g_ivacLastPaError = error;
 
 	if (error != 0) return -1;
 
@@ -382,9 +563,94 @@ namespace {
 int ivacInitPortAudio()
 {
 	if (g_pa_initialized) return paNoError;
+	// ASIO (asio_vac_plan.md §4): opt-in.  Off → PortAudio never loads an
+	// ASIO driver.  On → guard the start with a "pending" marker: if a
+	// previous start died while loading ASIO drivers (marker still set),
+	// come up with ASIO switched off and say why.
+	QSettings s;
+	bool asio = PaLyra_AsioCompiledIn() &&
+	            s.value(QStringLiteral("audio/asioEnabled"), false).toBool();
+	if (asio && s.value(QStringLiteral("audio/asioInitPending"), false).toBool()) {
+		asio = false;
+		s.setValue(QStringLiteral("audio/asioEnabled"), false);
+		s.setValue(QStringLiteral("audio/asioDisabledAfterCrash"), true);
+		qWarning("[asio] previous start did not finish loading ASIO drivers "
+		         "— ASIO switched OFF (re-enable in Settings → Audio)");
+	}
+	PaLyra_SetAsioEnabled(asio ? 1 : 0);
+	if (asio) {
+		s.setValue(QStringLiteral("audio/asioInitPending"), true);
+		s.sync();
+	}
 	PaError err = Pa_Initialize();
-	if (err == paNoError) g_pa_initialized = true;
+	if (asio) {
+		s.remove(QStringLiteral("audio/asioInitPending"));
+		s.sync();
+		if (PaLyra_AsioInitError() != paNoError)
+			qWarning("[asio] ASIO drivers could not be loaded (%s) — "
+			         "continuing without ASIO",
+			         Pa_GetErrorText(PaLyra_AsioInitError()));
+	}
+	if (err == paNoError) {
+		g_pa_initialized = true;
+		if (asio) {
+			const PaHostApiIndex api = Pa_HostApiTypeIdToHostApiIndex(paASIO);
+			const PaHostApiInfo *ha = api >= 0 ? Pa_GetHostApiInfo(api) : nullptr;
+			if (!ha) {
+				qInfo("[asio] enabled — no ASIO drivers found");
+			} else {
+				for (int j = 0; j < ha->deviceCount; ++j) {
+					const PaDeviceInfo *di = Pa_GetDeviceInfo(
+						Pa_HostApiDeviceIndexToDeviceIndex(api, j));
+					if (di)
+						qInfo("[asio] driver: '%s' (%d in / %d out, %.0f Hz)",
+						      di->name, di->maxInputChannels,
+						      di->maxOutputChannels, di->defaultSampleRate);
+				}
+			}
+		} else {
+			qInfo("[asio] off (enable in Settings → Audio)%s",
+			      PaLyra_AsioCompiledIn() ? "" : " — not built in");
+		}
+	}
 	return err;
+}
+
+bool ivacStreamDiag(int id, double *inLatS, double *outLatS, double *rate,
+                    long *asioMin, long *asioMax, long *asioPref, long *asioGran)
+{
+	*inLatS = *outLatS = *rate = 0.0;
+	*asioMin = *asioMax = *asioPref = *asioGran = -1;
+	if (id < 0 || id >= MAX_EXT_VACS || !pvac[id] || !pvac[id]->Stream)
+		return false;
+	const PaStreamInfo *si = Pa_GetStreamInfo(pvac[id]->Stream);
+	if (si) {
+		*inLatS = si->inputLatency;
+		*outLatS = si->outputLatency;
+		*rate = si->sampleRate;
+	}
+#ifdef PA_USE_ASIO
+	const PaDeviceInfo *di = Pa_GetDeviceInfo(pvac[id]->inParam.device);
+	const PaHostApiInfo *ha = di ? Pa_GetHostApiInfo(di->hostApi) : nullptr;
+	if (ha && ha->type == paASIO)
+		PaAsio_GetAvailableBufferSizes(pvac[id]->inParam.device,
+		                               asioMin, asioMax, asioPref, asioGran);
+#endif
+	return true;
+}
+
+bool ivacAsioCompiledIn()
+{
+	return PaLyra_AsioCompiledIn() != 0;
+}
+
+bool ivacAsioActive()
+{
+#ifdef PA_USE_ASIO
+	return g_pa_initialized && Pa_HostApiTypeIdToHostApiIndex(paASIO) >= 0;
+#else
+	return false;
+#endif
 }
 
 void ivacTerminatePortAudio()

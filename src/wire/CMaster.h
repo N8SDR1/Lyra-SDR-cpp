@@ -106,7 +106,9 @@ typedef struct _cmaster
 	void (*TxEqProcess)(int nsamples, double* buff);				// in-place mic EQ filter (no-op when unset / EQ bypassed)
 	void (*TxCombinatorProcess)(int nsamples, double* buff);		// #51 in-place 5-band combinator, runs AFTER the EQ (no-op when unset / bypassed)
 	void (*TxPlateProcess)(int nsamples, double* buff);				// #52 in-place plate reverb, runs AFTER the combinator (no-op when unset / bypassed)
+	void (*TxBurstProcess)(int nsamples, double* buff);				// FM 1750 Hz access burst — mix after the rack, before the monitor tap / fexchange0
 	void (*TxMonitorTap)(int nsamples, double* buff);				// #90 READ-ONLY TX-monitor tap on the post-rack mic (== fexchange0 input), captured for the operator monitor; MUST NOT write buff
+	void (*TxCalNoise)(int nsamples, double* buff, int rate);		// speech-shaped cal stimulus; replaces the mic when armed.  Pre-generator must stay off or it overwrites this buffer.
 	volatile long tx_rack_bypass;									// #50 — when set, skip the ENTIRE native rack (EQ + Speech + …); driven by mode (DIGU/DIGL → bypass so digital audio is never voice-shaped)
 	volatile long tci_run;											// run TCI RX IQ/audio callbacks
 	int	audioCodecId;
@@ -172,11 +174,16 @@ extern PORT void SendpTxCombinatorProcessor (void (*Process)(int nsamples, doubl
 // #52 — register the native Plate reverb, run AFTER the combinator on the
 // mic buffer (chain: Speech -> EQ -> Combinator -> Plate).
 extern PORT void SendpTxPlateProcessor (void (*Process)(int nsamples, double* buff));
+extern PORT void SendpTxBurstProcessor (void (*Process)(int nsamples, double* buff));
 // #90 — register the READ-ONLY TX-monitor tap, called per TX block on the
 // post-rack mic (== the fexchange0 input) just before the modulator.  The cb
 // only READS pcm->in (copies the mono I-lane into the monitor ring); it must
 // never write the buffer.  Pass nullptr to clear.
 extern PORT void SendpTxMonitorTap (void (*Tap)(int nsamples, double* buff));
+// Speech-shaped calibration noise.  When the callback is set it may
+// replace the mic buffer.  The callback itself decides whether it is
+// armed.  Pass nullptr to clear.
+extern PORT void SendpTxCalNoise (void (*Fill)(int nsamples, double* buff, int rate));
 // #50 — bypass the whole native TX rack (EQ + future Speech/Combinator/Plate).
 // Set 1 for digital modes (DIGU/DIGL) so the mic DSP never touches FT8/JS8/etc.
 extern PORT void SetTxRackBypass (int bypass);

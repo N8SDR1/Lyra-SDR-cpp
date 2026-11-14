@@ -1,0 +1,7 @@
+v0.25.40 Sheliak — ANAN / Brick3 filters on Filters / BCD
+
+Settings → Filters / BCD shows Protocol 2 ANAN / Brick3 radio filters (Alex HPF or BPF, TX LPF, antenna) as read-only lamps and grid ticks. Hidden on HL2 / BrickSDR. Orion MkII also sends the Alex1 TX image in receive (transmit unchanged). HiDPI display already in v0.25.39. DeepFist pitch lock already in v0.25.38.
+
+Install Lyra-Setup-0.25.40.exe over 0.25.39; settings stay. If it misbehaves, reinstall v0.25.39; v0.25.22 remains the long return point.
+
+SHA256 Lyra-Setup-0.25.40.exe: 838F600745D955D40F0362979D9CC51E34E80199301A2EB29135283DA1035EAD

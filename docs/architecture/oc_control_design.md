@@ -1,6 +1,6 @@
 # Lyra-cpp — OC Control (editable per-band J16 band-filtering) design
 
-**Status:** LOCKED DESIGN v2 (2026-07-05) — red-team reconciled + operator-decided (§7). NO code yet; Stage 1 (`OcControl` core) is next, UI stage awaits the operator's Thetis screenshot.
+**Status:** **SHIPPED** — Settings → **Filters / BCD** (`OcControl`, N2ADR preset, J16 RX/TX, USB-BCD). Design below is historical. **Do not add a second OC tab** (operator lock 2026-10-16, backlog #13 drop).
 **Operator directive (2026-07-05):** port Thetis's OC Control to Lyra for
 **ANAN and BrickSDR** band-following (external amps / tuners / filter boards),
 plus the HL2 HardRock-50 / Icom AH-4 support. "Get that setup correctly first."

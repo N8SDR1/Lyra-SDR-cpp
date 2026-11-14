@@ -15,12 +15,26 @@ ComboBox {
     id: control
     implicitHeight: 24
     font.pixelSize: 13
+
+    property string helpTitle: ""
+    property string helpText: ""
+    ToolTip.visible: false
+    HoverHandler { id: helpHov }
+    LyraHoverHelp {
+        title: control.helpTitle
+        text: control.helpText
+        hovered: helpHov.hovered && control.helpText.length > 0
+                 && !control.popup.visible
+    }
     wheelEnabled: true      // mouse-wheel cycles the selection
+    // Tuning FM can tighten these; other call sites keep the roomy default.
+    property int textLeftPad: 8
+    property int textRightPad: 20
 
     // Selected-value text.  Leaves room on the right for the chevron.
     contentItem: Text {
-        leftPadding: 8
-        rightPadding: 20
+        leftPadding: control.textLeftPad
+        rightPadding: control.textRightPad
         text: control.displayText
         font: control.font
         color: control.enabled ? "#f2f8fc" : "#5a6670"

@@ -152,10 +152,26 @@ HL2Discovery::HL2Discovery(QObject *parent) : QObject(parent) {
             [this]() {
                 if (!probeResolved_) {
                     probeResolved_ = true;
-                    emit probeFinished(false, probeIp_);
+                    emit probeFinished(false, probeIp_, 0);
                 }
-                probeSock_.reset();
+                releaseUdpLater(probeSock_);
             });
+}
+
+void HL2Discovery::releaseUdpLater(std::unique_ptr<QUdpSocket> &sock) {
+    if (!sock) return;
+    QUdpSocket *raw = sock.release();
+    QObject::disconnect(raw, nullptr, this, nullptr);
+    raw->abort();
+    raw->setParent(nullptr);   // ~HL2Discovery must not also delete this
+    raw->deleteLater();
+}
+
+void HL2Discovery::releaseScanSockets() {
+    for (auto &s : sockets_)
+        releaseUdpLater(s);
+    sockets_.clear();
+    socketBroadcast_.clear();
 }
 
 HL2Discovery::~HL2Discovery() = default;
@@ -307,13 +323,13 @@ bool HL2Discovery::parseReply(const QByteArray &data,
     return false;
 }
 
-void HL2Discovery::scan(double timeoutSeconds, int attempts) {
+void HL2Discovery::scan(double timeoutSeconds, int attempts, int protocolOnly) {
+    scanProtocolOnly_ = protocolOnly;
     deadline_.stop();          // defensive: a scan() arriving mid-sweep
     attemptTimer_.stop();
     foundMacs_.clear();
     totalFound_ = 0;
-    sockets_.clear();
-    socketBroadcast_.clear();
+    releaseScanSockets();
     // Directed-unicast targets for this sweep (Thetis cross-subnet parity).
     sweepKnownIps_ = knownRadioIps();
     attemptsRemaining_ = std::max(0, attempts - 1);
@@ -385,21 +401,26 @@ void HL2Discovery::sendBroadcastFromAllSockets() {
     for (std::size_t i = 0; i < sockets_.size(); ++i) {
         auto &sock = sockets_[i];
         // (1) Limited broadcast — reaches radios on the attached segment.
-        const qint64 sent = sock->writeDatagram(pktP1, limited, kDiscoveryPort);
-        if (sent != pktP1.size()) {
-            emit logLine(QStringLiteral("  send via %1 short/failed: %2")
-                         .arg(sock->localAddress().toString(),
-                              sock->errorString()));
+        const bool sendP1 = (scanProtocolOnly_ != 2);
+        const bool sendP2 = (scanProtocolOnly_ != 1);
+        if (sendP1) {
+            const qint64 sent = sock->writeDatagram(pktP1, limited, kDiscoveryPort);
+            if (sent != pktP1.size()) {
+                emit logLine(QStringLiteral("  send via %1 short/failed: %2")
+                             .arg(sock->localAddress().toString(),
+                                  sock->errorString()));
+            }
         }
-        sock->writeDatagram(pktP2, limited, kDiscoveryPort);
+        if (sendP2)
+            sock->writeDatagram(pktP2, limited, kDiscoveryPort);
         // (2) Subnet-directed broadcast (e.g. 10.10.30.255) — some NICs /
         // switches / firewall configs drop (1) but pass this (and vice
         // versa); sending both maximizes the chance the probe arrives.
         const QHostAddress &b = (i < socketBroadcast_.size())
                                     ? socketBroadcast_[i] : QHostAddress();
         if (!b.isNull() && b != limited) {
-            sock->writeDatagram(pktP1, b, kDiscoveryPort);
-            sock->writeDatagram(pktP2, b, kDiscoveryPort);
+            if (sendP1) sock->writeDatagram(pktP1, b, kDiscoveryPort);
+            if (sendP2) sock->writeDatagram(pktP2, b, kDiscoveryPort);
         }
         // (3) Directed unicast to each known radio IP from THIS NIC (Thetis
         // per-NIC fan-out): finds a fixed-IP / different-subnet radio the
@@ -409,8 +430,10 @@ void HL2Discovery::sendBroadcastFromAllSockets() {
         for (const QString &ipStr : sweepKnownIps_) {
             QHostAddress target;
             if (!target.setAddress(ipStr)) continue;
-            sock->writeDatagram(pktP1, target, kDiscoveryPort);
-            sock->writeDatagram(pktP2, target, kDiscoveryPort);
+            if (scanProtocolOnly_ != 2)
+                sock->writeDatagram(pktP1, target, kDiscoveryPort);
+            if (scanProtocolOnly_ != 1)
+                sock->writeDatagram(pktP2, target, kDiscoveryPort);
         }
     }
 }
@@ -418,9 +441,23 @@ void HL2Discovery::sendBroadcastFromAllSockets() {
 void HL2Discovery::onReadyRead() {
     auto *sock = qobject_cast<QUdpSocket*>(sender());
     if (!sock) return;
+    static int s_scanIqDumped = 0;
     while (sock->hasPendingDatagrams()) {
+        const qint64 pending = sock->pendingDatagramSize();
+        // Leftover P2 IQ (1444 B) on a scan socket must not allocate +
+        // logLine on the GUI thread — that is a freeze by itself.
+        if (pending > 128) {
+            QByteArray dump(static_cast<int>(pending), Qt::Uninitialized);
+            sock->readDatagram(dump.data(), dump.size());
+            if (s_scanIqDumped++ == 0) {
+                qWarning("[disc] scan socket dumped IQ-sized datagram "
+                         "(%lld B) — leftover P2",
+                         static_cast<long long>(pending));
+            }
+            continue;
+        }
         QByteArray buf;
-        buf.resize(static_cast<int>(sock->pendingDatagramSize()));
+        buf.resize(static_cast<int>(pending));
         QHostAddress sender;
         quint16 port = 0;
         const qint64 n = sock->readDatagram(buf.data(), buf.size(),
@@ -429,12 +466,10 @@ void HL2Discovery::onReadyRead() {
         buf.resize(static_cast<int>(n));
 
         RadioInfo info;
-        if (!parseReply(buf, sender, info)) {
-            emit logLine(QStringLiteral(
-                "  reply from %1: %2 bytes (not HPSDR — ignored)")
-                .arg(sender.toString()).arg(buf.size()));
+        if (!parseReply(buf, sender, info))
             continue;
-        }
+        if (scanProtocolOnly_ != 0 && info.protocol != scanProtocolOnly_)
+            continue;
         if (foundMacs_.contains(info.mac)) continue;
         foundMacs_.insert(info.mac);
         ++totalFound_;
@@ -455,50 +490,71 @@ void HL2Discovery::onReadyRead() {
 
 void HL2Discovery::onSweepDeadline() {
     attemptTimer_.stop();
-    sockets_.clear();
-    socketBroadcast_.clear();
+    releaseScanSockets();
     sweepKnownIps_.clear();
     emit logLine(QStringLiteral("Discovery complete: %1 radio(s) found")
                  .arg(totalFound_));
     emit scanFinished(totalFound_);
 }
 
-void HL2Discovery::probe(const QString &ip, double timeoutSeconds) {
+void HL2Discovery::probe(const QString &ip, double timeoutSeconds,
+                         int protocolOnly) {
     QHostAddress target;
     if (ip.isEmpty() || !target.setAddress(ip) ||
         target.protocol() != QAbstractSocket::IPv4Protocol) {
         emit logLine(QStringLiteral("probe: invalid IPv4 '%1'").arg(ip));
         return;
     }
-    // Fresh socket per probe (resetting closes any prior one + drops its
-    // readyRead connection).  Bind AnyIPv4:0 so the OS routes the unicast
-    // out the correct interface (incl. the default gateway for a radio on
-    // another subnet).  The HL2 replies to our source port → lands here.
+    // Fresh socket per probe. Never unique_ptr-destroy a live QUdpSocket
+    // — Windows can reuse the ephemeral port and leftover Brick IQ then
+    // fires readyRead on a dying object (0xc0000005).
+    releaseUdpLater(probeSock_);
     probeSock_ = std::make_unique<QUdpSocket>(this);
     if (!probeSock_->bind(QHostAddress(QHostAddress::AnyIPv4), 0)) {
         emit logLine(QStringLiteral("probe: bind failed: %1")
                      .arg(probeSock_->errorString()));
-        probeSock_.reset();
+        releaseUdpLater(probeSock_);
         return;
     }
     connect(probeSock_.get(), &QUdpSocket::readyRead,
             this, &HL2Discovery::onProbeReadyRead);
-    probeIp_       = ip;
-    probeResolved_ = false;
-    // Probe BOTH protocols — a fixed-IP target could be a P1 HL2 or a P2
-    // Brick / ANAN G2; whichever it is answers its own format.
-    probeSock_->writeDatagram(buildDiscoveryPacket(), target, kDiscoveryPort);
-    probeSock_->writeDatagram(buildDiscoveryPacketP2(), target, kDiscoveryPort);
-    emit logLine(QStringLiteral("probe: unicast discovery to %1:%2")
-                 .arg(ip).arg(kDiscoveryPort));
+    probeIp_             = ip;
+    probeResolved_       = false;
+    probeProtocolOnly_   = protocolOnly;
+    if (protocolOnly != 2)
+        probeSock_->writeDatagram(buildDiscoveryPacket(), target, kDiscoveryPort);
+    if (protocolOnly != 1)
+        probeSock_->writeDatagram(buildDiscoveryPacketP2(), target, kDiscoveryPort);
+    emit logLine(QStringLiteral("probe: unicast discovery to %1:%2 (P%3)")
+                 .arg(ip).arg(kDiscoveryPort)
+                 .arg(protocolOnly == 0 ? QStringLiteral("1+2")
+                                        : QString::number(protocolOnly)));
     probeDeadline_.start(static_cast<int>(timeoutSeconds * 1000.0));
 }
 
 void HL2Discovery::onProbeReadyRead() {
     if (!probeSock_) return;
-    while (probeSock_->hasPendingDatagrams()) {
+    while (probeSock_ && probeSock_->hasPendingDatagrams()) {
+        const qint64 pending = probeSock_->pendingDatagramSize();
+        // Leftover Protocol-2 IQ is 1444 B. A successful probe used to
+        // leave this socket bound; Windows reuses that ephemeral port,
+        // and Brick IQ then starves the GUI thread (EP6 stays healthy).
+        if (pending > 128) {
+            QByteArray dump(static_cast<int>(pending), Qt::Uninitialized);
+            QHostAddress sender;
+            quint16 port = 0;
+            probeSock_->readDatagram(dump.data(), dump.size(), &sender, &port);
+            static bool loggedFlood = false;
+            if (!loggedFlood) {
+                loggedFlood = true;
+                qWarning("[disc] probe socket dropped %lld-byte UDP from %s:%u "
+                         "(leftover P2 IQ — ignoring until probe closes)",
+                         pending, qPrintable(sender.toString()), port);
+            }
+            continue;
+        }
         QByteArray buf;
-        buf.resize(static_cast<int>(probeSock_->pendingDatagramSize()));
+        buf.resize(static_cast<int>(pending));
         QHostAddress sender;
         quint16 port = 0;
         const qint64 n = probeSock_->readDatagram(buf.data(), buf.size(),
@@ -508,6 +564,8 @@ void HL2Discovery::onProbeReadyRead() {
 
         RadioInfo info;
         if (!parseReply(buf, sender, info)) continue;
+        if (probeProtocolOnly_ != 0 && info.protocol != probeProtocolOnly_)
+            continue;
         // No foundMacs_ dedup here (that's sweep bookkeeping) — the UI
         // de-dupes/updates by IP, so re-emitting is harmless.
         emit logLine(QStringLiteral(
@@ -523,10 +581,16 @@ void HL2Discovery::onProbeReadyRead() {
                         info.isBusy, info.numRxs, info.protocol);
         // Resolve the probe immediately on the first valid reply (don't
         // wait out the deadline) so a present radio connects snappily.
+        // Close the socket NOW — leaving it bound is what let leftover
+        // Brick IQ pin the GUI after Start.
         if (!probeResolved_) {
             probeResolved_ = true;
             probeDeadline_.stop();
-            emit probeFinished(true, probeIp_);
+            const QString ip = probeIp_;
+            const int proto = info.protocol;
+            releaseUdpLater(probeSock_);
+            emit probeFinished(true, ip, proto);
+            return;
         }
     }
 }

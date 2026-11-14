@@ -67,7 +67,7 @@ Status legend used below:
 | Hermes Lite 2 Plus (HL2+) | HPSDR Protocol 1 | 🟢 PORT — operator's daily-driver |
 | Apache Labs ANAN-G2 / G2-1K | HPSDR Protocol 2 | 🟡 P2 profile live; TX dummy-load arm (not on-air validated) |
 | Apache Labs ANAN-10 / 10E / 100 / 100B / 100D / 200D | HPSDR Protocol 2 | 🟡 Classic Alex HPF (deskHPSDR edges); TX dummy-load arm; pick marketed model in Settings |
-| Apache Labs ANAN-7000DLE / 8000 | HPSDR Protocol 2 | 🟡 LOCKED — OrionMkII BPF / PA not in this pass |
+| Apache Labs ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 | HPSDR Protocol 2 | 🟢 P2 TX like Brick3 (Enable PA + MOX + Drive; no Arm Protocol 2 TX) since v0.25.37 |
 | Apache Labs ANAN still on Protocol 1 FPGA | HPSDR Protocol 1 | 🟡 LOCKED — refuse HL2 TX path; use P2 firmware if the box can (most capable 10/100/200-class units already have) |
 | **Brick SDR** | HPSDR Protocol 2 (ANAN-class, pending Timmy confirm) | 🟡 LOCKED |
 
@@ -232,13 +232,11 @@ because you locked it.
 🟡 Per-band TX BW memory.
 
 ### 3.7 PureSignal — IMD pre-distortion linearizer
-🟡 v0.3 scope from old Lyra — port WDSP calcc.c + iqc.c + xbuilder
-   + delay.c.
-🟡 New PSDialog UI modeled on Thetis PSForm.cs.
-🟡 Auto-attenuator state machine (HL2-specific bounds: -28 to +31 dB).
-🟡 Coefficient persistence per band.
-🟡 Operator self-attestation checkbox: "I have the PureSignal
-   hardware mod installed" (HL2 only — ANAN G2 has it stock).
+🟢 Live on HL2 / HL2+ (coupler mod) and BrickSDR2 (ADC0 feedback).
+🟢 Compact PureSignal dock + Amp View (GetPSDisp, Snap / Hold).
+🟢 Auto-att FSM; persist last pad across PTT; FB window 129–181.
+🟢 Operator self-attestation (Settings → TX, default OFF).
+🟢 Dummy-load bring-up; kill-test before antenna.
 
 ### 3.8 PTT / MOX state machine
 🟢 Single-state FSM with sources: SW_MOX, HW_PTT, TUN, CW_KEY, VOX,
@@ -376,6 +374,9 @@ All operator-adjustable in Settings → TX.
    (post-CW-pitch offset, matches every other major HF SDR).
 🟢 Two TX indicators per VFO LED (red active, gray inactive).
    SPLIT auto-moves red → VFO B; click gray to manually swap.
+🟢 Wheel on a digit = that place. Wheel on the LED but not on a digit =
+   that VFO's Tuning Step; Snap VFO applies only on that empty-LED path.
+   Panadapter wheel stays Display Panafall; click stays Exact / 100 Hz.
 
 ### 5.4 Mode + Filter panel
 🟢 Single panel acts on focused RX.

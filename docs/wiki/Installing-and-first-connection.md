@@ -3,9 +3,12 @@
 This page gets you from a downloaded installer to hearing your first
 signal. For the full reference, see the **[User Guide](User-Guide)**.
 
-> **You need:** a Hermes Lite 2 / 2+ **or a BrickSDR2** on your network, a
-> Windows 10 (1809+) or 11 PC (64‑bit, a GPU with OpenGL 3.3+), and the two
-> connected to the same LAN (a dedicated NIC‑to‑radio cable works great).
+> **You need:** a Hermes Lite 2 / 2+ **or a BrickSDR2 / Brick3SDR on Protocol 2**
+> on your network (P2 ANAN-10…200D also open — pick the marketed model in
+> Settings). Windows 10 (1809+) or 11, 64‑bit, OpenGL 3.3+ GPU, wired LAN
+> (a dedicated NIC‑to‑radio cable works great). A Brick or classic ANAN
+> still on **Protocol 1** can appear in Discover and **will not Open** —
+> see [Supported Radios](Supported-Radios).
 
 ---
 
@@ -27,8 +30,10 @@ signal. For the full reference, see the **[User Guide](User-Guide)**.
 
 The very first time Lyra runs it builds an **FFT plan cache** ("optimizing"
 splash). This is a one‑time, few‑minute step — let it finish and Lyra opens
-normally. After that, launches are fast. (If you ever change CPU/RAM or want
-to rebuild it, **Settings → Radio → FFT optimization → Clear &amp; rebuild**.)
+normally. Companion auto-start (SDRLogger+) waits until that finishes.
+After that, launches are fast. (If you ever change CPU/RAM or want
+to rebuild it, **Settings → Backup &amp; Restore → Rebuild FFT optimization
+on next start**.)
 
 ## 3. Find and open your radio
 
@@ -38,8 +43,13 @@ to rebuild it, **Settings → Radio → FFT optimization → Clear &amp; rebuild
    reports as Hermes stays labelled Brick; firmware is **v10.6**-style, not
    “fw v0”.
 3. **Double‑click a radio** (or select it and click **Open**). The connected
-   radio shows **green and bold**.
-4. **Close** the current radio before opening a different one.
+   radio shows **green and bold**. Protocol 1 **Hermes** (not HermesLite) is
+   **refused** — that is a Brick/ANAN still on P1, not an HL2. Flash **P2**
+   (Brick: **Anton (linoobs)** on Discord) and Open the Protocol 2 row.
+4. In **Settings → Hardware**, pick the **marketed model** if discovery
+   still says Hermes / Brick — **Brick3SDR**, **ANAN-10 / 10E**, or
+   **ANAN-100 / 100D / 200D**. Wrong pick = wrong TX / MAP / SUB pane.
+5. **Close** the current radio before opening a different one.
 
 > **No "Any Subnet" checkbox needed.** Lyra's discovery is always maximal:
 > every scan probes on **all** network adapters — including direct‑connect
@@ -71,8 +81,11 @@ hanging on the stale address.
 
 1. Pick a **band** (Band panel) and a **mode** (Mode/Filter panel).
 2. Click or scroll on the **panadapter** to tune; drag the passband edges to
-   set bandwidth.
-3. Set **AF Gain / Volume** on the Audio panel.
+   set bandwidth. **SUB** is a second receiver (**SPLIT** is TX on VFO B —
+   they are independent). **Brick3SDR / ANAN-100D / 200D** open a **second
+   panadapter** when SUB is on.
+3. Set **AF Gain / Volume** on the Audio panel. Windows mixer volume for
+   Lyra is remembered across Stop / Start (v0.25.17).
 
 ### Where's the audio coming out?
 Two paths — pick in the Audio panel:
@@ -94,7 +107,27 @@ first:
 - **Mic input** (Settings → TX, or the Audio panel) — radio codec mic, a PC
   mic via VAC1, or TCI for digital.
 - **TX power / drive**, and **enable the PA** if your build needs it
-  (Settings → TX → Advanced).
+  (Settings → TX → Advanced). Brick3 first RF: **dummy load**.
+- **HL2 IO board (J4 pin 8 band volts, RF1 / Alt):** follow is on as
+  soon as the board is **detected** (Settings → Filters / BCD → IO
+  board → Status). You do **not** need **Enable N2ADR** for it. A DIY
+  Pico without the PCA9536 ID chip needs **Force IO board present**.
+  Leave **Band Volts on J3** off unless the amp is on the fan header.
+  **v0.25.34** re-sends the registers every ~0.35 s, so a missed write
+  repairs itself. **v0.25.35:** the GEN1–3 slots remember RF1 / Alt and
+  LNA per slot, and an FM **RPT** offset drops when you leave the band
+  (operator SPLIT still persists). If SPLIT comes up lit after the
+  upgrade, click it off once. **v0.25.36:** eight transverter slots,
+  and **SWL broadcast rows** on J16 — they stay empty until you press
+  **Reload N2ADR HF** (Settings → Filters / BCD), which seeds them RX-only.
+- **Digital modes (DIGU / DIGL):** since **v0.25.36** the ALC is a peak
+  limiter only and the Leveler is held off automatically, so you no
+  longer need a separate profile just to park the Leveler for FT8 / RADE
+  / PSK.
+- **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3:** since
+  **v0.25.37** they transmit like Brick3 (Enable PA + MOX + Drive). You
+  do **not** need **Arm Protocol 2 TX**. **G2 / G2-1K** still do. Dummy
+  load on first TX.
 - **Running an amplifier?** Read
   **[User Guide → Operating with an external amplifier](User-Guide#operating-with-an-external-amplifier-hot-switch-protection)**
   first — Lyra has TR‑sequencing and hot‑switch protection you should

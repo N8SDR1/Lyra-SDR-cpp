@@ -15,10 +15,12 @@
 #pragma once
 
 #include <QHash>
+#include <QImage>
 #include <QMainWindow>
 #include <QList>
 #include <QPoint>
 #include <QStringList>
+#include <QVariant>
 
 class QAction;
 class QDockWidget;
@@ -51,6 +53,8 @@ class TunerMemory;
 class Prefs;
 class SettingsDialog;
 class Help;
+class HelpHint;
+class HelpCard;
 class HelpDialog;
 class LogDialog;
 class Bands;
@@ -59,6 +63,7 @@ class StatusBus;
 class TimeSync;
 class BandMemory;
 class GenSlots;
+class XvtrSlots;
 class TimeStations;
 class MemoryStore;
 class EibiStore;
@@ -66,6 +71,7 @@ class SpotStore;
 class SpotHoleFeeder;
 class DxClusterFeeder;
 class TciServer;
+class DeskLink;
 class MeterModel;
 class UsbBcd;
 class UpdateChecker;
@@ -99,6 +105,15 @@ public:
     // "Connecting…" to a radio that moved / changed lease / is off.
     void beginConnect(const QString &preferIp);
 
+    bool docksAreReady() const { return docksReadyEmitted_; }
+
+signals:
+    // Emitted once all deferred QML docks have finished loading. Auto-start
+    // must wait for this — opening the radio during QQuickWidget/Vulkan
+    // construction freezes the panadapter.
+    void docksReady();
+
+public:
     // Startup "radio never answered" watchdog. armConnWatchdog() starts a
     // one-shot timer when a connect is initiated; a successful connection
     // (runningChanged) or a manual Stop cancels it via disarmConnWatchdog();
@@ -111,6 +126,9 @@ public:
     // close the P2 session before destroy_cmaster() tears down the
     // router/DSP state the session's IQ callbacks dispatch into.
     lyra::wire::P2RxBridge *p2Bridge() const { return p2Bridge_; }
+
+    // Transient status-bar bus (QML `Status` + C++ advisories).
+    StatusBus *statusBus() const { return statusBus_; }
 
     // Share JUST the panel layout as a small .lyralayout file (driven from
     // Settings → Backup & Restore → "Share a layout").  Arrangement only —
@@ -145,6 +163,8 @@ protected:
     // to stream.requestMox(true), release to requestMox(false).  Suppressed
     // while typing (QLineEdit/QSpinBox/…), while a modal dialog or a combo
     // popup is open, and when space-bar PTT is disabled; auto-repeat ignored.
+    // Arrow keys (when not typing / not on the VFO LED) nudge the focused
+    // VFO: Left/Right ±1 kHz, Up/Down ±10 Hz.
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
@@ -155,12 +175,15 @@ private:
     // crash AFTER first paint (e.g. a DSP/network fault) is then not
     // mis-attributed to graphics.  One-shot guard.
     bool gfxSentinelCleared_ = false;
+    bool docksReadyEmitted_ = false;
+    bool connectInFlight_ = false;
     bool quickSourcesPending_ = true;
     QStringList dockQmlOrder_;
     // Build a QQuickWidget that hosts <qmlFile> from the Lyra QML
     // module, with the four service objects set as context properties
     // BEFORE the source loads.
     QQuickWidget *makeQuick(const QString &qmlFile);
+    bool nudgeFocusedVfoHz(int deltaHz);
     // setSource + min-height / collapse wiring.  Must NOT run inside the
     // MainWindow ctor: QQuickWidget::setSource on the software scene-graph
     // can block forever before the native window exists (Intel UHD hang,
@@ -170,6 +193,7 @@ private:
     // #201 — grab the panadapter+waterfall to a PNG in the active session
     // folder (driven by RecorderEngine::snapshotDue while recording).
     void captureRecorderSnapshot();
+    void saveRecorderSnapshotImage(const QImage &img);
     // Wrap a QML panel in a movable/floatable/closable QDockWidget,
     // register it in docks_, and dock it into <area>.  <topic> drives
     // the title-bar "?" badge (Help guide / Settings).
@@ -238,11 +262,36 @@ private:
     // QSettings "layouts/<slot>/{name,geometry,windowState,panadapterSplit}".
     void saveNamedLayout(int slot);
     void recallNamedLayout(int slot);
+    // Live recall (window already shown): restoreState only. Applying
+    // saveGeometry() on a visible QMainWindow is what exploded named
+    // slots after factory had already stuck (GitHub #20 follow-up).
+    void applyLiveDockState(const QByteArray &st, const QVariant &split,
+                            const QVariantMap &dockVis = {});
     void refreshLayoutMenus();         // refresh slot labels on menu open
+    // Two-converter radios only: SUB adds a second spectrum dock. Qt
+    // otherwise grows the bottom control docks. Steal height from the
+    // main pan instead, and optionally recall a Settings-chosen named
+    // layout. SUB off restores the full pre-SUB snapshot (geometry +
+    // docks + pan split) — the same restore View → Recall uses.
+    void syncRx2Pan();
+    void showRx2KeepingControlHeights(QDockWidget *rx2);
+    void hideRx2ReturningHeight(QDockWidget *rx2);
+    void capturePreSubLayout();
+    bool restorePreSubLayout(QDockWidget *rx2);
+    void applySubOnArrangement(QDockWidget *rx2);
+    void applyDockLayout(const QByteArray &geo, const QByteArray &st,
+                         const QVariant &split, bool persistSession);
     // Multi-rig: the menu-bar "Rig" dropdown — rebuilt from the rig
     // registry on open; switch = set active rig + restart-to-load.
     void rebuildRigMenu();
     void switchRig(const QString &rigId);
+    void noteDeskFilters();
+    void noteDeskRack();
+    void noteDeskRx();
+    void restoreDeskSession();
+    void applyDeskProfile(const QByteArray &json);
+    void pushDeskPs();
+    void pushDeskPlot();
     void addRigInteractive();
     void renameActiveRig();
     QMenu *rigMenu_ = nullptr;
@@ -330,8 +379,17 @@ private:
     QByteArray                  layoutCurrent_;              // last settled arrangement
     QTimer                     *layoutSnapTimer_ = nullptr;  // debounce dock-change bursts
     bool                        layoutRestoring_ = false;    // guard our own restoreState
+    // Recalling factory (or a first launch) must not persist Qt saveState()
+    // as the session: that blob is a photograph and often corrupts on the
+    // next start (GitHub #20, laptop DPI / undock).  Rebuild factory until
+    // the operator actually moves a dock.
+    bool                        layoutUseFactory_ = false;
+    void setLayoutUseFactory(bool on);
     QAction                    *startStopAction_ = nullptr;   // header Start/Stop
     QToolButton                *startStopBtn_ = nullptr;      // its backing button (green/red)
+    QToolButton                *freqCalBtn_ = nullptr;        // hidden while this Lyra is the desk
+    bool                        deskMenuShown_ = false;       // Rig menu rebuilt on role change
+    bool                        deskCwLatched_ = false;        // host is holding a desk CW edge
     QLabel                     *connStatus_ = nullptr;        // header conn status
     QLabel                     *tciStatus_  = nullptr;        // header TCI client indicator
     QLabel                     *spottedBadge_ = nullptr;      // "you've been spotted" header badge
@@ -373,6 +431,8 @@ private:
 
     SettingsDialog             *settingsDlg_ = nullptr;
     Help                       *help_    = nullptr;   // QML→C++ help bridge
+    HelpHint                   *helpHint_ = nullptr;  // parked hover-help card feed
+    HelpCard                   *helpCard_ = nullptr;
     HelpDialog                 *helpDlg_ = nullptr;   // in-app User Guide
     LogDialog                  *logDlg_  = nullptr;   // in-app diagnostic log
     Bands                      *bands_   = nullptr;   // amateur band table (QML)
@@ -382,6 +442,7 @@ private:
     TimeSync                   *timeSync_ = nullptr;  // NTP clock-drift check
     BandMemory                 *bandMemory_ = nullptr;// per-band mode/dB-range memory
     GenSlots                   *gen_ = nullptr;       // GEN1/2/3 general-coverage slots
+    XvtrSlots                  *xvtr_ = nullptr;      // Band-dock transverter slots
     TimeStations               *time_ = nullptr;      // HF time-station TIME cycle
     MemoryStore                *memory_ = nullptr;    // frequency memory bank
     EibiStore                  *eibi_  = nullptr;     // EiBi shortwave overlay
@@ -389,6 +450,46 @@ private:
     SpotHoleFeeder             *spotHole_ = nullptr;  // SpotHole REST spot source
     DxClusterFeeder            *dxCluster_ = nullptr; // DX-cluster telnet spot source
     TciServer                  *tci_   = nullptr;     // TCI server (logger/cluster)
+    DeskLink                   *desk_  = nullptr;     // Lyra-to-Lyra control link
+    bool                        deskUndoFilters_ = false;
+    bool                        deskUndoTuneDrive_ = false;
+    int                         deskUndoTuneMode_ = 0;
+    int                         deskUndoTunePct_ = 25;
+    int                         deskUndoFixedTune_ = 25;
+    bool                        deskUndoRack_ = false;
+    bool                        deskUndoRx_ = false;
+    QString                     deskUndoAgc_;
+    bool                        deskUndoNr_ = false;
+    int                         deskUndoNrMode_ = 3;
+    bool                        deskUndoAepf_ = true;
+    int                         deskUndoNpe_ = 0;
+    bool                        deskUndoNnr_ = false;
+    int                         deskUndoNnrModel_ = 0;
+    double                      deskUndoNnrMask_ = -40.0;
+    bool                        deskUndoNb_ = false;
+    double                      deskUndoNbSt_ = 0.5;
+    bool                        deskUndoAnf_ = false;
+    bool                        deskUndoLms_ = false;
+    double                      deskUndoLmsSt_ = 0.5;
+    bool                        deskUndoApf_ = false;
+    double                      deskUndoApfDb_ = 6.0;
+    bool                        deskUndoSq_ = false;
+    double                      deskUndoSqTh_ = 0.2;
+    bool                        deskUndoRitOn_ = false;
+    int                         deskUndoCw_ = 600;
+    int                         deskUndoRxBw_ = 0;
+    int                         deskUndoTxBw_ = 0;
+    int                         deskUndoRxLo_ = 0;
+    int                         deskUndoTxLo_ = 0;
+    bool                        deskUndoLevelerOn_ = false;
+    double                      deskUndoLevelerMax_ = 15.0;
+    int                         deskUndoLevelerDecay_ = 100;
+    QString                     deskUndoEq_;
+    QString                     deskUndoSpeech_;
+    QString                     deskUndoComb_;
+    QString                     deskUndoPlate_;
+    qint64                      deskPsMs_ = 0;
+    qint64                      deskPlotMs_ = 0;
     lyra::cat::SerialPtt       *serialPtt_ = nullptr; // serial PTT input (WSJT-X/VarAC keys Lyra)
     lyra::cat::SerialCwKey     *serialCwKey_ = nullptr; // #171 serial CW key input
     QList<lyra::cat::CatServer *> catServers_;        // Kenwood CAT serial servers (cat1..catN)

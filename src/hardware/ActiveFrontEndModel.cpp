@@ -29,7 +29,17 @@ ActiveFrontEndModel::ActiveFrontEndModel(lyra::ipc::HL2Stream *p1,
     }
 }
 
+void ActiveFrontEndModel::setDeskProtocol(int protocol)
+{
+    if (protocol < 0 || protocol > 2) protocol = 0;
+    if (deskProto_ == protocol) return;
+    deskProto_ = protocol;
+    emit changed();
+}
+
 bool ActiveFrontEndModel::p2Active() const {
+    if (deskProto_ == 2) return p2_ != nullptr;
+    if (deskProto_ == 1) return false;
     return p2_ && p2_->isRunning();
 }
 
@@ -44,9 +54,12 @@ int ActiveFrontEndModel::value() const {
 
 int ActiveFrontEndModel::minimum() const { return p2Active() ? 0 : -12; }
 int ActiveFrontEndModel::maximum() const { return p2Active() ? 31 : 48; }
-bool ActiveFrontEndModel::autoAvailable() const { return !p2Active(); }
+bool ActiveFrontEndModel::autoAvailable() const {
+    return p2Active() || p1_ != nullptr;
+}
 bool ActiveFrontEndModel::autoEnabled() const {
-    return !p2Active() && p1_ && p1_->autoLna();
+    if (p2Active()) return p2_->autoStep();
+    return p1_ && p1_->autoLna();
 }
 int ActiveFrontEndModel::overloadTier() const {
     return p2Active() ? p2_->adcOverloadTier()
@@ -69,7 +82,8 @@ void ActiveFrontEndModel::setValue(int value) {
 }
 
 void ActiveFrontEndModel::setAutoEnabled(bool on) {
-    if (!p2Active() && p1_) p1_->setAutoLna(on);
+    if (p2Active()) p2_->setAutoStep(on);
+    else if (p1_) p1_->setAutoLna(on);
 }
 
 void ActiveFrontEndModel::setAdcIndex(int index) {

@@ -1,0 +1,7 @@
+Release v0.25.40 Sheliak — ANAN / Brick3 filters on Filters / BCD.
+
+Settings → Filters / BCD shows the radio's own Alex HPF or BPF, TX
+LPF, and antenna as read-only lamps and grid ticks. Hidden on HL2 /
+BrickSDR. HiDPI already in 0.25.39.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>

@@ -50,6 +50,8 @@ Rectangle {
     property int vfoBHz: 0
     // RX2 DDS (SUB).  Same QQuickWidget mirror pattern as A / VFO B.
     property int rx2Hz: 0
+    property var memList: []
+    function refreshMem() { root.memList = Memory.list() }
     Component.onCompleted: {
         centerHz = Stream.rx1FreqHz
         vfoBHz = Stream.vfoBHz
@@ -57,14 +59,22 @@ Rectangle {
         // Seed the RPT dir/offset combo from the restored split (so it
         // reflects a persisted repeater), else the current band's default.
         if (Stream.splitEnabled) syncRptFromState(); else applyBandDefault()
+        refreshMem()
     }
     Connections {
         target: Stream
         function onRx1FreqChanged() {
+            var prevHz = root.centerHz
             root.centerHz = Stream.rx1FreqHz
             // Duplex: while RPT is active (FM split), VFO B tracks A ± offset
-            // as you tune across repeater outputs.
-            if (root.fmMode && Stream.splitEnabled) root.rptApply()
+            // as you tune across repeater outputs.  Only RPT-split tracks
+            // (operator SPLIT never has VFO B re-derived), and never across
+            // a band edge — the stream drops RPT on that crossing first
+            // (HL2Stream::setRx1FreqHz); the band check here is belt-and-
+            // braces so a stale offset can't be re-applied on the new band.
+            if (root.fmMode && Stream.splitEnabled && Stream.rptActive
+                    && Stream.bandIdFor(prevHz) === Stream.bandIdFor(root.centerHz))
+                root.rptApply()
         }
         function onRx2FreqChanged() { root.rx2Hz = Stream.rx2FreqHz }
         function onVfoBHzChanged() {
@@ -77,6 +87,10 @@ Rectangle {
         }
         // Recall / manual SPLIT toggle: re-derive the RPT offset from state.
         function onSplitEnabledChanged() { root.syncRptFromState() }
+    }
+    Connections {
+        target: Memory
+        function onChanged() { root.refreshMem() }
     }
 
     // Mode picker moved here from the Filters dock — keep the engine in
@@ -137,7 +151,11 @@ Rectangle {
         else
             Stream.setRx2FreqHz(hz - WdspEngine.markerOffsetHzRx2)
     }
+    // 1→2 / 2→1 / ⇄ break the RPT relation (VFO B is no longer A ± offset):
+    // split stays as the operator left it, but it is operator split now.
     function copyAtoB() {
+        if (Stream.splitEnabled)
+            Stream.setRptActive(false)
         if (Stream.splitEnabled)
             Stream.setVfoBHz(Stream.rx1FreqHz)
         else if (Stream.subEnabled)
@@ -150,6 +168,8 @@ Rectangle {
         }
     }
     function copyBtoA() {
+        if (Stream.splitEnabled)
+            Stream.setRptActive(false)
         if (Stream.splitEnabled)
             Stream.setRx1FreqHz(Stream.vfoBHz)
         else if (Stream.subEnabled)
@@ -164,6 +184,7 @@ Rectangle {
     function swapAB() {
         var a = Stream.rx1FreqHz
         if (Stream.splitEnabled) {
+            Stream.setRptActive(false)
             var b = Stream.vfoBHz
             Stream.setVfoBHz(a)
             Stream.setRx1FreqHz(b)
@@ -196,52 +217,100 @@ Rectangle {
                                      "DSB", "AM", "SAM", "FM", "DIGU", "DIGL"]
     readonly property bool cwMode: Prefs.mode === "CWU" || Prefs.mode === "CWL"
     readonly property bool fmMode: Prefs.mode === "FM"
+    // DL always when CTCSS is on so uplink/downlink can each be blank.
+    readonly property bool fmDlCtcssShown: fmMode && Stream.ctcssEnabled
 
     // RPT (FM repeater) — ad-hoc duplex layered on SPLIT + CTCSS, front-
     // facing in FM only.  Dir + offset are UI state; applying writes the
     // engine (setVfoBHz + setSplitEnabled), so it's the same PS-safe path
     // as manual split / a recalled repeater memory.  In FM, split ⟺ RPT
     // (the raw SPLIT button hides; RPT is the FM-friendly way to split).
+    // VFO click/wheel steps.  6.25 / 8.33 / 12.5 kHz are land-mobile /
+    // airband channel spacings.  8.33 kHz is 8333 Hz (ICAO integer).
+    readonly property var vfoStepHzList: [
+        1, 10, 100, 500, 1000, 5000, 6250, 8333, 10000, 12500]
+    readonly property var vfoStepLabels: [
+        "1 Hz", "10 Hz", "100 Hz", "500 Hz", "1 kHz", "5 kHz",
+        "6.25 kHz", "8.33 kHz", "10 kHz", "12.5 kHz"]
+    function vfoStepIndex(hz) {
+        var list = root.vfoStepHzList
+        var i = list.indexOf(hz)
+        if (i >= 0) return i
+        var best = 4, bd = 1e12
+        for (var j = 0; j < list.length; ++j) {
+            var d = Math.abs(list[j] - hz)
+            if (d < bd) { bd = d; best = j }
+        }
+        return best
+    }
+
     property int rptDirSign: -1                    // − (input below output)
-    readonly property var rptOffsetsKHz: [100, 500, 600, 1000, 5000]
+    property int rptOffsetKHz: 100                 // typed; any 1…20000 kHz
+    readonly property var rptPresetKHz: [100, 500, 600, 1000, 5000, 7600]
     // Standard CTCSS tones (Hz) for the front combo; the engine snaps to
     // its canonical table on setCtcssToneHz.
     readonly property var ctcssTones: [
+        0.0,
         67.0, 69.3, 71.9, 74.4, 77.0, 79.7, 82.5, 85.4, 88.5, 91.5, 94.8,
         97.4, 100.0, 103.5, 107.2, 110.9, 114.8, 118.8, 123.0, 127.3, 131.8,
         136.5, 141.3, 146.2, 151.4, 156.7, 159.8, 162.2, 165.5, 167.9, 171.3,
         173.8, 177.3, 179.9, 183.5, 186.2, 189.9, 192.8, 196.6, 199.5, 203.5,
         206.5, 210.7, 218.1, 225.7, 229.1, 233.6, 241.8, 250.3, 254.1]
+    function ctcssLabel(t) { return t > 0.5 ? t.toFixed(1) : "—" }
+    function formatOffsetMag(k) {
+        if (k >= 1000 && (k % 1000) === 0) return (k / 1000) + " MHz"
+        if (k === 7600) return "7.6 MHz"
+        return k + " kHz"
+    }
+    function parseOffsetMag(text) {
+        var s = String(text).trim().toLowerCase().replace(",", ".")
+        var n = parseFloat(s)
+        if (!(n > 0)) return root.rptOffsetKHz
+        if (s.indexOf("mhz") >= 0) return Math.max(1, Math.round(n * 1000))
+        return Math.max(1, Math.round(n))
+    }
     // VFO B = VFO A ± offset.  Called on RPT-on, dir/offset change, and (as
     // a duplex) every VFO-A retune while RPT is active.
     function rptApply() {
         Stream.setVfoBHz(Stream.rx1FreqHz
-            + root.rptDirSign * root.rptOffsetsKHz[rptOffsetCombo.currentIndex] * 1000)
+            + root.rptDirSign * root.rptOffsetKHz * 1000)
     }
-    // Per-band standard repeater offset: 6 m → 1 MHz, else (10 m + generic)
-    // → 100 kHz, shift down (−).  Applied when RPT is freshly engaged.
-    function bandDefaultOffsetIdx(hz) {
-        return (hz >= 50000000 && hz < 54000000) ? 3 : 0
+    // Per-band default offset (kHz), shift down (−): 6 m 1 MHz, 2 m 600 kHz,
+    // 70 cm 7.6 MHz (IARU R1), else 100 kHz (10 m / generic).
+    function bandDefaultOffsetKHz(hz) {
+        if (hz >= 50000000 && hz < 54000000) return 1000
+        if (hz >= 144000000 && hz < 148000000) return 600
+        if (hz >= 420000000 && hz < 450000000) return 7600
+        return 100
+    }
+    function syncRptPresetCombo() {
+        var k = root.rptOffsetKHz, list = root.rptPresetKHz
+        for (var i = 0; i < list.length; ++i) {
+            if (list[i] === k) {
+                rptOffsetCombo.currentIndex = i
+                return
+            }
+        }
+        rptOffsetCombo.editText = root.formatOffsetMag(k)
     }
     function applyBandDefault() {
         root.rptDirSign = -1
-        rptOffsetCombo.currentIndex = root.bandDefaultOffsetIdx(Stream.rx1FreqHz)
+        root.rptOffsetKHz = root.bandDefaultOffsetKHz(Stream.rx1FreqHz)
+        root.syncRptPresetCombo()
     }
     // Reflect the LIVE split offset (restored at launch / memory-recalled /
-    // manual VFO-B) in the RPT dir + offset combo; simplex → band default.
+    // manual VFO-B) in the RPT dir + typed kHz; simplex → band default.
     function syncRptFromState() {
         var off = Stream.vfoBHz - Stream.rx1FreqHz
         if (off === 0) { root.applyBandDefault(); return }
         root.rptDirSign = off < 0 ? -1 : 1
-        var magK = Math.abs(off) / 1000, best = 0
-        for (var i = 1; i < root.rptOffsetsKHz.length; ++i)
-            if (Math.abs(root.rptOffsetsKHz[i] - magK)
-                    < Math.abs(root.rptOffsetsKHz[best] - magK)) best = i
-        rptOffsetCombo.currentIndex = best
+        root.rptOffsetKHz = Math.max(1, Math.round(Math.abs(off) / 1000))
+        root.syncRptPresetCombo()
     }
     function nearestCtcssIndex(hz) {
-        var best = 0
-        for (var i = 1; i < root.ctcssTones.length; ++i)
+        if (!(hz > 0.5)) return 0
+        var best = 1
+        for (var i = 2; i < root.ctcssTones.length; ++i)
             if (Math.abs(root.ctcssTones[i] - hz)
                     < Math.abs(root.ctcssTones[best] - hz)) best = i
         return best
@@ -266,8 +335,8 @@ Rectangle {
         anchors.leftMargin: 12
         anchors.rightMargin: 12
         anchors.topMargin: 6
-        anchors.bottomMargin: 10
-        spacing: 14
+        anchors.bottomMargin: 6
+        spacing: 8
 
         // ── VFO row: [VFO-A cluster + its Step/Mode]  [big logo]  [VFO-B] ──
         // Per-VFO Step+Mode sit DIRECTLY under each VFO (old-Lyra idiom);
@@ -330,11 +399,6 @@ Rectangle {
                         anchors.fill: parent
                         hoverEnabled: true
                         onClicked: root.assignTx(false)
-                        ToolTip.visible: containsMouse && Prefs.tooltipsEnabled
-                        ToolTip.delay: 400
-                        ToolTip.text: !Stream.splitEnabled
-                            ? qsTr("Transmit on VFO A")
-                            : qsTr("Click to transmit on VFO A (leave SPLIT)")
                     }
                 }
 
@@ -372,6 +436,7 @@ Rectangle {
                             // VFO (carrier) = DDS + CW marker offset.
                             freqHz: root.centerHz + WdspEngine.markerOffsetHz
                             externalStepHz: stepCombo.stepVals[stepCombo.currentIndex]
+                            stickyWheel: Prefs.vfoStickyWheel
                             // Tune: convert carrier back to the DDS wire freq.
                             onFreqEdited: (hz) =>
                                 Stream.setRx1FreqHz(hz - WdspEngine.markerOffsetHz)
@@ -380,6 +445,14 @@ Rectangle {
                                 editField.visible = true
                                 editField.selectAll()
                                 editField.forceActiveFocus()
+                            }
+                        }
+                        WheelHandler {
+                            enabled: !editField.visible
+                            onWheel: (ev) => {
+                                led.handleWheel(ev.angleDelta.y, ev.pixelDelta.y,
+                                                ev.position.x, ev.position.y)
+                                ev.accepted = true
                             }
                         }
                         TextField {
@@ -415,20 +488,26 @@ Rectangle {
                     // centred (balanced spacers each side).
                     RowLayout {
                         Layout.fillWidth: true
+                        z: 4
                         spacing: 6
 
                         Item { Layout.fillWidth: true }
                         Label { text: qsTr("Step"); color: "#cccccc"; font.bold: true }
                         LyraComboBox {
                             id: stepCombo
-                            Layout.preferredWidth: 78
-                            property var stepVals: [1, 10, 100, 500, 1000, 5000, 10000]
-                            model: ["1 Hz", "10 Hz", "100 Hz", "500 Hz", "1 kHz", "5 kHz", "10 kHz"]
-                            currentIndex: 4   // 1 kHz default
+                            helpTitle: qsTr("Step")
+                            helpText: qsTr("Click/wheel VFO step for this mode. Remembered per mode.")
+                            Layout.preferredWidth: 92
+                            property var stepVals: root.vfoStepHzList
+                            model: root.vfoStepLabels
+                            currentIndex: root.vfoStepIndex(Prefs.vfoStepHz(Prefs.mode))
+                            onActivated: Prefs.setVfoStepHz(Prefs.mode, stepVals[currentIndex])
                         }
                         Label { text: qsTr("Mode"); color: "#cccccc"; font.bold: true }
                         LyraComboBox {
                             id: modeCombo
+                            helpTitle: qsTr("Mode")
+                            helpText: qsTr("Demod mode for VFO A. Filter bandwidths are remembered per mode.")
                             Layout.preferredWidth: 78
                             model: root.modeList
                             currentIndex: Math.max(0, root.modeList.indexOf(Prefs.mode))
@@ -440,7 +519,8 @@ Rectangle {
 
                 MouseArea {
                     anchors.fill: parent
-                    z: 3
+                    z: 1
+                    hoverEnabled: false
                     acceptedButtons: Qt.LeftButton
                     onPressed: (mouse) => {
                         Stream.setFocusedRx(1)
@@ -574,15 +654,18 @@ Rectangle {
                 // It only disappears entirely when the panel is too narrow for
                 // it to mean anything.
                 visible: root.width >= 760
-                Layout.preferredWidth: visible ? 132 : 0
-                Layout.preferredHeight: 132
+                // Match the 108px VFO boxes.  At 132 the logo was the
+                // row's height floor and the SPLIT/RIT row clipped on a
+                // laptop-height Tuning dock.
+                Layout.preferredWidth: visible ? 108 : 0
+                Layout.preferredHeight: 108
                 Layout.minimumWidth: 0
-                Layout.maximumWidth: visible ? 140 : 0
-                Layout.maximumHeight: 140
+                Layout.maximumWidth: visible ? 108 : 0
+                Layout.maximumHeight: 108
                 Layout.alignment: Qt.AlignVCenter
                 fillMode: Image.PreserveAspectFit
-                sourceSize.width: 140
-                sourceSize.height: 140
+                sourceSize.width: 108
+                sourceSize.height: 108
                 smooth: true
                 mipmap: true
             }
@@ -662,11 +745,6 @@ Rectangle {
                             anchors.fill: parent
                             hoverEnabled: true
                             onClicked: root.assignTx(true)
-                            ToolTip.visible: containsMouse && Prefs.tooltipsEnabled
-                            ToolTip.delay: 400
-                            ToolTip.text: Stream.splitEnabled
-                                ? qsTr("Transmit on VFO B")
-                                : qsTr("Click to transmit on VFO B (enter SPLIT)")
                         }
                     }
 
@@ -690,12 +768,21 @@ Rectangle {
                                 // applied at push), so show/tune it directly.
                                 freqHz: root.displayBHz
                                 externalStepHz: stepComboB.stepVals[stepComboB.currentIndex]
+                                stickyWheel: Prefs.vfoStickyWheel
                                 onFreqEdited: (hz) => root.commitBCarrier(hz)
                                 onEditRequested: {
                                     editFieldB.text = (ledB.freqHz / 1.0e6).toFixed(6)
                                     editFieldB.visible = true
                                     editFieldB.selectAll()
                                     editFieldB.forceActiveFocus()
+                                }
+                            }
+                            WheelHandler {
+                                enabled: !editFieldB.visible
+                                onWheel: (ev) => {
+                                    ledB.handleWheel(ev.angleDelta.y, ev.pixelDelta.y,
+                                                     ev.position.x, ev.position.y)
+                                    ev.accepted = true
                                 }
                             }
                             TextField {
@@ -729,15 +816,21 @@ Rectangle {
                         // VFO B's Step (mode is shared with VFO A).
                         RowLayout {
                             Layout.fillWidth: true
+                            z: 4
                             spacing: 6
                             Item { Layout.fillWidth: true }
                             Label { text: qsTr("Step"); color: "#cccccc"; font.bold: true }
                             LyraComboBox {
                                 id: stepComboB
-                                Layout.preferredWidth: 78
-                                property var stepVals: [1, 10, 100, 500, 1000, 5000, 10000]
-                                model: ["1 Hz", "10 Hz", "100 Hz", "500 Hz", "1 kHz", "5 kHz", "10 kHz"]
-                                currentIndex: 4
+                                helpTitle: qsTr("Step B")
+                                helpText: qsTr("Click/wheel VFO B step for this mode.")
+                                Layout.preferredWidth: 92
+                                property var stepVals: root.vfoStepHzList
+                                model: root.vfoStepLabels
+                                currentIndex: root.vfoStepIndex(
+                                    Prefs.vfoStepHzRx2(Prefs.modeRx2))
+                                onActivated: Prefs.setVfoStepHzRx2(
+                                    Prefs.modeRx2, stepVals[currentIndex])
                             }
                             Label {
                                 visible: Stream.subEnabled
@@ -745,6 +838,8 @@ Rectangle {
                             }
                             LyraComboBox {
                                 id: modeComboB
+                                helpTitle: qsTr("Mode B")
+                                helpText: qsTr("Demod mode for VFO B. Filter bandwidths are remembered per mode.")
                                 visible: Stream.subEnabled
                                 Layout.preferredWidth: 78
                                 model: root.modeList
@@ -757,7 +852,8 @@ Rectangle {
 
                     MouseArea {
                         anchors.fill: parent
-                        z: 3
+                        z: 1
+                        hoverEnabled: false
                         acceptedButtons: Qt.LeftButton
                         onPressed: (mouse) => {
                             Stream.setFocusedRx(2)
@@ -774,9 +870,22 @@ Rectangle {
         // feature (RIT, repeaters), never as a dead widget.
         RowLayout {
             Layout.fillWidth: true
+            Layout.minimumHeight: 26
             spacing: 8
 
             Item { Layout.fillWidth: true }   // centre the action controls
+
+            Label {
+                text: qsTr("VFO")
+                color: "#8fa6ba"
+                font.bold: true
+                HoverHandler { id: vfoOpsHov }
+                LyraHoverHelp {
+                    title: qsTr("VFO")
+                    text: qsTr("SPLIT: RX A, TX B (right-click pile-up shift). SUB: second receiver. Mem: recall/save. 1→2 / 2→1 / ⇄ copy or swap. RIT RX offset, XIT TX offset. Gray TX pip assigns transmit.")
+                    hovered: vfoOpsHov.hovered
+                }
+            }
 
             // SPLIT — TX on VFO B, RX on VFO A.  Lit cyan when on.  Hidden
             // in FM, where the RPT button (below) is the friendlier split.
@@ -811,10 +920,12 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("SPLIT — receive on VFO A, transmit on VFO B.  "
-                    + "Right-click for a per-mode pile-up shift (up/down 1, 5, or 10 kHz).  "
-                    + "Click the gray TX pip on a VFO to assign transmit.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
+                HoverHandler { id: splitHov }
+                LyraHoverHelp {
+                    title: qsTr("SPLIT")
+                    text: qsTr("RX on VFO A, TX on VFO B. Right-click for pile-up shift. Hidden in FM — use RPT instead.")
+                    hovered: splitHov.hovered
+                }
 
                 TapHandler {
                     acceptedButtons: Qt.RightButton
@@ -881,190 +992,133 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("SUB — second receiver on DDC1 (HL2 and "
-                    + "Brick).  Off keeps DDC1 mirroring RX1.  On: listen on "
-                    + "RX2 (VFO B when SPLIT is also on).  Stereo: RX1 left, "
-                    + "RX2 right.  One ADC + N2ADR filter follows RX1 — "
-                    + "same-band SUB is full strength; cross-band is much "
-                    + "weaker.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
-            }
-
-            // ── FM front group: Deviation (always) + RPT → Dir/Offset/CTCSS ──
-            Label {
-                text: qsTr("Dev"); color: "#cccccc"; font.bold: true
-                visible: root.fmMode
-            }
-            LyraSpinBox {
-                id: devSpin
-                visible: root.fmMode
-                Layout.preferredWidth: 94
-                // Integer tenths-of-kHz internally (10..60 = 1.0..6.0 kHz,
-                // 0.5 kHz step) so the display shows decimal kHz.  Two-way
-                // with Stream.fmDeviationHz (Settings → TX → FM stays in sync).
-                from: 10; to: 60; stepSize: 5
-                value: Math.round(Stream.fmDeviationHz / 100)
-                textFromValue: function(v, loc) { return (v / 10).toFixed(1) + " k" }
-                valueFromText: function(t, loc) { return Math.round(parseFloat(t) * 10) }
-                onValueModified: {
-                    Stream.setFmDeviationHz(value * 100)
-                    // Auto-size the RX filter to the new deviation's occupied
-                    // width (Carson).  TX BW is already deviation-derived in FM;
-                    // this makes RX follow too.  Overridable in the Filters panel.
-                    Prefs.rxBandwidth = root.fmRxBwForDev(value * 100)
+                HoverHandler { id: subHov }
+                LyraHoverHelp {
+                    title: qsTr("SUB")
+                    text: qsTr("Second receiver on DDC1. Green when on. Panadapter follows the focused RX.")
+                    hovered: subHov.hovered
                 }
-                ToolTip.text: qsTr("FM peak deviation — 5.0 k = Wide (US), 2.5 k = "
-                    + "Narrow.  Sets RX bandwidth to match.  Same control as "
-                    + "Settings → TX → FM.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 800
             }
 
-            // FM pre-emphasis quick chip — Comm (6 dB/oct voice) / Off (flat,
-            // data + warm HF).  Mirrors Settings → TX → FM (two-way via the
-            // shared Stream.fmEmphasisMode property).  0 = Off, 1 = Comm.
-            Label {
-                text: qsTr("Emph"); color: "#cccccc"; font.bold: true
-                visible: root.fmMode
-            }
-            LyraComboBox {
-                id: emphCombo
-                visible: root.fmMode
-                Layout.preferredWidth: 88
-                model: [qsTr("Comm"), qsTr("Off")]
-                currentIndex: Stream.fmEmphasisMode === 1 ? 0 : 1
-                onActivated: Stream.setFmEmphasisMode(currentIndex === 0 ? 1 : 0)
-                ToolTip.text: qsTr("FM pre-emphasis — Comm = 6 dB/oct voice curve, "
-                    + "Off = flat (digital/data + warmer HF).  Same control as "
-                    + "Settings → TX → FM.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 800
-            }
-
-            // RPT — FM repeater duplex.  In FM, split ⟺ RPT.
             Button {
-                id: rptBtn
-                visible: root.fmMode
-                checkable: true
-                implicitHeight: 26; implicitWidth: 52
-                checked: Stream.splitEnabled
-                text: qsTr("RPT")
-                font.bold: true; font.pixelSize: 12
-                onToggled: {
-                    if (checked) {
-                        // Fresh engage → pick this band's standard offset.
-                        root.applyBandDefault()
-                        Stream.setSplitEnabled(true)
-                        root.rptApply()
-                    } else {
-                        Stream.setSplitEnabled(false)
-                        Stream.setCtcssEnabled(false)
+                id: memBtn
+                visible: Prefs.memoryOnTuning
+                implicitHeight: 26
+                implicitWidth: 52
+                text: qsTr("Mem")
+                font.bold: true
+                font.pixelSize: 12
+                background: Rectangle {
+                    radius: 4
+                    color: "#161e28"
+                    border.width: 2
+                    border.color: "#2a3a4a"
+                }
+                contentItem: Text {
+                    text: memBtn.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: "#cdd9e5"
+                    font: memBtn.font
+                    elide: Text.ElideRight
+                    clip: true
+                }
+                HoverHandler { id: memHov }
+                LyraHoverHelp {
+                    title: qsTr("Mem")
+                    text: qsTr("Recall a saved frequency. Right-click to save current or manage presets.")
+                    hovered: memHov.hovered
+                }
+                onClicked: memRecallPopup.open()
+                MemoryRecallPopup {
+                    id: memRecallPopup
+                    memories: root.memList
+                    onRecalled: function(index) { Gen.deactivate(); Memory.recall(index) }
+                }
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: memManageMenu.popup()
+                }
+                Menu {
+                    id: memManageMenu
+                    MenuItem {
+                        text: qsTr("Save current…")
+                        onTriggered: {
+                            memNameDialog.suggested = Memory.currentAutoName()
+                            memNameDialog.open()
+                        }
+                    }
+                    MenuItem {
+                        text: qsTr("Manage presets…")
+                        onTriggered: Help.openSettings("memory")
                     }
                 }
-                background: Rectangle {
-                    radius: 4
-                    color: rptBtn.checked ? "#10323a" : "#161e28"
-                    border.width: 2
-                    border.color: rptBtn.checked ? "#00e5ff" : "#2a3a4a"
+                Dialog {
+                    id: memNameDialog
+                    title: qsTr("Save memory")
+                    modal: true
+                    parent: Overlay.overlay
+                    anchors.centerIn: Overlay.overlay
+                    width: 340
+                    standardButtons: Dialog.Ok | Dialog.Cancel
+                    property string suggested: ""
+                    onAboutToShow: {
+                        nameField.text = memNameDialog.suggested
+                        nameField.selectAll()
+                        nameField.forceActiveFocus()
+                    }
+                    onAccepted: Memory.addCurrent(nameField.text)
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 8
+                        Label {
+                            text: qsTr("Name (optional)")
+                            color: "#cdd9e5"
+                        }
+                        TextField {
+                            id: nameField
+                            Layout.fillWidth: true
+                        }
+                    }
                 }
-                contentItem: Text {
-                    text: rptBtn.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: rptBtn.checked ? "#00e5ff" : "#cdd9e5"
-                    font: rptBtn.font
-                    elide: Text.ElideRight
-                    clip: true
-                }
-                ToolTip.text: qsTr("Repeater — TX on VFO B = VFO A ± offset, RX on "
-                    + "A.  Pick the shift direction + offset and (if needed) the "
-                    + "CTCSS access tone.  VFO B tracks A as you tune.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
-            }
-            Label {
-                text: qsTr("Offset"); color: "#cccccc"; font.bold: true
-                visible: root.fmMode && Stream.splitEnabled
-            }
-            // Shift direction (− input below output / + above).
-            Button {
-                visible: root.fmMode && Stream.splitEnabled
-                implicitHeight: 26; implicitWidth: 30; font.pixelSize: 15
-                text: root.rptDirSign < 0 ? "−" : "+"
-                onClicked: { root.rptDirSign = -root.rptDirSign; root.rptApply() }
-                ToolTip.text: qsTr("Repeater shift direction"); ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
-            }
-            // Common repeater offsets.
-            LyraComboBox {
-                id: rptOffsetCombo
-                visible: root.fmMode && Stream.splitEnabled
-                Layout.preferredWidth: 92
-                model: ["100 kHz", "500 kHz", "600 kHz", "1 MHz", "5 MHz"]
-                currentIndex: 0
-                onActivated: root.rptApply()
-                ToolTip.text: qsTr("Repeater offset (10 m = 100 kHz, 6 m = 1 MHz)")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
-            }
-            // CTCSS access tone — lit toggle button (clearer than a tickbox) +
-            // tone combo, two-way with Settings → TX → FM.  Orange when on.
-            Button {
-                id: ctcssBtn
-                visible: root.fmMode && Stream.splitEnabled
-                checkable: true
-                implicitHeight: 26; implicitWidth: 62
-                checked: Stream.ctcssEnabled
-                onToggled: Stream.setCtcssEnabled(checked)
-                text: qsTr("CTCSS")
-                font.bold: true; font.pixelSize: 12
-                background: Rectangle {
-                    radius: 4
-                    color: ctcssBtn.checked ? "#3a2a14" : "#161e28"
-                    border.width: 2
-                    border.color: ctcssBtn.checked ? "#ff9a3c" : "#2a3a4a"
-                }
-                contentItem: Text {
-                    text: ctcssBtn.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    color: ctcssBtn.checked ? "#ff9a3c" : "#cdd9e5"
-                    font: ctcssBtn.font
-                    elide: Text.ElideRight
-                    clip: true
-                }
-                ToolTip.text: qsTr("Send a CTCSS sub-audible access tone — required "
-                    + "by tone-protected repeaters.  Pick the tone at right.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
-            }
-            Label {
-                text: qsTr("Tone"); color: "#cccccc"; font.bold: true
-                visible: root.fmMode && Stream.splitEnabled && ctcssBtn.checked
-            }
-            LyraComboBox {
-                id: ctcssToneCombo
-                visible: root.fmMode && Stream.splitEnabled && ctcssBtn.checked
-                Layout.preferredWidth: 78
-                model: root.ctcssTones.map(function(t) { return t.toFixed(1) })
-                currentIndex: root.nearestCtcssIndex(Stream.ctcssToneHz)
-                onActivated: Stream.setCtcssToneHz(root.ctcssTones[currentIndex])
-                ToolTip.text: qsTr("CTCSS access tone (Hz)")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
 
             // VFO copy / swap.  1→2 = A→B, 2→1 = B→A, ⇄ = swap.
             Button {
+                id: copyAtoBBtn
                 implicitHeight: 26; implicitWidth: 40; font.pixelSize: 12
                 text: qsTr("1→2")
                 onClicked: root.copyAtoB()
-                ToolTip.text: qsTr("Copy VFO A → VFO B"); ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
+                HoverHandler { id: copyAtoBHov }
+                LyraHoverHelp {
+                    title: qsTr("1→2")
+                    text: qsTr("Copy VFO A into VFO B.")
+                    hovered: copyAtoBHov.hovered
+                }
             }
             Button {
+                id: copyBtoABtn
                 implicitHeight: 26; implicitWidth: 40; font.pixelSize: 12
                 text: qsTr("2→1")
                 onClicked: root.copyBtoA()
-                ToolTip.text: qsTr("Copy VFO B → VFO A"); ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
+                HoverHandler { id: copyBtoAHov }
+                LyraHoverHelp {
+                    title: qsTr("2→1")
+                    text: qsTr("Copy VFO B into VFO A.")
+                    hovered: copyBtoAHov.hovered
+                }
             }
             Button {
+                id: swapAbBtn
                 implicitHeight: 26; implicitWidth: 36; font.pixelSize: 14
                 text: qsTr("⇄")
                 onClicked: root.swapAB()
-                ToolTip.text: qsTr("Swap VFO A ↔ VFO B"); ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
+                HoverHandler { id: swapHov }
+                LyraHoverHelp {
+                    title: qsTr("Swap")
+                    text: qsTr("Swap VFO A and VFO B.")
+                    hovered: swapHov.hovered
+                }
             }
 
             // ── RIT / XIT — RX / TX incremental tuning offsets ──────────────
@@ -1096,13 +1150,17 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("RIT — Receiver Incremental Tuning.  Shifts "
-                    + "only the RX by the offset; TX stays put.  Chase an "
-                    + "off-frequency station without moving your VFO.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
+                HoverHandler { id: ritHov }
+                LyraHoverHelp {
+                    title: qsTr("RIT")
+                    text: qsTr("Receiver incremental tuning. Offsets RX only. Arrows 1 Hz, wheel 10 Hz (Shift 100 Hz). 0 clears.")
+                    hovered: ritHov.hovered
+                }
             }
             LyraSpinBox {
                 id: ritSpin
+                helpTitle: qsTr("RIT")
+                helpText: qsTr("RX offset in Hz. Arrows 1 Hz, wheel 10 Hz (Shift 100 Hz).")
                 wheelStepping: false   // has its own WheelHandler (10 Hz)
                 visible: ritBtn.checked
                 Layout.preferredWidth: 104
@@ -1129,9 +1187,6 @@ Rectangle {
                         Stream.setRitOffsetHz(Math.max(-9999, Math.min(9999, nv)))
                     }
                 }
-                ToolTip.text: qsTr("RX offset, ±9.99 kHz.  Arrows = 1 Hz, "
-                    + "wheel = 10 Hz (Shift = 100 Hz).  '0' clears it.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 800
             }
             // Quick-zero — a reliable button (double-click on the spin fought
             // the SpinBox's own input handling and killed the arrows).
@@ -1140,8 +1195,6 @@ Rectangle {
                 implicitHeight: 26; implicitWidth: 26
                 text: qsTr("0"); font.pixelSize: 12
                 onClicked: Stream.setRitOffsetHz(0)
-                ToolTip.text: qsTr("Zero the RIT offset")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
 
             Button {
@@ -1167,13 +1220,17 @@ Rectangle {
                     elide: Text.ElideRight
                     clip: true
                 }
-                ToolTip.text: qsTr("XIT — Transmitter Incremental Tuning.  Shifts "
-                    + "only the TX by the offset; RX stays put.  PureSignal "
-                    + "tracks the shifted TX automatically.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
+                HoverHandler { id: xitHov }
+                LyraHoverHelp {
+                    title: qsTr("XIT")
+                    text: qsTr("Transmit incremental tuning. Offsets TX only. Arrows 1 Hz, wheel 10 Hz (Shift 100 Hz). 0 clears.")
+                    hovered: xitHov.hovered
+                }
             }
             LyraSpinBox {
                 id: xitSpin
+                helpTitle: qsTr("XIT")
+                helpText: qsTr("TX offset in Hz. Arrows 1 Hz, wheel 10 Hz (Shift 100 Hz).")
                 wheelStepping: false   // has its own WheelHandler (10 Hz)
                 visible: xitBtn.checked
                 Layout.preferredWidth: 104
@@ -1197,17 +1254,12 @@ Rectangle {
                         Stream.setXitOffsetHz(Math.max(-9999, Math.min(9999, nv)))
                     }
                 }
-                ToolTip.text: qsTr("TX offset, ±9.99 kHz.  Arrows = 1 Hz, "
-                    + "wheel = 10 Hz (Shift = 100 Hz).  '0' clears it.")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 800
             }
             Button {
                 visible: xitBtn.checked
                 implicitHeight: 26; implicitWidth: 26
                 text: qsTr("0"); font.pixelSize: 12
                 onClicked: Stream.setXitOffsetHz(0)
-                ToolTip.text: qsTr("Zero the XIT offset")
-                ToolTip.visible: (hovered) && Prefs.tooltipsEnabled; ToolTip.delay: 600
             }
 
             Label {
@@ -1217,6 +1269,8 @@ Rectangle {
             }
             LyraSpinBox {
                 id: pitchSpin
+                helpTitle: qsTr("CW Pitch")
+                helpText: qsTr("CW sidetone pitch (200–1500 Hz). The VFO LED shows carrier; the offset is applied on the wire.")
                 visible: root.cwMode
                 Layout.preferredWidth: 110
                 from: 200; to: 1500; stepSize: 10
@@ -1224,6 +1278,266 @@ Rectangle {
                 onValueModified: WdspEngine.setCwPitchHz(value)
             }
 
+            Label {
+                text: qsTr("Dev"); color: "#cccccc"; font.bold: true
+                visible: root.fmMode
+                HoverHandler { id: devLblHov }
+                LyraHoverHelp {
+                    title: qsTr("Dev")
+                    text: qsTr("FM peak deviation — 5.0 k = Wide (US), 2.5 k = Narrow. Sets RX bandwidth to match.")
+                    hovered: devLblHov.hovered
+                }
+            }
+            LyraSpinBox {
+                id: devSpin
+                helpTitle: qsTr("Dev")
+                helpText: qsTr("FM peak deviation — 5.0 k = Wide (US), 2.5 k = Narrow. Sets RX bandwidth to match.")
+                visible: root.fmMode
+                Layout.preferredWidth: 58
+                font.pixelSize: 12
+                valueHAlign: Qt.AlignLeft
+                textLeftPad: 4
+                from: 10; to: 60; stepSize: 5
+                value: Math.round(Stream.fmDeviationHz / 100)
+                textFromValue: function(v, loc) { return (v / 10).toFixed(1) + " k" }
+                valueFromText: function(t, loc) { return Math.round(parseFloat(t) * 10) }
+                onValueModified: {
+                    Stream.setFmDeviationHz(value * 100)
+                    Prefs.rxBandwidth = root.fmRxBwForDev(value * 100)
+                }
+            }
+
+            Label {
+                text: qsTr("Emph"); color: "#cccccc"; font.bold: true
+                visible: root.fmMode
+                HoverHandler { id: emphLblHov }
+                LyraHoverHelp {
+                    title: qsTr("Emph")
+                    text: qsTr("FM pre-emphasis — Comm = 6 dB/oct voice, Off = flat (data / warmer HF).")
+                    hovered: emphLblHov.hovered
+                }
+            }
+            LyraComboBox {
+                id: emphCombo
+                helpTitle: qsTr("Emph")
+                helpText: qsTr("FM pre-emphasis — Comm = 6 dB/oct voice, Off = flat (data / warmer HF).")
+                visible: root.fmMode
+                Layout.preferredWidth: 70
+                font.pixelSize: 12
+                textLeftPad: 4
+                textRightPad: 14
+                model: [qsTr("Comm"), qsTr("Off")]
+                currentIndex: Stream.fmEmphasisMode === 1 ? 0 : 1
+                onActivated: Stream.setFmEmphasisMode(currentIndex === 0 ? 1 : 0)
+            }
+
+            Button {
+                id: rptBtn
+                visible: root.fmMode
+                checkable: true
+                implicitHeight: 26; implicitWidth: 52
+                checked: Stream.splitEnabled
+                text: qsTr("RPT")
+                font.bold: true; font.pixelSize: 12
+                onToggled: {
+                    if (checked) {
+                        root.applyBandDefault()
+                        Stream.setSplitEnabled(true)
+                        // Mark this split as RPT: it drops (split off, VFO B
+                        // re-synced to A) when RX1 leaves this band.
+                        Stream.setRptActive(true)
+                        root.rptApply()
+                    } else {
+                        Stream.setSplitEnabled(false)
+                        Stream.setCtcssEnabled(false)
+                    }
+                }
+                background: Rectangle {
+                    radius: 4
+                    color: rptBtn.checked ? "#10323a" : "#161e28"
+                    border.width: 2
+                    border.color: rptBtn.checked ? "#00e5ff" : "#2a3a4a"
+                }
+                contentItem: Text {
+                    text: rptBtn.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: rptBtn.checked ? "#00e5ff" : "#cdd9e5"
+                    font: rptBtn.font
+                    elide: Text.ElideRight
+                    clip: true
+                }
+                HoverHandler { id: rptHov }
+                LyraHoverHelp {
+                    title: qsTr("RPT")
+                    text: qsTr("Repeater split. Turns SPLIT on with the band default offset. Offset / ± / CTCSS appear when on.")
+                    hovered: rptHov.hovered
+                }
+            }
+            Label {
+                text: qsTr("Offset"); color: "#cccccc"; font.bold: true
+                visible: root.fmMode && Stream.splitEnabled
+                HoverHandler { id: offsetLblHov }
+                LyraHoverHelp {
+                    title: qsTr("Offset")
+                    text: qsTr("Repeater offset — preset or type kHz. − / + sets the shift.")
+                    hovered: offsetLblHov.hovered
+                }
+            }
+            Button {
+                visible: root.fmMode && Stream.splitEnabled
+                implicitHeight: 26; implicitWidth: 30; font.pixelSize: 15
+                text: root.rptDirSign < 0 ? "−" : "+"
+                onClicked: { root.rptDirSign = -root.rptDirSign; root.rptApply() }
+            }
+            ComboBox {
+                id: rptOffsetCombo
+                visible: root.fmMode && Stream.splitEnabled
+                implicitHeight: 24
+                Layout.preferredWidth: 82
+                font.pixelSize: 12
+                padding: 0
+                leftPadding: 4
+                rightPadding: 16
+                editable: true
+                model: ["100 kHz", "500 kHz", "600 kHz", "1 MHz", "5 MHz", "7.6 MHz"]
+                background: Rectangle {
+                    implicitHeight: 24
+                    color: rptOffsetCombo.enabled ? "#161e28" : "#12171d"
+                    border.color: rptOffsetCombo.activeFocus ? "#50d0ff"
+                                : rptOffsetCombo.hovered ? "#3a5a6a"
+                                : "#2a3a4a"
+                    border.width: 1
+                    radius: 3
+                }
+                indicator: Text {
+                    x: rptOffsetCombo.width - width - 4
+                    y: (rptOffsetCombo.height - height) / 2
+                    text: "▾"
+                    font.pixelSize: 11
+                    color: rptOffsetCombo.enabled ? "#50d0ff" : "#5a6670"
+                }
+                // Stock editable ComboBox uses palette.text (black). Our field
+                // is dark, so the value disappeared after the compact restyle.
+                contentItem: TextField {
+                    text: rptOffsetCombo.editable ? rptOffsetCombo.editText
+                                                  : rptOffsetCombo.displayText
+                    font: rptOffsetCombo.font
+                    color: rptOffsetCombo.enabled ? "#f2f8fc" : "#5a6670"
+                    selectionColor: "#50d0ff"
+                    selectedTextColor: "#0a0e12"
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: 4
+                    rightPadding: 2
+                    topPadding: 0
+                    bottomPadding: 0
+                    readOnly: !rptOffsetCombo.editable
+                    background: Item {}
+                }
+                onActivated: {
+                    root.rptOffsetKHz = root.rptPresetKHz[currentIndex]
+                    root.rptApply()
+                }
+                onAccepted: {
+                    root.rptOffsetKHz = root.parseOffsetMag(editText)
+                    root.syncRptPresetCombo()
+                    root.rptApply()
+                }
+            }
+            Button {
+                id: ctcssBtn
+                visible: root.fmMode
+                checkable: true
+                implicitHeight: 26; implicitWidth: 62
+                checked: Stream.ctcssEnabled
+                onToggled: Stream.setCtcssEnabled(checked)
+                text: qsTr("CTCSS")
+                font.bold: true; font.pixelSize: 12
+                background: Rectangle {
+                    radius: 4
+                    color: ctcssBtn.checked ? "#3a2a14" : "#161e28"
+                    border.width: 2
+                    border.color: ctcssBtn.checked ? "#ff9a3c" : "#2a3a4a"
+                }
+                contentItem: Text {
+                    text: ctcssBtn.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: ctcssBtn.checked ? "#ff9a3c" : "#cdd9e5"
+                    font: ctcssBtn.font
+                    elide: Text.ElideRight
+                    clip: true
+                }
+            }
+            Label {
+                text: qsTr("UL"); color: "#cccccc"; font.bold: true
+                visible: root.fmMode && ctcssBtn.checked
+                HoverHandler { id: ulLblHov }
+                LyraHoverHelp {
+                    title: qsTr("UL")
+                    text: qsTr("Uplink CTCSS (TX encode). — = no encode.")
+                    hovered: ulLblHov.hovered
+                }
+            }
+            LyraComboBox {
+                id: ctcssToneCombo
+                helpTitle: qsTr("UL")
+                helpText: qsTr("Uplink CTCSS (TX encode). — = no encode.")
+                visible: root.fmMode && ctcssBtn.checked
+                Layout.preferredWidth: 62
+                font.pixelSize: 12
+                textLeftPad: 4
+                textRightPad: 14
+                model: root.ctcssTones.map(function(t) { return root.ctcssLabel(t) })
+                currentIndex: root.nearestCtcssIndex(Stream.ctcssToneHz)
+                onActivated: Stream.setCtcssToneHz(root.ctcssTones[currentIndex])
+            }
+            Label {
+                text: qsTr("DL"); color: "#cccccc"; font.bold: true
+                visible: root.fmDlCtcssShown
+                HoverHandler { id: dlLblHov }
+                LyraHoverHelp {
+                    title: qsTr("DL")
+                    text: qsTr("Downlink CTCSS (RX recipe). — = none. Decode not wired yet.")
+                    hovered: dlLblHov.hovered
+                }
+            }
+            LyraComboBox {
+                id: ctcssDlCombo
+                helpTitle: qsTr("DL")
+                helpText: qsTr("Downlink CTCSS (RX recipe). — = none. Decode not wired yet.")
+                visible: root.fmDlCtcssShown
+                Layout.preferredWidth: 62
+                font.pixelSize: 12
+                textLeftPad: 4
+                textRightPad: 14
+                model: root.ctcssTones.map(function(t) { return root.ctcssLabel(t) })
+                currentIndex: root.nearestCtcssIndex(Stream.ctcssDlHz)
+                onActivated: Stream.setCtcssDlHz(root.ctcssTones[currentIndex])
+            }
+            Button {
+                id: burst1750Btn
+                visible: root.fmMode && Prefs.fmShow1750Burst
+                implicitHeight: 26; implicitWidth: 52
+                text: qsTr("1750")
+                font.bold: true; font.pixelSize: 12
+                onClicked: Stream.fireFmBurst()
+                background: Rectangle {
+                    radius: 4
+                    color: Stream.fmBurstActive ? "#3a2a14" : "#161e28"
+                    border.width: 2
+                    border.color: Stream.fmBurstActive ? "#ff9a3c" : "#2a3a4a"
+                }
+                contentItem: Text {
+                    text: burst1750Btn.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    color: Stream.fmBurstActive ? "#ff9a3c" : "#cdd9e5"
+                    font: burst1750Btn.font
+                    elide: Text.ElideRight
+                    clip: true
+                }
+            }
             Item { Layout.fillWidth: true }
         }
     }

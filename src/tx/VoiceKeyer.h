@@ -19,6 +19,11 @@
 // setLive(true) + wires player() into the funnel; that one change lights up
 // OTA/Review/Record + the F-keys with no panel change.
 //
+// PARKED: mic REC / OTA inject still tap the HL2 EP6 codec jack, ahead of
+// VAC / TCI source select.  A VAC or PC headset records the idle jack and
+// playback can be overwritten after inject.  Hold until a Windows dummy-load
+// pass; do not take the macOS-port xcmaster tap as a silent merge.
+//
 // Global voice-keyer state (playback gain + the single Bypass-TX-DSP toggle,
 // per the locked design decisions) persists to QSettings (clips/*); per-clip
 // trims live on the ClipBank.

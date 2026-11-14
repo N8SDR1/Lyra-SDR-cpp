@@ -1,5 +1,6 @@
 #include "P2TxFifo.h"
 
+#include <chrono>
 #include <cmath>
 
 namespace lyra::wire {
@@ -42,6 +43,7 @@ bool P2TxFifo::pushInterleaved(const double *iq,
         };
     }
     writeIndex_.store(write + sampleCount, std::memory_order_release);
+    waitCv_.notify_one();
     return true;
 }
 
@@ -70,6 +72,19 @@ std::size_t P2TxFifo::size() const noexcept {
     return static_cast<std::size_t>(write - read);
 }
 
+bool P2TxFifo::waitForPacket(const std::atomic<bool> &stop,
+                             int timeoutMs) noexcept {
+    std::unique_lock<std::mutex> lock(waitMutex_);
+    return waitCv_.wait_for(lock, std::chrono::milliseconds(timeoutMs), [&] {
+        return stop.load(std::memory_order_relaxed) ||
+               size() >= kPacketSamples;
+    });
+}
+
+void P2TxFifo::wakeWaiters() noexcept {
+    waitCv_.notify_all();
+}
+
 // Relaxed stores: reset() is only called with the PRODUCER quiescent. The
 // P2 re-prime path (P2Session::startTxTransportRxState) stops the CMaster TX
 // pump first -- no Inbound(1,0) means the cm stream never wakes, so no
@@ -81,6 +96,7 @@ void P2TxFifo::reset() noexcept {
     overflowEvents_.store(0, std::memory_order_relaxed);
     droppedSamples_.store(0, std::memory_order_relaxed);
     underflowEvents_.store(0, std::memory_order_relaxed);
+    wakeWaiters();
 }
 
 P2TxFifo &p2TxInputFifo() noexcept {
