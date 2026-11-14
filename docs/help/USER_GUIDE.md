@@ -7092,8 +7092,6 @@ the GPL-licensed components it depends on:
 - **Timmy Davis (KC8TYK)** — tester (v0.1 tester flight).
 - **W5UDX** — DSP2024P Plate Reverb presets and verification (lands
   with the Plate Reverb in v0.2.1).
-- **Cursor Grok 4.6** (SpaceXAI / Cursor) — coding assistant for
-  implementation and debug pairing on the native C++ rebuild.
 
 ### License
 
@@ -7152,10 +7150,9 @@ band. When in doubt, run less power.
 
 Lyra is **free**, **open-source** (GPL v3 or later — see the License), and
 primarily built by **Rick Langford (N8SDR)** in his spare time, with
-**Brent Crier (N9BC)** joining as co-contributor during early testing,
-**Timmy Davis (KC8TYK)** joining for the v0.1 tester flight, and
-**Cursor Grok 4.6** (SpaceXAI / Cursor) as coding assistant on the
-native C++ rebuild. There are no
+**Brent Crier (N9BC)** joining as co-contributor during early testing
+and **Timmy Davis (KC8TYK)** joining for the v0.1 tester flight.
+There are no
 ads, no telemetry, no subscription tier, no "pro" upsells.
 
 If Lyra has saved you from a clunky SDR workflow, helped you work a new

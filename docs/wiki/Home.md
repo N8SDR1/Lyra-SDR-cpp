@@ -2,9 +2,9 @@
 
 <img src="https://n8sdr1.github.io/Lyra-SDR-cpp/logo.png" width="120" alt="Lyra logo">
 
-# Lyra — Hermes Lite 2 / 2+, BrickSDR2, and Brick3SDR
+# Lyra — Hermes Lite 2 / 2+, Brick, and ANAN (P2)
 
-**A native C++23 / Qt 6 SDR transceiver for the Hermes Lite 2 / 2+ (Protocol 1) and BrickSDR2 / Brick3SDR (Protocol 2) — full receive *and* transmit, a GPU-accelerated panadapter, and a studio-grade TX audio rack. No Python, no GIL, nothing in the signal path but native code.**
+**v0.25.41 Sulafat** — native C++23 / Qt 6 SDR for **Windows 10 / 11 x64**. Protocol 1 **HL2 / 2+**; Protocol 2 **BrickSDR2 / Brick3SDR** and **ANAN** (G2 dummy-load arm). Dual RX1/RX2 panadapters, independent SUB, **Diversity** (dual-ADC phasing), PureSignal + Amp View, WDSP, CW TX + decode, LAN remote. **ASIO for VAC is in test** (default off).
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D6?logo=windows&logoColor=white)](PC-Requirements)
 [![Latest release](https://img.shields.io/github/v/release/N8SDR1/Lyra-SDR-cpp?label=latest&color=2f81f7)](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest)
@@ -64,14 +64,13 @@ Full detail (why Open is refused, what TX would do, Brick flash help) on the **[
 
 ## At a glance — what works now
 
-✅ Full **receive** (all modes, WDSP 2.10 NR or NNR, RX EQ,
-captured-noise reduction, CTUN, RIT) · ✅ Full **transmit** — SSB / AM / SAM /
-DSB / FM / CW plus digital over TCI, VAC, and the **Apps** launcher · ✅ **SUB / RX2 + SPLIT** (second pan on Brick3 / 100D) ·
-✅ a **native TX audio rack**
-(8-band EQ, multiband Combinator, plate reverb, speech processing, voice
-keyer, VOX, TX profiles) · ✅ **CW** send + on-screen **CW decode** · ✅
-**DX spots**, **frequency calibration**, **tuner memory**, **CAT / TCI /
-VAC**, a **session recorder**, backup & restore, and a **dockable** Vulkan UI.
+✅ Full **receive** (WDSP 2.10 NR or NNR, RX EQ, NR-C, CTUN, RIT, APF, BIN) ·
+✅ Full **transmit** — SSB / AM / SAM / DSB / FM / CW plus TCI / VAC ·
+✅ **Dual panadapters / waterfalls** (RX1 + RX2 on two-converter radios) ·
+✅ **SUB / RX2 + SPLIT** (independent) · ✅ **Diversity** (dual-ADC phase/gain) ·
+✅ **PureSignal** + Amp View · ✅ native **TX rack** · ✅ **CW** send + **decode**
+(Classic / DeepFist) · ✅ dockable Vulkan/D3D11 UI · ✅ **Lyra Remote on the LAN**
+(not WAN) · ✅ **ASIO for VAC in test** (v0.25.41, default off; not CMASIO).
 
 See the full checklist on **[Feature Status](Feature-Status)**.
 **ASIO for VAC is in test** (v0.25.41, default off). That is not Thetis
@@ -149,10 +148,6 @@ session.
 - **Brent Crier (N9BC)** — co-contributor and tester.
 - **Timmy Davis (KC8TYK)** — tester (v0.1 tester flight).
 - **W5UDX** — DSP2024P Plate Reverb presets and verification.
-- **Cursor Grok 4.6** (SpaceXAI / Cursor) — coding assistant for
-  implementation and debug pairing on the native C++ rebuild.
-  Rick remains the project author; this is pairing help, not a
-  licensed-operator co-author credit.
 
 **Special thanks:** **Heiko (DL1BZ)** — DeskHPSDR, again — and
 **Anton (linoobs)** — BrickSDR FPGA / Protocol 2 flash help.
@@ -172,4 +167,4 @@ linHPSDR, HL2 gateware), WDSP / Thetis / fldigi:
 
 ---
 
-*Lyra is built by Rick Langford (N8SDR) for the Hermes Lite 2 community, with development assistance from Cursor Grok 4.6. 73.*
+*Lyra is built by Rick Langford (N8SDR) for the Hermes Lite 2 and HPSDR community. 73.*

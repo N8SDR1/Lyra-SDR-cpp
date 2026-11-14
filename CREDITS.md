@@ -155,16 +155,6 @@ credited here with their consent.
 
 ---
 
-## Development assistance
-
-- **Cursor Grok 4.6** ([@cursoragent](https://github.com/cursoragent),
-  SpaceXAI / Cursor) — coding assistant used for implementation
-  and debug pairing on the native C++ rebuild.  Rick remains the
-  project author; this is pairing help, not a licensed-operator
-  co-author credit.
-
----
-
 ## Special thanks
 
 - **Heiko (DL1BZ)** — again, and especially: DeskHPSDR is
