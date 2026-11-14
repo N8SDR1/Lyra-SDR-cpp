@@ -1,13 +1,21 @@
-/*
-	Steinberg Audio Stream I/O API
-	(c) 1996 - 2019, Steinberg Soft- und Hardware GmbH
+//------------------------------------------------------------------------
+// Project     : ASIO SDK
+//
+// Category    : Interfaces
+// Filename    : common/asio.cpp
+// Created by  : Steinberg, 05/1996
+// Description : Steinberg Audio Stream I/O API v2.3
+// 	ASIO functions entries which translate the ASIO interface to the
+//  asiodrvr class methods
+//
+//-----------------------------------------------------------------------------
+// This file is part of a Steinberg SDK. It is subject to the license terms
+// in the LICENSE file found in the top-level directory of this distribution
+// and at www.steinberg.net/sdklicenses. 
+// No part of the SDK, including this file, may be copied, modified, propagated,
+// or distributed except according to the terms contained in the LICENSE file.
+//-----------------------------------------------------------------------------
 
-	asio.cpp
-	
-	asio functions entries which translate the
-	asio interface to the asiodrvr class methods
-*/ 
-	
 #include <string.h>
 #include "asiosys.h"		// platform definition
 #include "asio.h"

@@ -1707,9 +1707,10 @@ void WdspEngine::rebuildVac(int id)
     // not by half-opening the stream.
     VacPaSel sel;
     if (!resolveVacPaSel(v.hostApiName, v.outName, v.inName, sel)) {
-        emitLog(QStringLiteral("%1 not started — need a WASAPI-resolvable "
-                               "input AND output device (out='%2' in='%3'); "
-                               "DL-2 is full-duplex (both required)")
+        emitLog(QStringLiteral("%1 not started — need an input AND an output "
+                               "device under the chosen host API (out='%2' "
+                               "in='%3'); VAC is full-duplex (both required; "
+                               "for ASIO pick the same driver for both)")
                     .arg(tag,
                          v.outName.isEmpty() ? QStringLiteral("(unset)") : v.outName,
                          v.inName.isEmpty()  ? QStringLiteral("(unset)") : v.inName));
@@ -1797,10 +1798,18 @@ void WdspEngine::rebuildVac(int id)
 
     const int rc = StartAudioIVAC(id);   // 1 = open + start OK
     if (rc != 1) {
-        emitLog(QStringLiteral("%1 PortAudio open FAILED (rc=%2; out='%3' "
+        const PaHostApiInfo *hai = Pa_GetHostApiInfo(sel.hostApi);
+        const bool asioApi = hai && hai->type == paASIO;
+        emitLog(QStringLiteral("%1 PortAudio open FAILED (rc=%2: %8; out='%3' "
                                "in='%4' hostApi=%5 out#%6 in#%7); VAC off this "
-                               "session").arg(tag).arg(rc).arg(v.outName, v.inName)
-                    .arg(sel.hostApi).arg(sel.outDev).arg(sel.inDev));
+                               "session%9").arg(tag).arg(rc).arg(v.outName, v.inName)
+                    .arg(sel.hostApi).arg(sel.outDev).arg(sel.inDev)
+                    .arg(QString::fromUtf8(lyra::wire::ivacLastOpenErrorText()),
+                         asioApi ? QStringLiteral(
+                             " — ASIO: close any other program using this "
+                             "driver (only one ASIO stream at a time), and "
+                             "set the interface to the VAC sample rate")
+                                 : QString()));
         StopAudioIVAC(id);   // null-safe close if OpenStream succeeded then StartStream failed
         destroy_ivac(id);
         return;
@@ -1824,6 +1833,26 @@ void WdspEngine::rebuildVac(int id)
                 .arg(tag).arg(v.outName).arg(v.rxGainDb)
                 .arg(v.inName).arg(v.txGainDb)
                 .arg(cfg_.outRate).arg(v.vacSize));
+    {
+        // [diag] what the device actually opened with — ASIO buffer sizes
+        // explain bursty callbacks (VAC rings over/underflowing).
+        double inLat = 0, outLat = 0, rate = 0;
+        long aMin = -1, aMax = -1, aPref = -1, aGran = -1;
+        if (lyra::wire::ivacStreamDiag(id, &inLat, &outLat, &rate,
+                                       &aMin, &aMax, &aPref, &aGran)) {
+            QString asio;
+            if (aPref >= 0)
+                asio = QStringLiteral("; ASIO driver buffer min %1 / "
+                                      "preferred %2 / max %3 frames "
+                                      "(granularity %4)")
+                           .arg(aMin).arg(aPref).arg(aMax).arg(aGran);
+            emitLog(QStringLiteral("%1 stream: %2 Hz, input latency %3 ms, "
+                                   "output latency %4 ms%5")
+                        .arg(tag).arg(rate, 0, 'f', 0)
+                        .arg(inLat * 1000.0, 0, 'f', 1)
+                        .arg(outLat * 1000.0, 0, 'f', 1).arg(asio));
+        }
+    }
 }
 
 // Stop the VAC-out tee + device + engine instance.  Idempotent.  Main
@@ -5328,6 +5357,20 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
                 }
             }
             lyra::wire::xvacOUT(kVac1Id, /*stream*/1, vac_[0].rxScaled_.data());
+            {
+                // [diag] ~1/s: device callbacks per second vs RX frames fed.
+                // At 48 kHz with a 2048-frame VAC block a steady device gives
+                // ~23.4 callbacks/s; fewer means the device drains slower
+                // than Lyra fills (TO VAC ring overflows).
+                static long long diagFrames = 0;
+                diagFrames += nframes;
+                if (diagFrames >= 48000) {
+                    qInfo("[vac1] RX feed %lld frames; device callbacks %ld "
+                          "in the same span",
+                          diagFrames, lyra::wire::ivacTakeCallbackCount(kVac1Id));
+                    diagFrames = 0;
+                }
+            }
             // #90 Route 2 — feed the TX monitor into VAC stream-2 (mixer
             // input 1) when monitoring; else silence so the 2-input mixer
             // never starves.  Unscaled: SetIVACmonVol applies the Monitor

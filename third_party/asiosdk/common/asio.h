@@ -1,19 +1,28 @@
-//---------------------------------------------------------------------------------------------------
-//---------------------------------------------------------------------------------------------------
+//------------------------------------------------------------------------
+// Project     : ASIO SDK
+//
+// Category    : Interfaces
+// Filename    : common/asio.h
+// Created by  : Steinberg, 05/1996
+// Description : Steinberg Audio Stream I/O API v2.3
+// 	ASIO functions entries which translate the ASIO interface to the
+//  asiodrvr class methods
+// 	2005 - Added support for DSD sample data (in cooperation with Sony)
+// 	2012 - Added support for drop out detection
+//
+//-----------------------------------------------------------------------------
+// This file is part of a Steinberg SDK. It is subject to the license terms
+// in the LICENSE file found in the top-level directory of this distribution
+// and at www.steinberg.net/sdklicenses. 
+// No part of the SDK, including this file, may be copied, modified, propagated,
+// or distributed except according to the terms contained in the LICENSE file.
+//-----------------------------------------------------------------------------
 
 /*
-	Steinberg Audio Stream I/O API
-	(c) 1997 - 2019, Steinberg Media Technologies GmbH
-
 	ASIO Interface Specification v 2.3
 
-	2005 - Added support for DSD sample data (in cooperation with Sony)
-	2012 - Added support for drop out detection
-		
-	
-
 	basic concept is an i/o synchronous double-buffer scheme:
-	
+
 	on bufferSwitch(index == 0), host will read/write:
 
 		after ASIOStart(), the
@@ -44,7 +53,6 @@
 //---------------------------------------------------------------------------------------------------
 
 /*
-
 prototypes summary:
 
 ASIOError ASIOInit(ASIODriverInfo *info);

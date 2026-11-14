@@ -59,6 +59,29 @@ find_package(Vulkan QUIET)
 set(PA_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(PA_BUILD_TESTS       OFF CACHE BOOL "" FORCE)
 set(PA_BUILD_EXAMPLES    OFF CACHE BOOL "" FORCE)
+# ASIO host support (docs/architecture/asio_vac_plan.md).  The Steinberg
+# ASIO SDK 2.3.4 host files are vendored in third_party/asiosdk (GPL v3
+# option, see LYRA-NOTES.md).  Defining ASIO::host here makes PortAudio
+# skip its own SDK lookup / internet download.  Compiled in, but OFF at
+# run time until the operator ticks "Enable ASIO devices" — no ASIO
+# driver is loaded otherwise (PaLyra_SetAsioEnabled, pa_win_hostapis.c).
+option(LYRA_WITH_ASIO "Build ASIO host support (opt-in at run time)" ON)
+if(WIN32 AND LYRA_WITH_ASIO)
+    set(LYRA_ASIOSDK "${CMAKE_CURRENT_SOURCE_DIR}/third_party/asiosdk")
+    add_library(ASIO::host INTERFACE IMPORTED)
+    target_sources(ASIO::host INTERFACE
+        "${LYRA_ASIOSDK}/common/asio.cpp"
+        "${LYRA_ASIOSDK}/host/asiodrivers.cpp"
+        "${LYRA_ASIOSDK}/host/pc/asiolist.cpp")
+    target_include_directories(ASIO::host INTERFACE
+        "${LYRA_ASIOSDK}/common"
+        "${LYRA_ASIOSDK}/host"
+        "${LYRA_ASIOSDK}/host/pc")
+    target_link_libraries(ASIO::host INTERFACE ole32 uuid)
+    set(PA_USE_ASIO ON CACHE BOOL "" FORCE)
+else()
+    set(PA_USE_ASIO OFF CACHE BOOL "" FORCE)
+endif()
 add_subdirectory(third_party/portaudio EXCLUDE_FROM_ALL)
 
 # --- ONNX Runtime (DeepFist neural CW decoder) ------------------------
@@ -598,6 +621,17 @@ qt_add_resources(lyra "lyra_data"
     FILES
         data/dxcc_prefix.csv
 )
+
+# ASIO Compatible logo (Steinberg artwork, unaltered) — the ASIO Usage
+# Guidelines require it in every dialog that enables / configures ASIO.
+if(WIN32 AND LYRA_WITH_ASIO)
+    qt_add_resources(lyra "lyra_asio"
+        PREFIX "/asio"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/asiosdk/logo"
+        FILES
+            third_party/asiosdk/logo/ASIO-compatible-logo-white-transparent-RGB.png
+    )
+endif()
 
 # Panadapter shaders: qsb-compiles GLSL → SPIR-V/MSL/HLSL/GLSL and
 # embeds the .qsb in the binary at ":/shaders/<name>.qsb".  QML uses

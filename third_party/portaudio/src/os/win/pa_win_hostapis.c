@@ -70,6 +70,49 @@ PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 #endif /* __cplusplus */
 
 
+#include <stddef.h> /* NULL — [Lyra local patch] below */
+
+/* [Lyra local patch] ASIO is opt-in at run time.  PaAsio_Initialize
+   loads EVERY installed ASIO driver, and a misbehaving driver can hang or
+   crash the host — so unless the application calls
+   PaLyra_SetAsioEnabled(1) before Pa_Initialize, the ASIO host API is
+   skipped entirely (no driver is loaded).  When enabled, an ASIO init
+   error is downgraded to "no ASIO host" so it can never abort
+   Pa_Initialize (which would take every other host API down with it);
+   PaLyra_AsioInitError() reports it.  Always defined so callers link
+   whether or not ASIO is compiled in. */
+static int paLyraAsioEnabled = 0;
+static PaError paLyraAsioInitError = paNoError;
+void PaLyra_SetAsioEnabled( int enabled ) { paLyraAsioEnabled = enabled ? 1 : 0; }
+int PaLyra_AsioCompiledIn( void )
+{
+#if PA_USE_ASIO
+    return 1;
+#else
+    return 0;
+#endif
+}
+PaError PaLyra_AsioInitError( void ) { return paLyraAsioInitError; }
+
+#if PA_USE_ASIO
+static PaError PaLyraAsio_Initialize( PaUtilHostApiRepresentation **hostApi,
+                                      PaHostApiIndex index )
+{
+    PaError err;
+    *hostApi = NULL;
+    paLyraAsioInitError = paNoError;
+    if( !paLyraAsioEnabled )
+        return paNoError;
+    err = PaAsio_Initialize( hostApi, index );
+    if( err != paNoError )
+    {
+        paLyraAsioInitError = err;
+        *hostApi = NULL;
+    }
+    return paNoError;
+}
+#endif
+
 PaUtilHostApiInitializer *paHostApiInitializers[] =
     {
 
@@ -82,7 +125,7 @@ PaUtilHostApiInitializer *paHostApiInitializers[] =
 #endif
 
 #if PA_USE_ASIO
-        PaAsio_Initialize,
+        PaLyraAsio_Initialize,   /* [Lyra local patch] opt-in gate, see above */
 #endif
 
 #if PA_USE_WASAPI

@@ -101,6 +101,14 @@ Both are MIT-licensed — see [NOTICE.md](NOTICE.md).
   generator, the CNN+CTC model, its training, and the ONNX
   export the decoder embeds.
 
+### Steinberg ASIO® SDK — ASIO audio interfaces
+
+The host-side files of the **Steinberg ASIO SDK 2.3.4**, used under
+its GNU GPL version 3 licence option so the Virtual Audio Cable can
+open ASIO audio interfaces — see [NOTICE.md](NOTICE.md).
+
+ASIO is a registered trademark of Steinberg Media Technologies GmbH.
+
 ---
 
 ## Reference projects (cross-checked, not source-incorporated)

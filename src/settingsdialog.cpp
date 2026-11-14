@@ -139,6 +139,13 @@
 #include <cmath>
 #include <iterator>
 
+// ASIO opt-in state (wire/Ivac.cpp).  Declared here rather than
+// including wire/Ivac.h, whose macros clash with other headers.
+namespace lyra::wire {
+bool ivacAsioCompiledIn();
+bool ivacAsioActive();
+}
+
 namespace lyra::ui {
 
 namespace {
@@ -507,6 +514,75 @@ QWidget *SettingsDialog::buildAudioTab() {
                 txLo->setValue(prefs_->txFilterLow());
         });
         form->addRow(tr("TX filter low:"), txLo);
+    }
+
+    // ── ASIO devices for VAC (opt-in; docs/architecture/asio_vac_plan.md)
+    // Off by default: with it off Lyra never loads an ASIO driver.  The
+    // ASIO Compatible logo sits beside the switch — the Steinberg ASIO
+    // Usage Guidelines require it in every dialog that enables/configures
+    // ASIO (ASIO is manually activated in Lyra).
+    if (lyra::wire::ivacAsioCompiledIn()) {
+        auto *grp = new QGroupBox(tr("ASIO® devices"), page);
+        auto *row = new QHBoxLayout(grp);
+        auto *col = new QVBoxLayout;
+        QSettings s;
+        auto *asioChk = new QCheckBox(
+            tr("Enable ASIO devices for VAC (takes effect after restarting "
+               "Lyra)"), grp);
+        asioChk->setChecked(
+            s.value(QStringLiteral("audio/asioEnabled"), false).toBool());
+        asioChk->setToolTip(tr(
+            "Adds \"ASIO\" to the VAC Driver list, so VAC1 or VAC2 can use "
+            "an ASIO audio interface (e.g. a mixer's USB ASIO driver) for "
+            "the TX mic and RX audio.\n\n"
+            "Off by default: when off, Lyra never loads any ASIO driver.  "
+            "Only one VAC can use ASIO at a time, pick the SAME ASIO driver "
+            "for its input and output, and close any other program using "
+            "that driver.  64-bit ASIO drivers only."));
+        auto *asioState = new QLabel(grp);
+        asioState->setWordWrap(true);
+        asioState->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+        auto updateState = [asioChk, asioState]() {
+            QSettings st;
+            QString t;
+            if (lyra::wire::ivacAsioActive())
+                t = tr("ASIO is active this session.");
+            else if (asioChk->isChecked())
+                t = tr("Restart Lyra to load ASIO drivers.");
+            else if (st.value(QStringLiteral("audio/asioDisabledAfterCrash"),
+                              false).toBool())
+                t = tr("ASIO was switched off because Lyra did not finish "
+                       "starting while loading ASIO drivers last time.  An "
+                       "installed ASIO driver may be faulty.");
+            else
+                t = tr("Off — no ASIO driver is loaded.");
+            asioState->setText(t);
+        };
+        connect(asioChk, &QCheckBox::toggled, grp, [updateState](bool on) {
+            QSettings st;
+            st.setValue(QStringLiteral("audio/asioEnabled"), on);
+            if (on)
+                st.remove(QStringLiteral("audio/asioDisabledAfterCrash"));
+            updateState();
+        });
+        updateState();
+        col->addWidget(asioChk);
+        col->addWidget(asioState);
+        auto *attr = new QLabel(
+            tr("ASIO is a registered trademark of Steinberg Media "
+               "Technologies GmbH."), grp);
+        attr->setWordWrap(true);
+        attr->setStyleSheet(QStringLiteral("QLabel{color:#6c7f8f;font-size:10px;}"));
+        col->addWidget(attr);
+        row->addLayout(col, 1);
+        auto *logo = new QLabel(grp);
+        const QPixmap pm(QStringLiteral(
+            ":/asio/ASIO-compatible-logo-white-transparent-RGB.png"));
+        if (!pm.isNull())
+            logo->setPixmap(pm.scaledToHeight(56, Qt::SmoothTransformation));
+        logo->setToolTip(tr("ASIO Compatible"));
+        row->addWidget(logo, 0, Qt::AlignTop);
+        form->addRow(grp);
     }
 
     // ── #158 — Virtual Audio Cable (VAC1) ───────────────────────────

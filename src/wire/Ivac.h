@@ -188,6 +188,17 @@ PORT void StopAudioIVAC(int id);
 // in netInterface; Lyra homes the pair in the sole PortAudio-consumer TU.
 // ivacInitPortAudio returns paNoError (0) on success; both are idempotent.
 int  ivacInitPortAudio();
+// PortAudio's text for the last StartAudioIVAC open/start failure.
+const char *ivacLastOpenErrorText();
+// ASIO (asio_vac_plan.md): built into this Lyra?  Live this session
+// (enabled at start AND the ASIO host API came up)?
+bool ivacAsioCompiledIn();
+// [diag] callbacks since last call; open-stream latencies / rate and, for
+// ASIO, the driver's buffer sizes (frames; -1 when not ASIO).
+long ivacTakeCallbackCount(int id);
+bool ivacStreamDiag(int id, double *inLatS, double *outLatS, double *rate,
+                    long *asioMin, long *asioMax, long *asioPref, long *asioGran);
+bool ivacAsioActive();
 void ivacTerminatePortAudio();
 
 // Reference ivac.c SetIVAC* / diag surface (the reference defines
