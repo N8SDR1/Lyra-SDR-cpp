@@ -827,6 +827,9 @@ void P2RxBridge::pushDialToSession() {
         s->setDdcFrequencyHz(0, rx);
         s->setDucFrequencyHz(correctedTx);
     });
+    filterRxHz_ = rx;
+    filterTxHz_ = correctedTx;
+    refreshFrontEndFilters();
     syncRx2Ddc();
 }
 
@@ -908,6 +911,48 @@ void P2RxBridge::pushFrontEndToSession() {
         s->setHpfBypass(bypass);
         s->setTrxAntenna(ant);
     });
+    refreshFrontEndFilters();
+}
+
+bool P2RxBridge::frontEndClassicHpf() const {
+    return p2ProfileHasClassicHpf(filterProfile_);
+}
+
+bool P2RxBridge::frontEndOnboard() const {
+    return filterProfile_ && filterProfile_->fixedTxFrontEnd;
+}
+
+int P2RxBridge::frontEndRxWordFor(quint32 hz) const {
+    if (!open_ || !filterProfile_ || filterProfile_->fixedTxFrontEnd)
+        return -1;
+    return filterProfile_->alexRxWord(
+        hz, static_cast<P2RxInput>(rxInput_), hpfBypass_);
+}
+
+int P2RxBridge::frontEndTxWordFor(quint32 hz) const {
+    if (!open_ || !filterProfile_ || filterProfile_->fixedTxFrontEnd)
+        return -1;
+    return filterProfile_->alexTxWord(hz, trxAntenna_);
+}
+
+void P2RxBridge::refreshFrontEndFilters() {
+    const bool live = open_ && filterProfile_;
+    const auto in = static_cast<P2RxInput>(rxInput_);
+    const QString text = live
+        ? describeP2FrontEnd(filterProfile_, filterRxHz_, filterTxHz_, in,
+                             hpfBypass_, trxAntenna_)
+        : QString();
+    const int rxw = live
+        ? filterProfile_->alexRxWord(filterRxHz_, in, hpfBypass_) : 0;
+    const int txw = live
+        ? filterProfile_->alexTxWord(filterTxHz_, trxAntenna_) : 0;
+    if (text == frontEndFilters_ && rxw == frontEndRxWord_ &&
+        txw == frontEndTxWord_)
+        return;
+    frontEndFilters_ = text;
+    frontEndRxWord_ = rxw;
+    frontEndTxWord_ = txw;
+    emit frontEndFiltersChanged();
 }
 
 void P2RxBridge::pushAttOnTxToSession() {
@@ -1470,6 +1515,10 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
     const int input = rxInput_;
     const bool bypass = hpfBypass_;
     const int bandAnt = trxAntenna_;
+    filterProfile_ = p2hw;
+    filterRxHz_ = correctedHz;
+    filterTxHz_ = correctedTx;
+    refreshFrontEndFilters();
     const bool attOnTxEn = stream_ ? stream_->attOnTxEnabled() : true;
     const int attOnTxDb = stream_ ? stream_->attOnTxDb() : 31;
     const bool rx2Gnd = stream_ ? stream_->rx2GroundOnTx() : true;
@@ -1551,6 +1600,7 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
 
     ip_   = ip;
     open_ = true;
+    refreshFrontEndFilters();
     emit openChanged();
     emit txStateChanged();
     const int rx1Ddc = (p2hw && p2hw->angeliaRxDdcSlots) ? 2 : 0;
@@ -1566,6 +1616,7 @@ void P2RxBridge::open(const QString &ip, const QString &mac,
 
 void P2RxBridge::close() {
     if (!open_) return;
+    filterProfile_ = nullptr;
     auto *s = session_;
     if (stream_) stream_->setP2CwHost(false);
     if (stream_ && stream_->moxActive())
@@ -1626,6 +1677,7 @@ void P2RxBridge::close() {
     emit telemetryChanged();
     emit frontEndChanged();
     emit txStateChanged();
+    refreshFrontEndFilters();   // open_ false → clears the readout
 }
 
 } // namespace lyra::wire

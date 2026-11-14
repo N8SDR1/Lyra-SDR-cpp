@@ -61,6 +61,7 @@ namespace lyra::dsp { class WdspEngine; class DivExt; }
 namespace lyra::wire {
 
 class P2Session;
+struct P2HardwareProfile;
 
 class P2RxBridge : public QObject {
     Q_OBJECT
@@ -68,6 +69,10 @@ class P2RxBridge : public QObject {
     Q_PROPERTY(int rxAttenuationDb READ rxAttenuationDb WRITE setRxAttenuationDb
                NOTIFY frontEndChanged)
     Q_PROPERTY(int ddcAdc READ ddcAdc WRITE setDdcAdc NOTIFY frontEndChanged)
+    // Live "which filters are switched in" summary for the radio's own
+    // front end (Alex BPF/HPF + TX LPF + antenna).  Display only.
+    Q_PROPERTY(QString frontEndFilters READ frontEndFilters
+               NOTIFY frontEndFiltersChanged)
     Q_PROPERTY(int rxInput READ rxInput WRITE setRxInput NOTIFY frontEndChanged)
     Q_PROPERTY(bool hpfBypass READ hpfBypass WRITE setHpfBypass
                NOTIFY frontEndChanged)
@@ -141,6 +146,17 @@ public:
     int rxInput() const { return rxInput_; }
     bool hpfBypass() const { return hpfBypass_; }
     int trxAntenna() const { return trxAntenna_; }
+    QString frontEndFilters() const { return frontEndFilters_; }
+    // Raw words behind frontEndFilters (same as the HP packet's Alex0
+    // RX / TX halfwords), for the Settings filter lamps.  0 when closed.
+    int  frontEndRxWord() const { return frontEndRxWord_; }
+    int  frontEndTxWord() const { return frontEndTxWord_; }
+    bool frontEndClassicHpf() const;
+    bool frontEndOnboard() const;
+    // The same words for an arbitrary frequency (per-band grid in
+    // Settings → Filters / BCD).  -1 when no Alex-driven radio is open.
+    int  frontEndRxWordFor(quint32 hz) const;
+    int  frontEndTxWordFor(quint32 hz) const;
     bool hasAlexAntennaSelect() const {
         if (running_) return alexAntennaSelect_;
         return deskAntOn_;
@@ -231,6 +247,7 @@ signals:
     // independent of whether the radio ever confirmed.
     void openChanged();
     void frontEndChanged();
+    void frontEndFiltersChanged();
     void bandAntennaEdited(const QString &band, int ant, int rxInput);
     void telemetryChanged();
     void txStateChanged();
@@ -353,6 +370,16 @@ private:
     int        rxInput_ = 0;
     bool       hpfBypass_ = false;
     int        trxAntenna_ = 1;
+    // Front-end filter readout (see frontEndFilters).  filterRxHz_ /
+    // filterTxHz_ = the corrected DDC0 / DUC carriers last pushed to
+    // the session — the same inputs the HP packet's Alex words use.
+    const P2HardwareProfile *filterProfile_ = nullptr;
+    quint32    filterRxHz_ = 0;
+    quint32    filterTxHz_ = 0;
+    QString    frontEndFilters_;
+    int        frontEndRxWord_ = 0;
+    int        frontEndTxWord_ = 0;
+    void       refreshFrontEndFilters();
     bool       deskAntOn_ = false;
     int        deskAntCount_ = 0;
     int        deskAntMask_ = 0;

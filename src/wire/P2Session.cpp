@@ -177,6 +177,7 @@ const P2HardwareProfile kOrionMkiiProfile = {
     5, 7, 2,
     &orionMkiiAlexRxWord, &saturnAlexTxWord,
     false, true, 0x03, true,
+    true,   // alex1TxImageInRx: deskHPSDR parity (see P2Session.h)
 };
 
 // ANAN-10 / 10E / HERMES: 1 ADC, classic Alex (they have a filter
@@ -268,6 +269,64 @@ const P2HardwareProfile *p2ProfileForModel(const QString &modelKey) {
         modelKey.compare(QLatin1String("ANVELINA-PRO3"), Qt::CaseInsensitive) == 0)
         return &kOrionMkiiProfile;
     return nullptr;
+}
+
+QString describeP2FrontEnd(const P2HardwareProfile *profile, quint32 rxHz,
+                           quint32 txHz, P2RxInput input, bool hpfBypass,
+                           int trxAntenna) {
+    if (!profile) return {};
+    if (profile->fixedTxFrontEnd)
+        return QStringLiteral("Onboard filters (automatic)");
+    const quint16 rxw = profile->alexRxWord(rxHz, input, hpfBypass);
+    const quint16 txw = profile->alexTxWord(txHz, trxAntenna);
+    // Classic Alex (ANAN-10..200D, Brick3) has high-pass filters; the
+    // Orion MkII / Saturn board puts band-pass filters on the same bits.
+    const bool classic = profile->alexRxWord == &classicAlexRxWord;
+
+    QString rx;
+    if (rxw & (1u << 12)) {
+        rx = classic ? QStringLiteral("HPF bypassed")
+                     : QStringLiteral("BPF bypassed");
+    } else if (classic) {
+        if      (rxw & (1u << 6)) rx = QStringLiteral("1.5 MHz HPF");
+        else if (rxw & (1u << 5)) rx = QStringLiteral("6.5 MHz HPF");
+        else if (rxw & (1u << 4)) rx = QStringLiteral("9.5 MHz HPF");
+        else if (rxw & (1u << 1)) rx = QStringLiteral("13 MHz HPF");
+        else if (rxw & (1u << 2)) rx = QStringLiteral("20 MHz HPF");
+        else if (rxw & (1u << 3)) rx = QStringLiteral("6 m preamp");
+    } else {
+        if      (rxw & (1u << 6)) rx = QStringLiteral("160 m BPF");
+        else if (rxw & (1u << 5)) rx = QStringLiteral("80/60 m BPF");
+        else if (rxw & (1u << 4)) rx = QStringLiteral("40/30 m BPF");
+        else if (rxw & (1u << 1)) rx = QStringLiteral("20-15 m BPF");
+        else if (rxw & (1u << 2)) rx = QStringLiteral("12/10 m BPF");
+        else if (rxw & (1u << 3)) rx = QStringLiteral("6 m BPF + preamp");
+    }
+    if (rx.isEmpty()) rx = QStringLiteral("no filter");
+
+    QString lpf;
+    if      (txw & (1u << 7))  lpf = QStringLiteral("160 m LPF");
+    else if (txw & (1u << 6))  lpf = QStringLiteral("80 m LPF");
+    else if (txw & (1u << 5))  lpf = QStringLiteral("60/40 m LPF");
+    else if (txw & (1u << 4))  lpf = QStringLiteral("30/20 m LPF");
+    else if (txw & (1u << 15)) lpf = QStringLiteral("17/15 m LPF");
+    else if (txw & (1u << 14)) lpf = QStringLiteral("12/10 m LPF");
+    else if (txw & (1u << 13)) lpf = QStringLiteral("6 m LPF");
+    else                       lpf = QStringLiteral("no LPF");
+
+    QString ant;
+    if      (txw & (1u << 8))  ant = QStringLiteral("ANT1");
+    else if (txw & (1u << 9))  ant = QStringLiteral("ANT2");
+    else if (txw & (1u << 10)) ant = QStringLiteral("ANT3");
+
+    const QChar dot(0x00B7);
+    QString out = QStringLiteral("RX %1  %2  TX %3").arg(rx, dot, lpf);
+    if (!ant.isEmpty()) out += QStringLiteral("  %1  %2").arg(dot, ant);
+    return out;
+}
+
+bool p2ProfileHasClassicHpf(const P2HardwareProfile *profile) {
+    return profile && profile->alexRxWord == &classicAlexRxWord;
 }
 
 P2Session::P2Session(QObject *parent)
@@ -586,10 +645,7 @@ QByteArray P2Session::buildGeneralPacket() const {
     // receive again. MOX and drive stay on the keyed gate. A stale status
     // packet must not clear the bit — that drop is what made the next
     // Tune / 2-tone / voice key dark until Stop.
-    const bool paBit = paHold_ && txSafety_.operatorArmed &&
-                       txSafety_.sessionRunning &&
-                       !txSafety_.faultLatched;
-    pkt[58] = paBit ? char{0x01} : char{0x00};
+    pkt[58] = paEnableBit() ? char{0x01} : char{0x00};
     // [59] = Alex-board enable. Classic-Alex profiles set bit0; BrickSDR
     // and Saturn leave 0 (no SPI Alex / onboard filters already clocked).
     pkt[59] = profile_ ? static_cast<char>(profile_->alexEnableBits) : char{0};
@@ -730,6 +786,11 @@ void P2Session::sendDdcSpecificToRadio(bool logConfig) {
               .arg(ddcFreqHz_[1]));
 }
 
+bool P2Session::paEnableBit() const {
+    return paHold_ && txSafety_.operatorArmed &&
+           txSafety_.sessionRunning && !txSafety_.faultLatched;
+}
+
 QByteArray P2Session::buildHighPriorityPacket(bool run) const {
     QByteArray pkt(kHpLen, char{0});
     const auto tx = P2TxSafetyGate::evaluate(txIntent_, txSafety_);
@@ -799,6 +860,17 @@ QByteArray P2Session::buildHighPriorityPacket(bool run) const {
                 profile_->alexRxWord(rx2hz, analogIn, hpfBypass_);
             pkt[1430] = static_cast<char>(rx2w >> 8);
             pkt[1431] = static_cast<char>(rx2w & 0xFF);
+        }
+        // Alex1 TX image in receive (see P2HardwareProfile::
+        // alex1TxImageInRx): the state the front end must take on the
+        // next key — TX LPF + TX antenna, plus the T/R relay when the
+        // PA is enabled.  Keyed packets overwrite this just below with
+        // the same value, so transmit is unchanged.
+        if (profile_->alex1TxImageInRx) {
+            const quint16 img = static_cast<quint16>(
+                txw | (paEnableBit() ? 0x0800u : 0u));
+            pkt[1428] = static_cast<char>(img >> 8);
+            pkt[1429] = static_cast<char>(img & 0xFF);
         }
         // saturnAlexTxWord is LPF+ANT only. The T/R relay is Alex word
         // bit 27 → TX halfword bit 11 → [1432]|=0x08. Without it the
