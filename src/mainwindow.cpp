@@ -560,6 +560,11 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
       profiles_(profiles) {
     setWindowTitle(QStringLiteral(
         "Lyra — v" LYRA_VERSION " " LYRA_VERSION_NAME " (C++23 / Qt 6)"));
+    // A side-by-side test build (own settings key) says so in the title.
+    if (QCoreApplication::applicationName() != QLatin1String("Lyra-cpp"))
+        setWindowTitle(windowTitle() + QStringLiteral("  [")
+                       + QCoreApplication::applicationName()
+                       + QStringLiteral("]"));
     setObjectName(QStringLiteral("LyraMainWindow"));
     resize(1100, 760);
 

@@ -331,7 +331,7 @@ int main(int argc, char *argv[])
     // QStandardPaths leaf is "Lyra-cpp" — no dir sharing with Python Lyra
     // ("Lyra") per CLAUDE.md §15.26.
     QCoreApplication::setOrganizationName(QStringLiteral("N8SDR"));
-    QCoreApplication::setApplicationName(QStringLiteral("Lyra-cpp"));
+    QCoreApplication::setApplicationName(QStringLiteral(LYRA_APP_NAME));
     QCoreApplication::setOrganizationDomain(
         QStringLiteral("github.com/N8SDR1/Lyra-SDR"));
     // Capture qDebug/qWarning/etc into the in-app Log viewer + a rolling

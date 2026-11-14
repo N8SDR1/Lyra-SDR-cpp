@@ -568,6 +568,75 @@ QWidget *SettingsDialog::buildAudioTab() {
         updateState();
         col->addWidget(asioChk);
         col->addWidget(asioState);
+
+        // ASIO stream options — read when the VAC stream starts (turn the
+        // VAC off and on, or change its device, to apply).
+        auto *opts = new QFormLayout;
+        auto *inCh = new QSpinBox(grp);
+        inCh->setRange(1, 64);
+        inCh->setValue(s.value(QStringLiteral("audio/asioInChannel"), 1).toInt());
+        inCh->setToolTip(tr(
+            "First ASIO input channel carrying the mic.  A mixer such as the "
+            "WING has many USB channels — pick the one your mic is routed to."));
+        auto *inMono = new QCheckBox(tr("Mono (that channel only)"), grp);
+        inMono->setChecked(s.value(QStringLiteral("audio/asioInMono"), false).toBool());
+        inMono->setToolTip(tr(
+            "On: read only the channel above and copy it to both sides.  "
+            "Off: read it and the next channel as a stereo pair."));
+        auto *inRow = new QHBoxLayout;
+        inRow->addWidget(inCh);
+        inRow->addWidget(inMono);
+        inRow->addStretch(1);
+        opts->addRow(tr("Mic input channel:"), inRow);
+
+        auto *outCh = new QSpinBox(grp);
+        outCh->setRange(1, 64);
+        outCh->setValue(s.value(QStringLiteral("audio/asioOutChannel"), 1).toInt());
+        outCh->setToolTip(tr("First of the two ASIO output channels for RX audio."));
+        opts->addRow(tr("Audio output channels:"), outCh);
+
+        auto *block = new QComboBox(grp);
+        block->addItem(tr("Auto (match Lyra's audio block)"), 0);
+        for (int n : {64, 128, 256, 512, 1024, 2048})
+            block->addItem(tr("%1 frames").arg(n), n);
+        {
+            const int i = block->findData(
+                s.value(QStringLiteral("audio/asioBlock"), 0).toInt());
+            block->setCurrentIndex(i >= 0 ? i : 0);
+        }
+        block->setToolTip(tr(
+            "ASIO driver buffer size.  Small blocks keep audio flowing in "
+            "even steps.  If the driver can't do the size asked for, its own "
+            "preferred size is used (see the log)."));
+        opts->addRow(tr("Block size:"), block);
+
+        auto *pin = new QCheckBox(tr("Hold the rate ratio at 1.0"), grp);
+        pin->setChecked(s.value(QStringLiteral("audio/asioPinRate"), true).toBool());
+        pin->setToolTip(tr(
+            "On (default): VAC does not keep adjusting its rate to the ASIO "
+            "device.  Off: the normal adaptive rate matching is used."));
+        opts->addRow(QString(), pin);
+
+        auto *applyNote = new QLabel(
+            tr("These apply when the VAC starts — turn the VAC off and on "
+               "again after changing them."), grp);
+        applyNote->setWordWrap(true);
+        applyNote->setStyleSheet(QStringLiteral("QLabel{color:#8fa6ba;}"));
+        opts->addRow(applyNote);
+
+        connect(inCh, &QSpinBox::valueChanged, grp, [](int v) {
+            QSettings().setValue(QStringLiteral("audio/asioInChannel"), v); });
+        connect(inMono, &QCheckBox::toggled, grp, [](bool on) {
+            QSettings().setValue(QStringLiteral("audio/asioInMono"), on); });
+        connect(outCh, &QSpinBox::valueChanged, grp, [](int v) {
+            QSettings().setValue(QStringLiteral("audio/asioOutChannel"), v); });
+        connect(block, &QComboBox::currentIndexChanged, grp, [block](int) {
+            QSettings().setValue(QStringLiteral("audio/asioBlock"),
+                                 block->currentData().toInt()); });
+        connect(pin, &QCheckBox::toggled, grp, [](bool on) {
+            QSettings().setValue(QStringLiteral("audio/asioPinRate"), on); });
+        col->addLayout(opts);
+
         auto *attr = new QLabel(
             tr("ASIO is a registered trademark of Steinberg Media "
                "Technologies GmbH."), grp);

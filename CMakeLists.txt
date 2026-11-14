@@ -676,11 +676,16 @@ target_include_directories(lyra PRIVATE src)
 # project(... VERSION ...) above flows to code as LYRA_VERSION, and the
 # GitHub repo coordinates as LYRA_REPO_OWNER/LYRA_REPO_NAME.  The About
 # dialog and the update checker both read these (no hardcoded strings).
+# Settings / app-data identity.  A side-by-side test build can set
+# -DLYRA_APP_NAME=Lyra-cpp-ASIO so it reads and writes its own registry
+# key and app-data folders and never touches the normal Lyra settings.
+set(LYRA_APP_NAME "Lyra-cpp" CACHE STRING "Settings / app-data name")
 target_compile_definitions(lyra PRIVATE
     LYRA_VERSION="${PROJECT_VERSION}"
     LYRA_VERSION_NAME="Sheliak"
     LYRA_REPO_OWNER="N8SDR1"
     LYRA_REPO_NAME="Lyra-SDR-cpp"
+    LYRA_APP_NAME="${LYRA_APP_NAME}"
 )
 
 # Embed the application icon into lyra.exe (Explorer / taskbar / shortcut
