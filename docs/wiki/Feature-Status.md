@@ -1,25 +1,26 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.40 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.41 Sulafat** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.40** ships **ANAN / Brick3 filters on Filters / BCD**
-(read-only lamps and grid ticks for the radio's own Alex HPF or BPF,
-TX LPF, and antenna; hidden on HL2 / BrickSDR). **HiDPI display**,
-**ANAN blank model → filter profile**, and **Log window on-screen**
-already shipped in **v0.25.39**. **DeepFist pitch lock** already
-shipped in **v0.25.38**. **Classic** is unchanged. Original decoder:
-**Brent Crier (N9BC)**. **v0.25.39** remains the previous public
-build. **G2 / G2-1K** still use the dummy-load arm. Coming from
-≤0.25.31, **turn Drive down and walk it up before your first TX on a
-P2 radio**. **v0.25.22** remains the long return point.
+**v0.25.41** ships **ASIO for VAC in test stage** (opt-in, default
+off; Qt Out and the HL2 jack unchanged; not CMASIO / not WING as the
+radio mixer). **v0.25.40** remains the previous public build (**ANAN /
+Brick3 filters on Filters / BCD**). **HiDPI display**, **ANAN blank
+model → filter profile**, and **Log window on-screen** already shipped
+in **v0.25.39**. **DeepFist pitch lock** already shipped in
+**v0.25.38**. **Classic** is unchanged. Original decoder:
+**Brent Crier (N9BC)**. **G2 / G2-1K** still use the dummy-load arm.
+Coming from ≤0.25.31, **turn Drive down and walk it up before your
+first TX on a P2 radio**. **v0.25.22** remains the long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.40)
+### Last several builds (0.25.16 → 0.25.41)
 
 | Build | What landed |
 |---|---|
+| **0.25.41** | **ASIO for VAC (test stage):** Settings → Audio → **Enable ASIO devices for VAC**, restart; VAC Driver **ASIO** on one full-duplex driver (mic in + RX out); channel / block / Hold rate ratio at 1.0; crash guard if last start failed. Default off. Qt speaker Out and HL2 jack unchanged. **Not** Thetis CMASIO and **not** a 48-channel WING mixer. Star name **Sulafat**. Full install over Sheliak; Lyra-cpp settings stay. **v0.25.40** is the previous public build |
 | **0.25.40** | **ANAN / Brick3 filters on Filters / BCD:** read-only lamps under Live pins and ticked per-band columns for the radio's own Alex HPF or BPF, TX LPF, and antenna (decoded from the same words sent on the wire). Hidden on HL2 / BrickSDR. Orion MkII also sends the Alex1 TX image in receive (deskHPSDR parity; transmit unchanged). **v0.25.39** is the previous public build |
 | **0.25.39** | **HiDPI display:** spectrum / peak-hold as a 1-logical-pixel ribbon (was one screen pixel, faint at 4K @ 150%); waterfall history grows 512 → pane height, cap 1024. Use **Windows Display scale**; do not set `QT_SCALE_FACTOR`. **Auto-fit** is the waterfall dB colour map, not DPI. **ANAN blank model → filter profile** (Orion → ANAN-200D). **Log window** keeps Copy all / Save on screen. DeepFist already in 0.25.38. **v0.25.38** is the previous public build |
 | **0.25.38** | **DeepFist locks to the operator CW pitch** (±80 Hz) so a louder neighbour is not copied instead. **Earlier character commit:** a letter prints once two consecutive decodes agree, still capped at the old delay. **Classic** (fldigi) unchanged. Original decoder: **Brent Crier (N9BC)**. No Protocol 2 / HL2 wire change. **v0.25.37** is the previous public build |
@@ -87,7 +88,7 @@ P2 radio**. **v0.25.22** remains the long return point.
 
 - ✅ **SSB** (USB / LSB), **AM** (proper carrier + both sidebands), **SAM**, **DSB** (suppressed carrier), **FM** (deviation / pre-emphasis / CTCSS / Region-1 **1750 Hz** TX burst while keyed)
 - ✅ **CW** — internal iambic keyer (paddle / straight key), keyboard send, **CWX**, contest **macro bank** ({CALL}/{RST}/{NAME}…), QSK / semi / manual break-in, adjustable sidetone
-- ✅ **Digital** via **TCI** and **VAC1 / VAC2** — WSJT-X / MSHV / JTDX / FLDigi / VarAC, or a logger on a second cable. VAC **Enable** is RX; **Mic source = VAC1 or VAC2** is TX. VAC2 carries **RX2** (turn **SUB** on). TCI audio and VAC TX are mutually exclusive.
+- ✅ **Digital** via **TCI** and **VAC1 / VAC2** — WSJT-X / MSHV / JTDX / FLDigi / VarAC, or a logger on a second cable. VAC **Enable** is RX; **Mic source = VAC1 or VAC2** is TX. VAC2 carries **RX2** (turn **SUB** on). TCI audio and VAC TX are mutually exclusive. **v0.25.41 (test):** VAC can use an **ASIO** driver (opt-in; default off).
 - ✅ TX power / drive, separate **tune drive**, AM carrier level, mic gain + **20 dB mic boost**; Protocol 2 uses analog drive (HP [345]) plus per-band **PA Gain / Full Output / CAP**, including a dedicated **11m** slot
 - ✅ **Separate RX and TX filter lows** (current build) — **RX lo** under **RX BW**, **TX lo** under **TX BW** on the Filters dock (also Settings → Audio). **0–500 Hz**. The lock keeps them equal; unlock and a profile can hold different lows. Older profiles copy the old shared low onto both sides.
 - ✅ Always-on **ALC** + operator **Leveler**, **PHROT** phase rotator. Since **v0.25.36**, in **DIGU / DIGL** the ALC is a peak limiter only (max gain 1.0) and the Leveler is held off automatically — digital waveforms (RADE, PSK, FT8) go out unshaped; voice modes keep your settings
@@ -143,7 +144,7 @@ P2 radio**. **v0.25.22** remains the long return point.
 
 ## What Lyra does not do
 
-- **No CMASIO / no ASIO channel mapping** — speaker out is ordinary Windows audio (WASAPI, stereo 48 kHz). A Scarlett-style USB interface works by its Windows speaker/mic names. A Behringer WING / X32-class desk used as a console over ASIO does not. See **[FAQ](FAQ-and-Troubleshooting#can-i-use-cmasio-or-a-behringer-wing--x32-with-lyra)**.
+- **No CMASIO / no WING-as-mixer** — Qt speaker **Out** is ordinary Windows audio (WASAPI, stereo 48 kHz). **ASIO for VAC is in test** (v0.25.41, default off) and is not Thetis ChannelMaster ASIO. A Scarlett-style USB interface still works by Windows names or, in this test, as a VAC ASIO device. A Behringer WING / X32 used as Thetis's 48-channel radio mixer still does not. See **[FAQ](FAQ-and-Troubleshooting#can-i-use-cmasio-or-a-behringer-wing--x32-with-lyra)**.
 - **No in-radio DIGI menu** — digital modes live in **STD** (or WSJT-X, MSHV, VarAC, …) over **TCI** or a **VAC** stereo pipe, not inside the radio.
 - **No parking RX and TX on arbitrary mixer buses** — Lyra cannot put RX on WING channel 17 and TX from a chosen bus.
 - **No in-app gateware flasher** — flash Protocol 2 / FPGA with the vendor tools (Brick: **Anton (linoobs)** on Discord).

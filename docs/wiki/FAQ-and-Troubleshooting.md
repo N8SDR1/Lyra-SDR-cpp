@@ -172,26 +172,25 @@ exclusive — Lyra will not also arm VAC TX. If **Auto-enable for digital**
 is on, switch to **DIGU / DIGL**; USB turns that auto path off.
 
 **Can I use CMASIO or a Behringer WING / X32 with Lyra?**
-No. Lyra does not offer CMASIO because it does not use Thetis’s PC audio
-host. In Thetis (and Thetis-based builds), speaker and mic can go to
-CMASIO / ASIO — exclusive, multi-channel — which is why a Behringer WING
-works there: you pick the driver and which pair is phones vs mic. Lyra’s
-speaker path is ordinary Windows audio (WASAPI): stereo 48 kHz, the
-device Windows calls Speakers. The HL2 can play from the radio’s own
-headphone jack. Digital apps (STD, WSJT, …) use TCI or a VAC stereo pipe,
-not ASIO channel maps. Lyra cannot park RX on WING channel 17 and TX from
-an arbitrary bus. A Scarlett-style USB interface still works via its
-Windows speaker/mic names. A WING used as a console over ASIO does not.
-Lyra also never put receive audio through Thetis’s ChannelMaster mixer — RX is WDSP into a simple stereo Windows path (or the HL2 jack) — so there is no CMASIO hook on the speaker side to “just port.”
-Some operators find Lyra RX smoother / less fatiguing; the receive audio
-is paced with the radio and played as a simple stereo stream. Native ASIO
-(device + stereo pair pickers) is not a hidden setting today. ASIO is a
-separate Steinberg kit from the radio code, so it is not a copy-paste from
-Thetis even though both programs are GPL.
+**ASIO for VAC is in test** in **v0.25.41** (default **off**). Settings →
+Audio → **Enable ASIO devices for VAC**, restart Lyra, then set VAC
+Driver to **ASIO**. Use the **same** driver for Input and Output (full
+duplex: mic in + RX out). Qt speaker **Out** and the HL2 jack do not
+change. 48 kHz. If last start failed while loading ASIO, Lyra forces
+ASIO off.
+
+**Still not:** Thetis **CMASIO**. Lyra is not Thetis’s PC audio host and
+does not route the whole radio through ChannelMaster’s 48-channel mixer.
+Lyra cannot park RX on WING channel 17 and TX from an arbitrary bus. A
+WING used as that kind of console is still not how Lyra works. You can
+try the WING USB ASIO driver as a **VAC** device in this test and report
+what you hear. A Scarlett-style USB interface still works via Windows
+speaker/mic names, or via its ASIO driver on VAC after the opt-in.
 
 **Why is there no CMASIO like Thetis?**
-Same answer as **Can I use CMASIO or a Behringer WING / X32 with Lyra?**
-above. Lyra is not Thetis’s PC audio host.
+Lyra is not Thetis’s PC audio host. Optional **ASIO for VAC** (test
+stage) is a PortAudio path, not a CMASIO port. Same FAQ as **Can I use
+CMASIO or a Behringer WING / X32 with Lyra?** above.
 
 ---
 

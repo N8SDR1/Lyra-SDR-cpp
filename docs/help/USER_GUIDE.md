@@ -22,10 +22,33 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.40 Sheliak** — **ANAN / Brick3 filters on Filters / BCD**
-(read-only lamps and grid ticks for the radio's own Alex HPF or BPF,
-TX LPF, and antenna). Hidden on HL2 / BrickSDR. **v0.25.39** is the
-previous public build. See [What's new in 0.25.40](#whats-new-in-02540).
+**v0.25.41 Sulafat** — **ASIO for VAC (test stage)** plus everything in
+v0.25.40. Star name **Sulafat** (γ Lyrae), next after Sheliak. Full
+installer over Sheliak: **Lyra-cpp** settings stay. **v0.25.40** is the
+previous public build. See [What's new in 0.25.41](#whats-new-in-02541).
+
+## What's new in 0.25.41
+
+- **ASIO for VAC (test stage).** Optional. Default **off**. Settings →
+  Audio → **Enable ASIO devices for VAC**, then **restart** Lyra. VAC
+  Driver can then be **ASIO**: one driver for both Input and Output
+  (full duplex — mic in + RX out). Pick mic/output channels, block
+  size, and **Hold the rate ratio at 1.0** if the VAC rings wander.
+  48 kHz. Brick / ANAN PC path; the **HL2 jack** is still the codec
+  path. Qt speaker **Out** is unchanged.
+- **Not CMASIO.** This does not port Thetis ChannelMaster ASIO, and it
+  does not make a Behringer WING the radio mixer (no parking RX on
+  channel 17 / TX from an arbitrary bus). You may try a mixer's USB
+  ASIO driver as a VAC device and report what you hear.
+- **Crash guard.** If Lyra did not finish starting while loading ASIO
+  last time, ASIO is forced off until you tick Enable again.
+- **Unchanged elsewhere:** ANAN / Brick3 filters on Filters / BCD
+  (v0.25.40). HiDPI / Log-on-screen (v0.25.39). DeepFist pitch lock
+  (v0.25.38). 7000DLE / 8000DLE TX, Xvtr BYTE0–4, Metis STOP, G2
+  dummy-load arm, Protocol 1 ANAN refused.
+- **v0.25.40 Sheliak** is the previous public build. **v0.25.22**
+  remains the long return point. Settings stay. If this build
+  misbehaves, reinstall **v0.25.40**.
 
 ## What's new in 0.25.40
 
@@ -812,6 +835,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.41](#whats-new-in-02541)
 - [What's new in 0.25.40](#whats-new-in-02540)
 - [What's new in 0.25.39](#whats-new-in-02539)
 - [What's new in 0.25.38](#whats-new-in-02538)
@@ -919,6 +943,7 @@ Dummy load first.
 - [Settings → Audio](#settings--audio)
   - [Virtual Audio Cable (VAC1)](#virtual-audio-cable-vac1)
   - [Virtual Audio Cable (VAC2)](#virtual-audio-cable-vac2)
+  - [ASIO for VAC (test stage)](#asio-for-vac-test-stage)
 - [Settings → DSP (filter type)](#settings--dsp-filter-type)
 - [Settings → TX (Mic + ALC + Leveler + TR sequencing + cos² fade)](#settings--tx-mic--alc--leveler-tr-sequencing--cos-fade)
 - [Settings → VOX (voice-operated transmit)](#settings--vox-voice-operated-transmit)
@@ -2468,19 +2493,16 @@ between them (see *Multiple radios & switching rigs*).
 - Feed RX audio to WSJT-X / FLDigi / a recorder → **PC sound device via
   VAC**, or **TCI** if the app speaks it (see *Digital modes* below).
 
-**Behringer WING / X32 / CMASIO.** Lyra does not use Thetis’s PC audio
-host, so there is no CMASIO and no ASIO channel map. Speaker out is
-ordinary Windows audio (WASAPI): stereo 48 kHz, the device Windows calls
-Speakers. A Scarlett-style USB interface still works via its Windows
-speaker/mic names. A WING used as a console over ASIO does not — Lyra
-cannot park RX on channel 17 and TX from an arbitrary bus. Lyra also
-never put receive audio through Thetis’s ChannelMaster mixer — RX is
-WDSP into a simple stereo Windows path (or the HL2 jack) — so there is
-no CMASIO hook on the speaker side to “just port.” The HL2 can
-also play from its own headphone jack. Digital apps (STD, WSJT, …) use
-TCI or a VAC stereo pipe. Native ASIO (device + stereo pair pickers) is
-not a hidden setting. Online FAQ:
-[Can I use CMASIO or a Behringer WING / X32 with Lyra?](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/FAQ-and-Troubleshooting#can-i-use-cmasio-or-a-behringer-wing--x32-with-lyra).
+**ASIO for VAC (test stage, v0.25.41).** Qt speaker **Out** is still
+ordinary Windows audio (WASAPI), and the HL2 jack is still the codec
+path. VAC1 / VAC2 can optionally open an **ASIO** driver (full duplex
+on one device: mic in + RX out) after you tick **Enable ASIO devices
+for VAC** and restart. Default off. This is **not** Thetis **CMASIO**
+and not a 48-channel WING-as-mixer: Lyra still cannot park RX on
+channel 17 and TX from an arbitrary bus. A Scarlett-style USB
+interface still works via Windows names or, in this test, via its
+ASIO driver on VAC. Online FAQ:
+[Can I use ASIO / a Behringer WING / X32 / CMASIO with Lyra?](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/FAQ-and-Troubleshooting#can-i-use-cmasio-or-a-behringer-wing--x32-with-lyra).
 
 The HL2 jack is the easy button: the radio and its codec share one clock,
 so there's no drift to correct — glitch-free audio, lowest latency, zero
@@ -5138,10 +5160,12 @@ controls here are:
   every other mode (including USB). USB with this ticked will **stop**
   VAC even if Enable looks on.
 - **Driver** — the audio backend (PortAudio host API: **WASAPI**,
-  DirectSound, MME, or WDM-KS) the VAC devices live under. **WASAPI is the
-  right choice for virtual cables.** Changing the driver repopulates the
-  Output and Input device lists below with that backend's devices;
-  existing selections carry over by name where the device still exists.
+  DirectSound, MME, WDM-KS, or **ASIO** after you enable it). **WASAPI is
+  the right choice for virtual cables.** **ASIO** is a **test-stage**
+  option (v0.25.41): tick **Enable ASIO devices for VAC**, restart, then
+  pick the **same** ASIO driver for Input and Output. Changing the
+  driver repopulates the Output and Input device lists below; existing
+  selections carry over by name where the device still exists.
 - **Output device** — the PC output Lyra sends RX audio to (the cable's
   playback endpoint your digital app records from). Pick the **virtual
   cable, not your speakers**. `(none)` leaves the RX→PC direction off.
@@ -5184,6 +5208,29 @@ only VAC2 auto-digital is live.
 VAC2 **enable / auto-digital / gains / latency / buffer size** save with
 the active TX/RX profile (same as VAC1). Device names stay in Settings →
 Audio. Recalling a pre-VAC2 profile leaves VAC2 off.
+
+### ASIO for VAC (test stage)
+
+**v0.25.41.** Optional. Default **off**. Qt **Out** and the HL2 jack do
+not switch to ASIO.
+
+1. Settings → Audio → **Enable ASIO devices for VAC**, then **restart**.
+2. VAC1 or VAC2: **Driver = ASIO**. Pick the **same** driver for Input
+   and Output (full duplex). Only one VAC can use ASIO at a time. Close
+   any other program using that driver (Thetis included).
+3. **Mic input channel** / **Mono** / **Audio output channels** / **Block
+   size** as needed (1 = channels 1–2 as a pair). Changes apply when the
+   VAC starts — turn Enable off and on after changing them.
+4. **Hold the rate ratio at 1.0** if TO VAC / FROM VAC wander or overflow.
+5. Lyra VAC is **48 kHz** — set the interface to 48 kHz.
+6. Brick / ANAN listen on the PC path. HL2 operators who stay on the
+   **jack** do not need this.
+7. If Lyra did not finish starting while loading ASIO last time, Enable
+   is forced off (crash guard). Tick it again only after you trust the
+   driver.
+
+This is **not** Thetis CMASIO and **not** WING-as-the-radio-mixer. See
+[FAQ](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/FAQ-and-Troubleshooting#can-i-use-cmasio-or-a-behringer-wing--x32-with-lyra).
 
 ---
 

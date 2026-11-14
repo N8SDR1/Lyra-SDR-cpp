@@ -74,8 +74,9 @@ keyer, VOX, TX profiles) · ✅ **CW** send + on-screen **CW decode** · ✅
 VAC**, a **session recorder**, backup & restore, and a **dockable** Vulkan UI.
 
 See the full checklist on **[Feature Status](Feature-Status)**.
-Lyra is not Thetis-CMASIO: a Behringer WING / X32 over ASIO will not map
-the way it does there — **[FAQ](FAQ-and-Troubleshooting#can-i-use-cmasio-or-a-behringer-wing--x32-with-lyra)**.
+**ASIO for VAC is in test** (v0.25.41, default off). That is not Thetis
+CMASIO and not a WING used as the radio mixer —
+**[FAQ](FAQ-and-Troubleshooting#can-i-use-cmasio-or-a-behringer-wing--x32-with-lyra)**.
 
 ## A studio rack, inside the radio
 
@@ -94,7 +95,7 @@ gear — all native, all in front of the WDSP transmitter:
 
 ## Shipped highlights
 
-✅ **v0.25.40 Sheliak** (ANAN / Brick3 filters on Filters / BCD; HiDPI already in 0.25.39) · ✅ **v0.25.39 Sheliak** (previous public build — HiDPI display, ANAN blank model, log on-screen; DeepFist already in 0.25.38) · ✅ **v0.25.38 Sheliak** (DeepFist CW pitch lock ±80 Hz + earlier commit; Classic unchanged; N9BC original decoder) · ✅ **v0.25.37 Sheliak** (7000DLE / 8000DLE TX, Xvtr on-air RF on BYTE0–4, Metis STOP) · ✅ **v0.25.36 Sheliak** (eight Xvtr slots, SWL J16 rows, digital-mode ALC) · ✅ **v0.25.35 Sheliak** (GEN RF1 / Alt + LNA per slot, RPT drops on band change) · ✅ **v0.25.34 Sheliak** (HL2 IO board sequencer + detection) · ✅ **v0.25.33 Sheliak** (stability upgrade for Protocol 2) · ✅ **OC on P2** · ✅ **USB-BCD FTDI** · ✅ **Parked Help balloon** · ✅ **v0.25.28 Sheliak** · ✅ **Pico RX fcodes** (GitHub #23) · ✅ **PureSignal dock ON** · ✅ **VFO LED digit vs Step** (GitHub #22) · ✅ **Helios TX SWR** · ✅ **View → Freq Cal** (GitHub #21) · ✅ **v0.25.22** (long return point) · ✅ **HL2 RF1 / Alt RX** · ✅ **Helios / Sonar / Cluster** meters · ✅ **Lyra Remote** (separate browser desk) · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
+✅ **v0.25.41 Sulafat** (ASIO for VAC in **test**; default off; not CMASIO) · ✅ **v0.25.40 Sheliak** (previous public build — ANAN / Brick3 filters on Filters / BCD; HiDPI already in 0.25.39) · ✅ **v0.25.39 Sheliak** (HiDPI display, ANAN blank model, log on-screen; DeepFist already in 0.25.38) · ✅ **v0.25.38 Sheliak** (DeepFist CW pitch lock ±80 Hz + earlier commit; Classic unchanged; N9BC original decoder) · ✅ **v0.25.37 Sheliak** (7000DLE / 8000DLE TX, Xvtr on-air RF on BYTE0–4, Metis STOP) · ✅ **v0.25.36 Sheliak** (eight Xvtr slots, SWL J16 rows, digital-mode ALC) · ✅ **v0.25.35 Sheliak** (GEN RF1 / Alt + LNA per slot, RPT drops on band change) · ✅ **v0.25.34 Sheliak** (HL2 IO board sequencer + detection) · ✅ **v0.25.33 Sheliak** (stability upgrade for Protocol 2) · ✅ **OC on P2** · ✅ **USB-BCD FTDI** · ✅ **Parked Help balloon** · ✅ **v0.25.28 Sheliak** · ✅ **Pico RX fcodes** (GitHub #23) · ✅ **PureSignal dock ON** · ✅ **VFO LED digit vs Step** (GitHub #22) · ✅ **Helios TX SWR** · ✅ **View → Freq Cal** (GitHub #21) · ✅ **v0.25.22** (long return point) · ✅ **HL2 RF1 / Alt RX** · ✅ **Helios / Sonar / Cluster** meters · ✅ **Lyra Remote** (separate browser desk) · ✅ **PureSignal** (HL2 coupler / Brick ADC0 /
 Brick3 PS jack) · ✅ **VAC2** · ✅ **SUB / SPLIT** (second pan on Brick3 /
 100D; RX2 jack isolate on TX) · ✅ **Diversity** (Brick3 / 100D / 200D —
 RX2 jack / Ext1, not ANT2; not a second VFO) · ✅ **Band stack** (three

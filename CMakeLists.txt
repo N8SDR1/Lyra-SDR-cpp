@@ -18,8 +18,8 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.25.40
-    DESCRIPTION "Lyra Sheliak — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
+    VERSION 0.25.41
+    DESCRIPTION "Lyra Sulafat — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -682,7 +682,7 @@ target_include_directories(lyra PRIVATE src)
 set(LYRA_APP_NAME "Lyra-cpp" CACHE STRING "Settings / app-data name")
 target_compile_definitions(lyra PRIVATE
     LYRA_VERSION="${PROJECT_VERSION}"
-    LYRA_VERSION_NAME="Sheliak"
+    LYRA_VERSION_NAME="Sulafat"
     LYRA_REPO_OWNER="N8SDR1"
     LYRA_REPO_NAME="Lyra-SDR-cpp"
     LYRA_APP_NAME="${LYRA_APP_NAME}"

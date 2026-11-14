@@ -4,6 +4,15 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-14 — v0.25.41 Sulafat RELEASED (ASIO for VAC, test stage)
+
+Fast-forward `feature/asio-vac` (`e4b43cf` / `5174bfa` / `8073a8f`) onto
+`feature/wdsp-2.10`. Star name **Sulafat** (γ Lyrae). Full installer
+`Lyra-Setup-0.25.41.exe`, app name **Lyra-cpp** (shared settings with
+Sheliak). Docs: `docs/releases/v0.25.41.md`, USER_GUIDE, README,
+KNOWN_ISSUES, wiki Feature Status / Home / FAQ. Tag `v0.25.41`.
+`main` untouched. Mac stays `macos-port`. ASIO is public **test stage**.
+
 ## 2026-11-14 — v0.25.40 Sheliak RELEASED (ANAN / Brick3 filters on Filters / BCD)
 
 Cherry-pick `4d575ca` of `45e01bc` (Settings → Filters / BCD read-only
