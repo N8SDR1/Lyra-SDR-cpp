@@ -193,6 +193,8 @@ void WdspEngine::applyModeFilterRx2()
     const WdspApi &api = wdsp_->api();
     if (api.SetRXAMode)
         api.SetRXAMode(rx2Channel_, modeToWdsp(modeRx2_));
+    if (nnrEnabled_ && api.SetRXANNRModel)   // voice <-> CW model
+        api.SetRXANNRModel(rx2Channel_, nnrSlotFor(modeRx2_));
     double lo = 0.0, hi = 0.0;
     computePassband(modeRx2_, bwRx2_, &lo, &hi);
     if (api.RXASetPassband)
