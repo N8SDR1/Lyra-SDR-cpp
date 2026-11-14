@@ -1,5 +1,11 @@
 # Lyra (C++23 / Qt 6 rebuild) — Feature Catalog
 
+> **Live tree is v0.25.41 Sulafat.** Dual panadapters, Diversity, PureSignal,
+> WDSP 2.10, CW decode, and ASIO-for-VAC (test) are in the published Windows
+> installer. This file is the **2026-05-20 rebuild lock**, not current status.
+> Operator checklist: [Feature Status](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Feature-Status)
+> · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest).
+
 **Status:** LOCKED 2026-05-20. All 7 open questions resolved.
 Ready for Step 2 sequencing (HL2/HL2+ wire path: open the
 radio, receive IQ on a dedicated RX thread, parse samples).

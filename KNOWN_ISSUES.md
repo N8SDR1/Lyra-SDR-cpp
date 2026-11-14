@@ -1,13 +1,15 @@
 # Lyra — Known issues & what's not built yet
 
-Lyra is in **active development**. It's a capable daily-driver transceiver
-for the Hermes Lite 2 / 2+ (Protocol 1) and **BrickSDR2 / Brick3SDR** (Protocol 2)
-— full receive *and* transmit — but it isn't finished. This page sets
-expectations so you know what's a real bug versus a feature that simply
-hasn't landed yet. (Pin or link this in Discord.)
+Lyra is in **active development**. Daily-driver transceiver for Hermes Lite 2 / 2+
+(Protocol 1) and Protocol 2 **BrickSDR2 / Brick3SDR** plus **ANAN** (G2 / G2-1K
+still dummy-load arm). **Dual panadapters**, **Diversity**, and **PureSignal**
+are shipped — they are not roadmap items. This page is leftover bugs and
+honest gaps, not a feature catalog.
 
-Current tree: **v0.25.41 Sulafat**. **ASIO for VAC is in test** (opt-in, default off; Qt Out / HL2 jack unchanged; not CMASIO). **ANAN / Brick3 filters on Filters / BCD** already shipped in v0.25.40. **HiDPI display**, **ANAN blank model → filter profile**, and **Log window stays on screen** already shipped in v0.25.39. **DeepFist** pitch lock is already in v0.25.38. **Classic** is unchanged. **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** transmit without **Arm Protocol 2 TX** (Enable PA + MOX + Drive). HL2 **Xvtr hops** send on-air RF on BYTE0–4; **Stop** sends Metis STOP before the socket closes. **G2 / G2-1K** still need the dummy-load arm. Protocol 1 ANAN is still refused. v0.25.40 Sheliak is the previous public build. The v0.25.34 P2 drive warning still applies if you skip from ≤0.25.31: **turn Drive down and walk it up before your first TX on a P2 radio**. v0.25.22 remains the long return point. Always grab the latest from the
-[Releases page](https://github.com/N8SDR1/Lyra-SDR-cpp/releases).
+Current tree: **v0.25.41 Sulafat**. **ASIO for VAC is in test** (opt-in, default off; Qt Out / HL2 jack unchanged; not CMASIO). Live checklist:
+**[Feature Status](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Feature-Status)** ·
+**[Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest)**
+(installer **Lyra-Setup-0.25.41.exe**). **ANAN / Brick3 filters on Filters / BCD** already shipped in v0.25.40. **HiDPI display**, **ANAN blank model → filter profile**, and **Log window stays on screen** already shipped in v0.25.39. **DeepFist** pitch lock is already in v0.25.38. **Classic** is unchanged. **ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3** transmit without **Arm Protocol 2 TX** (Enable PA + MOX + Drive). HL2 **Xvtr hops** send on-air RF on BYTE0–4; **Stop** sends Metis STOP before the socket closes. **G2 / G2-1K** still need the dummy-load arm. Protocol 1 ANAN is still refused. v0.25.40 Sheliak is the previous public build. The v0.25.34 P2 drive warning still applies if you skip from ≤0.25.31: **turn Drive down and walk it up before your first TX on a P2 radio**. v0.25.22 remains the long return point.
 
 > **What already works** (so you don't wonder): full RX DSP, and **transmit
 > on every mode** — SSB / AM / DSB / SAM / FM, **CW** (internal iambic keyer,
@@ -54,8 +56,8 @@ These are on the roadmap, not broken:
   Same-band dual watch is full strength. The status log notes the
   drop once when the two ham bands differ. **Brick3SDR / ANAN-100D /
   200D** have two converters — SUB opens a **second panadapter**; that
-  path is not LPF-starved the same way. **Diversity** is not in this
-  release.
+  path is not LPF-starved the same way. **Diversity** (DIV chip) is
+  shipped on those two-converter boxes; it is not a second VFO.
 * **Windows mixer vs Lyra Volume.** The system mixer slider for Lyra is
   remembered across Stop / Start. **Vol** / **AF** in the app are
   separate. If one is quiet and the other is loud, check both.
@@ -97,7 +99,7 @@ Open a [GitHub issue](https://github.com/N8SDR1/Lyra-SDR-cpp/issues) or post
 in [Discord](https://discord.gg/BwjsQvjcSc). To make it actionable, include:
 
 1. **Lyra version** (Help → About, or the installer filename).
-2. **Windows version**, and whether your radio is an **HL2 or HL2+**.
+2. **Windows version**, and the radio (**HL2 / HL2+**, BrickSDR2 / Brick3SDR, or ANAN model).
 3. **What you did and what happened** — steps to reproduce.
 4. The in-app **diagnostic log** (open the log viewer in Lyra and copy the
    relevant lines).
