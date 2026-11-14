@@ -22,11 +22,38 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.39 Sheliak** — **HiDPI display** (spectrum and waterfall stay
-sharp at 4K @ 150% Windows scale), **ANAN blank model → filter
-profile**, **Log window stays on screen**. **DeepFist** pitch lock
-already shipped in v0.25.38. **v0.25.38** is the previous public
-build. See [What's new in 0.25.39](#whats-new-in-02539).
+**v0.25.40 Sheliak** — **ANAN / Brick3 filters on Filters / BCD**
+(read-only lamps and grid ticks for the radio's own Alex HPF or BPF,
+TX LPF, and antenna). Hidden on HL2 / BrickSDR. **v0.25.39** is the
+previous public build. See [What's new in 0.25.40](#whats-new-in-02540).
+
+## What's new in 0.25.40
+
+- **The radio's own filters on Filters / BCD.** On Protocol 2 **ANAN**
+  and **Brick3**, band filters (Alex high-pass or band-pass, TX
+  low-pass, antenna) are switched by the per-packet Alex words, not
+  the J16 OC pins — so **Live pins** used to stay dark while the
+  relays clicked. Settings → **Filters / BCD** now shows them
+  **read-only** next to the J16 pins: a lit lamp row under Live pins
+  (RX HPF or BPF, TX LPF, ANT1/2/3) and ticked per-band columns in
+  the OC grid. The lamps are decoded from the same functions that
+  build the words sent to the radio, so the display cannot disagree
+  with the wire. Display only — you still pick antenna and HPF bypass
+  on the Band dock, not by ticking these columns.
+- **Hidden on HL2 / BrickSDR.** Those radios have no Alex-driven
+  front-end to show (BrickSDR: onboard filters, automatic).
+- **Orion MkII receive packet.** The 7000DLE / 8000DLE profile now
+  sends the Alex1 TX image (TX LPF + antenna, plus the T/R relay when
+  the PA is on) in receive as well as transmit, matching deskHPSDR.
+  Transmit is unchanged. This was not shown to be required on the
+  Cyclone V 7000 that prompted it.
+- **Unchanged elsewhere:** HiDPI display and Log-on-screen from
+  **v0.25.39**. DeepFist pitch lock from **v0.25.38**. 7000DLE /
+  8000DLE TX, Xvtr BYTE0–4, Metis STOP, G2 dummy-load arm, Protocol 1
+  ANAN refused. J16 OC bits are the same as 0.25.39.
+- **v0.25.39 Sheliak** is the previous public build. **v0.25.22**
+  remains the long return point. Settings stay. If this build
+  misbehaves, reinstall **v0.25.39**.
 
 ## What's new in 0.25.39
 
@@ -785,6 +812,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.40](#whats-new-in-02540)
 - [What's new in 0.25.39](#whats-new-in-02539)
 - [What's new in 0.25.38](#whats-new-in-02538)
 - [What's new in 0.25.37](#whats-new-in-02537)
@@ -4910,6 +4938,14 @@ the OC bits. Analog on **J3** is the separate Band Volts checkbox.
 - **Live pins** (top-right) — the seven cells light to show which J16
   pins are being driven **right now**, on the wire. They follow the band
   as you tune and flip to the transmit pattern while you're keyed.
+- **Radio's own filters** (Protocol 2 **ANAN** / **Brick3**, since
+  0.25.40) — a second lamp row under Live pins, plus read-only ticks
+  in the per-band grid, for the Alex **RX high-pass or band-pass**,
+  **TX low-pass**, and **ANT1/2/3** the radio is actually using.
+  Classic Alex (ANAN-10…200D, Brick3) labels the RX row as high-pass
+  (1.5 MHz … 20 MHz / 6 m pre / Byp). Orion MkII / Saturn labels it
+  as band-pass (160 … 6 m / Byp). Hidden on **HL2** and **BrickSDR**
+  (onboard filters). Display only; the ticks do not change the wire.
 - **The per-band grid** — one row per amateur band (160 m–6 m), then
   **named Xvtr chips** under that, then a folded **SWL broadcast rows**
   section (below).

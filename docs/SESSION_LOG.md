@@ -4,6 +4,15 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-14 — v0.25.40 Sheliak RELEASED (ANAN / Brick3 filters on Filters / BCD)
+
+Cherry-pick `4d575ca` of `45e01bc` (Settings → Filters / BCD read-only
+radio HPF/BPF + TX LPF + ANT lamps/grid; hidden HL2 / BrickSDR;
+Orion MkII Alex1 TX image in RX as deskHPSDR parity) onto
+`feature/wdsp-2.10`. Docs: `docs/releases/v0.25.40.md`, USER_GUIDE
+What's new + Filters / BCD, README, KNOWN_ISSUES, wiki Feature Status
+/ Home / FAQ. Tag `v0.25.40`. `main` untouched. Mac stays `macos-port`.
+
 ## 2026-11-08 — v0.25.39 Sheliak RELEASED (HiDPI display, ANAN model, log on-screen)
 
 Cherry-pick `f909000` of `e516762` (panadapter ribbon + waterfall

@@ -318,6 +318,12 @@ does not arm the mix.
 
 ## Settings &amp; layout
 
+**Filters / BCD Live pins stay dark on an ANAN while the relays click.**
+Install **v0.25.40**. ANAN / Brick3 band filters are switched by the
+Alex words, not the J16 OC pins, so Live pins can stay dark. The same
+tab now shows the radio's own RX HPF or BPF, TX LPF, and antenna as
+read-only lamps and grid ticks. Hidden on HL2 / BrickSDR.
+
 **The spectrum looks thin / the waterfall looks dim or smeared on 4K at 150%.**
 Install **v0.25.39**. GPU lines used to draw one **screen** pixel, so the
 trace went faint at 150% scale; the waterfall was a 512-row image

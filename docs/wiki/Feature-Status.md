@@ -1,23 +1,26 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.39 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.40 Sheliak** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.39** ships **HiDPI display** (spectrum ribbon + waterfall
-history on 4K @ 150%), **ANAN blank model → filter profile**, and
-**Log window on-screen**. **DeepFist pitch lock** already shipped in
-**v0.25.38**. **Classic** is unchanged. Original decoder: **Brent
-Crier (N9BC)**. **v0.25.38** remains the previous public build.
-**G2 / G2-1K** still use the dummy-load arm. Coming from ≤0.25.31,
-**turn Drive down and walk it up before your first TX on a P2 radio**.
-**v0.25.22** remains the long return point.
+**v0.25.40** ships **ANAN / Brick3 filters on Filters / BCD**
+(read-only lamps and grid ticks for the radio's own Alex HPF or BPF,
+TX LPF, and antenna; hidden on HL2 / BrickSDR). **HiDPI display**,
+**ANAN blank model → filter profile**, and **Log window on-screen**
+already shipped in **v0.25.39**. **DeepFist pitch lock** already
+shipped in **v0.25.38**. **Classic** is unchanged. Original decoder:
+**Brent Crier (N9BC)**. **v0.25.39** remains the previous public
+build. **G2 / G2-1K** still use the dummy-load arm. Coming from
+≤0.25.31, **turn Drive down and walk it up before your first TX on a
+P2 radio**. **v0.25.22** remains the long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.39)
+### Last several builds (0.25.16 → 0.25.40)
 
 | Build | What landed |
 |---|---|
+| **0.25.40** | **ANAN / Brick3 filters on Filters / BCD:** read-only lamps under Live pins and ticked per-band columns for the radio's own Alex HPF or BPF, TX LPF, and antenna (decoded from the same words sent on the wire). Hidden on HL2 / BrickSDR. Orion MkII also sends the Alex1 TX image in receive (deskHPSDR parity; transmit unchanged). **v0.25.39** is the previous public build |
 | **0.25.39** | **HiDPI display:** spectrum / peak-hold as a 1-logical-pixel ribbon (was one screen pixel, faint at 4K @ 150%); waterfall history grows 512 → pane height, cap 1024. Use **Windows Display scale**; do not set `QT_SCALE_FACTOR`. **Auto-fit** is the waterfall dB colour map, not DPI. **ANAN blank model → filter profile** (Orion → ANAN-200D). **Log window** keeps Copy all / Save on screen. DeepFist already in 0.25.38. **v0.25.38** is the previous public build |
 | **0.25.38** | **DeepFist locks to the operator CW pitch** (±80 Hz) so a louder neighbour is not copied instead. **Earlier character commit:** a letter prints once two consecutive decodes agree, still capped at the old delay. **Classic** (fldigi) unchanged. Original decoder: **Brent Crier (N9BC)**. No Protocol 2 / HL2 wire change. **v0.25.37** is the previous public build |
 | **0.25.37** | **7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 transmit** without **Arm Protocol 2 TX** — same Enable PA + MOX + Drive path as Brick3 / 100D. **Xvtr hops send on-air RF on BYTE0–4** (was last HF; analog J4 / GPA100 / XPA125). **HL2 Stop** sends Metis STOP before the socket closes (Start should not wait ~13 s). **G2 / G2-1K** still dummy-load arm. Red Pitaya still no P2 TX profile. Protocol 1 ANAN still refused. FAQ: Lyra is not Thetis-CMASIO; RX is WDSP into a simple stereo Windows path (or the HL2 jack). **v0.25.36** is the previous public build |
@@ -62,7 +65,7 @@ Crier (N9BC)**. **v0.25.38** remains the previous public build.
 - ✅ **MSAA** picker **Off / 2× / 4× / 8×** (Settings → Visuals; default 4×; restart)
 - ✅ **Xvtr** band chips — **eight slots** since v0.25.36 (slots 5–8 start disabled; one row of eight on HL2, 2 × 4 beside the ANT / RX chips); RF dial (ten-digit LED, ~2.147 GHz), IF NCO, Disable PA default on; Shift+click SUB hop; right-click slot editor. Per-chip LNA (HL2) / ATT (P2) / last mode. Protocol 1 **RF1 vs Alt RX** per chip (I2C 0x1D register 11; analog BYTE0–4 unchanged for GPA100). Band-plan **region does not rewrite** slot MHz — set RF low/high/LO for your allocation. Station table: [User Guide → Which Hermes Lite station is mine?](User-Guide#which-hermes-lite-station-is-mine).
 - ✅ HL2 **N2ADR / IO board** — OC LPF (I2C **0x20**) is the **Enable N2ADR / IO board** checkbox. The Pico **IO board** (I2C **0x1D**: TX Hz regs 0–4 for J4 band volts, REG 11 RF1 / Alt, RX codes 13 / 14) is **not** gated on that box: since **v0.25.34** it is written every ~0.35 s from a latched snapshot (deskHPSDR model) **once the board is detected at 0x41**, or when **Force IO board present** is ticked (DIY Pico without PCA9536). **Transverter bands send** holds the last HF frequency by default so a J4 band-volts amp does not hop on a 2 m chip. Settings → Filters / BCD → IO board; [User Guide → HL2 IO board](User-Guide#hl2-io-board-hl2ioboard-pico-i2c-0x1d). Leave **Band Volts on J3** off unless the amp is on the fan header.
-- ✅ **OC Control** — Settings → **Filters / BCD**: HF J16 RX/TX pins (Thetis/DeskHPSDR: emit the ticks you set; no auto Yaesu on the radio DB9), named Xvtr rows (empty = pins off), and since **v0.25.36** a folded **SWL broadcast rows** section (120 m … 13 m; Xvtr → ham → broadcast → none, ham wins on overlap; CB / GEN no row; empty until **Reload N2ADR HF** / N2ADR pick seeds them **RX-only** from the ham LPF above each band). Optional USB-BCD FTDI, J3 fan vs analog. Analog BYTE0–4 / REG 11 untouched. Do not add a second tab.
+- ✅ **OC Control** — Settings → **Filters / BCD**: HF J16 RX/TX pins (Thetis/DeskHPSDR: emit the ticks you set; no auto Yaesu on the radio DB9), named Xvtr rows (empty = pins off), and since **v0.25.36** a folded **SWL broadcast rows** section (120 m … 13 m; Xvtr → ham → broadcast → none, ham wins on overlap; CB / GEN no row; empty until **Reload N2ADR HF** / N2ADR pick seeds them **RX-only** from the ham LPF above each band). Since **v0.25.40**, Protocol 2 **ANAN / Brick3** also show the radio's own Alex HPF or BPF, TX LPF, and antenna as **read-only** lamps and grid ticks (hidden on HL2 / BrickSDR). Optional USB-BCD FTDI, J3 fan vs analog. Analog BYTE0–4 / REG 11 untouched. Do not add a second tab.
 
 ## Receive (RX)
 

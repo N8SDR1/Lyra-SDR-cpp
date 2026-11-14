@@ -1,6 +1,6 @@
 # Lyra — C++23 / Qt 6 Rebuild
 
-**v0.25.39 Sheliak** — **HiDPI display** (spectrum and waterfall stay sharp at 4K @ 150% Windows scale), **ANAN blank model → filter profile**, **Log window stays on screen**. Use Windows Display scale; do not set `QT_SCALE_FACTOR`. **DeepFist** pitch lock already in v0.25.38 (original decoder **Brent Crier (N9BC)**). **G2 / G2-1K** still use the dummy-load arm. Protocol 1 ANAN is still refused. If you come from ≤0.25.31, **turn Drive down and walk it up before your first TX on a P2 radio**. **v0.25.38** is the previous public build. v0.25.22 remains the long return point. WDSP 2.10 from 0.25.8.
+**v0.25.40 Sheliak** — **ANAN / Brick3 filters on Filters / BCD** (read-only lamps and grid ticks for the radio's own Alex HPF or BPF, TX LPF, and antenna). Hidden on HL2 / BrickSDR. **v0.25.39** remains the previous public build (HiDPI display, ANAN blank model, Log on-screen). **DeepFist** pitch lock already in v0.25.38 (original decoder **Brent Crier (N9BC)**). **G2 / G2-1K** still use the dummy-load arm. Protocol 1 ANAN is still refused. If you come from ≤0.25.31, **turn Drive down and walk it up before your first TX on a P2 radio**. v0.25.22 remains the long return point. WDSP 2.10 from 0.25.8.
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** · [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases) · [Discord](https://discord.gg/BwjsQvjcSc) · [Facebook](https://www.facebook.com/groups/1994335921523916)
 
