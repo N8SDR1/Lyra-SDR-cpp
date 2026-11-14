@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lyra — GPU SDR transceiver for HPSDR Protocol 1 and Protocol 2</title>
-<meta name="description" content="Lyra is a GPU-accelerated HPSDR transceiver: Protocol 1 and Protocol 2. Hermes Lite 2 / 2+, BrickSDR2 / Brick3SDR, ANAN-10–200D on-air, ANAN-7000DLE / 8000DLE / Orion MkII / Anvelina-Pro3 transmit, G2 dummy-load arm. Public installer is Windows 10 / 11; macOS is a separate tester branch; Linux is planned. SSB, CW, AM/SAM, FM, studio TX chain, PureSignal, TCI.">
+<meta name="description" content="Lyra v0.25.41 Sulafat: Windows 10/11 Qt6 HPSDR transceiver. Dual RX1/RX2 panadapters, Diversity (dual-ADC phasing), PureSignal, WDSP, CW decode. P1 HL2/2+; P2 Brick and ANAN (G2 dummy-load arm). ASIO for VAC in test. LAN remote. GPL v3+.">
 <link rel="icon" type="image/png" href="logo.png">
 <style>
   :root {
@@ -170,7 +170,7 @@
     <header>
       <img class="logo" src="logo.png" alt="Lyra logo">
       <div class="wordmark">LYRA<span class="accent"> SDR</span></div>
-      <p class="tagline">A GPU-accelerated HPSDR transceiver — Protocol&nbsp;1 and Protocol&nbsp;2. Hermes&nbsp;Lite&nbsp;2 / 2+, BrickSDR2 / Brick3SDR, and ANAN-class radios.</p>
+      <p class="tagline">Windows 10/11 Qt&nbsp;6 transceiver — dual RX1/RX2 panadapters, Diversity, PureSignal, WDSP, CW decode. Protocol&nbsp;1 HL2 / 2+ · Protocol&nbsp;2 Brick and ANAN.</p>
       <div><span class="badge">v0.25.41 Sulafat · ASIO for VAC (test) · GPL v3</span></div>
       <p class="current-ver">Current version: <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.41">v0.25.41 Sulafat</a> · Lyra-Setup-0.25.41.exe</p>
       <div class="cta">
@@ -269,7 +269,8 @@
       <h2>What it does</h2>
       <div class="grid">
         <div class="card"><h3><span class="ico">📻</span> Full transceiver</h3><p>Receive and transmit SSB, CW, AM / SAM and FM on HPSDR Protocol&nbsp;1 and Protocol&nbsp;2. Protocol&nbsp;1 is the Hermes Lite 2 family. Protocol&nbsp;2 is BrickSDR2 / Brick3SDR and ANAN-class (10–200D and 7000 / 8000 / Orion&nbsp;MkII / Anvelina-Pro3 on-air). Brick3 is beta. G2 is dummy-load arm. Pick the marketed model after Discover. See <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Supported-Radios">Supported Radios</a>.</p></div>
-        <div class="card"><h3><span class="ico">📊</span> GPU panadapter</h3><p>A Vulkan-accelerated spectrum and waterfall with click-to-tune, centre-tune (CTUN), RIT / XIT, peak hold and eight colour palettes.</p></div>
+        <div class="card"><h3><span class="ico">📊</span> Dual panadapters</h3><p>Independent RX1 and RX2 GPU panadapters and waterfalls on two-converter radios (Vulkan / Direct3D&nbsp;11). SUB overlay on one-ADC boxes. Click-to-tune, CTUN, RIT / XIT. Heavier on a weak iGPU.</p></div>
+        <div class="card"><h3><span class="ico">📡</span> Diversity</h3><p>Dual-ADC phase/gain combine on one frequency (DIV chip). RX2 jack / Ext1, not ANT2. Not a second VFO. Confirmed on Brick3SDR; same path on ANAN-100D / 200D. Drops while keyed or while PureSignal is live.</p></div>
         <div class="card"><h3><span class="ico">✨</span> PureSignal</h3><p>Adaptive TX predistortion on coupler-mod HL2 / HL2+, BrickSDR2, and Brick3SDR, with a compact dock and an Amp View plot (Snap / Hold). <a href="#puresignal">See it up close</a>.</p></div>
         <div class="card"><h3><span class="ico">🎚️</span> Studio TX chain</h3><p>8-band parametric EQ, a multiband combinator, tube-plate reverb, speech processing, a voice keyer and VOX — shape your audio like a broadcast desk, saved as recallable profiles.</p></div>
         <div class="card"><h3><span class="ico">🔇</span> Noise reduction</h3><p>WDSP classic NR (Modes 1–4) or neural NNR (Standard / Premium + mask slider), plus noise blanker, auto-notch, LMS, and a captured-noise profile of your own band.</p></div>
@@ -277,8 +278,8 @@
         <div class="card"><h3><span class="ico">🗺️</span> Band awareness</h3><p>DX cluster / RBN spots overlaid on the panadapter for click-to-tune, an EiBi shortwave-broadcaster overlay, plus live solar and propagation panels.</p></div>
         <div class="card"><h3><span class="ico">⛈️</span> Weather aware</h3><p>Lightning and severe-storm alerts from the NWS, plus live wind and conditions from your own Ambient or Ecowitt station &mdash; so you know when to pull the antenna before the storm rolls in.</p></div>
         <div class="card"><h3><span class="ico">🔗</span> SDRLogger+ Combo link</h3><p>A two-way link with <a href="https://n8sdr1.github.io/SDRLoggerPlus/">SDRLogger+</a> over TCI — frequency, mode and DX spots stay in sync, and CW contacts log straight from Lyra's console with call and RST.</p></div>
-        <div class="card"><h3><span class="ico">🎛️</span> Station control</h3><p>A TCI server, Kenwood CAT over COM or TCP, per-band tuner memory, external filter / open-collector band control, digital-mode audio (VAC), and companion-app launch.</p></div>
-        <div class="card"><h3><span class="ico">💻</span> Lyra to Lyra <span class="pill-testing" style="margin:0 0 0 6px; vertical-align:middle;">Beta</span></h3><p>A second Lyra on the laptop, shack Lyra stays on the radio. Desk panadapter, RX2 picture and audio when SUB is on, CW send from the desk. Tailscale Personal only — same version on both PCs. Steps in the <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/User-Guide#lyra-to-lyra">User Guide</a>. v0.25.22 remains the return point.</p></div>
+        <div class="card"><h3><span class="ico">🎛️</span> Station control</h3><p>TCI, Kenwood CAT, VAC for digital apps. <strong>ASIO for VAC is in test</strong> (v0.25.41, Settings opt-in, default off). Not Thetis CMASIO and not a WING as the radio mixer. USB-BCD / OC, tuner memory, companion-app launch.</p></div>
+        <div class="card"><h3><span class="ico">💻</span> LAN remote</h3><p><a href="https://github.com/N8SDR1/Lyra-Remote/releases/latest">Lyra Remote</a> is a browser desk on the <strong>house LAN</strong> — not Thetis-style WAN remote. Do not port-forward TCI. Lyra-to-Lyra (beta) is a second Lyra on a laptop attached to the shack session.</p></div>
       </div>
     </section>
 
