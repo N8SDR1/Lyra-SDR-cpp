@@ -88,6 +88,7 @@ these are real roadmap items, not "maybe someday."
 ## Smaller items on the list
 
 - ✅ **WDSP 2.10** — Windows engine + NNR (v0.25.8; factory model Standard from v0.25.9). Mac/Linux binaries later.
+- ✅ **WDSP 2.11** — four NNR models; CW-trained pair used automatically in CW modes (v0.25.42).
 - ✅ **NR-C rectangular panadapter** — display on uncleaned IQ; Floor −24 (v0.25.10).
 - ✅ **Session recorder** — RX WAV on P1 and P2; Vulkan snapshots (v0.25.10).
 - ✅ **First-run FFTW vs companion launch** — Hardware Startup waits until FFTW and the radio layer are up (v0.25.11).

@@ -64,7 +64,7 @@ Full detail (why Open is refused, what TX would do, Brick flash help) on the **[
 
 ## At a glance — what works now
 
-✅ Full **receive** (WDSP 2.10 NR or NNR, RX EQ, NR-C, CTUN, RIT, APF, BIN) ·
+✅ Full **receive** (WDSP 2.11 NR or NNR, RX EQ, NR-C, CTUN, RIT, APF, BIN) ·
 ✅ Full **transmit** — SSB / AM / SAM / DSB / FM / CW plus TCI / VAC ·
 ✅ **Dual panadapters / waterfalls** (RX1 + RX2 on two-converter radios) ·
 ✅ **SUB / RX2 + SPLIT** (independent) · ✅ **Diversity** (dual-ADC phase/gain) ·

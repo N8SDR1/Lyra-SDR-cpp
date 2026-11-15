@@ -137,8 +137,9 @@ at a time. The connected one is shown green/bold in the list.
 
 **NNR vs NR vs NR-C — which one?**
 - **NR** — classic WDSP EMNR (Modes 1–4, AEPF, NPE).
-- **NNR** — WDSP 2.10 neural denoiser. **Standard** is the default (lighter
+- **NNR** — WDSP 2.11 neural denoiser. **Standard** is the default (lighter
   CPU); **Premium** uses more and is comfortable on the Recommended PC tier.
+  In **CWU / CWL** Lyra uses the CW-trained version of the model you picked.
   Mask runs **−10…−50 dB**, default **−40**. **NR** and **NNR** cannot run
   at the same time.
 - **NR-C** — captured band-noise profile (your QTH). It can run with either

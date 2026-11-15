@@ -72,7 +72,7 @@ first TX on a P2 radio**. **v0.25.22** remains the long return point.
 
 - ✅ Full WDSP receive chain — **USB / LSB / CW / AM / SAM / DSB / FM / DIGU / DIGL / SPEC**
 - ✅ Per-mode filters, AGC (Fast/Med/Slow/Long/Auto), **NR** (EMNR 1–4) **or**
-  **NNR** (WDSP 2.10 neural; Standard default, Premium optional, mask −10…−50 dB, default −40), exclusive
+  **NNR** (WDSP 2.11 neural; Standard default, Premium optional, CW-trained models in CW modes, mask −10…−50 dB, default −40), exclusive
   vs each other; noise blanker, **auto-notch (ANF)**, **LMS**, all-mode **squelch**
 - ✅ **8-band RX parametric EQ** (draggable curve)
 - ✅ **Captured-noise profile (NR-C)** — grab your band noise and subtract it
