@@ -1,0 +1,2 @@
+# Secrets — copy config.example.php on the server only
+config/config.php

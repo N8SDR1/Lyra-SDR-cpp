@@ -80,3 +80,6 @@ Line
 # Claude Code local settings (personal, per-machine)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+
+# QRV Hostinger secrets (upload kit uses config.example.php only)
+qrv-service/config/config.php

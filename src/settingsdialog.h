@@ -22,6 +22,7 @@ namespace lyra::profile { class ProfileManager; class CompanionLauncher; }
 namespace lyra::cat { class SerialPtt; class SerialCwKey; class CatServer; }
 namespace lyra::tx  { class VoiceKeyer; }
 namespace lyra::recorder { class RecorderEngine; class SessionConverter; }
+namespace lyra::qrv { class QrvClient; }
 
 namespace lyra::ui {
 
@@ -61,6 +62,7 @@ public:
                    const QList<lyra::cat::CatServer *> &catServers,
                    lyra::wire::P2RxBridge *p2 = nullptr,
                    DeskLink *desk = nullptr,
+                   lyra::qrv::QrvClient *qrv = nullptr,
                    QWidget *parent = nullptr);
 
     // Raise the tab that owns <topic> (from a panel's "?" → Settings).
@@ -81,6 +83,7 @@ signals:
     // moment: it lets the natural "pick a radio + Open" reach the switch
     // instead of silently loading the wrong profile.
     void requestRigSwitch(const QString &rigId);
+    void openQrvPanelRequested();
 
 private:
     QWidget *buildVisualsTab();
@@ -125,6 +128,7 @@ private:
     EibiStore              *eibi_      = nullptr;
     TciServer              *tci_       = nullptr;
     DeskLink               *desk_      = nullptr;
+    lyra::qrv::QrvClient   *qrv_       = nullptr;
     SpotStore              *spots_     = nullptr;
     SpotHoleFeeder         *spotHole_  = nullptr;
     DxClusterFeeder        *dxCluster_ = nullptr;

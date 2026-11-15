@@ -18,8 +18,8 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(Lyra
-    VERSION 0.25.42
-    DESCRIPTION "Lyra Aladfar — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
+    VERSION 0.25.43
+    DESCRIPTION "Lyra Alya — Hermes Lite 2/2+ SDR transceiver (C++23 / Qt6 rebuild)"
     LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -552,6 +552,12 @@ qt_add_executable(lyra
     src/solarpanel.cpp
     src/ncdxffollow.h
     src/ncdxffollow.cpp
+    src/qrv/QrvProtocol.h
+    src/qrv/QrvProtocol.cpp
+    src/qrv/QrvClient.h
+    src/qrv/QrvClient.cpp
+    src/qrv/QrvPanel.h
+    src/qrv/QrvPanel.cpp
 )
 
 # QML module — keeps Main.qml inside the binary as a Qt resource so
@@ -682,7 +688,7 @@ target_include_directories(lyra PRIVATE src)
 set(LYRA_APP_NAME "Lyra-cpp" CACHE STRING "Settings / app-data name")
 target_compile_definitions(lyra PRIVATE
     LYRA_VERSION="${PROJECT_VERSION}"
-    LYRA_VERSION_NAME="Aladfar"
+    LYRA_VERSION_NAME="Alya"
     LYRA_REPO_OWNER="N8SDR1"
     LYRA_REPO_NAME="Lyra-SDR-cpp"
     LYRA_APP_NAME="${LYRA_APP_NAME}"
@@ -1056,6 +1062,16 @@ target_include_directories(test_band_jump PRIVATE src)
 target_link_libraries(test_band_jump PRIVATE Qt6::Core)
 if(MSVC)
     target_compile_options(test_band_jump PRIVATE /utf-8 /Zc:preprocessor)
+endif()
+
+add_executable(test_qrv EXCLUDE_FROM_ALL
+    scratch/test_qrv.cpp
+    src/qrv/QrvProtocol.cpp
+)
+target_include_directories(test_qrv PRIVATE src)
+target_link_libraries(test_qrv PRIVATE Qt6::Core)
+if(MSVC)
+    target_compile_options(test_qrv PRIVATE /utf-8 /Zc:preprocessor)
 endif()
 
 # Transverter RF→IF math (header-only).  EXCLUDE_FROM_ALL; no HL2Stream.
