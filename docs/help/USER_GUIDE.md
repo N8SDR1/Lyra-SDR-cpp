@@ -22,10 +22,33 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.41 Sulafat** — **ASIO for VAC (test stage)** plus everything in
-v0.25.40. Star name **Sulafat** (γ Lyrae), next after Sheliak. Full
-installer over Sheliak: **Lyra-cpp** settings stay. **v0.25.40** is the
-previous public build. See [What's new in 0.25.41](#whats-new-in-02541).
+**v0.25.42 Aladfar** — **WDSP 2.11** (CW neural NR models) plus everything
+in v0.25.41. Star name **Aladfar** (η Lyrae), next after Sulafat. Full
+installer over Sulafat: **Lyra-cpp** settings stay. **v0.25.41** is the
+previous public build. See [What's new in 0.25.42](#whats-new-in-02542).
+
+## What's new in 0.25.42
+
+- **WDSP 2.11.** The bundled DSP engine is NR0V **2.11** (official
+  release, October 2026; `GetWDSPVersion` 211). Besides the new neural
+  models below, 2.11 updates AGC, classic NR (EMNR), the auto-notch
+  (ANF), the FM demodulator and PureSignal calibration.
+- **CW models for NNR.** 2.11 ships four neural models: **Standard** and
+  **Premium** for voice, plus a Standard and Premium trained on CW. The
+  NNR **Model** control still offers Standard / Premium. In **CWU / CWL**
+  Lyra uses the CW version of the model you picked, separately on RX1
+  and RX2, and goes back to the voice model when you change mode. See
+  [Row 3 — Noise Reduction](#row-3--noise-reduction-character).
+- **One-time FFT optimization.** The first start after updating shows
+  the **Optimizing FFT plans** splash for a few minutes while the FFT
+  cache is rebuilt for the new engine. Later starts are normal.
+- **ASIO for VAC (test stage)** from **v0.25.41** is unchanged. Keep
+  **Hold the rate ratio at 1.0** on (the default); see
+  [ASIO for VAC (test stage)](#asio-for-vac-test-stage).
+- **v0.25.41 Sulafat** is the previous public build. **v0.25.22** remains
+  the long return point. Settings stay. First launch after this update
+  rebuilds the FFT cache (splash for a few minutes). If this build
+  misbehaves, reinstall **v0.25.41**.
 
 ## What's new in 0.25.41
 
@@ -835,6 +858,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.42](#whats-new-in-02542)
 - [What's new in 0.25.41](#whats-new-in-02541)
 - [What's new in 0.25.40](#whats-new-in-02540)
 - [What's new in 0.25.39](#whats-new-in-02539)
@@ -2374,13 +2398,17 @@ laid out in old Lyra's three-row arrangement:
 Use **either** classic **NR** (EMNR) **or** **NNR** (neural). They are
 exclusive. **NR-C** (captured profile) is independent of both.
 
-- **NNR** — WDSP 2.10 neural denoiser. Default **off**. While on, Row 3
+- **NNR** — WDSP 2.11 neural denoiser. Default **off**. While on, Row 3
   shows **Model** and **Mask** instead of Mode / AEPF / NPE:
   - **Standard** (default) vs **Premium**. Premium is the heavier model
     and uses more CPU. Standard is the start; switch to Premium when
     you want to hear the stronger model (a mask around **−40** is the
     amount to try while listening). On a Minimum-tier PC, stay on
     Standard — or classic NR — if the machine is already busy.
+  - **CW modes** — in **CWU / CWL**, Lyra automatically uses the
+    CW-trained version of the model you picked (Standard or Premium),
+    on RX1 and RX2 separately, and switches back to the voice model
+    when you leave CW. Nothing to set.
   - **Mask** −10 dB (least suppression) … **−50 dB** (most). Default
     **−40**. More negative = more noise cut (and more chance of watery
     artifacts). This is the main NNR amount control.
@@ -5221,13 +5249,22 @@ not switch to ASIO.
 3. **Mic input channel** / **Mono** / **Audio output channels** / **Block
    size** as needed (1 = channels 1–2 as a pair). Changes apply when the
    VAC starts — turn Enable off and on after changing them.
-4. **Hold the rate ratio at 1.0** if TO VAC / FROM VAC wander or overflow.
+4. Leave **Hold the rate ratio at 1.0** on (the default). In testing,
+   turning it off made TO VAC overflow and underflow steadily.
 5. Lyra VAC is **48 kHz** — set the interface to 48 kHz.
 6. Brick / ANAN listen on the PC path. HL2 operators who stay on the
    **jack** do not need this.
 7. If Lyra did not finish starting while loading ASIO last time, Enable
    is forced off (crash guard). Tick it again only after you trust the
    driver.
+8. **Healthy readings.** About two seconds after the VAC starts, Lyra
+   re-centres both rings. The **Monitor** line should then hold TO VAC
+   and FROM VAC around **45–55 %** full with **0 ovf / 0 unf**. Counts
+   only reset when the VAC restarts, so turn Enable off and on before
+   judging.
+9. **Use VAC1 as TX source** follows your TX profile's mic source. If it
+   keeps unticking at start-up, tick it and press **Save** on the
+   Profile bar.
 
 This is **not** Thetis CMASIO and **not** WING-as-the-radio-mixer. See
 [FAQ](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/FAQ-and-Troubleshooting#can-i-use-cmasio-or-a-behringer-wing--x32-with-lyra).

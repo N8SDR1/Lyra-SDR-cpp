@@ -544,8 +544,11 @@ QString WdspNative::wisdomDir() {
     // cross-app sharing is a hidden footgun we explicitly avoid).
     const QString base = QStandardPaths::writableLocation(
         QStandardPaths::GenericDataLocation);
-    return QDir::cleanPath(base +
-        QStringLiteral("/N8SDR/Lyra-cpp/fftw"));
+    // Follows the settings name so a side-by-side test build (e.g. a newer
+    // WDSP) keeps its own plans and impulse cache, which a different DLL
+    // can't safely share.  "Lyra-cpp" for normal builds.
+    return QDir::cleanPath(base + QStringLiteral("/N8SDR/") +
+        QCoreApplication::applicationName() + QStringLiteral("/fftw"));
 }
 
 namespace {

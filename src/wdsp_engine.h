@@ -258,6 +258,7 @@ class WdspEngine : public QObject {
     Q_PROPERTY(int  npeMethod  READ npeMethod  NOTIFY nrChanged)
     // WDSP Neural NR (2.10).  XOR with EMNR — enabling one turns the
     // other off.  nnrModel: 0=Standard (factory default) 1=Premium
+    // (CW modes use the matching CW-trained model, WDSP 2.11 slots 2/3)
     // (heavier CPU).  Mask floor: −10 (least) … −50 (most); default −40.
     Q_PROPERTY(bool nnrEnabled READ nnrEnabled NOTIFY nrChanged)
     Q_PROPERTY(bool nnrAvailable READ nnrAvailable NOTIFY nrChanged)
@@ -1179,6 +1180,7 @@ private:
     void applyModeFilter();
     // Push EMNR + NNR.  Mutual exclusion is applied here: at most one
     // of EMNR-run / NNR-run is 1.  No-op when the channel is closed.
+    int  nnrSlotFor(const QString &mode) const;
     void pushNrState();
     // Push the current AGC mode (SetRXAAGCMode).  No-op when closed.
     void pushAgcMode();

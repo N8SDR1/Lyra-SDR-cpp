@@ -1,25 +1,28 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.41 Sulafat** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.42 Aladfar** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.41** ships **ASIO for VAC in test stage** (opt-in, default
-off; Qt Out and the HL2 jack unchanged; not CMASIO / not WING as the
-radio mixer). **v0.25.40** remains the previous public build (**ANAN /
-Brick3 filters on Filters / BCD**). **HiDPI display**, **ANAN blank
-model → filter profile**, and **Log window on-screen** already shipped
-in **v0.25.39**. **DeepFist pitch lock** already shipped in
-**v0.25.38**. **Classic** is unchanged. Original decoder:
-**Brent Crier (N9BC)**. **G2 / G2-1K** still use the dummy-load arm.
-Coming from ≤0.25.31, **turn Drive down and walk it up before your
-first TX on a P2 radio**. **v0.25.22** remains the long return point.
+**v0.25.42** ships **WDSP 2.11** (CW-trained NNR models in CWU/CWL).
+**ASIO for VAC remains in test stage** (opt-in, default off; Qt Out
+and the HL2 jack unchanged; not CMASIO / not WING as the radio mixer).
+**v0.25.41** remains the previous public build (**ASIO for VAC**).
+**ANAN / Brick3 filters on Filters / BCD** already shipped in
+**v0.25.40**. **HiDPI display**, **ANAN blank model → filter profile**,
+and **Log window on-screen** already shipped in **v0.25.39**.
+**DeepFist pitch lock** already shipped in **v0.25.38**. **Classic** is
+unchanged. Original decoder: **Brent Crier (N9BC)**. **G2 / G2-1K** still
+use the dummy-load arm. Coming from ≤0.25.31, **turn Drive down and walk
+it up before your first TX on a P2 radio**. **v0.25.22** remains the
+long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.41)
+### Last several builds (0.25.16 → 0.25.42)
 
 | Build | What landed |
 |---|---|
+| **0.25.42** | **WDSP 2.11** (NR0V, official TAPR, 2026-10-15; `GetWDSPVersion` 211): AGC, EMNR, ANF, FM demod, PureSignal calibration updates, plus **CW-trained NNR models**. NNR still offers Standard / Premium; in **CWU / CWL** Lyra uses the CW pair automatically (per RX1 / RX2) and returns to voice models on a mode change. First launch after the update rebuilds the FFT cache (**Optimizing FFT plans** splash). Star name **Aladfar**. Full install over Sulafat; Lyra-cpp settings stay. **ASIO for VAC remains in test** (v0.25.41). **v0.25.41** is the previous public build |
 | **0.25.41** | **ASIO for VAC (test stage):** Settings → Audio → **Enable ASIO devices for VAC**, restart; VAC Driver **ASIO** on one full-duplex driver (mic in + RX out); channel / block / Hold rate ratio at 1.0; crash guard if last start failed. Default off. Qt speaker Out and HL2 jack unchanged. **Not** Thetis CMASIO and **not** a 48-channel WING mixer. Star name **Sulafat**. Full install over Sheliak; Lyra-cpp settings stay. **v0.25.40** is the previous public build |
 | **0.25.40** | **ANAN / Brick3 filters on Filters / BCD:** read-only lamps under Live pins and ticked per-band columns for the radio's own Alex HPF or BPF, TX LPF, and antenna (decoded from the same words sent on the wire). Hidden on HL2 / BrickSDR. Orion MkII also sends the Alex1 TX image in receive (deskHPSDR parity; transmit unchanged). **v0.25.39** is the previous public build |
 | **0.25.39** | **HiDPI display:** spectrum / peak-hold as a 1-logical-pixel ribbon (was one screen pixel, faint at 4K @ 150%); waterfall history grows 512 → pane height, cap 1024. Use **Windows Display scale**; do not set `QT_SCALE_FACTOR`. **Auto-fit** is the waterfall dB colour map, not DPI. **ANAN blank model → filter profile** (Orion → ANAN-200D). **Log window** keeps Copy all / Save on screen. DeepFist already in 0.25.38. **v0.25.38** is the previous public build |
@@ -72,7 +75,7 @@ first TX on a P2 radio**. **v0.25.22** remains the long return point.
 
 - ✅ Full WDSP receive chain — **USB / LSB / CW / AM / SAM / DSB / FM / DIGU / DIGL / SPEC**
 - ✅ Per-mode filters, AGC (Fast/Med/Slow/Long/Auto), **NR** (EMNR 1–4) **or**
-  **NNR** (WDSP 2.10 neural; Standard default, Premium optional, mask −10…−50 dB, default −40), exclusive
+  **NNR** (WDSP 2.11 neural; Standard default, Premium optional, CW-trained models in CW modes, mask −10…−50 dB, default −40), exclusive
   vs each other; noise blanker, **auto-notch (ANF)**, **LMS**, all-mode **squelch**
 - ✅ **8-band RX parametric EQ** (draggable curve)
 - ✅ **Captured-noise profile (NR-C)** — grab your band noise and subtract it

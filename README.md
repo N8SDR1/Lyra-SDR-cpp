@@ -1,8 +1,8 @@
 # Lyra
 
-**v0.25.41 Sulafat** — native **C++23 / Qt 6** SDR transceiver for HPSDR radios.
+**v0.25.42 Aladfar** — native **C++23 / Qt 6** SDR transceiver for HPSDR radios.
 
-**Windows 10 / 11 x64 only** for the published installer. Dual RX1/RX2 panadapters and waterfalls, independent **SUB / RX2**, **Diversity** (dual-ADC phase/gain combine), **PureSignal** + Amp View, **WDSP 2.10**, built-in **CW decode**, native CW TX/sidetone, **APF** / **BIN**, and a studio TX rack. **ASIO for VAC is in test** (opt-in, default off).
+**Windows 10 / 11 x64 only** for the published installer. Dual RX1/RX2 panadapters and waterfalls, independent **SUB / RX2**, **Diversity** (dual-ADC phase/gain combine), **PureSignal** + Amp View, **WDSP 2.11**, built-in **CW decode**, native CW TX/sidetone, **APF** / **BIN**, and a studio TX rack. **ASIO for VAC is in test** (opt-in, default off).
 
 **🌐 [Website & download →](https://n8sdr1.github.io/Lyra-SDR-cpp/)** ·
 [Latest installer](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest) ·
@@ -10,11 +10,11 @@
 [Facebook](https://www.facebook.com/groups/1994335921523916) ·
 [Wiki](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki)
 
-Download **`Lyra-Setup-0.25.41.exe`** from
+Download **`Lyra-Setup-0.25.42.exe`** from
 [GitHub Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest)
 or the [landing page](https://n8sdr1.github.io/Lyra-SDR-cpp/).
-Install over Sheliak; the app identity stays **Lyra-cpp** (settings stay).
-**v0.25.40** is the previous public build. **v0.25.22** remains the long
+Install over Sulafat; the app identity stays **Lyra-cpp** (settings stay).
+**v0.25.41** is the previous public build. **v0.25.22** remains the long
 return point. If you come from ≤0.25.31, **turn Drive down and walk it up
 before your first TX on a Protocol 2 radio**.
 
@@ -22,13 +22,13 @@ GPL v3 or later. Attribution: [NOTICE.md](NOTICE.md) · [CREDITS.md](CREDITS.md)
 
 ---
 
-## What it is (v0.25.41)
+## What it is (v0.25.42)
 
 A single-window, dockable Qt 6 console — not Thetis tear-off skins. GPU
 panadapters (Vulkan / Direct3D 11; OpenGL fallback) are heavier on a weak
 iGPU. HPSDR I/Q and audio stay native C++ (no Python, no GIL).
 
-| | Shipped in Sulafat |
+| | Shipped in Aladfar |
 |---|---|
 | **OS** | **Windows 10 (1809+) / Windows 11, 64-bit** installer only |
 | **Protocol 1** | Hermes Lite 2 / 2+ (Open). Brick / ANAN on P1 **Discover but do not Open** |
@@ -38,7 +38,7 @@ iGPU. HPSDR I/Q and audio stay native C++ (no Python, no GIL).
 | **SUB / RX2** | Independent of **SPLIT**. Second DDC; own pane on Brick3 / 100D / 200D / 7000 / 8000 |
 | **Diversity** | Dual-ADC **phase/gain** mix on one frequency (**DIV** chip). RX2 jack / Ext1, not ANT2. Not a second VFO. Drops while keyed or while PureSignal is live |
 | **PureSignal** | HL2 / HL2+ coupler mod; Brick2 ADC0 pad; Brick3 rear **PS** jack; Amp View (Snap / Hold). Attestation default off |
-| **DSP** | WDSP 2.10 receive (NR 1–4 **or** NNR, ANF, LMS, NB, AGC, squelch) plus IQ-domain captured-noise **NR-C** |
+| **DSP** | WDSP 2.11 receive (NR 1–4 **or** NNR, with CW models in CW modes, ANF, LMS, NB, AGC, squelch) plus IQ-domain captured-noise **NR-C** |
 | **TX rack** | 8-band EQ, Combinator, plate reverb, speech, VOX, profiles, ALC + Leveler |
 | **CW** | Native TX + sidetone + keyer/macros; on-screen **Classic** (fldigi) and **DeepFist** (N9BC) decode; **APF** peaking; **BIN** binaural |
 | **VAC / ASIO** | VAC1 / VAC2 for digital apps. **ASIO for VAC is in test** — Settings → Audio → Enable ASIO devices for VAC, restart; default **off**. Not Thetis **CMASIO**. Not a WING used as the radio mixer |
@@ -46,7 +46,7 @@ iGPU. HPSDR I/Q and audio stay native C++ (no Python, no GIL).
 
 Full checklist: **[Feature Status](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Feature-Status)** ·
 operator manual: **[User Guide](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/User-Guide)** ·
-this release: [`docs/releases/v0.25.41.md`](docs/releases/v0.25.41.md).
+this release: [`docs/releases/v0.25.42.md`](docs/releases/v0.25.42.md).
 
 ### Radios at a glance
 
@@ -111,7 +111,7 @@ Steinberg ASIO SDK is included under its **GPLv3 option** — see [NOTICE.md](NO
 
 ## Download & run (Windows)
 
-1. [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest) → **`Lyra-Setup-0.25.41.exe`**.
+1. [Releases](https://github.com/N8SDR1/Lyra-SDR-cpp/releases/latest) → **`Lyra-Setup-0.25.42.exe`**.
 2. Run the installer, launch Lyra, click **▶ Start**, pick the radio.
 3. First start runs a one-time FFT optimization (cached per machine).
 
@@ -144,7 +144,7 @@ steps, and `%APPDATA%\N8SDR\Lyra-cpp\logs\lyra-log.txt`.
 | Language | C++23 |
 | UI | Qt 6 (Qt Quick / QML), dockable single window |
 | Graphics | Qt RHI — Vulkan / Direct3D / OpenGL on Windows |
-| RX DSP | WDSP 2.10 (Warren Pratt NR0V, GPL v3+), bundled DLL |
+| RX DSP | WDSP 2.11 (Warren Pratt NR0V, GPL v3+), bundled DLL |
 | TX baseline | Port of openHPSDR Thetis (MI0BOT fork) ChannelMaster — GPL v3+, per-file headers |
 | TX extras | Lyra-native rack ahead of TXA (EQ, Combinator, reverb, speech) |
 | Wire | Native UDP on OS threads |

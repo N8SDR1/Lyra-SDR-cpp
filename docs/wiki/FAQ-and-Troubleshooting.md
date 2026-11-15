@@ -137,8 +137,9 @@ at a time. The connected one is shown green/bold in the list.
 
 **NNR vs NR vs NR-C — which one?**
 - **NR** — classic WDSP EMNR (Modes 1–4, AEPF, NPE).
-- **NNR** — WDSP 2.10 neural denoiser. **Standard** is the default (lighter
+- **NNR** — WDSP 2.11 neural denoiser. **Standard** is the default (lighter
   CPU); **Premium** uses more and is comfortable on the Recommended PC tier.
+  In **CWU / CWL** Lyra uses the CW-trained version of the model you picked.
   Mask runs **−10…−50 dB**, default **−40**. **NR** and **NNR** cannot run
   at the same time.
 - **NR-C** — captured band-noise profile (your QTH). It can run with either
@@ -172,7 +173,8 @@ exclusive — Lyra will not also arm VAC TX. If **Auto-enable for digital**
 is on, switch to **DIGU / DIGL**; USB turns that auto path off.
 
 **Can I use CMASIO or a Behringer WING / X32 with Lyra?**
-**ASIO for VAC is in test** in **v0.25.41** (default **off**). Settings →
+**ASIO for VAC is in test** (shipped in **v0.25.41**, still test in
+**v0.25.42**; default **off**). Settings →
 Audio → **Enable ASIO devices for VAC**, restart Lyra, then set VAC
 Driver to **ASIO**. Use the **same** driver for Input and Output (full
 duplex: mic in + RX out). Qt speaker **Out** and the HL2 jack do not

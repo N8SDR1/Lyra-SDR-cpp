@@ -2503,6 +2503,8 @@ void WdspEngine::applyModeFilter()
     if (api.SetRXAMode) {
         api.SetRXAMode(channel_, modeToWdsp(mode_));
     }
+    if (nnrEnabled_ && api.SetRXANNRModel)   // voice <-> CW model
+        api.SetRXANNRModel(channel_, nnrSlotFor(mode_));
     double lo, hi;
     computePassband(&lo, &hi);
     if (api.RXASetPassband) {
@@ -3648,6 +3650,17 @@ void WdspEngine::setBalance(double b)
 // WDSP when the channel is open, emit NOTIFY.  The push helpers below
 // are channel-parameterized (use channel_) so RX2 reuses them verbatim.
 
+// Neural NR model slot for a channel.  WDSP 2.11 ships four models: 0/1 =
+// Standard/Premium for voice, 2/3 = the same pair trained for CW.  The
+// operator picks Standard/Premium; CW modes use the CW version.  A DLL
+// without the CW slots keeps its current model (SetRXANNRModel ignores
+// an unloaded slot).
+int WdspEngine::nnrSlotFor(const QString &mode) const
+{
+    const bool cw = (mode == QLatin1String("CWU") || mode == QLatin1String("CWL"));
+    return std::clamp(nnrModel_, 0, 1) + (cw ? 2 : 0);
+}
+
 void WdspEngine::pushNrState()
 {
     if (!opened_ || !wdsp_) return;
@@ -3670,7 +3683,8 @@ void WdspEngine::pushNrState()
         if (api.SetRXANNRRun) {
             if (nnrOn) {
                 if (api.SetRXANNRModel)
-                    api.SetRXANNRModel(ch, nnrModel_);
+                    api.SetRXANNRModel(ch, nnrSlotFor(
+                        ch == channel_ ? mode_ : modeRx2_));
                 if (api.SetRXANNRMaskFloor)
                     api.SetRXANNRMaskFloor(ch, nnrMaskFloorDb_);
             }
