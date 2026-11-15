@@ -22,10 +22,10 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.41 Sulafat** — **ASIO for VAC (test stage)** plus everything in
-v0.25.40. Star name **Sulafat** (γ Lyrae), next after Sheliak. Full
-installer over Sheliak: **Lyra-cpp** settings stay. **v0.25.40** is the
-previous public build. See [What's new in 0.25.41](#whats-new-in-02541).
+**v0.25.42 Aladfar** — **WDSP 2.11** (CW neural NR models) plus everything
+in v0.25.41. Star name **Aladfar** (η Lyrae), next after Sulafat. Full
+installer over Sulafat: **Lyra-cpp** settings stay. **v0.25.41** is the
+previous public build. See [What's new in 0.25.42](#whats-new-in-02542).
 
 ## What's new in 0.25.42
 
@@ -45,6 +45,10 @@ previous public build. See [What's new in 0.25.41](#whats-new-in-02541).
 - **ASIO for VAC (test stage)** from **v0.25.41** is unchanged. Keep
   **Hold the rate ratio at 1.0** on (the default); see
   [ASIO for VAC (test stage)](#asio-for-vac-test-stage).
+- **v0.25.41 Sulafat** is the previous public build. **v0.25.22** remains
+  the long return point. Settings stay. First launch after this update
+  rebuilds the FFT cache (splash for a few minutes). If this build
+  misbehaves, reinstall **v0.25.41**.
 
 ## What's new in 0.25.41
 

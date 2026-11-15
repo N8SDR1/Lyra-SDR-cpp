@@ -4,6 +4,16 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-14 — v0.25.42 Aladfar RELEASED (WDSP 2.11)
+
+WDSP 2.11 DLL + CW neural NR models already on `feature/wdsp-2.10`
+(`a74a794`). Star name **Aladfar** (η Lyrae). Full installer
+`Lyra-Setup-0.25.42.exe`, app name **Lyra-cpp** (shared settings with
+Sulafat). Docs: `docs/releases/v0.25.42.md`, USER_GUIDE, README,
+KNOWN_ISSUES, wiki Feature Status / Home / FAQ / Roadmap. Tag
+`v0.25.42`. Branch name stays `feature/wdsp-2.10`. Mac stays
+`macos-port`. ASIO for VAC remains **test stage**.
+
 ## 2026-11-14 — v0.25.41 Sulafat RELEASED (ASIO for VAC, test stage)
 
 Fast-forward `feature/asio-vac` (`e4b43cf` / `5174bfa` / `8073a8f`) onto
