@@ -3,19 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lyra v0.25.41 Sulafat — dual pan, Diversity, PureSignal, ASIO in test</title>
-<meta name="description" content="Lyra v0.25.41 Sulafat: Windows 10/11 Qt6 HPSDR transceiver. Dual RX1/RX2 panadapters, Diversity (dual-ADC phasing), PureSignal, WDSP, CW decode. P1 HL2/2+; P2 Brick and ANAN (G2 dummy-load arm). ASIO for VAC in test. LAN remote. GPL v3+.">
+<title>Lyra v0.25.42 Aladfar — WDSP 2.11, dual pan, Diversity, PureSignal</title>
+<meta name="description" content="Lyra v0.25.42 Aladfar: Windows 10/11 Qt6 HPSDR transceiver. WDSP 2.11 with CW neural NR. Dual RX1/RX2 panadapters, Diversity (dual-ADC phasing), PureSignal, CW decode. P1 HL2/2+; P2 Brick and ANAN (G2 dummy-load arm). ASIO for VAC in test. LAN remote. GPL v3+.">
 <meta name="robots" content="index,follow">
 <link rel="canonical" href="https://n8sdr1.github.io/Lyra-SDR-cpp/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Lyra">
-<meta property="og:title" content="Lyra v0.25.41 Sulafat — dual pan, Diversity, PureSignal, ASIO in test">
-<meta property="og:description" content="Windows 10/11 Qt6 HPSDR transceiver. Dual RX1/RX2 panadapters, Diversity, PureSignal, WDSP, CW decode. P1 HL2/2+; P2 Brick and ANAN. ASIO for VAC in test.">
+<meta property="og:title" content="Lyra v0.25.42 Aladfar — WDSP 2.11, dual pan, Diversity, PureSignal">
+<meta property="og:description" content="Windows 10/11 Qt6 HPSDR transceiver. WDSP 2.11 with CW neural NR. Dual RX1/RX2 panadapters, Diversity, PureSignal, CW decode. P1 HL2/2+; P2 Brick and ANAN. ASIO for VAC in test.">
 <meta property="og:url" content="https://n8sdr1.github.io/Lyra-SDR-cpp/">
 <meta property="og:image" content="https://n8sdr1.github.io/Lyra-SDR-cpp/app-hero.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Lyra v0.25.41 Sulafat — dual pan, Diversity, PureSignal, ASIO in test">
-<meta name="twitter:description" content="Windows 10/11 Qt6 HPSDR transceiver. Dual RX1/RX2 panadapters, Diversity, PureSignal, WDSP. ASIO for VAC in test.">
+<meta name="twitter:title" content="Lyra v0.25.42 Aladfar — WDSP 2.11, dual pan, Diversity, PureSignal">
+<meta name="twitter:description" content="Windows 10/11 Qt6 HPSDR transceiver. WDSP 2.11 with CW neural NR. Dual RX1/RX2 panadapters, Diversity, PureSignal. ASIO for VAC in test.">
 <meta name="twitter:image" content="https://n8sdr1.github.io/Lyra-SDR-cpp/app-hero.jpg">
 <link rel="icon" type="image/png" href="logo.png">
 <style>
@@ -183,10 +183,10 @@
       <img class="logo" src="logo.png" alt="Lyra logo">
       <div class="wordmark">LYRA<span class="accent"> SDR</span></div>
       <p class="tagline">Windows 10/11 Qt&nbsp;6 transceiver — dual RX1/RX2 panadapters, Diversity, PureSignal, WDSP, CW decode. Protocol&nbsp;1 HL2 / 2+ · Protocol&nbsp;2 Brick and ANAN.</p>
-      <div><span class="badge">v0.25.41 Sulafat · ASIO for VAC (test) · GPL v3</span></div>
-      <p class="current-ver">Current version: <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.41">v0.25.41 Sulafat</a> · Lyra-Setup-0.25.41.exe</p>
+      <div><span class="badge">v0.25.42 Aladfar · WDSP 2.11 · GPL v3</span></div>
+      <p class="current-ver">Current version: <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.42">v0.25.42 Aladfar</a> · Lyra-Setup-0.25.42.exe</p>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.41">⬇ Download</a>
+        <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.42">⬇ Download</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki">📖 Docs</a>
         <a class="btn btn-ghost" href="https://discord.gg/BwjsQvjcSc">💬 Discord</a>
         <a class="btn btn-ghost" href="https://www.facebook.com/groups/1994335921523916">Facebook group</a>
@@ -285,12 +285,12 @@
         <div class="card"><h3><span class="ico">📡</span> Diversity</h3><p>Dual-ADC phase/gain combine on one frequency (DIV chip). RX2 jack / Ext1, not ANT2. Not a second VFO. Confirmed on Brick3SDR; same path on ANAN-100D / 200D. Drops while keyed or while PureSignal is live.</p></div>
         <div class="card"><h3><span class="ico">✨</span> PureSignal</h3><p>Adaptive TX predistortion on coupler-mod HL2 / HL2+, BrickSDR2, and Brick3SDR, with a compact dock and an Amp View plot (Snap / Hold). <a href="#puresignal">See it up close</a>.</p></div>
         <div class="card"><h3><span class="ico">🎚️</span> Studio TX chain</h3><p>8-band parametric EQ, a multiband combinator, tube-plate reverb, speech processing, a voice keyer and VOX — shape your audio like a broadcast desk, saved as recallable profiles.</p></div>
-        <div class="card"><h3><span class="ico">🔇</span> Noise reduction</h3><p>WDSP classic NR (Modes 1–4) or neural NNR (Standard / Premium + mask slider), plus noise blanker, auto-notch, LMS, and a captured-noise profile of your own band.</p></div>
+        <div class="card"><h3><span class="ico">🔇</span> Noise reduction</h3><p>WDSP 2.11 classic NR (Modes 1–4) or neural NNR (Standard / Premium + mask slider; CW-trained models in CW modes), plus noise blanker, auto-notch, LMS, and a captured-noise profile of your own band.</p></div>
         <div class="card"><h3><span class="ico">📡</span> CW</h3><p>An on-screen CW decoder with a choice of engine — the classic fldigi reader or the <a href="#deepfist">DeepFist neural decoder</a> — plus click-to-send macros, an internal / Winkeyer keyer, and a callsign ID rendered right into your waterfall.</p></div>
         <div class="card"><h3><span class="ico">🗺️</span> Band awareness</h3><p>DX cluster / RBN spots overlaid on the panadapter for click-to-tune, an EiBi shortwave-broadcaster overlay, plus live solar and propagation panels.</p></div>
         <div class="card"><h3><span class="ico">⛈️</span> Weather aware</h3><p>Lightning and severe-storm alerts from the NWS, plus live wind and conditions from your own Ambient or Ecowitt station &mdash; so you know when to pull the antenna before the storm rolls in.</p></div>
         <div class="card"><h3><span class="ico">🔗</span> SDRLogger+ Combo link</h3><p>A two-way link with <a href="https://n8sdr1.github.io/SDRLoggerPlus/">SDRLogger+</a> over TCI — frequency, mode and DX spots stay in sync, and CW contacts log straight from Lyra's console with call and RST.</p></div>
-        <div class="card"><h3><span class="ico">🎛️</span> Station control</h3><p>TCI, Kenwood CAT, VAC for digital apps. <strong>ASIO for VAC is in test</strong> (v0.25.41, Settings opt-in, default off). Not Thetis CMASIO and not a WING as the radio mixer. USB-BCD / OC, tuner memory, companion-app launch.</p></div>
+        <div class="card"><h3><span class="ico">🎛️</span> Station control</h3><p>TCI, Kenwood CAT, VAC for digital apps. <strong>ASIO for VAC is in test</strong> (v0.25.41, still test in v0.25.42, Settings opt-in, default off). Not Thetis CMASIO and not a WING as the radio mixer. USB-BCD / OC, tuner memory, companion-app launch.</p></div>
         <div class="card"><h3><span class="ico">💻</span> LAN remote</h3><p><a href="https://github.com/N8SDR1/Lyra-Remote/releases/latest">Lyra Remote</a> is a browser desk on the <strong>house LAN</strong> — not Thetis-style WAN remote. Do not port-forward TCI. Lyra-to-Lyra (beta) is a second Lyra on a laptop attached to the shack session.</p></div>
       </div>
     </section>
