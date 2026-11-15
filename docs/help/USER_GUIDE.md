@@ -22,10 +22,31 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.42 Aladfar** — **WDSP 2.11** (CW neural NR models) plus everything
-in v0.25.41. Star name **Aladfar** (η Lyrae), next after Sulafat. Full
-installer over Sulafat: **Lyra-cpp** settings stay. **v0.25.41** is the
-previous public build. See [What's new in 0.25.42](#whats-new-in-02542).
+**v0.25.43 Alya** — **QRV board** (opt-in presence roster) plus everything
+in v0.25.42. Star name **Alya** (ξ Lyrae), next after Aladfar. Full
+installer over Aladfar: **Lyra-cpp** settings stay. **v0.25.42** is the
+previous public build. See [What's new in 0.25.43](#whats-new-in-02543).
+
+## What's new in 0.25.43
+
+- **QRV board.** Optional. Default **off**. Settings → Network → **Enable
+  QRV board**. When you are on the air, Lyra can publish call, band, mode,
+  and app to **https://qrvsdr.cc** so other operators can see who is QRV.
+  Exact Hz is a second checkbox, also default **off**. The install key is
+  issued by the service on first heartbeat — Lyra does not ship a secret.
+- **Toolbar QRV chip** sits immediately after **Apps**. Click it (or
+  **View → QRV**) for the floating roster panel, same idea as PureSignal.
+  **QRV** on the panel publishes; **QRT** (or disable, disconnect, or
+  quit) removes you from the board.
+- **Not a Discord connection.** Lyra never talks to Discord. The public
+  **#qrv** channel is updated by a Hostinger cron from the same roster
+  people already see at qrvsdr.cc. Discord shows call, band, mode, and
+  app — never Hz or your note.
+- **WDSP 2.11** and **ASIO for VAC (test)** from **v0.25.42 / 0.25.41**
+  are unchanged.
+- **v0.25.42 Aladfar** is the previous public build. **v0.25.22** remains
+  the long return point. Settings stay. If this build misbehaves,
+  reinstall **v0.25.42**.
 
 ## What's new in 0.25.42
 
@@ -858,6 +879,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.43](#whats-new-in-02543)
 - [What's new in 0.25.42](#whats-new-in-02542)
 - [What's new in 0.25.41](#whats-new-in-02541)
 - [What's new in 0.25.40](#whats-new-in-02540)
@@ -972,6 +994,7 @@ Dummy load first.
 - [Settings → TX (Mic + ALC + Leveler + TR sequencing + cos² fade)](#settings--tx-mic--alc--leveler-tr-sequencing--cos-fade)
 - [Settings → VOX (voice-operated transmit)](#settings--vox-voice-operated-transmit)
 - [Settings → PA Gain (per-band power calibration + watts cap)](#settings--pa-gain)
+- [QRV board](#qrv-board)
 - [Settings → Network (TCI)](#settings--network-tci)
   - [SDRLogger+ Combo link](#sdrlogger-combo-link)
   - [CW keying over TCI](#cw-keying-over-tci)
@@ -1360,7 +1383,9 @@ The strip across the top, between the menu bar and the panels:
   (the PS transfer-curve plot). A lit chip means that panel is open, or
   that toggle is on. **PureSignal** and **Amp View** sit at the **end**
   of the Options row. **Apps** sits after Amp View — named companion
-  programs (not CW; CW uses **CW** / **CW Dec**).
+  programs (not CW; CW uses **CW** / **CW Dec**). **QRV** sits immediately
+  after Apps — click to open the floating [QRV board](#qrv-board) roster
+  (publishing stays opt-in in Settings → Network).
 - **● TCI** — the TCI-server indicator, just after the connection status.
   Green **● TCI: N** when one or more programs (logger, cluster, etc.) are
   connected, showing the client count; amber **● TCI** when the server is
@@ -5898,6 +5923,36 @@ future refinement, not something worth rushing into the safety path.
 > don't run an amplifier, just leave the cap unticked and Lyra transmits at
 > full drive. *(Upgrading from an older version keeps an existing cap armed,
 > so you never lose amp protection on update.)*
+
+---
+
+## QRV board
+
+Who is on the air — call, band, mode, and app. Lyra, STD, and Logger can
+share the same roster at **https://qrvsdr.cc**. The Discord **#qrv**
+message is that same board, refreshed by the server, not by Lyra.
+
+**Off until you turn it on.**
+
+1. **Settings → Network** → tick **Enable QRV board (opt-in; default off)**.
+   Confirm the callsign (station call is pre-filled if you already set one).
+2. Click **▶ Start** so the radio is actually running.
+3. Open the panel: toolbar **QRV** chip (right after **Apps**), **View →
+   QRV**, or **Open QRV panel** on the Network tab. It floats like
+   PureSignal.
+4. Press **QRV** on the panel. Heartbeats go to `https://qrvsdr.cc/v1/`
+   about every 30 seconds. The service issues an install key on first
+   success (shown truncated; **Regenerate** drops it).
+5. Press **QRT** when you are done. Disable, radio disconnect, and quit
+   also send QRT so the row leaves the board.
+
+**Exact frequency** is a separate checkbox, default **off**. Roster users
+can see Hz only if you share it. Discord **#qrv** never gets Hz or the
+optional 40-character note.
+
+Lyra POSTs only presence: call, band, mode, app, optional Hz, optional
+note. No QSOs, logs, spots, or audio. If the service is down the panel
+shows an error and backs off; the radio is unaffected.
 
 ---
 

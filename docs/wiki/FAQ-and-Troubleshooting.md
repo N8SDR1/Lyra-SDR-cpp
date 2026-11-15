@@ -8,6 +8,15 @@ Quick answers to common questions and fixes. For full detail see the
 
 ## General
 
+**What is the QRV board? Does Lyra connect to Discord?**
+**No.** Lyra never talks to Discord. Settings → Network → **Enable QRV
+board** (default **off**). Toolbar **QRV** (after Apps) or **View → QRV**
+opens the roster. Press **QRV** while the radio is running; **QRT** takes
+you off. The public list is **https://qrvsdr.cc**. Discord **#qrv** is
+the same roster, posted by a Hostinger cron — call, band, mode, app.
+Exact Hz is a second checkbox (default off) and never goes to Discord.
+See **[User Guide → QRV board](User-Guide#qrv-board)**.
+
 **Where do I get help?**
 **[Discord](https://discord.gg/BwjsQvjcSc)** for live debug and logs.
 The **[Facebook group](https://www.facebook.com/groups/1994335921523916)**
@@ -174,7 +183,7 @@ is on, switch to **DIGU / DIGL**; USB turns that auto path off.
 
 **Can I use CMASIO or a Behringer WING / X32 with Lyra?**
 **ASIO for VAC is in test** (shipped in **v0.25.41**, still test in
-**v0.25.42**; default **off**). Settings →
+**v0.25.43**; default **off**). Settings →
 Audio → **Enable ASIO devices for VAC**, restart Lyra, then set VAC
 Driver to **ASIO**. Use the **same** driver for Input and Output (full
 duplex: mic in + RX out). Qt speaker **Out** and the HL2 jack do not

@@ -25,6 +25,7 @@
 #include "usb_bcd.h"
 #include "wdsp_engine.h"
 #include "wxservice.h"
+#include "qrv/QrvClient.h"
 
 #include "appsstore.h"
 #include "backup.h"
@@ -305,10 +306,11 @@ SettingsDialog::SettingsDialog(Prefs *prefs, lyra::ipc::HL2Stream *stream,
                                const QList<lyra::cat::CatServer *> &catServers,
                                lyra::wire::P2RxBridge *p2,
                                DeskLink *desk,
+                               lyra::qrv::QrvClient *qrv,
                                QWidget *parent)
     : QDialog(parent), prefs_(prefs), stream_(stream),
       discovery_(discovery), p2_(p2), bcd_(bcd), engine_(engine), wx_(wx),
-      memory_(memory), eibi_(eibi), tci_(tci), desk_(desk), spots_(spots),
+      memory_(memory), eibi_(eibi), tci_(tci), desk_(desk), qrv_(qrv), spots_(spots),
       spotHole_(spotHole), dxCluster_(dxCluster),
       meter_(meter), tuner_(tuner), voiceKeyer_(voiceKeyer),
       recorder_(recorder), converter_(converter),
@@ -414,7 +416,7 @@ SettingsDialog::SettingsDialog(Prefs *prefs, lyra::ipc::HL2Stream *stream,
     }
 
     // --- Integrations ---
-    if (tci_) {
+    if (tci_ || qrv_) {
         tabs_->addTab(wrapScroll(buildNetworkTab()), tr("Network"));
     }
     if (prefs_) {
@@ -2529,6 +2531,120 @@ QWidget *SettingsDialog::buildNetworkTab() {
 
         rightVb->addWidget(sg);
         rightVb->addStretch(1);
+    }
+
+    if (qrv_) {
+        auto *qg = new QGroupBox(tr("QRV board"), page);
+        auto *qf = new QFormLayout(qg);
+        qf->setVerticalSpacing(10);
+
+        auto *qrvEnable = new QCheckBox(tr("Enable QRV board (opt-in; default off)"), qg);
+        qrvEnable->setChecked(qrv_->optIn());
+        qrvEnable->setToolTip(tr(
+            "Publish a small presence record (call, band, mode, app) so other "
+            "Lyra operators can see you are QRV. Off until you turn it on. "
+            "Lyra talks only to the QRV service — never to Discord."));
+        connect(qrvEnable, &QCheckBox::toggled, qrv_,
+                [this](bool on) { qrv_->setOptIn(on); });
+        connect(qrv_, &lyra::qrv::QrvClient::optInChanged, qrvEnable,
+                [this, qrvEnable]() {
+            QSignalBlocker b(qrvEnable);
+            qrvEnable->setChecked(qrv_->optIn());
+        });
+        qf->addRow(QString(), qrvEnable);
+
+        auto *call = new QLineEdit(qrv_->callsign(), qg);
+        call->setPlaceholderText(tr("your callsign"));
+        call->setMaxLength(16);
+        connect(call, &QLineEdit::editingFinished, qrv_, [this, call]() {
+            qrv_->setCallsign(call->text());
+            const QString n = qrv_->callsign();
+            if (call->text() != n) {
+                QSignalBlocker b(call);
+                call->setText(n);
+            }
+        });
+        connect(qrv_, &lyra::qrv::QrvClient::callsignChanged, call, [this, call]() {
+            if (call->text() != qrv_->callsign()) {
+                QSignalBlocker b(call);
+                call->setText(qrv_->callsign());
+            }
+        });
+        qf->addRow(tr("Callsign:"), call);
+
+        auto *note = new QLineEdit(qrv_->note(), qg);
+        note->setMaxLength(40);
+        note->setPlaceholderText(tr("optional, 40 characters, in-app only"));
+        connect(note, &QLineEdit::editingFinished, qrv_, [this, note]() {
+            qrv_->setNote(note->text());
+            if (note->text() != qrv_->note()) {
+                QSignalBlocker b(note);
+                note->setText(qrv_->note());
+            }
+        });
+        qf->addRow(tr("Note:"), note);
+
+        auto *hz = new QCheckBox(
+            tr("Share exact frequency (visible to anyone using the QRV "
+               "service; never posted to Discord)"),
+            qg);
+        hz->setChecked(qrv_->shareHz());
+        connect(hz, &QCheckBox::toggled, qrv_,
+                [this](bool on) { qrv_->setShareHz(on); });
+        qf->addRow(QString(), hz);
+
+        auto *base = new QLineEdit(qrv_->apiBase(), qg);
+        base->setPlaceholderText(QStringLiteral("https://qrvsdr.cc"));
+        connect(base, &QLineEdit::editingFinished, qrv_, [this, base]() {
+            qrv_->setApiBase(base->text());
+            if (base->text() != qrv_->apiBase()) {
+                QSignalBlocker b(base);
+                base->setText(qrv_->apiBase());
+            }
+        });
+        qf->addRow(tr("API base URL:"), base);
+
+        auto *keyRow = new QWidget(qg);
+        auto *keyHb = new QHBoxLayout(keyRow);
+        keyHb->setContentsMargins(0, 0, 0, 0);
+        auto *keyLbl = new QLabel(keyRow);
+        auto refreshKey = [this, keyLbl]() {
+            const QString t = lyra::qrv::truncatedKey(qrv_->installKey());
+            keyLbl->setText(t.isEmpty()
+                                ? tr("not issued yet (sent on first QRV)")
+                                : t);
+        };
+        refreshKey();
+        connect(qrv_, &lyra::qrv::QrvClient::installKeyChanged, keyLbl, refreshKey);
+        auto *regen = new QPushButton(tr("Regenerate"), keyRow);
+        regen->setToolTip(tr(
+            "Drop this install's key. The next QRV heartbeat asks the "
+            "service for a new one. Does not share a secret in the installer."));
+        connect(regen, &QPushButton::clicked, qrv_, [this]() {
+            qrv_->regenerateInstallKey();
+        });
+        keyHb->addWidget(keyLbl, 1);
+        keyHb->addWidget(regen);
+        qf->addRow(tr("Install key:"), keyRow);
+
+        auto *openPanel = new QPushButton(tr("Open QRV panel"), qg);
+        connect(openPanel, &QPushButton::clicked, this,
+                &SettingsDialog::openQrvPanelRequested);
+        qf->addRow(QString(), openPanel);
+
+        auto *priv = new QLabel(
+            tr("When QRV, Lyra POSTs call, band, mode, and app to the API "
+               "base URL. Exact Hz is included only if you tick the box "
+               "above. Optional note stays in-app (the public Discord #qrv "
+               "message never gets Hz or note). The service sees your IP "
+               "in ordinary web logs. Going QRT (button, disable, or exit) "
+               "removes you from the roster."),
+            qg);
+        priv->setWordWrap(true);
+        priv->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+        qf->addRow(priv);
+
+        v->addWidget(qg);
     }
 
     auto *hint = new QLabel(
@@ -9827,6 +9943,7 @@ bool SettingsDialog::selectTopic(const QString &topic) {
         {QStringLiteral("memory"),     QStringLiteral("Bands")},
         {QStringLiteral("bands"),      QStringLiteral("Bands")},
         {QStringLiteral("remote"),     QStringLiteral("Remote")},
+        {QStringLiteral("qrv"),        QStringLiteral("Network")},
     };
     const QString want = kTabFor.value(topic);
     if (want.isEmpty()) return false;

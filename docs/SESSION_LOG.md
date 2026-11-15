@@ -4,6 +4,17 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-15 — v0.25.43 Alya RELEASED (QRV board)
+
+QRV client: Settings → Network (opt-in default off), View → QRV floating
+panel, toolbar QRV chip after Apps. Heartbeat / QRT / roster to
+https://qrvsdr.cc. Discord #qrv is Hostinger cron, not Lyra. Star name
+**Alya** (ξ Lyrae). Full installer `Lyra-Setup-0.25.43.exe`, app name
+**Lyra-cpp**. Docs: `docs/releases/v0.25.43.md`, USER_GUIDE, README,
+KNOWN_ISSUES, wiki Feature Status / Home / FAQ / Roadmap. Tag
+`v0.25.43`. Branch name stays `feature/wdsp-2.10`. Mac stays
+`macos-port`.
+
 ## 2026-11-14 — v0.25.42 Aladfar RELEASED (WDSP 2.11)
 
 WDSP 2.11 DLL + CW neural NR models already on `feature/wdsp-2.10`

@@ -61,6 +61,8 @@
 #include "wire/RadioNet.h"            // prn — refuse Start until create_rnet
 #include "hardware/ActiveFrontEndModel.h"
 #include "settingsdialog.h"
+#include "qrv/QrvClient.h"
+#include "qrv/QrvPanel.h"
 #include "dockdragcontroller.h"
 #include "panelrack.h"
 #include "usb_bcd.h"
@@ -252,7 +254,8 @@ inline bool isChipSummonedPanel(const QString &objectName) {
         || objectName == QLatin1String("recorder")
         || objectName == QLatin1String("ps")
         || objectName == QLatin1String("ampview")
-        || objectName == QLatin1String("diversity");
+        || objectName == QLatin1String("diversity")
+        || objectName == QLatin1String("qrv");
 }
 
 // Qt restoreState() will not *hide* a dock that is already visible
@@ -2188,6 +2191,34 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     // ratings for the operator's day/night.  Drives the PROP dock.  It
     // re-arms itself on a Prefs location change internally.
     solar_ = new lyra::solar::SolarService(prefs_, this);
+    qrv_ = new lyra::qrv::QrvClient(this);
+    if (prefs_) {
+        qrv_->prefillCallsignIfEmpty(prefs_->callsign());
+        connect(prefs_, &Prefs::callsignChanged, this, [this]() {
+            if (qrv_)
+                qrv_->prefillCallsignIfEmpty(prefs_->callsign());
+        });
+    }
+    auto syncQrv = [this]() {
+        if (!qrv_)
+            return;
+        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+        const bool p1 = st && st->isRunning();
+        const bool p2 = p2Bridge_ && p2Bridge_->isRunning();
+        qrv_->setRadioConnected(p1 || p2);
+        auto *eng = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+        const qint64 hz = st ? static_cast<qint64>(st->rx1FreqHz()) : 0;
+        qrv_->setVfo(hz, eng ? eng->mode() : QString());
+    };
+    if (auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_)) {
+        connect(st, &lyra::ipc::HL2Stream::runningChanged, this, syncQrv);
+        connect(st, &lyra::ipc::HL2Stream::rx1FreqChanged, this, syncQrv);
+    }
+    if (auto *eng = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_)) {
+        connect(eng, &lyra::dsp::WdspEngine::modeChanged, this, syncQrv);
+    }
+    connect(p2Bridge_, &lyra::wire::P2RxBridge::runningChanged, this, syncQrv);
+    syncQrv();
 
     // #193 Companion-app launcher.  When the operator EXPLICITLY picks a profile
     // (Settings "Load" or the front quick-recall dock → ProfileManager
@@ -3128,6 +3159,20 @@ void MainWindow::buildDocks() {
         d->setFloating(true);
         d->hide();
     }
+    // QRV board — opt-in roster. Hidden until View → QRV (or Settings).
+    addWidgetDock(QStringLiteral("qrv"), tr("QRV"),
+                  new QrvPanel(qrv_, this),
+                  QStringLiteral("qrv"), Qt::RightDockWidgetArea);
+    if (QDockWidget *d = docks_.value(QStringLiteral("qrv"))) {
+        d->setFloating(true);
+        d->hide();
+        new FloatingDockMemory(d, QStringLiteral("ui/qrvDock"),
+                               &layoutRestoring_, d);
+        connect(d, &QDockWidget::visibilityChanged, this, [this](bool vis) {
+            if (qrv_)
+                qrv_->setRosterWatching(vis);
+        });
+    }
     // (#175 Waterfall ID controls live inline on the TX panel under a
     // "Waterfall ID" section — no separate dock/chip.)
     // TX DSP launcher default: start each rack stage as a HIDDEN FLOATING
@@ -3234,6 +3279,23 @@ void MainWindow::buildMenus() {
             continue;
         // Freq Cal is a float-only chip. toggleViewAction re-docks it and
         // re-enters visibilityChanged; that path crashed (GitHub #21).
+        if (it.key() == QLatin1String("qrv")) {
+            QDockWidget *d = it.value();
+            QAction *act = viewMenu->addAction(tr("QRV"));
+            act->setCheckable(true);
+            act->setChecked(d->isVisible());
+            connect(act, &QAction::toggled, this, [this, d](bool on) {
+                if (on)
+                    showQrvPanel();
+                else
+                    d->hide();
+            });
+            connect(d, &QDockWidget::visibilityChanged, act, [act](bool vis) {
+                const QSignalBlocker block(act);
+                act->setChecked(vis);
+            });
+            continue;
+        }
         if (it.key() == QLatin1String("freqcal")) {
             QDockWidget *d = it.value();
             QAction *act = viewMenu->addAction(tr("Freq Cal"));
@@ -3389,7 +3451,9 @@ void MainWindow::ensureSettingsDialog() {
             wx_, memory_, eibi_, tci_, spots_, spotHole_, dxCluster_, meter_, tuner_,
             voiceKeyer_, recorder_, converter_,
             profiles_, companion_, serialPtt_, serialCwKey_, catServers_,
-            p2Bridge_, desk_, this);
+            p2Bridge_, desk_, qrv_, this);
+        connect(settingsDlg_, &SettingsDialog::openQrvPanelRequested,
+                this, &MainWindow::showQrvPanel);
         // Opening a radio whose per-rig profile differs from the active rig
         // offers to switch to it.  QUEUED so switchRig's modal (and its
         // "Restart now" teardown) runs AFTER the Settings Open click handler
@@ -3397,6 +3461,16 @@ void MainWindow::ensureSettingsDialog() {
         connect(settingsDlg_, &SettingsDialog::requestRigSwitch,
                 this, &MainWindow::switchRig, Qt::QueuedConnection);
     }
+}
+
+void MainWindow::showQrvPanel() {
+    QDockWidget *d = docks_.value(QStringLiteral("qrv"));
+    if (!d)
+        return;
+    d->setFloating(true);
+    d->show();
+    d->raise();
+    d->activateWindow();
 }
 
 void MainWindow::openSettings() {
@@ -4660,6 +4734,31 @@ void MainWindow::buildToolbar() {
             });
         });
         tb->addWidget(appsBtn);
+        // QRV board — same float-only chip as Freq Cal (not toggleViewAction:
+        // that re-docks and fights visibilityChanged). After Apps on this row.
+        if (QDockWidget *d = docks_.value(QStringLiteral("qrv"))) {
+            auto *qrvChip = new QToolButton(tb);
+            qrvChip->setText(tr("QRV"));
+            qrvChip->setCheckable(true);
+            qrvChip->setChecked(d->isVisible());
+            qrvChip->setObjectName(QStringLiteral("txDspChip"));
+            qrvChip->setStyleSheet(QString::fromLatin1(kTxDspChipQss));
+            qrvChip->setToolTip(tr("QRV board — who is on the air. "
+                                   "Click to open the roster. Publishing "
+                                   "stays opt-in in Settings → Network."));
+            tb->addWidget(qrvChip);
+            connect(qrvChip, &QToolButton::toggled, this, [this, d](bool on) {
+                if (on)
+                    showQrvPanel();
+                else
+                    d->hide();
+            });
+            connect(d, &QDockWidget::visibilityChanged, qrvChip,
+                    [qrvChip](bool vis) {
+                const QSignalBlocker block(qrvChip);
+                qrvChip->setChecked(vis);
+            });
+        }
     }
 
     // #94 External TX Inhibit — prominent always-visible indicator.  Hidden
@@ -6239,6 +6338,8 @@ void MainWindow::refreshLayoutUndoAction() {
 // docs/TX_ARCHITECTURAL_MAPPING.md §10.3.
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+    if (qrv_)
+        qrv_->flushQrtBlocking(2500);
     saveLayout();
     // Persist each grouped rack's geometry + open state so it recalls next launch.
     if (dspRack_)     dspRack_->store();
