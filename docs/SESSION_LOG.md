@@ -4,6 +4,16 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-17 — v0.25.44 Alathfar RELEASED (QRV double-click tune)
+
+QRV panel: double-click a Lyra row that shows Hz tunes the focused VFO
+(same path as a TCI / panadapter spot). Single-click highlights only.
+STD / Logger / no-Hz do not tune. Star name **Alathfar** (μ Lyrae).
+Full installer `Lyra-Setup-0.25.44.exe`, app name **Lyra-cpp**. Docs:
+`docs/releases/v0.25.44.md`, USER_GUIDE, README, KNOWN_ISSUES, wiki
+Feature Status / Home / FAQ / Roadmap. Tag `v0.25.44`. Branch name
+stays `feature/wdsp-2.10`. Mac stays `macos-port`.
+
 ## 2026-11-15 — v0.25.43 Alya RELEASED (QRV board)
 
 QRV client: Settings → Network (opt-in default off), View → QRV floating

@@ -65,6 +65,12 @@ struct Roster {
 QString normalizeCall(const QString &raw);
 QString normalizeMode(const QString &raw);
 QString normalizeApp(const QString &raw);
+
+// QRV-panel click-to-tune (qrv_client.md §10.1 LOCKED): a roster row is a
+// spot iff Hz was posted AND app is exactly "Lyra" as PHP stores it.
+inline bool isSpottableRow(const RosterEntry &e) {
+    return e.hasHz && e.hz > 0 && e.app == QLatin1String("Lyra");
+}
 QString sanitizeNote(const QString &raw);
 QString bandForHz(qint64 hz);
 bool    hzInBand(qint64 hz, const QString &band);

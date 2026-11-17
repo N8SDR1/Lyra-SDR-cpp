@@ -1,13 +1,14 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.43 Alya** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.44 Alathfar** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.43** ships the **QRV board** (opt-in; default off).
+**v0.25.44** adds **QRV double-click to tune** (Lyra rows that show Hz).
+**v0.25.43** shipped the **QRV board** (opt-in; default off).
 **v0.25.42** shipped **WDSP 2.11** (CW-trained NNR models in CWU/CWL).
 **ASIO for VAC remains in test stage** (opt-in, default off; Qt Out
 and the HL2 jack unchanged; not CMASIO / not WING as the radio mixer).
-**v0.25.42** remains the previous public build (**WDSP 2.11**).
+**v0.25.43** remains the previous public build (**QRV board**).
 **ANAN / Brick3 filters on Filters / BCD** already shipped in
 **v0.25.40**. **HiDPI display**, **ANAN blank model → filter profile**,
 and **Log window on-screen** already shipped in **v0.25.39**.
@@ -19,10 +20,11 @@ long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.43)
+### Last several builds (0.25.16 → 0.25.44)
 
 | Build | What landed |
 |---|---|
+| **0.25.44** | **QRV double-click to tune:** a **Lyra** row that **shows Hz** retunes the focused VFO (green-border RX1 or RX2) like a TCI / panadapter spot. Single-click highlights only. STD, Logger, and no-Hz rows do not tune. Star name **Alathfar**. Full install over Alya; Lyra-cpp settings stay. **v0.25.43** is the previous public build |
 | **0.25.43** | **QRV board** (opt-in, default **off**): Settings → Network, toolbar **QRV** chip after Apps, **View → QRV** floating roster. Heartbeat / QRT / roster to **https://qrvsdr.cc**. Exact Hz optional (default off). Install key issued by the service. Discord **#qrv** is Hostinger cron from the same roster — Lyra never talks to Discord. Star name **Alya**. Full install over Aladfar; Lyra-cpp settings stay. **v0.25.42** is the previous public build |
 | **0.25.42** | **WDSP 2.11** (NR0V, official TAPR, 2026-10-15; `GetWDSPVersion` 211): AGC, EMNR, ANF, FM demod, PureSignal calibration updates, plus **CW-trained NNR models**. NNR still offers Standard / Premium; in **CWU / CWL** Lyra uses the CW pair automatically (per RX1 / RX2) and returns to voice models on a mode change. First launch after the update rebuilds the FFT cache (**Optimizing FFT plans** splash). Star name **Aladfar**. Full install over Sulafat; Lyra-cpp settings stay. **ASIO for VAC remains in test** (v0.25.41). **v0.25.41** is the previous public build |
 | **0.25.41** | **ASIO for VAC (test stage):** Settings → Audio → **Enable ASIO devices for VAC**, restart; VAC Driver **ASIO** on one full-duplex driver (mic in + RX out); channel / block / Hold rate ratio at 1.0; crash guard if last start failed. Default off. Qt speaker Out and HL2 jack unchanged. **Not** Thetis CMASIO and **not** a 48-channel WING mixer. Star name **Sulafat**. Full install over Sheliak; Lyra-cpp settings stay. **v0.25.40** is the previous public build |
@@ -139,7 +141,7 @@ long return point.
   panadapter snapshots (Vulkan-safe) → a synced **MP4**; default folder
   `%USERPROFILE%\Lyra\Recordings` (v0.25.12, never Program Files)
 - ✅ **CAT / Serial** — Kenwood TS-480/2000 CAT over COM/TCP, serial PTT, serial CW key (CTS/DSR). A Winkeyer keys the **radio KEY jack** (Iambic off) or that serial key line — Lyra does not own the Winkeyer USB protocol.
-- ✅ **QRV board** (v0.25.43) — opt-in presence roster at **https://qrvsdr.cc** (call, band, mode, app). Default **off**. Toolbar **QRV** after Apps; **View → QRV**. **QRT** on disable / disconnect / quit. Exact Hz optional. Discord **#qrv** is server cron, not a Lyra connection. [User Guide](User-Guide#qrv-board)
+- ✅ **QRV board** (v0.25.43; double-click tune v0.25.44) — opt-in presence roster at **https://qrvsdr.cc** (call, band, mode, app). Default **off**. Toolbar **QRV** after Apps; **View → QRV**. **QRT** on disable / disconnect / quit. Exact Hz optional. **Double-click** a Lyra+Hz row to tune the focused VFO; single-click highlights only. Discord **#qrv** is server cron, not a Lyra connection. [User Guide](User-Guide#qrv-board)
 - ✅ **TCI server** — two channels; `vfo:0,1` = SPLIT VFO B, `vfo:1,0` / `dds:1` = SUB; RX1 + RX2 S-meter sensors; **CW terminal** (key line stays up between letters; callsign correct mid-send) and **TX sensors** that keep reporting at receive; handshake sends `start` only when the radio session is running (otherwise `stop` then `ready`); **STOP** never closes the radio and never drops MOX (echoes `start` while live so WSJT-X / JTDX stay attached and can key); **TUNE** keys the host TUN path, **TRX** keys MOX, **CHRONO** TX-audio headers use the negotiated rate / samples / format / channels (v0.25.14; MSHV / WSJT-X / JTDX / SDRLogger+); **[SDRLogger+ Combo](SDRLogger-Plus-Combo)** (call/name/RST from **RX1** + one-click log); **[Lyra Remote](Lyra-Remote)** voice session (password proof, then that browser's microphone) and a fifth TX-sensor number, ALC headroom (v0.25.21)
 - ✅ **USB-BCD** band data for linear-amp band switching
 - ✅ **Backup &amp; Restore** — export config, dated snapshots (survive reinstall), selective restore

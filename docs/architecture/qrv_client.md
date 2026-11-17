@@ -4,6 +4,29 @@ Live roster at **https://qrvsdr.cc**. One HTTPS API. One PHP allow-list. **Rick 
 
 Clients talk **only** to this HTTPS service. They **never** talk to Discord (no bot token, no Gateway, no webhook). Discord `#qrv` is updated by the **server** cron from the same roster. Discord prints `call  band  mode  app` with the stored mode string intact (no 3-char smash). Hz and notes never go to Discord.
 
+---
+
+## LATER / PARKED — logged QSOs and weekly board
+
+**Not this slice. Do not implement PHP, SQL, or Logger upload code from this section.** Presence is live; the logged-QSO / weekly-totals product is parked until Rick says start. Full product lock: `qrv_board_plan.md` **LATER / PARKED**. Hostinger upload notes: `qrv-service/README-UPLOAD.md` **LATER / PARKED**.
+
+| Now (shipped) | Later (parked) |
+|---|---|
+| Heartbeat / QRT / roster | Weekly **aggregates** of logged QSOs |
+| Discord **one** edited `#qrv` message | **Second** Discord channel, **one** edited weekly message |
+| `call`, `band`, `mode`, `app` (+ optional Hz/note in-app only) | `call`, **count**, **CW / SSB / DIG** mix |
+| Lyra / STD / Logger POST **presence** | **SDRLogger+** POSTs totals; Lyra and STD **do not** POST QSOs |
+
+Locked rules for that future slice (so we do not reinvent it):
+
+- **Do not mix QSO dumps into heartbeat, roster, or `#qrv`.** New `/v1` endpoints, new tables, new cron.
+- Count **Lyra-sourced and STD-sourced QSOs only** — not every log sitting in Logger.
+- Discord: **no frequency, no ADIF, no Hz.** Not stuffed into `#qrv`.
+- Opt-in. Reuse the existing **per-install key** from presence unless a written reason says otherwise.
+- PHP on Hostinger is **not ready** for this today. Rebuild **SDRLogger+** when the PHP ingest exists; until then Logger must not POST full logs.
+
+---
+
 Server mode rules (`qrv-service/include/validate.php`): **not a regex allow**. Trim, uppercase, strip every character that is not `A-Z0-9` (hyphens and spaces drop), max **12** chars, apply a short alias table, then **exact** membership in `QRV_MODES`.
 
 ---
@@ -32,7 +55,7 @@ Do **not** upload `config.php` from git. Do not put secrets in clients.
 | Presence only | `call`, `band`, `mode`, `app`, optional `hz`, optional `note`. **Do not** POST QSOs, ADIF, logs, spots, audio, chat, or a leaderboard. |
 | Secrets | Store only the issued `install_key`. Never invent a key. Never ship Discord or database credentials. |
 
-**Later (not this slice):** Logger Hz share for click-to-tune / TCI spots. This slice is presence only.
+**Lyra QRV-panel click-to-tune is LOCKED** — see **§10.1**. Logger Hz share for TCI spots, and mapping STD/Logger modes (e.g. FT8) into Lyra, stay later. Logged-QSO weekly totals are **also later** — see **LATER / PARKED** at the top. This API slice is presence only.
 
 ---
 
@@ -58,7 +81,7 @@ HTTPS. Timeouts ~10–12 s. Do not block radio/audio. On failure: “QRV unavail
 
 | Config | Value | Meaning |
 |---|---|---|
-| `heartbeat_min_interval_s` | **10** | Faster POSTs rejected (per IP, and per key once issued). |
+| `heartbeat_min_interval_s` | **10** | Faster POSTs rejected per install key. The IP limit applies only when issuing a first key, so Lyra, STD, and Logger on one PC do not share one slot. |
 | `stale_seconds` | **180** | Roster GET only returns rows seen within this many seconds. |
 
 Heartbeats **20–30 s**. Extra POST on band/mode change is fine if debounced (~10 s) and still ≥ 10 s. Not on every VFO tick.
@@ -390,6 +413,28 @@ Do not retry 400/401/403 in a loop.
 
 Keep sending Lyra radio modes. No change required for this allow-list expansion.
 
+#### QRV-panel click-to-tune — LOCKED (Lyra)
+
+The floating QRV list is a **tune surface in Lyra only**. Discord `#qrv`, qrvsdr.cc, and any website embed are **not** click-to-tune for Lyra.
+
+A roster row is a **spot** if and only if:
+
+1. `hz` is present (operator shared exact frequency), **and**
+2. `app` is exactly `Lyra` (not `STD`, not `Logger`).
+
+| Gesture | Behavior |
+|---|---|
+| **Single-click** call or frequency | Select / highlight the row only. **Do not** retune. |
+| **Double-click** call or frequency on a spot row | Same path as a TCI / cluster / panadapter spot: **focused VFO only** (green-border RX1 or RX2), carrier Hz with the existing CW-pitch convention, Lyra **mode as posted**. |
+
+Same callsign on two apps is **two rows**. Only the Lyra line tunes. The STD or Logger line is presence.
+
+Not a spot (no `hz`, or `app` is `STD` / `Logger`): not clickable as a tune. Tooltip: tune is only a **Lyra** row that **shared frequency**.
+
+**Focused RX only.** Do not move the other VFO.
+
+**v1 — do not map STD/Logger modes into Lyra.** FT8 (or Logger `USB` / other non-Lyra tokens) must not become a Lyra mode on double-click. A later pass may map those; it is **not** current spec.
+
 ### 10.2 STD
 
 - QRV opt-in default OFF.
@@ -407,9 +452,10 @@ Keep sending Lyra radio modes. No change required for this allow-list expansion.
 - `"app": "Logger"` — not `SDRLogger+`, not `Lyra`.
 - Map Mode select with §4.3 so Discord can show `FT8` / `PSK31` / `JT65`.
 - Same heartbeat / QRT / roster as STD.
-- **Not** a log dump: no ADIF, no QSO rows, no leaderboard (parked).
+- **Not** a log dump: no ADIF, no QSO rows, no weekly totals on this API (parked — **LATER / PARKED** at the top).
 - Hz / TCI spots: **later**. This slice is presence (band + mode).
 - No Discord token in Logger.
+- When the parked slice starts: Logger POSTs **aggregates** (weekly Lyra/STD-sourced counts), not the logbook. Lyra and STD still do not POST QSOs.
 
 ---
 
@@ -446,4 +492,4 @@ Roster GET: only while the list UI is open, 20–30 s, never faster than 2 s.
 - Not a logbook, cluster, chat, or ADIF ingest.
 - Not callsign verification.
 - Not default exact-Hz publish.
-- Not a contest leaderboard (parked).
+- Not a weekly QSO board (parked — **LATER / PARKED** at the top of this file). Heartbeat / roster / `#qrv` stay presence-only.

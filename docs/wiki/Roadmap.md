@@ -4,15 +4,16 @@ Where Lyra is headed. This is a **direction, not a dated schedule** — items la
 when they're solid. Everything shipped today is on the [Feature Status](Feature-Status)
 page.
 
-**Now (v0.25.43 Alya):** HL2 / HL2+
+**Now (v0.25.44 Alathfar):** HL2 / HL2+
 P1, BrickSDR2 / Brick3SDR P2, SUB + SPLIT, PureSignal, TX rack. Bundled
-DSP is **WDSP 2.11**. **QRV board** is opt-in (default off). **ASIO for VAC is in test** (opt-in, default off;
+DSP is **WDSP 2.11**. **QRV board** is opt-in (default off); **double-click**
+a Lyra+Hz row to tune the focused VFO. **ASIO for VAC is in test** (opt-in, default off;
 not CMASIO). Brick3 / ANAN-100D get a second SUB panadapter. **Diversity**
 (two ADCs, same frequency) is in and confirmed on Brick3SDR. Protocol 1
 **RF1 / Alt RX** on the Xvtr row. Protocol 2 DUC-IQ on its own TX pump.
 **Eight Xvtr slots**, **SWL broadcast rows** in OC Control and an automatic
 digital-mode ALC / Leveler hold-off landed in v0.25.36.
-**v0.25.42 Aladfar** is the previous public build (WDSP 2.11).
+**v0.25.43 Alya** is the previous public build (QRV board).
 **v0.25.22** remains the return point.
 **Next:** G2 on-air validation, then Linux.
 **macOS stays a separate branch** (`macos-port`);
@@ -88,7 +89,7 @@ these are real roadmap items, not "maybe someday."
 ## Smaller items on the list
 
 - ✅ **WDSP 2.10** — Windows engine + NNR (v0.25.8; factory model Standard from v0.25.9). Mac/Linux binaries later.
-- ✅ **QRV board** — opt-in roster at qrvsdr.cc; Discord #qrv is server cron (v0.25.43).
+- ✅ **QRV board** — opt-in roster at qrvsdr.cc; Discord #qrv is server cron (v0.25.43); double-click Lyra+Hz spots (v0.25.44).
 - ✅ **WDSP 2.11** — four NNR models; CW-trained pair used automatically in CW modes (v0.25.42).
 - ✅ **NR-C rectangular panadapter** — display on uncleaned IQ; Floor −24 (v0.25.10).
 - ✅ **Session recorder** — RX WAV on P1 and P2; Vulkan snapshots (v0.25.10).

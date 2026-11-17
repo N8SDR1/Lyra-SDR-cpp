@@ -107,6 +107,26 @@ int main()
               && one.entries[0].hasHz && one.entries[0].hz == 7200000
               && one.entries[0].note == QLatin1String("hi"));
 
+    RosterEntry spot = one.entries[0];
+    check("spottable Lyra+hz", isSpottableRow(spot));
+    RosterEntry noHz = spot;
+    noHz.hasHz = false;
+    noHz.hz = 0;
+    check("not spottable missing hz", !isSpottableRow(noHz));
+    RosterEntry stdApp = spot;
+    stdApp.app = QStringLiteral("STD");
+    check("not spottable STD", !isSpottableRow(stdApp));
+    RosterEntry loggerApp = spot;
+    loggerApp.app = QStringLiteral("Logger");
+    check("not spottable Logger", !isSpottableRow(loggerApp));
+    RosterEntry lyraWrongCase = spot;
+    lyraWrongCase.app = QStringLiteral("lyra");
+    check("not spottable lyra case", !isSpottableRow(lyraWrongCase));
+    RosterEntry hzZero = spot;
+    hzZero.hasHz = true;
+    hzZero.hz = 0;
+    check("not spottable hz 0", !isSpottableRow(hzZero));
+
     const QString note = sanitizeNote(QStringLiteral("  hello @bob http://x.com *hi*  "));
     check("note stripped", note == QLatin1String("hello   hi"));
 

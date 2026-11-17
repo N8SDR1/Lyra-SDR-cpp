@@ -2,11 +2,15 @@
 
 #pragma once
 
+#include <QString>
 #include <QWidget>
+#include <QtGlobal>
 
+class QEvent;
 class QLabel;
 class QPushButton;
 class QTreeWidget;
+class QTreeWidgetItem;
 
 namespace lyra::qrv {
 class QrvClient;
@@ -19,9 +23,18 @@ class QrvPanel : public QWidget {
 public:
     explicit QrvPanel(lyra::qrv::QrvClient *client, QWidget *parent = nullptr);
 
+signals:
+    // Double-click on a Lyra+Hz row. Carrier Hz + posted Lyra mode (unmapped).
+    void tuneSpotRequested(qint64 hz, const QString &mode);
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     void refresh();
     void refreshList();
+    void onItemDoubleClicked(QTreeWidgetItem *item, int column);
+    void updateHoverCursor(const QPoint &pos);
 
     lyra::qrv::QrvClient *client_ = nullptr;
     QPushButton *qrvBtn_ = nullptr;
