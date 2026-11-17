@@ -63,6 +63,7 @@
 #include "settingsdialog.h"
 #include "qrv/QrvClient.h"
 #include "qrv/QrvPanel.h"
+#include "qrv/QrvProtocol.h"
 #include "dockdragcontroller.h"
 #include "panelrack.h"
 #include "usb_bcd.h"
@@ -3160,8 +3161,11 @@ void MainWindow::buildDocks() {
         d->hide();
     }
     // QRV board — opt-in roster. Hidden until View → QRV (or Settings).
+    auto *qrvPanel = new QrvPanel(qrv_, this);
+    connect(qrvPanel, &QrvPanel::tuneSpotRequested,
+            this, &MainWindow::tuneQrvSpot);
     addWidgetDock(QStringLiteral("qrv"), tr("QRV"),
-                  new QrvPanel(qrv_, this),
+                  qrvPanel,
                   QStringLiteral("qrv"), Qt::RightDockWidgetArea);
     if (QDockWidget *d = docks_.value(QStringLiteral("qrv"))) {
         d->setFloating(true);
@@ -3471,6 +3475,42 @@ void MainWindow::showQrvPanel() {
     d->show();
     d->raise();
     d->activateWindow();
+}
+
+void MainWindow::tuneQrvSpot(qint64 hz, const QString &mode) {
+    // Same carrier + CW-pitch convention as SpotStore::activate, but the
+    // focused VFO only (green-border RX1/RX2). Posted Lyra mode is applied
+    // as-is — no STD/Logger mapping (qrv_client.md §10.1).
+    auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+    if (!st || hz <= 0)
+        return;
+    auto *eng = qobject_cast<lyra::dsp::WdspEngine *>(wdspEngine_);
+    const bool rx2 = st->subEnabled() && st->focusedRx() == 2;
+    const QString lyraMode = lyra::qrv::normalizeMode(mode);
+    if (!lyraMode.isEmpty() && prefs_) {
+        if (rx2)
+            prefs_->setModeRx2(lyraMode);
+        else
+            prefs_->setMode(lyraMode);
+    }
+    QString offsetMode = lyraMode;
+    if (offsetMode.isEmpty() && prefs_)
+        offsetMode = rx2 ? prefs_->modeRx2() : prefs_->mode();
+    qint64 dds = hz;
+    if (eng && !offsetMode.isEmpty())
+        dds -= eng->cwMarkerOffsetForMode(offsetMode);
+    dds = std::clamp(dds, qint64(0), qint64(2147483647));
+    if (rx2)
+        st->setRx2FreqHz(quint32(dds));
+    else
+        st->setRx1FreqHz(quint32(dds));
+    if (statusBus_) {
+        statusBus_->show(
+            tr("QRV: %1 Hz %2")
+                .arg(hz)
+                .arg(lyraMode.isEmpty() ? mode : lyraMode),
+            2500);
+    }
 }
 
 void MainWindow::openSettings() {

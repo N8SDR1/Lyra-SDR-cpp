@@ -22,10 +22,28 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.43 Alya** — **QRV board** (opt-in presence roster) plus everything
-in v0.25.42. Star name **Alya** (ξ Lyrae), next after Aladfar. Full
-installer over Aladfar: **Lyra-cpp** settings stay. **v0.25.42** is the
-previous public build. See [What's new in 0.25.43](#whats-new-in-02543).
+**v0.25.44 Alathfar** — **QRV double-click to tune** on Lyra rows that
+show Hz, plus everything in v0.25.43. Star name **Alathfar** (μ Lyrae),
+next after Alya. Full installer over Alya: **Lyra-cpp** settings stay.
+**v0.25.43** is the previous public build. See
+[What's new in 0.25.44](#whats-new-in-02544).
+
+## What's new in 0.25.44
+
+- **QRV double-click to tune.** On the floating QRV roster, **double-click**
+  a **Lyra** row that **shows Hz**. The focused receiver (green border —
+  RX1 or RX2) goes to that carrier and the posted Lyra mode, same path as
+  a TCI / cluster / panadapter spot. **Single-click** only highlights the
+  row. STD and Logger rows, and Lyra rows without Hz, do not retune.
+  Discord and the public list at **https://qrvsdr.cc** are not tune
+  surfaces.
+- **QRV board** from **v0.25.43** is otherwise unchanged (opt-in, default
+  off; heartbeats to qrvsdr.cc; Discord **#qrv** is server cron).
+- **WDSP 2.11** and **ASIO for VAC (test)** from **v0.25.42 / 0.25.41**
+  are unchanged.
+- **v0.25.43 Alya** is the previous public build. **v0.25.22** remains
+  the long return point. Settings stay. If this build misbehaves,
+  reinstall **v0.25.43**.
 
 ## What's new in 0.25.43
 
@@ -879,6 +897,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.44](#whats-new-in-02544)
 - [What's new in 0.25.43](#whats-new-in-02543)
 - [What's new in 0.25.42](#whats-new-in-02542)
 - [What's new in 0.25.41](#whats-new-in-02541)
@@ -5949,6 +5968,15 @@ message is that same board, refreshed by the server, not by Lyra.
 **Exact frequency** is a separate checkbox, default **off**. Roster users
 can see Hz only if you share it. Discord **#qrv** never gets Hz or the
 optional 40-character note.
+
+**Tune from the panel.** A row is clickable as a spot only when it is a
+**Lyra** station that **shared Hz**. **Double-click** the call or frequency
+to take the focused receiver (green border — RX1 or RX2) to that carrier
+and the posted Lyra mode — same path as a TCI / cluster / panadapter
+spot. **Single-click** only highlights the row. STD and Logger rows, and
+Lyra rows without Hz, do not retune (same callsign on two apps is two
+rows; only the Lyra line tunes). Discord and the public website are not
+tune surfaces.
 
 Lyra POSTs only presence: call, band, mode, app, optional Hz, optional
 note. No QSOs, logs, spots, or audio. If the service is down the panel

@@ -15,6 +15,9 @@ opens the roster. Press **QRV** while the radio is running; **QRT** takes
 you off. The public list is **https://qrvsdr.cc**. Discord **#qrv** is
 the same roster, posted by a Hostinger cron — call, band, mode, app.
 Exact Hz is a second checkbox (default off) and never goes to Discord.
+In the Lyra panel, **double-click** a **Lyra** row that shows Hz to tune
+the focused VFO; single-click only highlights. STD / Logger / no-Hz rows
+do not tune. The public list is **https://qrvsdr.cc** (not a tune surface).
 See **[User Guide → QRV board](User-Guide#qrv-board)**.
 
 **Where do I get help?**
@@ -183,7 +186,7 @@ is on, switch to **DIGU / DIGL**; USB turns that auto path off.
 
 **Can I use CMASIO or a Behringer WING / X32 with Lyra?**
 **ASIO for VAC is in test** (shipped in **v0.25.41**, still test in
-**v0.25.43**; default **off**). Settings →
+**v0.25.44**; default **off**). Settings →
 Audio → **Enable ASIO devices for VAC**, restart Lyra, then set VAC
 Driver to **ASIO**. Use the **same** driver for Input and Output (full
 duplex: mic in + RX out). Qt speaker **Out** and the HL2 jack do not

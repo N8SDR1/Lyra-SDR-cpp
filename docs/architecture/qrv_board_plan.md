@@ -9,6 +9,69 @@ place. Do not treat “later” items as first-slice work.
 
 ---
 
+## LATER / PARKED — logged QSOs + weekly Discord board
+
+**Do not implement this slice now.** No PHP, no SQL, no SDRLogger+ upload
+code until Rick starts it. Presence (heartbeat / QRT / roster / Discord
+`#qrv`) is **LIVE** and stays **presence-only**.
+
+Client contract pointer: `qrv_client.md` **LATER / PARKED**. Hostinger
+pointer: `qrv-service/README-UPLOAD.md` **LATER / PARKED**.
+
+### Why this is parked
+
+QRV presence is already on qrvsdr.cc. Mixing QSO dumps into heartbeat,
+roster GET, or `#qrv` would pollute the live board, leak log content, and
+fight the “one edited `#qrv` message, no Hz” rule. PHP ingest for logs is
+**not ready today**. Rebuild Logger when that ingest exists.
+
+### Product lock (agreed — do not reopen unless Rick changes it)
+
+| Rule | Locked choice |
+|---|---|
+| Source of QSOs | **SDRLogger+ only.** Lyra and STD **do not** POST QSOs (they already POST presence). |
+| What Logger posts | **Aggregates** (weekly totals), **not** full logs / ADIF / per-QSO rows. |
+| Which QSOs count | **Lyra-sourced and STD-sourced** QSOs only — **not** every log in Logger. |
+| Opt-in | Default **OFF**, independent of presence opt-in. No totals until the operator enables this. |
+| Identity | Reuse the **same per-install key** issued by presence heartbeat, bound to call. **Do not** invent a second key scheme unless a written reason says the presence key cannot work (e.g. a Logger install that never opted into QRV — then issue a key the same way heartbeat does, still one `install_keys` table). |
+| Discord | **Second channel** (not `#qrv`). **One** message, **edited** in place (weekly). |
+| Discord content | Call, **count**, **CW / SSB / DIG** mix. **No frequency. No ADIF dump. No Hz.** |
+| Contest | Exclude from this board, or a **separate** opt-in later. Not stuffed into `#qrv`. |
+| Extra columns | Days QRV, bands — later, so FT8 factories do not own the board. Not first parked-slice work. |
+| 24 h rate | Lives in **Logger** (maybe a Lyra chip later). **Not** a Discord ticker. |
+
+### Hostinger work when this slice starts (new pieces only)
+
+Do **not** overload live presence endpoints. Do **not** put tokens, DB
+passwords, or channel IDs in git, Lyra, Logger, or `public_html`.
+
+| Piece | What to add then |
+|---|---|
+| MySQL | **New tables** (weekly totals / ingest audit — names chosen at build time). Do **not** store ADIF blobs. `discord_state` **id = 1** is **`#qrv` only** today (`schema.sql`); use a **new row id** (e.g. `id = 2`) for the weekly message, do not reuse id 1. |
+| PHP `/v1` | **New** scripts, e.g. ingest + public read of weekly ranks. **Not** extra fields on `heartbeat.php` / `qrt.php` / `roster.php`. |
+| Cron | **New** cron script (sibling of `cron/discord_sync.php`). Same bot token from `config.php`; **PATCH** one message on the **second** channel. |
+| Config | Add a **second Discord channel id** in `config.php` on the server (e.g. `leaderboard_channel_id`). Keep `channel_id` as `#qrv`. Copy from `config.example.php` placeholders only — **do not** overwrite bot-token docs with live secrets. |
+| Discord | Create the second channel on the existing server; invite the **same** bot. Token stays in `domains/qrvsdr.cc/config/config.php` outside `public_html`. |
+
+### Logger / Lyra / STD when this slice starts
+
+| App | Job |
+|---|---|
+| **SDRLogger+** | After PHP ingest exists: POST weekly (or on-commit rolled) **aggregates** of Lyra- and STD-sourced QSOs. Opt-in. Carry `install_key`. Never POST the logbook. |
+| **Lyra** | No QSO POST. Presence only. Optional later: local chip showing the operator’s own 24 h rate from Logger/TCI — not Discord. |
+| **STD** | No QSO POST. Presence only. Logger attributes STD-sourced QSOs when counting. |
+
+### What not to build in that slice either
+
+- QSO or ADIF on heartbeat / roster / `#qrv`
+- Per-tune or per-QSO Discord lines
+- Frequency or Hz on the weekly channel
+- A second bot token in any client
+- Counting all Logger QSOs regardless of radio source
+- Shipping PHP that is not ready and hoping Logger can “just dump ADIF”
+
+---
+
 ## 1. Problem (why Thetis Discord Link is not the model)
 
 Thetis 2.10.3.x “Discord Link” is **not** a live operator roster. It is a
@@ -46,8 +109,9 @@ Published fields (first-class):
 | App badge | `Lyra` / `Logger` / `STD` |
 
 **Exact Hz** is a **second** checkbox, default **OFF**. Hz is **never on
-Discord**. Click-to-tune in Lyra (or a clickable Logger spot) only if Hz was
-shared.
+Discord**. **Lyra QRV-panel click-to-tune is LOCKED** (`qrv_client.md` §10.1):
+a row is a spot only when `hz` is present **and** `app` is exactly `Lyra`.
+Logger TCI-spot feed from roster Hz stays later.
 
 **Be honest about who can see Hz** (review 2026-11-15). The roster `GET` is
 reachable by anyone with the service URL, and the URL ships in the
@@ -186,8 +250,19 @@ break old installs.
 | Settings → Network (or similar) | Opt-in (default OFF), callsign, “share exact Hz” (default OFF), optional note, service URL |
 | **Separate floating / dockable window** | Same class as Tuner-CW / PureSignal: open, close, move, resize |
 | Closed unless opened | **View → QRV**. Not a face-full ticker on the radio |
-| Click-to-tune | Only if that row shared Hz |
+| Click-to-tune | **LOCKED** — see below + `qrv_client.md` §10.1 |
 | Toolbar chip | Optional **later**. Not first slice |
+
+**QRV-panel click-to-tune — LOCKED.** Discord, the public website, and embeds
+are **not** a Lyra tune surface.
+
+- Spot **iff** `hz` is present **and** `app` is exactly `Lyra` (not STD, not Logger).
+- **Double-click** call or frequency on that row → same path as TCI / cluster / panadapter spot: focused VFO (green-border RX1 or RX2), carrier Hz (CW pitch convention), Lyra mode as posted.
+- **Single-click** → select / highlight only; do not retune.
+- No Hz, or app is STD/Logger → not a spot; tooltip that tune is only a Lyra row with shared frequency.
+- Same callsign on two apps = two rows; only the Lyra line tunes.
+- Focused RX only. Do not move the other VFO.
+- **v1:** do not map FT8 / Logger USB (or other non-Lyra tokens) into Lyra. A later mapping pass is possible; it is not current spec.
 
 Do not put a 10-line Discord-style meter on the main faceplate.
 
@@ -214,6 +289,7 @@ it).
 | Channel | Single `#qrv` message, **edited** in place |
 | Content | Call, band, mode, app badge. **No Hz. No note. No per-tune lines.** Truncate with "+N more" past 2,000 characters. |
 | Chat | Stays in `#general` |
+| Not a tune surface | `#qrv` (and qrvsdr.cc / embeds) do **not** click-to-tune Lyra. Tune is the in-app QRV panel only (§4). |
 
 ### 5.1 Rick Discord setup (when building — walkthrough later)
 
@@ -274,18 +350,14 @@ panel (Logger native pane is later).
 
 ---
 
-## 9. Leaderboard (separate opt-in — **not first slice**)
+## 9. Weekly QSO board (parked)
 
-Do **not** ship until QRV is actually used.
+**Parked.** Authoritative lock is the **LATER / PARKED** section at the top
+of this file. Do not treat this as first-slice or as an add-on to `#qrv`.
 
-| Rule | Detail |
-|---|---|
-| Source | Weekly QSO totals from **Logger** |
-| Count | **Lyra- / STD-sourced** QSOs only — not random ADIF dumps |
-| Discord `#leaderboard` | One **edited** weekly (or daily) message: call, count, mode family (**CW / SSB / DIG**), **no frequency** |
-| 24 h rate | Lives in **Logger** (and maybe a Lyra chip later). **Not** a Discord ticker |
-| Extra columns later | Days QRV, bands — so FT8 factories don’t own the board |
-| Contest | Exclude, or a **separate** opt-in |
+Short reminder: Logger aggregates of Lyra/STD-sourced QSOs → new Hostinger
+`/v1` + tables + cron → **one edited message on a second Discord channel**
+(call, count, CW/SSB/DIG). Presence API stays untouched.
 
 ---
 
@@ -319,8 +391,9 @@ start a QSO from it.
 
 Optional in slice 1 (implementer call, do not block the three rows above):
 
-- Exact-Hz checkbox + click-to-tune
-- Logger Combo TCI-spot feed (Hz → spot; no Hz → skip)
+- Exact-Hz checkbox — **shipped** (opt-in, default OFF)
+- **Click-to-tune on the Lyra QRV panel — LOCKED** (`qrv_client.md` §10.1; §4 above). Presence slice did not require it; the rule is no longer parked.
+- Logger Combo TCI-spot feed (Hz → spot; no Hz → skip) — still later
 
 ---
 
@@ -328,9 +401,9 @@ Optional in slice 1 (implementer call, do not block the three rows above):
 
 | Item | Notes |
 |---|---|
-| Logger native pane | After Combo spots prove the roster is useful |
-| STD client | Heartbeat + `STD` badge |
-| Leaderboard | §9; wait for QRV usage |
+| **Logged QSOs + weekly Discord board** | **LATER / PARKED** at the top of this file — not `#qrv`, not heartbeat |
+| Logger native QRV pane | After Combo spots prove the roster is useful |
+| STD client | Heartbeat + `STD` badge (presence; still no QSO POST from STD) |
 | Hz in first slice | Can defer even in-app; never Discord |
 | Toolbar chip | Optional polish after the floating window exists |
 | Discord setup walkthrough | Written for Rick when building §5.1 — not a Gateway course |
@@ -341,15 +414,16 @@ Optional in slice 1 (implementer call, do not block the three rows above):
 
 | Locked now | Later / parked |
 |---|---|
-| Opt-in QRV board, default OFF | Leaderboard |
-| Call / band / mode / app badge | STD client |
-| Hz = second checkbox, default OFF, never Discord | Logger native pane |
-| Heartbeat ~60 s + band/mode (~10 s debounce); stale ~3 min | |
-| Lyra HTTPS only; one bot edits `#qrv` | Toolbar chip |
-| Hostinger Premium (PHP + MySQL + cron), subdomain e.g. `qrv.rslcomputers.com` | Extra leaderboard columns, contest split |
+| Opt-in QRV **presence**, default OFF | Weekly QSO board — **LATER / PARKED** (top of this file) |
+| Call / band / mode / app badge | Logger POSTs **aggregates** of Lyra/STD-sourced QSOs |
+| Hz = second checkbox, default OFF, never Discord | Second Discord channel; `discord_state` id=1 stays `#qrv` |
+| Heartbeat ~60 s + band/mode (~10 s debounce); stale ~3 min | New Hostinger tables + `/v1` + cron (not heartbeat) |
+| Lyra/STD/Logger HTTPS presence; one bot edits `#qrv` | Reuse presence `install_key`; opt-in |
+| Hostinger Premium (PHP + MySQL + cron) | Extra weekly-board columns, contest split |
 | Token only in a Hostinger config file outside `public_html` | Chat, Rich Presence, public website |
-| Floating/dockable panel, closed unless View → QRV | Auto-on, Thetis button box |
+| Floating/dockable panel, closed unless View → QRV | Logger native QRV pane |
+| **Lyra QRV click-to-tune LOCKED** (§4 / `qrv_client.md` §10.1): Lyra+Hz only, double-click, focused VFO | Map STD/Logger modes (FT8, Logger USB, …) into Lyra; Logger TCI spots from roster Hz |
 | Per-install key bound to call; rate limits; ban list (§3.1) | Real callsign verification (QRZ / LoTW) |
-| Roster in MySQL; cron job edits `#qrv` (§3.2) | |
+| Roster in MySQL; cron job edits `#qrv` (`discord_state` **id=1**) | Auto-on, Thetis button box |
 | Versioned `/v1/` API; explicit QRT; entries keyed call + app | |
 | Hz checkbox says "visible to anyone using the service" | |

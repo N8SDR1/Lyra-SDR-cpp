@@ -319,6 +319,7 @@ private:
     void ensureSettingsDialog();   // construct settingsDlg_ if needed (no show)
     void openSettings();
     void showQrvPanel();
+    void tuneQrvSpot(qint64 hz, const QString &mode);
     // Per-panel "?" badge targets (driven by the Help bridge).
     void showHelp(const QString &topic);        // open the User Guide at topic
     void openSettingsTopic(const QString &topic);// Settings tab, or guide fallback
