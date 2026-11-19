@@ -22,11 +22,11 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.44 Alathfar** — **QRV double-click to tune** on Lyra rows that
-show Hz, plus everything in v0.25.43. Star name **Alathfar** (μ Lyrae),
-next after Alya. Full installer over Alya: **Lyra-cpp** settings stay.
-**v0.25.43** is the previous public build. See
-[What's new in 0.25.44](#whats-new-in-02544).
+**v0.25.45 Jugum** — mouse wheel after a drop-down, and Mode list close,
+plus everything in v0.25.44. Star name **Jugum** (δ Lyrae), next after
+Alathfar. Full installer over Alathfar: **Lyra-cpp** settings stay.
+**v0.25.44** is the previous public build. See
+[What's new in 0.25.45](#whats-new-in-02545).
 
 ## What's new in 0.25.45
 
@@ -44,6 +44,9 @@ next after Alya. Full installer over Alya: **Lyra-cpp** settings stay.
 - **New test switch:** Settings → Visuals → **Draw drop-down lists inside
   the panel**. Off by default. See
   [Drop-down lists](#drop-down-lists).
+- **v0.25.44 Alathfar** is the previous public build. **v0.25.22** remains
+  the long return point. Settings stay. If this build misbehaves,
+  reinstall **v0.25.44**.
 
 ## What's new in 0.25.44
 

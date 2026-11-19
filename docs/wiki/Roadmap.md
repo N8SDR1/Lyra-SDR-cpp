@@ -4,7 +4,7 @@ Where Lyra is headed. This is a **direction, not a dated schedule** — items la
 when they're solid. Everything shipped today is on the [Feature Status](Feature-Status)
 page.
 
-**Now (v0.25.44 Alathfar):** HL2 / HL2+
+**Now (v0.25.45 Jugum):** HL2 / HL2+
 P1, BrickSDR2 / Brick3SDR P2, SUB + SPLIT, PureSignal, TX rack. Bundled
 DSP is **WDSP 2.11**. **QRV board** is opt-in (default off); **double-click**
 a Lyra+Hz row to tune the focused VFO. **ASIO for VAC is in test** (opt-in, default off;
@@ -13,7 +13,8 @@ not CMASIO). Brick3 / ANAN-100D get a second SUB panadapter. **Diversity**
 **RF1 / Alt RX** on the Xvtr row. Protocol 2 DUC-IQ on its own TX pump.
 **Eight Xvtr slots**, **SWL broadcast rows** in OC Control and an automatic
 digital-mode ALC / Leveler hold-off landed in v0.25.36.
-**v0.25.43 Alya** is the previous public build (QRV board).
+**v0.25.44 Alathfar** is the previous public build (QRV double-click).
+**v0.25.45** is the wheel-after-drop-down / Mode-list cut.
 **v0.25.22** remains the return point.
 **Next:** G2 on-air validation, then Linux.
 **macOS stays a separate branch** (`macos-port`);
