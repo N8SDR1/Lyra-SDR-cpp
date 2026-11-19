@@ -27,6 +27,22 @@ ComboBox {
                  && !control.popup.visible
     }
     wheelEnabled: true      // mouse-wheel cycles the selection
+
+    // Self-heal: a ComboBox ignores the wheel while it thinks its list is
+    // open.  Field reports had a list stuck "open" but not on screen (Mode
+    // went dead to clicks and the wheel until Alt-Tab).  A wheel over the
+    // field while the list is open closes it, and the log notes it.  Only
+    // active while the list is open, so normal wheel stepping is untouched.
+    WheelHandler {
+        enabled: control.popup.visible
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+        onWheel: (event) => {
+            console.warn("[ui] drop-down list was open under the wheel — closed"
+                         + (control.helpTitle ? " (" + control.helpTitle + ")" : ""))
+            control.popup.close()
+            event.accepted = true
+        }
+    }
     // Tuning FM can tighten these; other call sites keep the roomy default.
     property int textLeftPad: 8
     property int textRightPad: 20
@@ -89,7 +105,7 @@ ComboBox {
         // Render in a top-level window so the list is NOT clipped by the
         // dock panel's frame — otherwise items past the panel edge are
         // hidden + unselectable (Mode, RX BW, … in a narrow panel).
-        popupType: Popup.Window
+        popupType: (typeof Prefs !== "undefined" && Prefs.popupsInPanel) ? Popup.Item : Popup.Window
         y: control.height - 1
         width: Math.max(control.width, 130)
         implicitHeight: Math.min(control.count * 26 + 2, 320)

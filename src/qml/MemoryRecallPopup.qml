@@ -15,7 +15,7 @@ Popup {
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
                  | Popup.CloseOnPressOutsideParent
-    popupType: Popup.Window
+    popupType: (typeof Prefs !== "undefined" && Prefs.popupsInPanel) ? Popup.Item : Popup.Window
 
     implicitHeight: Math.min(list.contentHeight + padding * 2, 380)
 

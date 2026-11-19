@@ -511,7 +511,10 @@ Rectangle {
                             Layout.preferredWidth: 78
                             model: root.modeList
                             currentIndex: Math.max(0, root.modeList.indexOf(Prefs.mode))
-                            onActivated: Prefs.mode = root.modeList[currentIndex]
+                            // Apply after the list has closed: a mode change re-lays-out
+                            // this row (zero-beat strip etc.) and must not land mid-close.
+                            onActivated: (i) => Qt.callLater(function(m) { Prefs.mode = m },
+                                                             root.modeList[i])
                         }
                         Item { Layout.fillWidth: true }
                     }
@@ -844,7 +847,9 @@ Rectangle {
                                 Layout.preferredWidth: 78
                                 model: root.modeList
                                 currentIndex: Math.max(0, root.modeList.indexOf(Prefs.modeRx2))
-                                onActivated: Prefs.modeRx2 = root.modeList[currentIndex]
+                                // Apply after the list has closed (see VFO-A Mode).
+                                onActivated: (i) => Qt.callLater(function(m) { Prefs.modeRx2 = m },
+                                                                 root.modeList[i])
                             }
                             Item { Layout.fillWidth: true }
                         }

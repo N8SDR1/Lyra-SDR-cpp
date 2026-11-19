@@ -4,6 +4,16 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-19 — v0.25.45 Jugum RELEASED (wheel after drop-down)
+
+Mouse wheel after a drop-down, Mode list close, Visuals test switch for
+in-panel lists. Star name **Jugum** (δ Lyrae). Full installer
+`Lyra-Setup-0.25.45.exe`, app name **Lyra-cpp**. Docs:
+`docs/releases/v0.25.45.md`, USER_GUIDE, README, KNOWN_ISSUES, wiki
+Feature Status / Home / FAQ / Roadmap. Tag `v0.25.45`. Branch name
+stays `feature/wdsp-2.10`. Mac stays `macos-port`. QRV-service working
+tree left unstaged.
+
 ## 2026-11-17 — v0.25.44 Alathfar RELEASED (QRV double-click tune)
 
 QRV panel: double-click a Lyra row that shows Hz tunes the focused VFO

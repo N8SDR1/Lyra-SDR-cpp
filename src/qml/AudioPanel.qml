@@ -481,7 +481,7 @@ Rectangle {
                     // Render as its own top-level window so the list ISN'T
                     // clipped to the short AudioPanel QQuickWidget (which cut
                     // the list off at the panel bottom with no way to scroll).
-                    popupType: Popup.Window
+                    popupType: (typeof Prefs !== "undefined" && Prefs.popupsInPanel) ? Popup.Item : Popup.Window
                     x: outBtn.width - width
                     y: outBtn.height + 2
                     width: 248
@@ -692,7 +692,7 @@ Rectangle {
                 }
                 Popup {
                     id: agcThrPopup
-                    popupType: Popup.Window
+                    popupType: (typeof Prefs !== "undefined" && Prefs.popupsInPanel) ? Popup.Item : Popup.Window
                     x: 0; y: parent.height + 2
                     padding: 8
                     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -1174,7 +1174,7 @@ Rectangle {
                     id: tunePop
                     // Own top-level window so it isn't clipped to the panel's
                     // QQuickWidget rect (Qt 6.8+; the panel is a short dock).
-                    popupType: Popup.Window
+                    popupType: (typeof Prefs !== "undefined" && Prefs.popupsInPanel) ? Popup.Item : Popup.Window
                     y: -implicitHeight - 6           // pop ABOVE (panel sits low)
                     x: tuneBtn.width - width         // right-align to the button
                     width: 300; padding: 12
