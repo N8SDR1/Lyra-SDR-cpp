@@ -686,7 +686,7 @@ Rectangle {
 
     Popup {
         id: antMapPopup
-        popupType: Popup.Window
+        popupType: (typeof Prefs !== "undefined" && Prefs.popupsInPanel) ? Popup.Item : Popup.Window
         modal: true
         dim: false
         focus: true
@@ -821,7 +821,7 @@ Rectangle {
     // pasted-in system dialog on this panel.
     Popup {
         id: xvtrEditor
-        popupType: Popup.Window
+        popupType: (typeof Prefs !== "undefined" && Prefs.popupsInPanel) ? Popup.Item : Popup.Window
         modal: true
         dim: false
         focus: true

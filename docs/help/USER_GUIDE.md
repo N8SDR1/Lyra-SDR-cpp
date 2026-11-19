@@ -28,6 +28,23 @@ next after Alya. Full installer over Alya: **Lyra-cpp** settings stay.
 **v0.25.43** is the previous public build. See
 [What's new in 0.25.44](#whats-new-in-02544).
 
+## What's new in 0.25.45
+
+- **Mouse wheel stopping after a drop-down.** Some operators found the
+  wheel (VFO tuning, spectrum / waterfall) stopped working after picking
+  from a Lyra drop-down list, until they clicked another program and came
+  back. Once, the **Mode** drop-down itself went dead to clicks and the
+  wheel until Alt-Tab. Lyra now gives focus back to its main window when a
+  list closes without doing so (only while Lyra is the program in use),
+  and a list left "open" off screen closes itself the next time you roll
+  the wheel over its drop-down. Both write a line to the log. How the
+  wheel tunes and zooms is unchanged.
+- **Mode switches just after its list closes** (VFO A and VFO B), so the
+  panel re-arranging for the new mode can't catch the list mid-close.
+- **New test switch:** Settings → Visuals → **Draw drop-down lists inside
+  the panel**. Off by default. See
+  [Drop-down lists](#drop-down-lists).
+
 ## What's new in 0.25.44
 
 - **QRV double-click to tune.** On the floating QRV roster, **double-click**
@@ -897,6 +914,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.45](#whats-new-in-02545)
 - [What's new in 0.25.44](#whats-new-in-02544)
 - [What's new in 0.25.43](#whats-new-in-02543)
 - [What's new in 0.25.42](#whats-new-in-02542)
@@ -6916,6 +6934,19 @@ only in the carrier modes — **CWU, CWL, AM, SAM, FM** — and is described in
 full under [Tuning panel → Zero-beat markers](#zero-beat-markers--dead-tune-a-carrier)
 (it's also the fastest way to land a signal on frequency for the CW decoder,
 which has no AFC).
+
+### Drop-down lists
+
+**Draw drop-down lists inside the panel** (off by default). Normally a
+drop-down's list opens as a small separate window, so a narrow panel never
+cuts it off. Tick this to draw lists inside their panel instead; lists near
+a panel edge may then be cut off.
+
+Use it only if the **mouse wheel stops working after you pick from a
+list** and still does on v0.25.45 or later. A quicker Windows-side check:
+Settings → Bluetooth & devices → Mouse → **Scroll inactive windows when I
+hover over them** — turn it on. Either way, send the log (Help → Show
+Log… → Save) if it happens again.
 
 ### Noise-floor line
 

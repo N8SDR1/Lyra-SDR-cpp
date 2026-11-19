@@ -100,6 +100,7 @@ constexpr auto kXhair    = "panadapter/crosshair";
 constexpr auto kXhairCol = "panadapter/crosshairColor";
 constexpr auto kXhairSty = "panadapter/crosshairStyle";
 constexpr auto kZeroBeat = "visuals/zeroBeatMarkers";
+constexpr auto kPopupsInPanel = "visuals/popupsInPanel";
 constexpr auto kDspGrouped = "visuals/dspPanelsGrouped";
 constexpr auto kOptGrouped = "visuals/optionsPanelsGrouped";
 constexpr auto kSubLayoutEn = "visuals/subLayoutEnabled";
@@ -349,6 +350,7 @@ Prefs::Prefs(QObject *parent) : QObject(parent) {
     crosshairColor_    = s.value(kXhairCol, QStringLiteral("#9fd4ff")).toString();
     crosshairStyle_    = std::clamp(s.value(kXhairSty, 0).toInt(), 0, 3);
     zeroBeatMarkers_  = s.value(kZeroBeat, false).toBool();
+    popupsInPanel_    = s.value(kPopupsInPanel, false).toBool();
     dspPanelsGrouped_     = s.value(kDspGrouped, false).toBool();
     optionsPanelsGrouped_ = s.value(kOptGrouped, false).toBool();
     subLayoutEnabled_     = s.value(kSubLayoutEn, false).toBool();
@@ -1301,6 +1303,14 @@ void Prefs::setZeroBeatMarkers(bool v) {
         zeroBeatMarkers_ = v;
         QSettings().setValue(kZeroBeat, v);
         emit zeroBeatMarkersChanged();
+    }
+}
+
+void Prefs::setPopupsInPanel(bool v) {
+    if (v != popupsInPanel_) {
+        popupsInPanel_ = v;
+        QSettings().setValue(kPopupsInPanel, v);
+        emit popupsInPanelChanged();
     }
 }
 

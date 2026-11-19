@@ -218,6 +218,12 @@ class Prefs : public QObject {
     // SAM / FM).  Off by default; RX-only display.
     Q_PROPERTY(bool zeroBeatMarkers READ zeroBeatMarkers WRITE setZeroBeatMarkers
                NOTIFY zeroBeatMarkersChanged)
+    // Drop-down lists draw inside their panel instead of as separate small
+    // windows.  Off by default (separate windows aren't clipped by a narrow
+    // panel).  A test switch for the "mouse wheel stops after picking from a
+    // list" reports.
+    Q_PROPERTY(bool popupsInPanel READ popupsInPanel WRITE setPopupsInPanel
+               NOTIFY popupsInPanelChanged)
     // Panel layout (Settings → Visuals): group the DSP / Options tool panels
     // into one saved "rack" window each, instead of each floating individually
     // from its own header chip.  Read at startup; takes effect on next launch.
@@ -649,6 +655,8 @@ public:
     void setCrosshairStyle(int v);
     bool zeroBeatMarkers() const { return zeroBeatMarkers_; }
     void setZeroBeatMarkers(bool v);
+    bool popupsInPanel() const { return popupsInPanel_; }
+    void setPopupsInPanel(bool v);
     bool dspPanelsGrouped() const { return dspPanelsGrouped_; }
     void setDspPanelsGrouped(bool v);
     bool optionsPanelsGrouped() const { return optionsPanelsGrouped_; }
@@ -847,6 +855,7 @@ signals:
     void crosshairColorChanged();
     void crosshairStyleChanged();
     void zeroBeatMarkersChanged();
+    void popupsInPanelChanged();
     void dspPanelsGroupedChanged();
     void optionsPanelsGroupedChanged();
     void subLayoutEnabledChanged();
@@ -982,6 +991,7 @@ private:
     QString crosshairColor_ = QStringLiteral("#9fd4ff");
     int     crosshairStyle_ = 0;
     bool    zeroBeatMarkers_ = false;
+    bool    popupsInPanel_ = false;
     int     processPriority_ = 0;   // 0 Normal / 1 Above Normal / 2 High
     bool    hidVfoWheelEnabled_ = false;
     QString hidVfoDeviceId_;

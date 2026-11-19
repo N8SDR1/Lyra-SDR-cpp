@@ -10884,6 +10884,21 @@ QWidget *SettingsDialog::buildVisualsTab() {
     });
     form->addRow(tr("Zero-beat"), zbeat);
 
+    // --- Drop-down lists inside the panel (test switch) ---
+    auto *pip = new QCheckBox(tr("Draw drop-down lists inside the panel"), page);
+    pip->setChecked(prefs_->popupsInPanel());
+    pip->setToolTip(tr("Off (default): drop-down lists open as small separate "
+                       "windows so a narrow panel never cuts them off.  On: they "
+                       "draw inside the panel instead.  Try On if the mouse wheel "
+                       "stops working after you pick from a list; lists near a "
+                       "panel edge may be cut off."));
+    connect(pip, &QCheckBox::toggled, prefs_, &Prefs::setPopupsInPanel);
+    connect(prefs_, &Prefs::popupsInPanelChanged, page, [this, pip]() {
+        if (pip->isChecked() != prefs_->popupsInPanel())
+            pip->setChecked(prefs_->popupsInPanel());
+    });
+    form->addRow(tr("Drop-down lists"), pip);
+
     // --- Tooltips on/off (global) ---
     auto *tips = new QCheckBox(tr("Show tooltips"), page);
     tips->setChecked(prefs_->tooltipsEnabled());

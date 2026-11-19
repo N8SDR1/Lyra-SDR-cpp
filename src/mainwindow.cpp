@@ -127,6 +127,17 @@
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QTimer>
+#include <QPointer>
+#include <QWindow>
+#ifdef Q_OS_WIN
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#endif
 #include <QDesktopServices>
 #include <QPushButton>
 #include <QUrl>
@@ -537,6 +548,58 @@ private:
     Prefs *prefs_;
 };
 
+// Drop-down lists (QML ComboBox / Menu with popupType Window) open as small
+// separate native windows.  Field reports: after picking from one, the mouse
+// wheel sometimes stops working until the operator clicks another program
+// and comes back (and once, a Mode drop-down stayed "open" but invisible).
+// The signature is focus left on a list window that has already closed.
+// When such a window hides and nothing visible has focus, hand focus back
+// to Lyra's main window — but only while Lyra is still the program in use
+// (never pull Lyra in front of an app the operator switched to).  A normal
+// close (focus already back on a visible window, e.g. the Settings dialog)
+// is left alone.
+class PopupFocusGuard : public QObject {
+public:
+    explicit PopupFocusGuard(QWidget *mainWin, QObject *parent)
+        : QObject(parent), mainWin_(mainWin) {}
+    bool eventFilter(QObject *o, QEvent *e) override {
+        if (e->type() == QEvent::Hide) {
+            if (auto *w = qobject_cast<QWindow *>(o); w && isListWindow(w)) {
+                QPointer<QWindow> closed(w);
+                QPointer<QWidget> mw(mainWin_);
+                QTimer::singleShot(0, this, [closed, mw]() {
+                    if (!mw || !lyraIsForeground()) return;
+                    QWindow *fw = QGuiApplication::focusWindow();
+                    const bool stale = !fw || !fw->isVisible()
+                                    || (closed && fw == closed.data());
+                    if (!stale) return;
+                    qInfo("[ui] a drop-down list closed without returning "
+                          "focus; focus given back to the main window");
+                    mw->activateWindow();
+                });
+            }
+        }
+        return QObject::eventFilter(o, e);
+    }
+private:
+    static bool isListWindow(const QWindow *w) {
+        return w->type() == Qt::Popup
+            || QByteArray(w->metaObject()->className()).contains("Popup");
+    }
+    static bool lyraIsForeground() {
+#ifdef Q_OS_WIN
+        HWND fg = ::GetForegroundWindow();
+        if (!fg) return false;
+        DWORD pid = 0;
+        ::GetWindowThreadProcessId(fg, &pid);
+        return pid == ::GetCurrentProcessId();
+#else
+        return QGuiApplication::applicationState() == Qt::ApplicationActive;
+#endif
+    }
+    QWidget *mainWin_;
+};
+
 int protocolHintForIp(lyra::ipc::HL2Discovery *disc, const QString &ip) {
     if (ip.isEmpty()) return 0;
     if (disc) {
@@ -576,6 +639,8 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
     // QWidget tooltip events app-wide when disabled; QML ToolTips honour
     // the same Prefs flag via their visible bindings.
     qApp->installEventFilter(new TooltipGate(prefs_, this));
+    // Give focus back after a drop-down list window closes (wheel reports).
+    qApp->installEventFilter(new PopupFocusGuard(this, this));
 
     // App-wide key preview for space-bar PTT (Thetis KeyPreview equivalent).
     // MainWindow::eventFilter sees Key_Space BEFORE the focused control, so a
