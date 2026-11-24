@@ -2447,6 +2447,15 @@ int main(int argc, char *argv[])
     qWarning("[shutdown] app.exec() returned cleanly — clearing watchdog");
     g_shutdown_complete.store(true, std::memory_order_release);
 
+    // Destroy the DSP engine while wdsp.dll is still loaded.  Both are
+    // children of `app`, which deletes children in creation order, so the
+    // WDSP library object (created first) unloaded the DLL before the
+    // engine's destructor closed its channels — a crash on exit inside the
+    // unloaded DLL.  The main window is never deleted, so nothing still
+    // holds the engine here.
+    delete wdspEngine;
+    wdspEngine = nullptr;
+
 #ifdef _WIN32
     qWarning("[shutdown] WSACleanup - start");
     ::WSACleanup();
