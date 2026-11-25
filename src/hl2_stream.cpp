@@ -3519,7 +3519,14 @@ void HL2Stream::applyDriveLevelNoPersist(int level) {
 }
 
 void HL2Stream::setTxStepAttnDb(int db) {
-    const int clamped = std::clamp(db, 0, 31);
+    // HL2 TX step attenuator: -28..+31 dB.  Negative values are LNA *gain*
+    // on the PureSignal feedback (wire 31 - db = 32..59, carried by the
+    // 6-bit case-11 field), which a stock HL2 on its internal feedback path
+    // needs to reach the calibration window.  This was clamped to 0..31,
+    // so every negative PS auto-att request went to the radio as 0 and PS
+    // sat ~28 dB short and never converged (GitHub #28).  Other callers
+    // (ATT-on-TX, saved TX att) only ever pass 0..31.
+    const int clamped = std::clamp(db, -28, 31);
     txStepAttnDb_.store(clamped, std::memory_order_relaxed);
     // §5 (TX): compose_case_4 (C3, 5-bit) + compose_case_11 (C4, 6-bit,
     // XmitBit-gated) read prn->adc[0].tx_step_attn.  set_tx_step_attn_db

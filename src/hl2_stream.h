@@ -1311,7 +1311,7 @@ public slots:
     //                         1/5/6)
     //   setTxDriveLevel(0..255)  drive DAC; C0 0x12 C1 (C-reference;
     //                            gateware uses top 4 bits -> 16 steps)
-    //   setTxStepAttnDb(0..31)   C0 0x1C C3 = (31 - db) & 0x1F  (HL2's
+    //   setTxStepAttnDb(-28..31) C0 0x1C C3 = (31 - db) & 0x1F  (HL2's
     //                            inverted range; C-reference uses the
     //                            same SetTxAttenData(31-x) form)
     //   setPaEnabled(on)      onboard PA -> C0 0x12 C2 bit 3 (0x08),
@@ -2453,7 +2453,7 @@ private:
     // published TX word first differs from RX1 under SPLIT, re-armed
     // when it stops (never logs every poll cycle).
     bool                 iobFollowBReported_ = false;
-    std::atomic<int>     txStepAttnDb_{0};      // 0..31 dB; 0x1C C3 (31-db)
+    std::atomic<int>     txStepAttnDb_{0};      // -28..31 dB; 0x1C C3 / case-11 C4 (31-db)
     std::atomic<int>     txMode_{1};            // 0=LSB 1=USB; mirror of the WDSP TXA mode, for the TUN DDS-offset sign (txDdsHzForTune)
     std::atomic<bool>    psUiDigital_{false};   // focused RX DIG/DRM/CW/FM lock-out
     // #105 CW-2 — the single live CW pitch (shared with the RX pitch +
