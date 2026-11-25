@@ -4,6 +4,19 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-25 — v0.25.46 Jugum RELEASED (TCI start, crash fixes, wheel settings)
+
+TCI/CAT "start" checked only the Protocol 1 stream, so with a P2 radio
+running SDRLogger+'s connect-time `start;` toggled it off — now checks
+both paths (`radioRunning()`). Startup crash: default profile set VAC
+buffer before WDSP loaded (rebuildVac now needs `opened_`). Exit crash:
+engine destroyed after wdsp.dll unloaded (deleted right after
+app.exec()). Settings → Hardware Navigation split into Mouse wheel /
+USB tuning knob (optional). Also carries the HL2 PS auto-att range fix
+(GitHub #28, untested on stock HL2). Star name stays **Jugum**. Full
+installer `Lyra-Setup-0.25.46.exe`, app name **Lyra-cpp**. Tag
+`v0.25.46`. QRV-service working tree left unstaged.
+
 ## 2026-11-19 — v0.25.45 Jugum RELEASED (wheel after drop-down)
 
 Mouse wheel after a drop-down, Mode list close, Visuals test switch for

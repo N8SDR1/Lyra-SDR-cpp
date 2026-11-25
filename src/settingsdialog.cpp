@@ -3699,35 +3699,59 @@ QWidget *SettingsDialog::buildHardwareTab() {
         form->addRow(grp);
     }
 
-    // --- Navigation (HID mouse-wheel VFO) ---
+    // --- Mouse wheel + optional USB tuning knob (HID mouse-wheel VFO) ---
+    // Two groups so the everyday-mouse option and the separate-knob options
+    // aren't read as one switch (field reports: operators unticked / ticked
+    // the knob box, or picked their own mouse as the knob, then reported the
+    // mouse wheel "not working").
     {
-        auto *grp = new QGroupBox(tr("Navigation"), page);
-        auto *v = new QVBoxLayout(grp);
+        auto *wgrp = new QGroupBox(tr("Mouse wheel"), page);
+        auto *wv = new QVBoxLayout(wgrp);
+        auto *wnote = new QLabel(tr(
+            "Your normal mouse wheel tunes, zooms and scrolls in Lyra "
+            "without anything set here."), wgrp);
+        wnote->setWordWrap(true);
+        wnote->setStyleSheet(QStringLiteral("QLabel{color:#8a9aac;}"));
+        wv->addWidget(wnote);
         auto *sticky = new QCheckBox(
-            tr("Snap VFO wheel to Step (sticky)"), grp);
+            tr("Snap wheel tuning to the Step grid"), wgrp);
         sticky->setChecked(prefs_->vfoStickyWheel());
         sticky->setToolTip(tr(
-            "When on, wheel on the VFO LED (not on a digit), panadapter, "
-            "or USB encoder snaps to that surface's step grid, then steps. "
-            "14.228.200 Hz at 500 Hz goes to 14.228.500 or 14.228.000, "
-            "not 14.228.700. Wheel over a digit still steps that place. "
-            "Off = add the step from wherever you are."));
-        connect(sticky, &QCheckBox::toggled, grp,
+            "On: the first wheel notch lands on the Step grid, then steps. "
+            "At a 500 Hz step, 14.228.200 goes to 14.228.500 (up) or "
+            "14.228.000 (down). Off: adds the step from wherever you are "
+            "(14.228.700). Applies to the wheel on the VFO readout (not "
+            "over a digit), the panadapter, and a USB tuning knob. The wheel "
+            "over a digit always steps that digit."));
+        connect(sticky, &QCheckBox::toggled, wgrp,
                 [this](bool on) { prefs_->setVfoStickyWheel(on); });
         connect(prefs_, &Prefs::vfoStickyWheelChanged, sticky,
                 [this, sticky]() {
             if (sticky->isChecked() != prefs_->vfoStickyWheel())
                 sticky->setChecked(prefs_->vfoStickyWheel());
         });
-        v->addWidget(sticky);
+        wv->addWidget(sticky);
+        form->addRow(wgrp);
+
+        auto *grp = new QGroupBox(tr("USB tuning knob (optional)"), page);
+        auto *v = new QVBoxLayout(grp);
+        auto *knote = new QLabel(tr(
+            "Only for a separate USB tuning knob that Windows sees as a "
+            "mouse. If you don't have one, leave this off — your mouse "
+            "doesn't need it. Never pick your everyday mouse below: its "
+            "wheel would then tune the VFO instead of scrolling."), grp);
+        knote->setWordWrap(true);
+        knote->setStyleSheet(QStringLiteral("QLabel{color:#8a9aac;}"));
+        v->addWidget(knote);
 
         auto *en = new QCheckBox(
-            tr("USB encoder / HID mouse wheel tunes the VFO"), grp);
+            tr("Tune the VFO with a USB knob"), grp);
         en->setChecked(prefs_->hidVfoWheelEnabled());
         en->setToolTip(tr(
-            "For a USB knob that Windows treats as a mouse. "
-            "Each notch moves the focused VFO by the Tuning-panel Step "
-            "(not the panadapter scroll step)."));
+            "Turn on after picking your knob below. Each notch moves the "
+            "focused VFO by the Tuning panel's Step (not the panadapter "
+            "step). Off = the knob is ignored; your mouse is never "
+            "affected by this switch."));
         connect(en, &QCheckBox::toggled, grp,
                 [this](bool on) { prefs_->setHidVfoWheelEnabled(on); });
         connect(prefs_, &Prefs::hidVfoWheelEnabledChanged, en, [this, en]() {
@@ -3739,11 +3763,13 @@ QWidget *SettingsDialog::buildHardwareTab() {
         auto *devRow = new QHBoxLayout;
         auto *combo = new QComboBox(grp);
         combo->setMinimumWidth(280);
-        combo->setToolTip(tr("Pick the encoder. Your real mouse stays a mouse."));
+        combo->setToolTip(tr(
+            "Pick your tuning knob, not your everyday mouse. Turn the knob "
+            "and watch the test light below to find the right entry."));
         auto fillCombo = [this, combo]() {
             combo->blockSignals(true);
             combo->clear();
-            combo->addItem(tr("Select HID mouse…"), QString());
+            combo->addItem(tr("Select your tuning knob…"), QString());
             const auto mice = HidVfoWheel::enumerateMice();
             const QString saved = prefs_->hidVfoDeviceId();
             int sel = 0;
@@ -3770,7 +3796,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 combo->currentData().toString());
         });
         auto *refresh = new QPushButton(tr("Refresh"), grp);
-        refresh->setToolTip(tr("Re-scan attached HID mice."));
+        refresh->setToolTip(tr("Re-scan, e.g. after plugging the knob in."));
         connect(refresh, &QPushButton::clicked, grp, fillCombo);
         devRow->addWidget(combo, 1);
         devRow->addWidget(refresh);
@@ -3778,7 +3804,7 @@ QWidget *SettingsDialog::buildHardwareTab() {
 
         auto *testRow = new QHBoxLayout;
         auto *testHint = new QLabel(
-            tr("Wheel test — turn the selected encoder:"), grp);
+            tr("Knob test — turn the selected knob:"), grp);
         auto *flash = new QLabel(tr("  "), grp);
         flash->setMinimumWidth(48);
         flash->setMinimumHeight(18);
@@ -3806,11 +3832,11 @@ QWidget *SettingsDialog::buildHardwareTab() {
         }
 
         auto *unf = new QCheckBox(
-            tr("Listen when Lyra is not focused"), grp);
+            tr("Keep the knob working when Lyra isn't the active window"), grp);
         unf->setChecked(prefs_->hidVfoListenUnfocused());
         unf->setToolTip(tr(
-            "Keep receiving this encoder while another window is in front. "
-            "Only that HID device; your desktop mouse is unaffected."));
+            "Tune with the knob while you type in a logger or another "
+            "program. Only the knob; your mouse is unaffected."));
         connect(unf, &QCheckBox::toggled, grp,
                 [this](bool on) { prefs_->setHidVfoListenUnfocused(on); });
         connect(prefs_, &Prefs::hidVfoListenUnfocusedChanged, unf,
@@ -3821,11 +3847,14 @@ QWidget *SettingsDialog::buildHardwareTab() {
         v->addWidget(unf);
 
         auto *only = new QCheckBox(
-            tr("Wheel only adjusts VFO"), grp);
+            tr("Knob tunes the VFO only (doesn't also scroll what's under the pointer)"), grp);
         only->setChecked(prefs_->hidVfoWheelOnly());
         only->setToolTip(tr(
-            "Swallow the follow-on mouse-wheel event so this encoder "
-            "does not also scroll the panadapter when the pointer is over it."));
+            "A knob that Windows sees as a mouse also sends normal wheel "
+            "scrolls. On (default): Lyra drops those, so the knob doesn't "
+            "also scroll the panadapter under the pointer. This affects "
+            "only the knob picked above — which is why that must not be "
+            "your everyday mouse."));
         connect(only, &QCheckBox::toggled, grp,
                 [this](bool on) { prefs_->setHidVfoWheelOnly(on); });
         connect(prefs_, &Prefs::hidVfoWheelOnlyChanged, only,
@@ -3834,6 +3863,12 @@ QWidget *SettingsDialog::buildHardwareTab() {
                 only->setChecked(prefs_->hidVfoWheelOnly());
         });
         v->addWidget(only);
+        auto syncKnob = [unf, only](bool on) {
+            unf->setEnabled(on);
+            only->setEnabled(on);
+        };
+        syncKnob(en->isChecked());
+        connect(en, &QCheckBox::toggled, grp, syncKnob);
 
         form->addRow(grp);
     }

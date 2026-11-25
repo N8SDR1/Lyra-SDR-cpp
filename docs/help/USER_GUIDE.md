@@ -22,11 +22,32 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.45 Jugum** — mouse wheel after a drop-down, and Mode list close,
-plus everything in v0.25.44. Star name **Jugum** (δ Lyrae), next after
-Alathfar. Full installer over Alathfar: **Lyra-cpp** settings stay.
-**v0.25.44** is the previous public build. See
-[What's new in 0.25.45](#whats-new-in-02545).
+**v0.25.46 Jugum** — SDRLogger+ / TCI start no longer stops a Protocol 2
+radio, startup and exit crash fixes, and clearer mouse-wheel / USB-knob
+settings, plus everything in v0.25.45. Star name **Jugum** (δ Lyrae).
+Full installer over 0.25.45: **Lyra-cpp** settings stay. **v0.25.45** is
+the previous public build. See
+[What's new in 0.25.46](#whats-new-in-02546).
+
+## What's new in 0.25.46
+
+- **SDRLogger+ no longer stops the radio.** A TCI client that sends
+  `start;` when it connects (SDRLogger+ does) stopped a running
+  **Protocol 2** radio (Brick, ANAN), so you had to press Start again.
+  A TCI or CAT start now only starts a radio that is stopped, on either
+  protocol. A CAT stop now works on Protocol 2 too.
+- **Startup crash fixed.** With a TX/RX profile that sets VAC buffer
+  size or latency (a VarAC-style profile, for example), Lyra could close
+  a few times before it opened. It applied the profile's VAC settings
+  before the DSP engine had loaded.
+- **Crash on exit fixed.** Lyra could crash as it closed. Nothing was
+  lost, but Windows logged it each time.
+- **Mouse wheel and USB tuning knob settings.** Settings → Hardware
+  **Navigation** is now two groups: **Mouse wheel** (Snap wheel tuning to
+  the Step grid) and **USB tuning knob (optional)**, with plain names and
+  a warning not to pick your everyday mouse as the knob — doing that made
+  the mouse wheel seem to stop working. Behaviour is unchanged. See
+  [Mouse wheel and USB tuning knob](#mouse-wheel-and-usb-tuning-knob).
 
 ## What's new in 0.25.45
 
@@ -511,13 +532,13 @@ Alathfar. Full installer over Alathfar: **Lyra-cpp** settings stay.
   `HKCU\Software\N8SDR\Lyra-cpp`. After install: Recall factory, close,
   reopen. `--safe` starts factory without touching the saved slot.
   See [Getting around the window](#getting-around-the-window).
-- **Snap VFO wheel to Step** — **Settings → Hardware → Navigation**,
+- **Snap wheel tuning to the Step grid** — **Settings → Hardware → Mouse wheel**,
   default **off**. First wheel notch lands on the step grid in that
   direction. Wheel **on a VFO digit** always moves that place. Wheel on
-  the LED **but not on a digit**, and the USB encoder, use that VFO's
+  the LED **but not on a digit**, and a USB tuning knob, use that VFO's
   Tuning **Step** (Snap applies there). Panadapter wheel uses Display
   **Panafall**; panadapter click uses **Exact / 100 Hz**. See
-  [Tuning](#tuning) and [Navigation](#navigation-usb-encoder--hid-wheel).
+  [Tuning](#tuning) and [Mouse wheel and USB tuning knob](#mouse-wheel-and-usb-tuning-knob).
 - **Laptop Tuning row.** The Lyra logo matches the VFO boxes so SPLIT /
   RIT sit fully on a short dock.
 - **v0.25.25 Sheliak** remains the previous public build. If this cut
@@ -855,7 +876,7 @@ Dummy load first.
 - **USB encoder** — **Settings → Hardware → Navigation**: a HID mouse-wheel
   knob (the usual 1-knob USB encoder) tunes the focused VFO by the Tuning
   **Step**. Windows only. See
-  [Navigation (USB encoder / HID wheel)](#navigation-usb-encoder--hid-wheel).
+  [Mouse wheel and USB tuning knob](#mouse-wheel-and-usb-tuning-knob).
 - **FM 1750 Hz burst** — hold MOX / PTT, tap **1750**. Default length is
   **2 s** (was 0.5 s). Pick **0.5 / 2 / 3 / 4 s** under **Settings →
   Hardware → Band plan**. Chip is shown for **IARU Region 1** (Hardware
@@ -917,6 +938,7 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.46](#whats-new-in-02546)
 - [What's new in 0.25.45](#whats-new-in-02545)
 - [What's new in 0.25.44](#whats-new-in-02544)
 - [What's new in 0.25.43](#whats-new-in-02543)
@@ -1016,7 +1038,7 @@ Dummy load first.
 - [Settings → Hardware](#settings--hardware)
   - [Operator / Station](#operator--station)
   - [Band plan (Region)](#band-plan-region)
-  - [Navigation (USB encoder / HID wheel)](#navigation-usb-encoder--hid-wheel)
+  - [Mouse wheel and USB tuning knob](#mouse-wheel-and-usb-tuning-knob)
   - [Diagnostics (debug log)](#diagnostics-debug-log)
   - [Getting help / reporting a bug](#getting-help--reporting-a-bug)
   - [Radio](#radio)
@@ -1591,8 +1613,8 @@ second receiver while **SUB** is on and that VFO is focused.
   exact), in **100 Hz** it rounds to the nearest 100 Hz.
 - **Click + drag** left/right to pan across the band.
 - **Mouse wheel** steps the frequency by the **Panafall step** (set on the
-  Display panel). With **Snap VFO wheel to Step** on (**Settings →
-  Hardware → Navigation**), the first notch lands on that grid —
+  Display panel). With **Snap wheel tuning to the Step grid** on (**Settings →
+  Hardware → Mouse wheel**), the first notch lands on that grid —
   `14.228.200` at 500 Hz goes to `14.228.500` or `14.228.000`, not
   `14.228.700`. **Ctrl + wheel** zooms instead.
 - **Middle-click** — while SPLIT or SUB is on: from **TUNE A**, parks VFO B
@@ -1701,7 +1723,7 @@ FM (repeaters); leave RPT alone if you are not on FM.
   12.5 kHz** (default **1 kHz**). The last step is remembered **per
   mode** (FM vs USB vs …) and separately for RX2. **6.25 / 8.33 / 12.5 kHz**
   are land-mobile and airband channel spacings.
-- **Snap VFO wheel to Step** — **Settings → Hardware → Navigation**,
+- **Snap wheel tuning to the Step grid** — **Settings → Hardware → Mouse wheel**,
   default **off**. When on, the **first** wheel notch lands **on the
   grid**, in the direction you rolled, then further notches step.
   Example, Tuning **Step = 500 Hz**, dial `14.228.200`:
@@ -1745,8 +1767,8 @@ Down change that place).
 in **Settings → Hardware → Transmit**. It does not fire while a text
 field, dialog, or combo has focus.
 
-The **USB encoder / HID wheel** is separate — see
-[Navigation (USB encoder / HID wheel)](#navigation-usb-encoder--hid-wheel).
+A separate **USB tuning knob** is optional — see
+[Mouse wheel and USB tuning knob](#mouse-wheel-and-usb-tuning-knob).
 
 ### SUB — second receiver
 
@@ -2925,8 +2947,8 @@ is laid out in old Lyra's three-row arrangement:
 - **Panafall** — the step the mouse wheel tunes by when you scroll over
   the panadapter/waterfall (**1 Hz … 100 kHz**). This is your coarse
   band-skim step, separate from the fine VFO step on the Tuning panel.
-  **Snap VFO wheel to Step** (**Settings → Hardware → Navigation**,
-  default off) lands the first wheel notch on this grid.
+  **Snap wheel tuning to the Step grid** (**Settings → Hardware → Mouse
+  wheel**, default off) lands the first wheel notch on this grid.
 - **Exact / 100 Hz** — how a panadapter **click/drag** lands:
   - **Exact** — go to where you clicked, snapped to the **Panafall step**
     above. With Panafall = 1 Hz that's truly exact; set it to 10/50 Hz
@@ -4762,37 +4784,50 @@ you touch between QSOs.
 The external filter board (OC) and the USB-BCD amp band-code output now
 live on their own tab — see [Settings → Filters / BCD](#settings--filters--bcd).
 
-### Navigation (USB encoder / HID wheel)
+### Mouse wheel and USB tuning knob
 
-Windows only. For a USB knob that shows up as a **HID mouse** (the same
-class as Setup → Navigation Raw Input in other HPSDR apps). This is **not**
-MIDI — a MIDI surface uses a [sidecar](#midi-controllers-sidecar).
+**Your normal mouse wheel needs no setting.** It tunes the VFO, zooms and
+scrolls everywhere in Lyra out of the box. The two groups on **Settings →
+Hardware** only adjust it, or add a separate knob.
 
-- **Snap VFO wheel to Step** — default **off**. First notch lands on the
-  grid in that direction, then steps. `14.228.200` at 500 Hz →
-  `14.228.500` (up) or `14.228.000` (down). Off = add the step
+**Mouse wheel** group:
+
+- **Snap wheel tuning to the Step grid** — default **off**. The first
+  notch lands on the grid in that direction, then steps. `14.228.200` at
+  500 Hz → `14.228.500` (up) or `14.228.000` (down). Off = add the step
   (`14.228.700`).
-  - **VFO LED, not on a digit**, and **USB encoder** → that VFO's Tuning
-    **Step** (VFO A and VFO B each have their own).
+  - **VFO readout, not on a digit**, and a **USB tuning knob** → that VFO's
+    Tuning **Step** (VFO A and VFO B each have their own).
   - **Panadapter wheel** → Display **Panafall** step.
-  - Wheel **on a digit** always steps that place. Panadapter **click**
+  - Wheel **on a digit** always steps that digit. Panadapter **click**
     still uses Display **Exact / 100 Hz**.
-- **USB encoder / HID mouse wheel tunes the VFO** — master enable (off
-  until you pick a device).
-- Device list — every attached HID mouse. Pick the knob, not your
-  pointing mouse. **Refresh** re-scans if you plugged it in after opening
-  Settings.
-- **Wheel test** — the idle box flashes red on each notch from the
-  *selected* device even if the master enable is still off, so you can
-  identify the right row first.
-- **Listen when Lyra is not focused** — keep the encoder live while you
-  work in a logger. Only that HID device; the desktop mouse is unchanged.
-- **Wheel only adjusts VFO** (default on) — the encoder does not also
-  scroll the panadapter.
 
-Each notch moves the **focused** VFO by the Tuning-panel **Step** (CW
-carrier convention matches the LED). It does **not** use the panadapter
-scroll step.
+**USB tuning knob (optional)** group — Windows only. **Only** for a
+separate USB tuning knob that Windows sees as a mouse (the same kind of
+device other HPSDR programs handle under Navigation / Raw Input). This is
+**not** MIDI — a MIDI surface uses a [sidecar](#midi-controllers-sidecar).
+If you don't have such a knob, leave the whole group off.
+
+- **Tune the VFO with a USB knob** — the on/off switch, default off. Pick
+  the knob first, then tick this.
+- **Device list** — every attached mouse-class device. **Pick the knob,
+  never your everyday mouse.** If you pick your mouse, its wheel tunes the
+  VFO instead of scrolling, and the wheel seems to stop working elsewhere
+  in Lyra. **Refresh** re-scans if you plugged the knob in after opening
+  Settings.
+- **Knob test** — the box flashes red on each notch from the *selected*
+  device, even while the switch is off, so you can find the right entry.
+- **Keep the knob working when Lyra isn't the active window** — tune while
+  you type in a logger. Only the knob; your mouse is unchanged.
+- **Knob tunes the VFO only** (default on) — the knob doesn't also scroll
+  whatever is under the pointer.
+
+Each knob notch moves the **focused** VFO by the Tuning-panel **Step**
+(CW carrier convention matches the readout), not the panadapter step.
+
+**If your mouse wheel seems to stop working:** check this group. Untick
+**Tune the VFO with a USB knob**, or set the device list back to **Select
+your tuning knob…**, if it names your normal mouse.
 
 ### Diagnostics (debug log)
 
@@ -6852,7 +6887,7 @@ wiring is below.
 ### MIDI controllers (sidecar)
 
 Lyra has **no native MIDI stack**. A USB encoder that looks like a **mouse
-wheel** is [Navigation](#navigation-usb-encoder--hid-wheel). Everything
+wheel** is [Navigation](#mouse-wheel-and-usb-tuning-knob). Everything
 else — Mackie, Launchpad, MIDI fighter, a dedicated SDR MIDI surface —
 talks to Lyra the same way a logger does: **TCI**.
 
