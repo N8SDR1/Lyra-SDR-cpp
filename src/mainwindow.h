@@ -225,6 +225,9 @@ private:
     // Header Start/Stop: connect to the saved radio (or scan + auto-open
     // the first found) when stopped; close the stream when running.
     void onStartStop();
+    // True if either wire path (Protocol 1 stream or Protocol 2 bridge)
+    // has a radio running.
+    bool radioRunning() const;
     // Broadcast-scan and open the first radio reported; resets the
     // connecting state (no longer sits on "Scanning…") if none found.
     void scanAndOpenFirst();

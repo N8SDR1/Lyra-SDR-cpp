@@ -1696,7 +1696,12 @@ void WdspEngine::rebuildVac(int id)
     VacState &v = vac_[id];
     teardownVac(id);   // idempotent
 
-    if (!vacShouldBeOn(id) || outSize_ <= 0) {
+    // opened_: the RX channel (and with it the resolved WDSP entry points)
+    // must be up.  outSize_ is already set by the constructor, so it alone
+    // let a profile applied at startup (before the WDSP DLL is loaded)
+    // build a VAC through null WDSP pointers and crash.  openRx1() calls
+    // rebuildVac once the channel is open, so nothing is lost by waiting.
+    if (!opened_ || !vacShouldBeOn(id) || outSize_ <= 0) {
         return;
     }
     const QString tag = QStringLiteral("[vac%1]").arg(id + 1);

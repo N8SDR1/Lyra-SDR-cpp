@@ -2235,18 +2235,20 @@ MainWindow::MainWindow(QObject *discovery, QObject *stream,
         connect(cat, &lyra::cat::CatServer::statusMessage, this,
                 [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
         connect(cat, &lyra::cat::CatServer::startRequested, this, [this]() {
-            auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-            if (st && !st->isRunning()) onStartStop();
+            if (!radioRunning()) onStartStop();
         });
         connect(cat, &lyra::cat::CatServer::stopRequested, this, [this]() {
-            auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-            if (st && st->isRunning()) onStartStop();
+            if (radioRunning()) onStartStop();
         });
         catServers_.append(cat);
     }
+    // A TCI client's "start;" (SDRLogger+ sends one on every connect) must
+    // only start a stopped radio.  onStartStop() toggles, so the check has
+    // to cover BOTH wire paths — it used to look at the Protocol 1 stream
+    // only, so with a Protocol 2 radio running it read "stopped" and the
+    // toggle stopped the radio.
     connect(tci_, &TciServer::startRequested, this, [this]() {
-        auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
-        if (st && !st->isRunning()) onStartStop();
+        if (!radioRunning()) onStartStop();
     });
     // TCI STOP must not close the radio. WSJT-X sends STOP when TCI
     // RX audio drops (MOX zeros the tap). Mapping that to onStartStop
@@ -5108,6 +5110,11 @@ void MainWindow::showClockMenu(const QPoint &global) {
         timeSync_->windowsResync();
     });
     m.exec(global);
+}
+
+bool MainWindow::radioRunning() const {
+    auto *st = qobject_cast<lyra::ipc::HL2Stream *>(stream_);
+    return (st && st->isRunning()) || (p2Bridge_ && p2Bridge_->isRunning());
 }
 
 void MainWindow::onStartStop() {

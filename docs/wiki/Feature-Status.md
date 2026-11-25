@@ -1,16 +1,18 @@
 # Feature Status
 
 Where Lyra stands today. Everything marked ✅ is shipped and working in
-**v0.25.45 Jugum** on the **Hermes Lite 2 / 2+** (Protocol 1) and
+**v0.25.46 Jugum** on the **Hermes Lite 2 / 2+** (Protocol 1) and
 **BrickSDR2 / Brick3SDR** (Protocol 2), unless a row says otherwise.
-**v0.25.45** restores the mouse wheel after a drop-down and Mode list
-close. **v0.25.44** added **QRV double-click to tune** (Lyra rows that
+**v0.25.46** stops a TCI/CAT start (SDRLogger+ on connect) from stopping
+a running Protocol 2 radio, fixes a startup and an exit crash, and
+rewords the Mouse wheel / USB tuning knob settings. **v0.25.45** restored
+the mouse wheel after a drop-down and Mode list close. **v0.25.44** added **QRV double-click to tune** (Lyra rows that
 show Hz).
 **v0.25.43** shipped the **QRV board** (opt-in; default off).
 **v0.25.42** shipped **WDSP 2.11** (CW-trained NNR models in CWU/CWL).
 **ASIO for VAC remains in test stage** (opt-in, default off; Qt Out
 and the HL2 jack unchanged; not CMASIO / not WING as the radio mixer).
-**v0.25.44** remains the previous public build (**QRV double-click**).
+**v0.25.45** remains the previous public build (**wheel after a drop-down**).
 **ANAN / Brick3 filters on Filters / BCD** already shipped in
 **v0.25.40**. **HiDPI display**, **ANAN blank model → filter profile**,
 and **Log window on-screen** already shipped in **v0.25.39**.
@@ -22,10 +24,11 @@ long return point.
 
 > **Legend:** ✅ working now · 🚧 in progress · 🗺️ planned (see [Roadmap](Roadmap))
 
-### Last several builds (0.25.16 → 0.25.45)
+### Last several builds (0.25.16 → 0.25.46)
 
 | Build | What landed |
 |---|---|
+| **0.25.46** | **SDRLogger+ / TCI start:** a TCI or CAT "start" (SDRLogger+ sends one on connect) no longer stops a running **Protocol 2** radio. **Startup crash** with a profile that sets VAC buffer/latency (Lyra closing a few times before it opened) and a **crash on exit** fixed. Settings → Hardware **Navigation** split into **Mouse wheel** and **USB tuning knob (optional)**, with clearer names and a warning not to pick your everyday mouse as the knob. Full install over 0.25.45; Lyra-cpp settings stay. **v0.25.45** is the previous public build |
 | **0.25.45** | **Mouse wheel after a drop-down:** after picking from a Lyra list, the wheel (VFO, spectrum / waterfall) could stop until another program was clicked; once the **Mode** list went dead until Alt-Tab. Focus returns to the main window when a list closes without doing so (only while Lyra is in use). A list left open off screen closes on the next wheel over its drop-down. Mode applies after the list closes. Settings → Visuals → **Draw drop-down lists inside the panel** (off by default). Star name **Jugum**. Full install over Alathfar; Lyra-cpp settings stay. **v0.25.44** is the previous public build |
 | **0.25.44** | **QRV double-click to tune:** a **Lyra** row that **shows Hz** retunes the focused VFO (green-border RX1 or RX2) like a TCI / panadapter spot. Single-click highlights only. STD, Logger, and no-Hz rows do not tune. Star name **Alathfar**. Full install over Alya; Lyra-cpp settings stay. **v0.25.43** is the previous public build |
 | **0.25.43** | **QRV board** (opt-in, default **off**): Settings → Network, toolbar **QRV** chip after Apps, **View → QRV** floating roster. Heartbeat / QRT / roster to **https://qrvsdr.cc**. Exact Hz optional (default off). Install key issued by the service. Discord **#qrv** is Hostinger cron from the same roster — Lyra never talks to Discord. Star name **Alya**. Full install over Aladfar; Lyra-cpp settings stay. **v0.25.42** is the previous public build |
