@@ -60,6 +60,7 @@ void    PaLyra_SetAsioEnabled(int enabled);
 int     PaLyra_AsioCompiledIn(void);
 PaError PaLyra_AsioInitError(void);
 }
+#include <vector>
 #include <cstring>             // memset
 
 namespace lyra::wire {
@@ -220,6 +221,11 @@ long ivacTakeCallbackCount(int id)
 	return g_ivacCallbacks[id].exchange(0, std::memory_order_relaxed);
 }
 
+// [Lyra] One-sided VAC (output only or input only): the missing direction
+// has no PortAudio buffer, so the callback feeds the resampler silence /
+// drains it into this scratch buffer to keep both sides running.
+static std::vector<double> g_ivacSideBuf[MAX_EXT_VACS];
+
 static int CallbackIVAC(const void* input,
 	void* output,
 	unsigned long frameCount,
@@ -237,6 +243,8 @@ static int CallbackIVAC(const void* input,
 
 	g_ivacCallbacks[id].fetch_add(1, std::memory_order_relaxed);
 	if (!a->run) return 0;
+	double* side = g_ivacSideBuf[id].empty() ? NULL : g_ivacSideBuf[id].data();
+	if ((!in_ptr || !out_ptr) && !side) return 0;
 									  // [2.10.3.12]MW0LGE handle mono input devices
 	if (a->inParam.channelCount == 1) // mono, dupe to stereo, some mics are mono only, and we require 2 channels
 	{
@@ -275,11 +283,23 @@ static int CallbackIVAC(const void* input,
 
 		xrmatchIN(a->rmatchIN, tmp_in);
 	}
-	else
+	else if (in_ptr)
 	{
 		xrmatchIN(a->rmatchIN, in_ptr);
 	}
+	else
+	{
+		// No input device: feed silence so the TX side stays fed.
+		memset(side, 0, (size_t)a->vac_size * 2u * sizeof(double));
+		xrmatchIN(a->rmatchIN, side);
+	}
 
+	if (!out_ptr)
+	{
+		// No output device: drain the RX side into scratch and discard.
+		xrmatchOUT(a->rmatchOUT, side);
+		return 0;
+	}
 	xrmatchOUT(a->rmatchOUT, out_ptr);
 	// if (id == 0)  WriteAudio (120.0, 48000, a->vac_size, out_ptr, 3); //
 	if (a->iq_type && a->swapIQout)
@@ -525,9 +545,18 @@ PORT int StartAudioIVAC(int id)
 	}
 	//
 
+	// [Lyra] A direction with no device gets NULL (PortAudio rejects
+	// device -1), so VAC can run output-only or input-only.
+	if (in_dev < 0 && out_dev < 0) return -1;
+	if (in_dev < 0 || out_dev < 0)
+	{
+		const size_t need = (size_t)(a->vac_size > (int)framesPerBuffer
+			? a->vac_size : (int)framesPerBuffer) * 2u;
+		if (g_ivacSideBuf[id].size() < need) g_ivacSideBuf[id].assign(need, 0.0);
+	}
 	error = Pa_OpenStream(&a->Stream,
-		&a->inParam,
-		&a->outParam,
+		in_dev >= 0 ? &a->inParam : NULL,
+		out_dev >= 0 ? &a->outParam : NULL,
 		a->vac_rate,
 		framesPerBuffer,	// = vac_size (ASIO: the driver block chosen above)
 		0,
@@ -630,10 +659,12 @@ bool ivacStreamDiag(int id, double *inLatS, double *outLatS, double *rate,
 		*rate = si->sampleRate;
 	}
 #ifdef PA_USE_ASIO
-	const PaDeviceInfo *di = Pa_GetDeviceInfo(pvac[id]->inParam.device);
+	const PaDeviceIndex qdev = pvac[id]->inParam.device >= 0
+		? pvac[id]->inParam.device : pvac[id]->outParam.device;
+	const PaDeviceInfo *di = qdev >= 0 ? Pa_GetDeviceInfo(qdev) : nullptr;
 	const PaHostApiInfo *ha = di ? Pa_GetHostApiInfo(di->hostApi) : nullptr;
 	if (ha && ha->type == paASIO)
-		PaAsio_GetAvailableBufferSizes(pvac[id]->inParam.device,
+		PaAsio_GetAvailableBufferSizes(qdev,
 		                               asioMin, asioMax, asioPref, asioGran);
 #endif
 	return true;

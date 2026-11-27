@@ -1662,9 +1662,12 @@ static QStringList paDevicesForHostApi(int paHostApi, bool wantOutput)
     return out;
 }
 
-// Resolve both VAC device names under the operator's chosen host API (by
+// Resolve the VAC device names under the operator's chosen host API (by
 // name; DL-3).  Empty/unmatched host API → first WASAPI (DL-2 behavior).
-// Both must resolve (full-duplex reference model) → true.
+// An empty name ("(none)") leaves that direction off (index -1), so VAC
+// can run output-only (RX to a digital app) or input-only (TX from a
+// mic/DAW).  A named device that isn't found still fails, and at least
+// one direction must be set.
 static bool resolveVacPaSel(const QString &hostApiName, const QString &outName,
                             const QString &inName, VacPaSel &sel)
 {
@@ -1672,9 +1675,14 @@ static bool resolveVacPaSel(const QString &hostApiName, const QString &outName,
     if (api < 0) {
         return false;
     }
-    const int o  = matchPaDeviceInHostApi(api, outName, /*wantOutput*/ true);
-    const int in = matchPaDeviceInHostApi(api, inName,  /*wantOutput*/ false);
-    if (o < 0 || in < 0) {
+    if (outName.isEmpty() && inName.isEmpty()) {
+        return false;
+    }
+    const int o  = outName.isEmpty()
+        ? -1 : matchPaDeviceInHostApi(api, outName, /*wantOutput*/ true);
+    const int in = inName.isEmpty()
+        ? -1 : matchPaDeviceInHostApi(api, inName,  /*wantOutput*/ false);
+    if ((!outName.isEmpty() && o < 0) || (!inName.isEmpty() && in < 0)) {
         return false;
     }
     sel.hostApi = api;
@@ -1705,18 +1713,16 @@ void WdspEngine::rebuildVac(int id)
         return;
     }
     const QString tag = QStringLiteral("[vac%1]").arg(id + 1);
-    // #158 DL-2 — resolve the chosen VAC devices to PortAudio indices.  The
-    // reference VAC is ONE full-duplex stream, so BOTH an input AND an output
-    // device are required, under one WASAPI host API.  The shipped
-    // transmit-only "(none)" output is NOT available here — TX-without-feedback
-    // is restored properly at DL-4 (MOX/MON gating mutes RX→VAC during TX),
-    // not by half-opening the stream.
+    // #158 DL-2 — resolve the chosen VAC devices to PortAudio indices under
+    // one host API.  Either side may be "(none)": the stream then opens in
+    // one direction only and the callback feeds/drains the missing side.
     VacPaSel sel;
     if (!resolveVacPaSel(v.hostApiName, v.outName, v.inName, sel)) {
-        emitLog(QStringLiteral("%1 not started — need an input AND an output "
-                               "device under the chosen host API (out='%2' "
-                               "in='%3'); VAC is full-duplex (both required; "
-                               "for ASIO pick the same driver for both)")
+        emitLog(QStringLiteral("%1 not started — no usable device under the "
+                               "chosen host API (out='%2' in='%3'); pick at "
+                               "least one, and check a named device is "
+                               "plugged in (for ASIO use the same driver "
+                               "for both)")
                     .arg(tag,
                          v.outName.isEmpty() ? QStringLiteral("(unset)") : v.outName,
                          v.inName.isEmpty()  ? QStringLiteral("(unset)") : v.inName));
