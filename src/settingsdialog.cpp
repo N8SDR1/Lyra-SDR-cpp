@@ -2125,11 +2125,10 @@ QWidget *SettingsDialog::buildNetworkTab() {
             "clients (MSHV, JTDX, WSJT-X, etc.).  Negative dB reduces "
             "the level if Lyra's RX runs hotter than your client "
             "expects (e.g. you need to set the client's RX gain very "
-            "low to avoid waterfall overload).  0 dB = byte-identical "
-            "to Lyra's RX level.  Live: takes effect on the next "
-            "emitted audio packet (~43 ms latency).\n\n"
-            "Stopgap until per-mode RX/TX gain profiles ship "
-            "(planned tasks #49 + #55)."));
+            "low to avoid waterfall overload).  0 dB = Lyra's RX level.  "
+            "The AF slider does not change the TCI audio — set the "
+            "level for your digimode app here.  Live: takes effect on "
+            "the next emitted audio packet (~43 ms latency)."));
         connect(rxGainSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
                 grp, [this](double v) {
             if (prefs_) prefs_->setTciRxGainDb(v);

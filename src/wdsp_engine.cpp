@@ -5337,8 +5337,16 @@ void WdspEngine::dispatchAudioFrame(const double *audio, int nframes)
         } else if (txMuted_.load(std::memory_order_relaxed)) {
             std::fill_n(d, nframes, 0.0f);   // RX muted out of TCI on the air
         } else {
+            // Take the TCI feed BEFORE the AF gain: the panel gain is a
+            // plain scale after AGC, so dividing it back out is exact.
+            // The AF slider is a listening-level control; letting it
+            // reach a digimode client overdrove its input.  Level for the
+            // client is set with the TCI RX gain instead.
+            const double unAf = std::pow(
+                10.0, -afGainDb_.load(std::memory_order_relaxed) / 20.0);
             for (int f = 0; f < nframes; ++f)
-                d[f] = static_cast<float>(audio[static_cast<size_t>(2 * f)]);
+                d[f] = static_cast<float>(
+                    audio[static_cast<size_t>(2 * f)] * unAf);
         }
         emit tciAudioBlock(b, cfg_.outRate);
     }

@@ -6260,8 +6260,18 @@ can dial the TCI path without disturbing your voice mic gain:
   or boosts the audio Lyra **sends** to TCI clients. Drop this if
   MSHV / JTDX / WSJT-X show an unusably hot waterfall and the
   client-side RX gain slider isn't bringing it down enough. 0 dB =
-  byte-identical to Lyra's RX level. Takes effect at the next emitted
-  audio packet (~43 ms at 48 kHz / 2048-sample frames).
+  Lyra's RX level. Takes effect at the next emitted audio packet
+  (~43 ms at 48 kHz / 2048-sample frames).
+- The **AF** slider on the Audio panel does **not** change the TCI
+  audio — it only sets your own listening level. Turn AF up for your
+  ears without disturbing WSJT-X; set the level for the digimode app
+  with RX-out gain above.
+- **Coming from an older Lyra?** TCI audio used to follow the AF
+  slider, so many stations set RX-out gain well below 0 dB (often
+  around −20 dB) to make up for it. That cut now makes the TCI audio
+  far too quiet. Set **RX-out gain back to 0.0 dB** as a starting
+  point, then set the level in your digimode program (WSJT-X, JTDX,
+  STD …) with its own RX / input gain.
 
 There is no Lyra-side gain on the TX audio it **receives** from a TCI
 client: the level is set by the client app's own TX / drive slider,
