@@ -24,12 +24,22 @@
 
 #include <QDialog>
 #include <QHash>
+#include <QList>
 #include <QString>
+#include <QTextCursor>
 
+#include <vector>
+
+class QLabel;
+class QLineEdit;
+class QListWidget;
+class QListWidgetItem;
 class QSplitter;
+class QStackedWidget;
 class QTextBrowser;
 class QTreeWidget;
 class QTreeWidgetItem;
+class QTimer;
 
 namespace lyra::ui {
 
@@ -59,6 +69,36 @@ private:
     // they last left.
     void saveLayout() const;
     void restoreLayout();
+
+    // ── Keyword search ───────────────────────────────────────────────
+    // Each TOC entry's span in the rendered document, with its text
+    // lower-cased once for matching.
+    struct Section {
+        QString head;        // exact text the scroller searches for
+        QString label;       // shown in the results ("Parent › Child")
+        QString lowerHead;
+        QString lowerBody;
+        int     start = 0;   // document positions [start, end)
+        int     end   = 0;
+    };
+    void buildSections();
+    void runSearch();                       // filter + highlight
+    void clearSearch();
+    void openResult(QListWidgetItem *it);
+    void stepMatch(int dir);                // +1 next, -1 previous
+    void applyHighlights();
+    void updateStatus();
+
+    std::vector<Section> sections_;
+    QStringList          terms_;            // current lower-cased words
+    QList<QTextCursor>   matches_;          // every hit, document order
+    int                  curMatch_ = -1;
+
+    QLineEdit      *search_  = nullptr;
+    QLabel         *status_  = nullptr;
+    QStackedWidget *stack_   = nullptr;     // 0 = contents, 1 = results
+    QListWidget    *results_ = nullptr;
+    QTimer         *debounce_ = nullptr;
 
     QSplitter    *split_   = nullptr;
     QTreeWidget  *toc_     = nullptr;

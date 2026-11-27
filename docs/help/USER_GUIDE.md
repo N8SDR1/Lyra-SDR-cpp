@@ -20,6 +20,14 @@ not programmers — if you can click a menu, you can use this.
 > section, **Settings…** opens the matching Settings tab. Quick way to
 > learn or adjust any panel.
 
+> **Tip — searching this guide.** Type words in the **Search the guide**
+> box above the contents (Ctrl+F jumps there). The list narrows to the
+> sections that contain all of your words, with the number of matches;
+> sections whose heading matches come first. Click one to jump to it.
+> Every match is highlighted in the guide: **Enter** or **F3** goes to the
+> next one, **Shift+Enter** or **Shift+F3** to the previous one, and
+> **Esc** clears the search.
+
 ## Current build
 
 **v0.25.46 Jugum** — SDRLogger+ / TCI start no longer stops a Protocol 2
