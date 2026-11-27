@@ -7,8 +7,17 @@
 #include <QFile>
 #include <QFont>
 #include <QHash>
+#include <QGuiApplication>
 #include <QHeaderView>
+#include <QKeySequence>
 #include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QShortcut>
+#include <QStackedWidget>
+#include <QTextBlock>
+#include <QTextDocument>
+#include <QTreeWidgetItemIterator>
 #include <QPalette>
 #include <QRegularExpression>
 #include <QScrollBar>
@@ -23,6 +32,8 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
+
+#include <algorithm>
 
 namespace lyra::ui {
 
@@ -264,6 +275,33 @@ HelpDialog::HelpDialog(QWidget *parent) : QDialog(parent) {
         tocHeader->setStyleSheet(
             QStringLiteral("QLabel{color:#8fa6ba;padding:2px 4px;}"));
     }
+    // Keyword search: narrows the list to sections containing every
+    // word typed, and highlights the words in the guide.
+    search_ = new QLineEdit(tocPane);
+    search_->setPlaceholderText(tr("Search the guide…"));
+    search_->setClearButtonEnabled(true);
+    search_->setToolTip(tr(
+        "Type one or more words.  The list shows the sections that "
+        "contain all of them (headings that match come first).\n"
+        "Enter / F3 = next match, Shift+Enter / Shift+F3 = previous, "
+        "Esc = clear.  Ctrl+F jumps here."));
+    search_->setStyleSheet(QStringLiteral(
+        "QLineEdit{background:#121a24;color:#e8f2fa;border:1px solid #2a4a62;"
+        "border-radius:3px;padding:4px 6px;}"
+        "QLineEdit:focus{border-color:#5ec8ff;}"));
+    tocLayout->addWidget(search_);
+
+    status_ = new QLabel(tocPane);
+    {
+        QFont sf = status_->font();
+        sf.setPointSize(9);
+        status_->setFont(sf);
+        status_->setStyleSheet(
+            QStringLiteral("QLabel{color:#8fa6ba;padding:0 4px;}"));
+    }
+    status_->hide();
+    tocLayout->addWidget(status_);
+
     tocLayout->addWidget(tocHeader);
 
     toc_ = new QTreeWidget(tocPane);
@@ -309,7 +347,38 @@ HelpDialog::HelpDialog(QWidget *parent) : QDialog(parent) {
     QFont tf = toc_->font();
     tf.setPointSize(10);
     toc_->setFont(tf);
-    tocLayout->addWidget(toc_, /*stretch=*/1);
+    // Results list (shown instead of the contents while searching).
+    results_ = new QListWidget(tocPane);
+    results_->setStyleSheet(toc_->styleSheet().replace(
+        QStringLiteral("QTreeWidget"), QStringLiteral("QListWidget")));
+    results_->setFont(tf);
+    results_->viewport()->setCursor(Qt::PointingHandCursor);
+    results_->setMouseTracking(true);
+    connect(results_, &QListWidget::itemClicked, this,
+            [this](QListWidgetItem *it) { openResult(it); });
+    connect(results_, &QListWidget::itemActivated, this,
+            [this](QListWidgetItem *it) { openResult(it); });
+
+    stack_ = new QStackedWidget(tocPane);
+    stack_->addWidget(toc_);
+    stack_->addWidget(results_);
+    tocLayout->addWidget(stack_, /*stretch=*/1);
+
+    debounce_ = new QTimer(this);
+    debounce_->setSingleShot(true);
+    debounce_->setInterval(150);
+    connect(debounce_, &QTimer::timeout, this, [this]() { runSearch(); });
+    connect(search_, &QLineEdit::textChanged, this,
+            [this]() { debounce_->start(); });
+    connect(search_, &QLineEdit::returnPressed, this, [this]() {
+        if (debounce_->isActive()) {
+            debounce_->stop();
+            runSearch();
+        }
+        const bool back = QGuiApplication::keyboardModifiers()
+                          & Qt::ShiftModifier;
+        stepMatch(back ? -1 : 1);
+    });
     connect(toc_, &QTreeWidget::itemActivated, this,
             [this](QTreeWidgetItem *it, int) {
         if (!it) return;
@@ -377,6 +446,23 @@ HelpDialog::HelpDialog(QWidget *parent) : QDialog(parent) {
     lay->setContentsMargins(0, 0, 0, 0);
     lay->addWidget(split_);
 
+    // Shortcuts: Ctrl+F = search box, F3 / Shift+F3 = next / previous
+    // match, Esc = clear the search (or close when there is none).
+    auto *sFind = new QShortcut(QKeySequence::Find, this);
+    connect(sFind, &QShortcut::activated, this, [this]() {
+        search_->setFocus();
+        search_->selectAll();
+    });
+    auto *sNext = new QShortcut(QKeySequence(Qt::Key_F3), this);
+    connect(sNext, &QShortcut::activated, this, [this]() { stepMatch(1); });
+    auto *sPrev = new QShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F3), this);
+    connect(sPrev, &QShortcut::activated, this, [this]() { stepMatch(-1); });
+    auto *sEsc = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+    connect(sEsc, &QShortcut::activated, this, [this]() {
+        if (!search_->text().isEmpty()) clearSearch();
+        else close();
+    });
+
     loadGuide();
     restoreLayout();
 }
@@ -425,6 +511,228 @@ void HelpDialog::loadGuide() {
     const QString trimmed   = stripContentsBlock(raw);
     const QString anchored  = injectHeadingAnchors(trimmed);
     browser_->setMarkdown(anchored);
+    buildSections();
+}
+
+// ---------------------------------------------------------------------
+// Keyword search
+// ---------------------------------------------------------------------
+namespace {
+// Heading text as rendered (markdown emphasis / code marks gone), for
+// matching the contents labels against the document's heading blocks.
+QString plainHeading(QString t) {
+    t.remove(QLatin1Char('`'));
+    t.remove(QLatin1Char('*'));
+    return t.simplified();
+}
+} // namespace
+
+void HelpDialog::buildSections() {
+    sections_.clear();
+    QTextDocument *doc = browser_->document();
+
+    // Heading blocks of the rendered guide, in document order.
+    struct Hb { int pos; QString text; };
+    std::vector<Hb> heads;
+    for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
+        if (b.blockFormat().headingLevel() >= 2)
+            heads.push_back({ b.position(), plainHeading(b.text()) });
+    }
+
+    // Walk the contents in order and find each entry's heading.
+    size_t hi = 0;
+    int lastPos = 0;
+    for (QTreeWidgetItemIterator it(toc_); *it; ++it) {
+        QTreeWidgetItem *item = *it;
+        Section sec;
+        sec.head = item->data(0, Qt::UserRole).toString();
+        const QString label = item->text(0);
+        sec.label = item->parent()
+            ? item->parent()->text(0) + QStringLiteral(" › ") + label
+            : label;
+        sec.lowerHead = label.toLower();
+
+        const QString want = plainHeading(label);
+        int pos = -1;
+        for (size_t k = hi; k < heads.size(); ++k) {
+            if (heads[k].text == want) {
+                pos = heads[k].pos;
+                hi = k + 1;
+                break;
+            }
+        }
+        if (pos < 0) {
+            const QTextCursor c = doc->find(want, lastPos);
+            if (!c.isNull()) pos = c.selectionStart();
+        }
+        if (pos < 0) pos = lastPos;   // heading only; body stays empty
+        sec.start = pos;
+        lastPos = pos;
+        sections_.push_back(sec);
+    }
+
+    // A section ends where the next one (in document order) starts.
+    std::vector<size_t> order(sections_.size());
+    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::stable_sort(order.begin(), order.end(), [this](size_t a, size_t b) {
+        return sections_[a].start < sections_[b].start;
+    });
+    const int docEnd = doc->characterCount() - 1;
+    for (size_t k = 0; k < order.size(); ++k) {
+        Section &s = sections_[order[k]];
+        s.end = (k + 1 < order.size()) ? sections_[order[k + 1]].start
+                                       : docEnd;
+        if (s.end > s.start) {
+            QTextCursor c(doc);
+            c.setPosition(s.start);
+            c.setPosition(s.end, QTextCursor::KeepAnchor);
+            s.lowerBody = c.selectedText().toLower();
+        }
+    }
+}
+
+void HelpDialog::clearSearch() {
+    debounce_->stop();
+    search_->blockSignals(true);
+    search_->clear();
+    search_->blockSignals(false);
+    runSearch();
+}
+
+void HelpDialog::runSearch() {
+    const QString q = search_->text().simplified().toLower();
+    terms_ = q.isEmpty() ? QStringList() : q.split(QLatin1Char(' '));
+    matches_.clear();
+    curMatch_ = -1;
+    results_->clear();
+
+    if (terms_.isEmpty() || q.size() < 2) {
+        terms_.clear();
+        stack_->setCurrentIndex(0);
+        applyHighlights();
+        status_->hide();
+        return;
+    }
+
+    // Sections containing every word: heading hits first, then by count.
+    struct Hit { size_t idx; bool inHead; int count; };
+    std::vector<Hit> hits;
+    for (size_t i = 0; i < sections_.size(); ++i) {
+        const Section &s = sections_[i];
+        bool all = true, headAll = true;
+        int count = 0;
+        for (const QString &t : terms_) {
+            const int nh = static_cast<int>(s.lowerHead.count(t));
+            const int nb = static_cast<int>(s.lowerBody.count(t));
+            if (nh + nb == 0) { all = false; break; }
+            if (nh == 0) headAll = false;
+            count += nb > 0 ? nb : nh;
+        }
+        if (all) hits.push_back({ i, headAll, count });
+    }
+    std::stable_sort(hits.begin(), hits.end(), [](const Hit &a, const Hit &b) {
+        if (a.inHead != b.inHead) return a.inHead;
+        return a.count > b.count;
+    });
+    for (const Hit &h : hits) {
+        auto *item = new QListWidgetItem(
+            QStringLiteral("%1 — %2").arg(sections_[h.idx].label).arg(h.count),
+            results_);
+        item->setData(Qt::UserRole, static_cast<int>(h.idx));
+        item->setToolTip(sections_[h.idx].label);
+    }
+    if (hits.empty()) {
+        auto *none = new QListWidgetItem(
+            tr("No sections contain all of these words."), results_);
+        none->setFlags(Qt::NoItemFlags);
+    }
+    stack_->setCurrentIndex(1);
+
+    // Every occurrence of every word in the guide, in document order.
+    QTextDocument *doc = browser_->document();
+    constexpr int kMaxMatches = 5000;
+    for (const QString &t : terms_) {
+        QTextCursor c(doc);
+        while (matches_.size() < kMaxMatches) {
+            c = doc->find(t, c);
+            if (c.isNull()) break;
+            matches_.push_back(c);
+        }
+    }
+    std::sort(matches_.begin(), matches_.end(),
+              [](const QTextCursor &a, const QTextCursor &b) {
+        return a.selectionStart() < b.selectionStart();
+    });
+    applyHighlights();
+    updateStatus();
+}
+
+void HelpDialog::openResult(QListWidgetItem *it) {
+    if (!it || !(it->flags() & Qt::ItemIsEnabled)) return;
+    const int idx = it->data(Qt::UserRole).toInt();
+    if (idx < 0 || idx >= static_cast<int>(sections_.size())) return;
+    const Section &s = sections_[static_cast<size_t>(idx)];
+    scrollToHeading(s.head);
+    // The next Enter / F3 lands on this section's first match.
+    curMatch_ = -1;
+    for (int i = 0; i < matches_.size(); ++i) {
+        if (matches_[i].selectionStart() >= s.start) {
+            curMatch_ = i - 1;
+            break;
+        }
+    }
+    applyHighlights();
+    updateStatus();
+}
+
+void HelpDialog::stepMatch(int dir) {
+    if (matches_.isEmpty()) return;
+    const int n = static_cast<int>(matches_.size());
+    curMatch_ = (curMatch_ < 0 && dir < 0)
+        ? n - 1 : ((curMatch_ + dir) % n + n) % n;
+    QTextCursor c(browser_->document());
+    c.setPosition(matches_[curMatch_].selectionStart());
+    browser_->setTextCursor(c);
+    browser_->ensureCursorVisible();
+    // Bring the match to about a third of the way down the view.
+    auto *vb = browser_->verticalScrollBar();
+    vb->setValue(vb->value() + browser_->cursorRect().top()
+                 - browser_->viewport()->height() / 3);
+    applyHighlights();
+    updateStatus();
+}
+
+void HelpDialog::applyHighlights() {
+    QList<QTextEdit::ExtraSelection> sel;
+    sel.reserve(matches_.size());
+    QTextCharFormat all;
+    all.setBackground(QColor(0x5a, 0x4a, 0x10));
+    all.setForeground(QColor(0xff, 0xf2, 0xc0));
+    QTextCharFormat cur;
+    cur.setBackground(QColor(0xff, 0xc8, 0x20));
+    cur.setForeground(QColor(0x10, 0x10, 0x10));
+    for (int i = 0; i < matches_.size(); ++i) {
+        QTextEdit::ExtraSelection e;
+        e.cursor = matches_[i];
+        e.format = (i == curMatch_) ? cur : all;
+        sel.push_back(e);
+    }
+    browser_->setExtraSelections(sel);
+}
+
+void HelpDialog::updateStatus() {
+    const int n = static_cast<int>(matches_.size());
+    int secs = results_->count();
+    if (secs == 1 && !(results_->item(0)->flags() & Qt::ItemIsEnabled))
+        secs = 0;
+    QString text = tr("%n section(s)", nullptr, secs);
+    if (n > 0) {
+        text += curMatch_ >= 0
+            ? tr(" · match %1 of %2").arg(curMatch_ + 1).arg(n)
+            : tr(" · %n match(es) — Enter / F3 for next", nullptr, n);
+    }
+    status_->setText(text);
+    status_->show();
 }
 
 void HelpDialog::buildToc(const QString &markdownSrc) {

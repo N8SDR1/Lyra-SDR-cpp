@@ -1,6 +1,6 @@
 # Lyra (C++23 / Qt 6 rebuild) — Feature Catalog
 
-> **Live tree is v0.25.46 Jugum.** Dual panadapters, Diversity, PureSignal,
+> **Live tree is v0.25.47 Jugum.** Dual panadapters, Diversity, PureSignal,
 > WDSP 2.11, CW decode, QRV board (opt-in), and ASIO-for-VAC (test) are in the published Windows
 > installer. This file is the **2026-05-20 rebuild lock**, not current status.
 > Operator checklist: [Feature Status](https://github.com/N8SDR1/Lyra-SDR-cpp/wiki/Feature-Status)
