@@ -30,12 +30,31 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.46 Jugum** — SDRLogger+ / TCI start no longer stops a Protocol 2
-radio, startup and exit crash fixes, and clearer mouse-wheel / USB-knob
-settings, plus everything in v0.25.45. Star name **Jugum** (δ Lyrae).
-Full installer over 0.25.45: **Lyra-cpp** settings stay. **v0.25.45** is
-the previous public build. See
-[What's new in 0.25.46](#whats-new-in-02546).
+**v0.25.47 Jugum** — TCI audio no longer follows the AF slider, VAC
+works with only one device, and this guide has a search box, plus
+everything in v0.25.46. Star name **Jugum** (δ Lyrae). Full installer
+over 0.25.46: **Lyra-cpp** settings stay. **v0.25.46** is the previous
+public build. See [What's new in 0.25.47](#whats-new-in-02547).
+
+## What's new in 0.25.47
+
+- **TCI audio no longer follows the AF slider.** AF now only sets your
+  own listening level, so turning it up no longer overdrives WSJT-X,
+  JTDX, STD or other TCI programs. **If you had lowered Settings →
+  Network → TCI RX-out gain to make up for AF (often around −20 dB), set
+  it back to 0.0 dB** and set the level in your program's own RX / input
+  gain. Expect to readjust once. See
+  [Digital modes over TCI](#digital-modes-over-tci-ft8--ft4--msk144--q65--etc).
+- **VAC with only one device.** VAC1 and VAC2 now start with only an
+  **Output** device (RX to a digital program) or only an **Input**
+  device (a PC mic for transmit), with the other set to **(none)**.
+  Before, leaving the Input device at (none) stopped the whole cable,
+  so no RX audio reached the program either.
+- **Search this guide.** A **Search the guide** box sits above the
+  contents (Ctrl+F). Type one or more words: the list shows the sections
+  that contain all of them, with a match count, and every match is
+  highlighted. **Enter** / **F3** goes to the next match, **Shift+Enter**
+  / **Shift+F3** to the previous one, **Esc** clears.
 
 ## What's new in 0.25.46
 
@@ -2708,14 +2727,14 @@ VB-CABLE) — it appears as both a playback and a recording device.
 There's an option to auto-enable VAC1 when you switch to a digital mode.
 VAC1 also carries **PC → TX** (covered in *Setting up your mic input*).
 
-> **Both ends, or neither.** VAC1 is one two-way stream carrying *both*
-> RX→PC and PC→TX. It opens both directions together, so if the **Input
-> device** (PC→TX side) is missing or held by another app, the whole cable
-> fails to open — you lose RX→PC audio *too*, not just transmit. If digital
-> RX suddenly goes silent, check that **both** the VAC Input and Output
-> devices in Settings → Audio are set to real, free devices (Lyra logs
-> "VAC off this session" when the open fails). Close any app holding the
-> cable and re-enable VAC1.
+> **One device is enough.** VAC1 carries RX→PC and PC→TX in one stream.
+> Set either device to **(none)** to use only the other direction: Output
+> only for a digital program's receive audio, Input only for a PC mic.
+> If a device you *named* is missing or held by another app, the whole
+> cable fails to open — you lose both directions. If digital RX suddenly
+> goes silent, check that the VAC devices in Settings → Audio are real,
+> free devices (Lyra logs "VAC off this session" when the open fails).
+> Close any app holding the cable and re-enable VAC1.
 
 **Latency (for fast ARQ modes like VarAC).** Two controls tune how much
 buffering the cable carries:

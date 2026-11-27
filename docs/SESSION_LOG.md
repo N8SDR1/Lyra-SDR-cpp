@@ -4,6 +4,18 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-27 — v0.25.47 Jugum RELEASED (TCI audio vs AF, VAC one device, guide search)
+
+From DL1VE's list. TCI RX audio is now tapped before the AF panel gain
+(AF divided back out), so AF no longer overdrives WSJT-X / STD; operators
+who had lowered TCI RX-out gain (~-20 dB) reset it to 0 dB and set the
+level in the client (bench: Lyra 0 dB, STD RX +10 dB). VAC1/VAC2 start
+with only an Output or only an Input device: "(none)" = that side off,
+NULL PortAudio params, the callback feeds/drains the missing side. Help
+window keyword search (section filter + highlight, Enter/F3). Parked:
+centre waterfall on band (skipped), RX DSP per profile (later). Star name
+stays **Jugum**. Tag `v0.25.47`. QRV-service working tree left unstaged.
+
 ## 2026-11-25 — v0.25.46 Jugum RELEASED (TCI start, crash fixes, wheel settings)
 
 TCI/CAT "start" checked only the Protocol 1 stream, so with a P2 radio
