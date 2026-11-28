@@ -30,11 +30,26 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.47 Jugum** — TCI audio no longer follows the AF slider, VAC
-works with only one device, and this guide has a search box, plus
-everything in v0.25.46. Star name **Jugum** (δ Lyrae). Full installer
-over 0.25.46: **Lyra-cpp** settings stay. **v0.25.46** is the previous
-public build. See [What's new in 0.25.47](#whats-new-in-02547).
+**v0.25.48 Double Double** — HamQSL solar refresh is hourly, the PROP
+strip shows 80–10 m only (no 160 / 6), and Settings builds each tab on
+first visit so opening it does not stall the radio, plus everything in
+v0.25.47. Star name **Double Double** (ε Lyrae). Full installer over
+0.25.47: **Lyra-cpp** settings stay. **v0.25.47** is the previous public
+build. See [What's new in 0.25.48](#whats-new-in-02548).
+
+## What's new in 0.25.48
+
+- **HamQSL hourly.** The Solar / Propagation strip fetches N0NBH's
+  HamQSL feed when Lyra starts and about every **60 minutes** after that
+  (matching how often HamQSL itself updates). The day/night split still
+  follows your grid square.
+- **PROP 80–10 m.** The heat-map chips are **80 through 10** m. HamQSL
+  has no rating for **160 m** or **6 m**, so those bands stay on the Band
+  panel and are not shown on PROP.
+- **Settings opens without stalling the radio.** The first time you open
+  Settings, Lyra used to build every tab at once (~2.5 s hitch). Tabs
+  are now built on first visit, so the radio keeps running while you
+  open the dialog.
 
 ## What's new in 0.25.47
 
@@ -965,6 +980,8 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.48](#whats-new-in-02548)
+- [What's new in 0.25.47](#whats-new-in-02547)
 - [What's new in 0.25.46](#whats-new-in-02546)
 - [What's new in 0.25.45](#whats-new-in-02545)
 - [What's new in 0.25.44](#whats-new-in-02544)
@@ -1616,7 +1633,9 @@ travels: no settings, no radio address, and no window size, so a shared
 layout drops cleanly onto any screen. (Importing applies it live; use
 **Save current layout to** a slot afterward if you want to keep it.)
 
-**Opening Settings:** **File → Settings…**, or press **Ctrl+,**.
+**Opening Settings:** **File → Settings…**, or press **Ctrl+,**. The
+dialog shell opens at once; each tab is built the first time you visit
+it, so the first open no longer stalls the radio for a couple of seconds.
 
 ---
 

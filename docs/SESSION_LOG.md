@@ -4,6 +4,15 @@ Running EOD log. Newest entry on top. Short rough-outline format.
 
 ---
 
+## 2026-11-27 — v0.25.48 Double Double RELEASED (HamQSL hourly, PROP 80–10, Settings lazy tabs)
+
+Solar / PROP: HamQSL fetch every 60 minutes; heat-map chips 80–10 m only
+(HamQSL has no 160 / 6 ratings). Settings builds tabs on first visit so
+the first open no longer ~2.5 s hitch on the radio. Tip `c88e1cb`. Star
+name **Double Double** (ε Lyrae). Tag `v0.25.48`. QRV-service working
+tree left unstaged. v0.25.46/47 already public, so this is the next
+unused number.
+
 ## 2026-11-27 — v0.25.47 Jugum RELEASED (TCI audio vs AF, VAC one device, guide search)
 
 From DL1VE's list. TCI RX audio is now tapped before the AF panel gain

@@ -186,7 +186,7 @@ is on, switch to **DIGU / DIGL**; USB turns that auto path off.
 
 **Can I use CMASIO or a Behringer WING / X32 with Lyra?**
 **ASIO for VAC is in test** (shipped in **v0.25.41**, still test in
-**v0.25.47**; default **off**). Settings →
+**v0.25.48**; default **off**). Settings →
 Audio → **Enable ASIO devices for VAC**, restart Lyra, then set VAC
 Driver to **ASIO**. Use the **same** driver for Input and Output (full
 duplex: mic in + RX out). Qt speaker **Out** and the HL2 jack do not
