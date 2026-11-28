@@ -3,19 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lyra v0.25.46 Jugum — SDRLogger+ start fix, crash fixes, WDSP 2.11, dual pan, Diversity, PureSignal</title>
-<meta name="description" content="Lyra v0.25.46 Jugum: Windows 10/11 Qt6 HPSDR transceiver. SDRLogger+ / TCI start no longer stops a Protocol 2 radio; startup and exit crash fixes; clearer mouse wheel and USB tuning knob settings. Opt-in QRV board with double-click Lyra+Hz spots. WDSP 2.11 with CW neural NR. Dual RX1/RX2 panadapters, Diversity, PureSignal, CW decode. P1 HL2/2+; P2 Brick and ANAN (G2 dummy-load arm). ASIO for VAC in test. LAN remote. GPL v3+.">
+<title>Lyra v0.25.48 Double Double — HamQSL hourly, PROP 80–10, Settings first-open</title>
+<meta name="description" content="Lyra v0.25.48 Double Double: Windows 10/11 Qt6 HPSDR transceiver. HamQSL solar/PROP about every 60 minutes; heat-map chips 80–10 m; Settings builds tabs on first visit. TCI audio independent of AF, VAC with one device, User Guide search. Dual RX1/RX2 panadapters, Diversity, PureSignal, CW decode. P1 HL2/2+; P2 Brick and ANAN (G2 dummy-load arm). ASIO for VAC in test. LAN remote. GPL v3+.">
 <meta name="robots" content="index,follow">
 <link rel="canonical" href="https://n8sdr1.github.io/Lyra-SDR-cpp/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Lyra">
-<meta property="og:title" content="Lyra v0.25.46 Jugum — SDRLogger+ start fix, crash fixes, WDSP 2.11, dual pan, Diversity, PureSignal">
-<meta property="og:description" content="Windows 10/11 Qt6 HPSDR transceiver. SDRLogger+ / TCI start fix for Protocol 2, startup and exit crash fixes. WDSP 2.11 with CW neural NR. Dual RX1/RX2 panadapters, Diversity, PureSignal, CW decode. P1 HL2/2+; P2 Brick and ANAN. ASIO for VAC in test.">
+<meta property="og:title" content="Lyra v0.25.48 Double Double — HamQSL hourly, PROP 80–10, Settings first-open">
+<meta property="og:description" content="Windows 10/11 Qt6 HPSDR transceiver. HamQSL hourly, PROP 80–10 m, Settings first-open without stalling the radio. TCI audio independent of AF. Dual RX1/RX2 panadapters, Diversity, PureSignal, CW decode. P1 HL2/2+; P2 Brick and ANAN. ASIO for VAC in test.">
 <meta property="og:url" content="https://n8sdr1.github.io/Lyra-SDR-cpp/">
 <meta property="og:image" content="https://n8sdr1.github.io/Lyra-SDR-cpp/app-hero.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Lyra v0.25.46 Jugum — SDRLogger+ start fix, crash fixes, WDSP 2.11, dual pan, Diversity, PureSignal">
-<meta name="twitter:description" content="Windows 10/11 Qt6 HPSDR transceiver. SDRLogger+ / TCI start fix for Protocol 2, startup and exit crash fixes. WDSP 2.11 with CW neural NR. Dual RX1/RX2 panadapters, Diversity, PureSignal. ASIO for VAC in test.">
+<meta name="twitter:title" content="Lyra v0.25.48 Double Double — HamQSL hourly, PROP 80–10, Settings first-open">
+<meta name="twitter:description" content="Windows 10/11 Qt6 HPSDR transceiver. HamQSL hourly, PROP 80–10 m, Settings first-open. TCI audio independent of AF. Dual RX1/RX2 panadapters, Diversity, PureSignal. ASIO for VAC in test.">
 <meta name="twitter:image" content="https://n8sdr1.github.io/Lyra-SDR-cpp/app-hero.jpg">
 <link rel="icon" type="image/png" href="logo.png">
 <style>
@@ -183,11 +183,11 @@
       <img class="logo" src="logo.png" alt="Lyra logo">
       <div class="wordmark">LYRA<span class="accent"> SDR</span></div>
       <p class="tagline">Windows 10/11 Qt&nbsp;6 transceiver — dual RX1/RX2 panadapters, Diversity, PureSignal, WDSP, CW decode. Protocol&nbsp;1 HL2 / 2+ · Protocol&nbsp;2 Brick and ANAN.</p>
-      <div><span class="badge">v0.25.46 Jugum · QRV (opt-in) · GPL v3</span></div>
-      <p class="current-ver">Current version: <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.46">v0.25.46 Jugum</a> · Lyra-Setup-0.25.46.exe</p>
-      <p class="platforms" style="margin-top:8px;">SHA256 <code style="color:var(--text); font-size:12px; word-break:break-all;">92F988661F2BB1137D4CFC83DC11A91B45885D86C260F901C2FEF689453E369B</code></p>
+      <div><span class="badge">v0.25.48 Double Double · QRV (opt-in) · GPL v3</span></div>
+      <p class="current-ver">Current version: <a href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.48">v0.25.48 Double Double</a> · Lyra-Setup-0.25.48.exe</p>
+      <p class="platforms" style="margin-top:8px;">SHA256 <code style="color:var(--text); font-size:12px; word-break:break-all;">0EC45BE6A3C90F7B9704981954AD230D137F2B96652C0DF4288622E5150B4E9A</code></p>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.46">⬇ Download</a>
+        <a class="btn btn-primary" href="https://github.com/N8SDR1/Lyra-SDR-cpp/releases/tag/v0.25.48">⬇ Download</a>
         <a class="btn btn-ghost" href="https://github.com/N8SDR1/Lyra-SDR-cpp/wiki">📖 Docs</a>
         <a class="btn btn-ghost" href="https://discord.gg/BwjsQvjcSc">💬 Discord</a>
         <a class="btn btn-ghost" href="https://www.facebook.com/groups/1994335921523916">Facebook group</a>
@@ -198,8 +198,8 @@
     </header>
 
     <section>
-      <h2>What's new in v0.25.46 Jugum</h2>
-      <p class="marquee-sub" style="max-width:720px; margin-left:auto; margin-right:auto;"><strong style="color:var(--head)">SDRLogger+ no longer stops the radio:</strong> a TCI client that sends start on connect stopped a running Protocol 2 radio (Brick, ANAN). A TCI or CAT start now only starts a stopped radio, and a CAT stop now works on Protocol 2. <strong style="color:var(--head)">Crash fixes:</strong> Lyra could close a few times before opening with a profile that sets VAC buffer or latency, and could crash on exit. <strong style="color:var(--head)">Clearer settings:</strong> Settings → Hardware Navigation is now Mouse wheel and USB tuning knob (optional), with a warning not to pick your everyday mouse as the knob. QRV, WDSP 2.11, and ASIO for VAC (test) are unchanged.</p>
+      <h2>What's new in v0.25.48 Double Double</h2>
+      <p class="marquee-sub" style="max-width:720px; margin-left:auto; margin-right:auto;"><strong style="color:var(--head)">HamQSL hourly:</strong> the Solar / Propagation strip fetches N0NBH's HamQSL feed at start and about every 60 minutes. <strong style="color:var(--head)">PROP 80–10 m:</strong> heat-map chips are 80 through 10 metres (no 160 / 6 — HamQSL has no rating). <strong style="color:var(--head)">Settings opens without stalling the radio:</strong> tabs are built on first visit instead of all at once. Also in this line from 0.25.47: TCI audio no longer follows the AF slider; VAC1 / VAC2 start with only an output or only an input device; User Guide search (Ctrl+F).</p>
     </section>
 
     <section class="showcase">
@@ -297,7 +297,7 @@
         <div class="card"><h3><span class="ico">⛈️</span> Weather aware</h3><p>Lightning and severe-storm alerts from the NWS, plus live wind and conditions from your own Ambient or Ecowitt station &mdash; so you know when to pull the antenna before the storm rolls in.</p></div>
         <div class="card"><h3><span class="ico">🔗</span> SDRLogger+ Combo link</h3><p>A two-way link with <a href="https://n8sdr1.github.io/SDRLoggerPlus/">SDRLogger+</a> over TCI — frequency, mode and DX spots stay in sync, and CW contacts log straight from Lyra's console with call and RST.</p></div>
         <div class="card"><h3><span class="ico">📡</span> QRV board</h3><p>Opt-in (default off). Settings → Network, toolbar chip after Apps, or View → QRV. Publishes call, band, and mode to <a href="https://qrvsdr.cc">qrvsdr.cc</a> while the radio is running. Double-click a Lyra+Hz row to tune the focused VFO. Discord #qrv is Hostinger, not Lyra. Exact Hz is optional and off by default.</p></div>
-        <div class="card"><h3><span class="ico">🎛️</span> Station control</h3><p>TCI, Kenwood CAT, VAC for digital apps. <strong>ASIO for VAC is in test</strong> (v0.25.41, still test in v0.25.46, Settings opt-in, default off). Not Thetis CMASIO and not a WING as the radio mixer. USB-BCD / OC, tuner memory, companion-app launch.</p></div>
+        <div class="card"><h3><span class="ico">🎛️</span> Station control</h3><p>TCI, Kenwood CAT, VAC for digital apps. <strong>ASIO for VAC is in test</strong> (v0.25.41, still test in v0.25.48, Settings opt-in, default off). Not Thetis CMASIO and not a WING as the radio mixer. USB-BCD / OC, tuner memory, companion-app launch.</p></div>
         <div class="card"><h3><span class="ico">💻</span> LAN remote</h3><p><a href="https://github.com/N8SDR1/Lyra-Remote/releases/latest">Lyra Remote</a> is a browser desk on the <strong>house LAN</strong> — not Thetis-style WAN remote. Do not port-forward TCI. Lyra-to-Lyra (beta) is a second Lyra on a laptop attached to the shack session.</p></div>
       </div>
     </section>
