@@ -3,11 +3,11 @@
 //
 // Fetches the HamQSL solar XML feed (SFI / sunspots / A-index / K-index
 // / X-ray / solar wind + per-band day/night condition ratings), caches
-// it for 15 minutes, and derives a per-band Good/Fair/Poor rating for
-// the operator's day-or-night using a simplified NOAA sunrise/sunset
-// calculation against their location (grid or manual lat/lon from
-// Prefs).  Native C++/Qt: async QNetworkAccessManager GET, no worker
-// thread, no Python.
+// it for 60 minutes (HamQSL's hourly cadence), and derives a per-band
+// Good/Fair/Poor rating for the operator's day-or-night using a
+// simplified NOAA sunrise/sunset calculation against their location
+// (grid or manual lat/lon from Prefs).  Native C++/Qt: async
+// QNetworkAccessManager GET, no worker thread, no Python.
 //
 // The data feeds the dockable PROP panel (SolarPanel).  Location is the
 // ONLY operator input it consumes (callsign/region are not used here),
@@ -47,10 +47,11 @@ public:
 
     const SolarData &data() const { return data_; }
 
-    // 10 HF bands the panel shows, low→high.
+    // HamQSL-predicted HF bands the PROP ratings strip shows, low→high
+    // (80–10 m).  160 m and 6 m have no HamQSL prediction and are omitted.
     static QStringList bands();
     // Rating for a band at the operator's current day/night.  160 m and
-    // 6 m are not predicted by HamQSL → always Unknown (gray).
+    // 6 m are not predicted by HamQSL → always Unknown if asked.
     Rating ratingForBand(const QString &band) const;
     // True if it is currently daylight at the operator's location.  When
     // the location is unknown it defaults to true (day), matching old Lyra.
@@ -84,7 +85,8 @@ private:
     bool                   haveLoc_     = false;
     double                 lat_ = 0.0, lon_ = 0.0;
 
-    static constexpr qint64 kCacheTtlMs = 15 * 60 * 1000;
+    // HamQSL updates about hourly; poll TTL matches that cadence.
+    static constexpr qint64 kCacheTtlMs = 60 * 60 * 1000;
 };
 
 } // namespace lyra::solar

@@ -3289,7 +3289,7 @@ void MainWindow::buildDocks() {
     addQuickDock(QStringLiteral("meter"), tr("Meter"),
                  QStringLiteral("MeterPanel.qml"),
                  QStringLiteral("meter"), Qt::RightDockWidgetArea);
-    // Solar / Propagation — HamQSL SFI/A/K + 10-band day/night heat-map.
+    // Solar / Propagation — HamQSL SFI/A/K + 80–10 m day/night heat-map.
     // A plain QtWidgets strip (not QML); docks at the bottom like the
     // other control panels.
     addWidgetDock(QStringLiteral("propagation"), tr("Solar / Propagation"),
@@ -3514,6 +3514,8 @@ Full credits and reference notes: see the <i>Credits and References</i> section 
 }
 
 void MainWindow::ensureSettingsDialog() {
+    // Constructed once, kept hidden.  The shell is cheap (lazy tabs);
+    // each page is built on first visit after the dialog paints.
     if (!settingsDlg_) {
         settingsDlg_ = new SettingsDialog(
             prefs_, qobject_cast<lyra::ipc::HL2Stream *>(stream_),

@@ -10,9 +10,12 @@
 
 #include <QDialog>
 #include <QList>
+#include <QVector>
+#include <functional>
 
 class QTabWidget;
 class QListWidget;
+class QShowEvent;
 
 namespace lyra::ipc { class HL2Stream; class HL2Discovery; }
 namespace lyra::dsp { class WdspEngine; }
@@ -72,6 +75,9 @@ public:
     // Away desk. Calibration is the local radio's, so that tab stays hidden.
     void setRemoteDesk(bool on);
 
+protected:
+    void showEvent(QShowEvent *event) override;
+
 signals:
     // Emitted when the operator Opens a radio from the Hardware list whose
     // per-rig config profile (rigId) differs from the active rig.  MainWindow
@@ -116,6 +122,18 @@ private:
                                       // restore (lyra::backup engine)
     void     refreshSnapshotList();   // repopulate the snapshot QListWidget
     QListWidget *snapList_ = nullptr;   // Backup tab snapshot store view
+
+    // Tabs are titles + a Loading placeholder until first visit.  The
+    // dialog shell (tab bar + Close) is cheap; PortAudio / COM / HID
+    // live inside the builders and run only when that tab is shown.
+    void addLazyTab(const QString &title, std::function<QWidget *()> builder);
+    void realizeTab(int index);
+    struct LazyTab {
+        std::function<QWidget *()> builder;
+        bool realized = false;
+    };
+    QVector<LazyTab> lazyTabs_;
+    bool tabsMayRealize_ = false;
 
     Prefs                  *prefs_     = nullptr;
     lyra::ipc::HL2Stream   *stream_    = nullptr;

@@ -4320,24 +4320,26 @@ A compact strip showing current **HF propagation** conditions from
   **A**, or **K** box for the full picture — sunspot number, X-ray level,
   solar wind, and when HamQSL last updated. That tip pops **just under
   the box**, not in the parked Help balloon.
-- **A 10-band heat-map** — `160` through `6` m, each tinted **green
-  (Good)**, **amber (Fair)**, **red (Poor)**, or **gray (no prediction)**.
+- **An 8-band heat-map** — `80` through `10` m, each tinted **green
+  (Good)**, **amber (Fair)**, or **red (Poor)**.
   Hover a band and the rating pops **just under that chip** (Good / Fair /
   Poor, day or night). **Click a chip** to tune **VFO A** to
   that band's current stored frequency (the slot the Band panel would
-  land on). It does not step the 1 / 2 / 3 stack.
+  land on). It does not step the 1 / 2 / 3 stack. **160 m** and **6 m**
+  stay on the Band panel; HamQSL has no prediction for them, so they
+  are not shown here.
 
 The ratings are shown for **your current day or night** — Lyra works out
 whether it's daylight at your location and picks HamQSL's day or night
 figures accordingly. For that to be right, set your **grid square** (or
 manual lat/lon) in
 [Settings → Hardware → Operator / Station](#operator--station); without a
-location it assumes daytime. HamQSL doesn't predict **160 m** or **6 m**,
-so those two always show gray.
+location it assumes daytime.
 
-The data is fetched when Lyra starts and refreshed about every 15 minutes
-(the day/night split updates on its own as the sun rises and sets). It's
-read-only and needs no account or key — just an internet connection. If
+The data is fetched when Lyra starts and refreshed about every 60 minutes
+(hourly, matching HamQSL). The day/night split updates on its own as the
+sun rises and sets. It's read-only and needs no account or key — just an
+internet connection. If
 the feed can't be reached, the last-known figures stay on screen and the
 SFI tooltip notes the error.
 
