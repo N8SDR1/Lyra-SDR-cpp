@@ -319,7 +319,7 @@ private:
     // (graphics backend) are deliberately NOT carried.
     void exportSettings();
     void importSettings();
-    void ensureSettingsDialog();   // construct settingsDlg_ if needed (no show)
+    void ensureSettingsDialog();   // construct settingsDlg_ if needed (lazy tabs; no startup warmup)
     void openSettings();
     void showQrvPanel();
     void tuneQrvSpot(qint64 hz, const QString &mode);

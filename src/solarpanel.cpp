@@ -69,7 +69,8 @@ SolarPanel::SolarPanel(SolarService *svc, NcdxfFollow *follow,
     row->addWidget(kBox);
     row->addWidget(vdivider(this));
 
-    // 10-band heat-map. Each chip tunes VFO A to that band.
+    // HamQSL heat-map (80–10 m). Each chip tunes VFO A to that band.
+    // 160 m / 6 m stay on the Band panel; HamQSL has no rating for them.
     for (const QString &b : SolarService::bands()) {
         auto *cell = new QToolButton(this);
         cell->setText(b);

@@ -34,7 +34,7 @@ SolarService::SolarService(lyra::ui::Prefs *prefs, QObject *parent)
         });
     }
     // 60 s tick: cheap day/night recompute (catches sunrise/sunset); the
-    // network feed only re-fetches on its own 15-min cache TTL.
+    // network feed only re-fetches on its own 60-min cache TTL.
     timer_->setInterval(60 * 1000);
     connect(timer_, &QTimer::timeout, this, &SolarService::refresh);
     timer_->start();
@@ -44,10 +44,9 @@ SolarService::SolarService(lyra::ui::Prefs *prefs, QObject *parent)
 }
 
 QStringList SolarService::bands() {
-    return { QStringLiteral("160"), QStringLiteral("80"), QStringLiteral("40"),
-             QStringLiteral("30"),  QStringLiteral("20"), QStringLiteral("17"),
-             QStringLiteral("15"),  QStringLiteral("12"), QStringLiteral("10"),
-             QStringLiteral("6") };
+    return { QStringLiteral("80"), QStringLiteral("40"),
+             QStringLiteral("30"), QStringLiteral("20"), QStringLiteral("17"),
+             QStringLiteral("15"), QStringLiteral("12"), QStringLiteral("10") };
 }
 
 QString SolarService::groupForBand(const QString &band) {

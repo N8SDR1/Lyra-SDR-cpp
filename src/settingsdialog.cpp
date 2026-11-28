@@ -102,6 +102,8 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QShowEvent>
+#include <QScrollArea>
 #include <QTableWidget>
 #include <QTimer>
 #include <QVector>
@@ -335,106 +337,82 @@ SettingsDialog::SettingsDialog(Prefs *prefs, lyra::ipc::HL2Stream *stream,
 
     tabs_ = new QTabWidget(this);
 
-    // Wrap every tab page in a scroll area so a tab whose content is taller
-    // than the dialog is fully reachable instead of being clipped at the
-    // bottom (operator-reported: long tabs — TX / Network / Weather / etc. —
-    // were cutting off controls for some window sizes).  widgetResizable keeps
-    // the page filling the viewport width (forms/2-col layouts stay full-
-    // width); a vertical scrollbar only appears when the content overflows.
-    auto wrapScroll = [this](QWidget *page) -> QWidget * {
-        auto *sa = new QScrollArea(this);
-        sa->setWidget(page);
-        sa->setWidgetResizable(true);
-        sa->setFrameShape(QFrame::NoFrame);
-        sa->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        // The theme leaves scrollbars unstyled (near-invisible), so a tab with
-        // content below the fold gave no clue there was more.  Give the tab
-        // scroll area a clearly-visible Lyra-cyan scrollbar — when it appears
-        // it obviously signals "scroll down for more" (operator ask 2026-07-03).
-        sa->setStyleSheet(QStringLiteral(
-            "QScrollBar:vertical{background:rgb(17,22,32);width:13px;margin:0;}"
-            "QScrollBar::handle:vertical{background:rgba(0,229,255,150);"
-            "min-height:36px;border-radius:5px;margin:2px;}"
-            "QScrollBar::handle:vertical:hover{background:rgb(0,229,255);}"
-            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
-            "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{"
-            "background:transparent;}"));
-        return sa;
-    };
-
     // Tabs are ordered by operating flow, not by the order features were
     // built: station setup -> receive -> Filters/BCD (get the band-correct
     // filters set BEFORE you key) -> transmit + accessories -> integrations
     // -> set-once utility/cosmetic.  selectTopic() finds tabs by TITLE, so
     // this order is free to change without touching anything else.
+    // Each addLazyTab only installs a title + Loading placeholder; the
+    // real page is built on first visit (after the dialog paints).
 
     // --- Station setup (do these first) ---
     if (stream_ || discovery_ || bcd_) {
-        tabs_->addTab(wrapScroll(buildHardwareTab()), tr("Hardware"));
+        addLazyTab(tr("Hardware"), [this]() { return buildHardwareTab(); });
     }
     if (memory_ || eibi_) {
-        tabs_->addTab(wrapScroll(buildBandsTab()), tr("Bands"));
+        addLazyTab(tr("Bands"), [this]() { return buildBandsTab(); });
     }
 
     // --- Receive ---
     if (engine_) {
-        tabs_->addTab(wrapScroll(buildAudioTab()), tr("Audio"));
-        tabs_->addTab(wrapScroll(buildDspTab()), tr("DSP"));  // #159 filter type
-        tabs_->addTab(wrapScroll(buildNoiseTab()), tr("Noise"));
+        addLazyTab(tr("Audio"), [this]() { return buildAudioTab(); });
+        addLazyTab(tr("DSP"), [this]() { return buildDspTab(); });  // #159
+        addLazyTab(tr("Noise"), [this]() { return buildNoiseTab(); });
     }
     if (recorder_) {  // #201 session recorder — config + Sessions list
-        tabs_->addTab(wrapScroll(buildRecordingTab()), tr("Recording"));
+        addLazyTab(tr("Recording"), [this]() { return buildRecordingTab(); });
     }
     // Visuals (panadapter / display appearance) sits with the RX-display group.
-    tabs_->addTab(wrapScroll(buildVisualsTab()), tr("Visuals"));
+    addLazyTab(tr("Visuals"), [this]() { return buildVisualsTab(); });
     if (meter_) {
-        tabs_->addTab(wrapScroll(buildMeterTab()), tr("Meter"));
+        addLazyTab(tr("Meter"), [this]() { return buildMeterTab(); });
     }
 
     // --- Filters BEFORE transmit (#199): band-correct filters must be right
     // before you key — wrong filter = out-of-band emissions / blown LPF relay.
     if (stream_ || bcd_) {
-        tabs_->addTab(wrapScroll(buildFiltersBcdTab()), tr("Filters / BCD"));
+        addLazyTab(tr("Filters / BCD"), [this]() { return buildFiltersBcdTab(); });
     }
 
     // --- Transmit + accessories ---
     if (stream_) {
-        tabs_->addTab(wrapScroll(buildTxTab()), tr("TX"));
-        // TX power model Stage 3 — per-band PA Gain table.
-        tabs_->addTab(wrapScroll(buildPaGainTab()), tr("PA Gain"));
+        addLazyTab(tr("TX"), [this]() { return buildTxTab(); });
+        addLazyTab(tr("PA Gain"), [this]() { return buildPaGainTab(); });
     }
     if (tuner_) {
-        tabs_->addTab(wrapScroll(buildTunerTab()), tr("Tuner"));
+        addLazyTab(tr("Tuner"), [this]() { return buildTunerTab(); });
     }
     if (stream_) {
-        // #91 — VOX its own tab (the TX tab was getting cluttered).
-        tabs_->addTab(wrapScroll(buildVoxTab()), tr("VOX"));
-        // #105 — CW is its own operating mode (RX pitch + TX keyer).
-        tabs_->addTab(wrapScroll(buildCwTab()), tr("CW"));
-        // Frequency calibration (WWV/time-station ppm trim).
-        tabs_->addTab(wrapScroll(buildCalibrationTab()), tr("Calibration"));
+        addLazyTab(tr("VOX"), [this]() { return buildVoxTab(); });
+        addLazyTab(tr("CW"), [this]() { return buildCwTab(); });
+        addLazyTab(tr("Calibration"), [this]() { return buildCalibrationTab(); });
     }
 
     // --- Integrations ---
     if (tci_ || qrv_) {
-        tabs_->addTab(wrapScroll(buildNetworkTab()), tr("Network"));
+        addLazyTab(tr("Network"), [this]() { return buildNetworkTab(); });
     }
     if (prefs_) {
-        tabs_->addTab(wrapScroll(buildRemoteTab()), tr("Remote"));
+        addLazyTab(tr("Remote"), [this]() { return buildRemoteTab(); });
     }
     if (serialPtt_) {
-        tabs_->addTab(wrapScroll(buildCatSerialTab()), tr("CAT / Serial"));
+        addLazyTab(tr("CAT / Serial"), [this]() { return buildCatSerialTab(); });
     }
-    tabs_->addTab(wrapScroll(buildAppsTab()), tr("Apps"));
+    addLazyTab(tr("Apps"), [this]() { return buildAppsTab(); });
 
     // --- Set-once utility / cosmetic (rarely revisited) ---
     if (profiles_) {
-        tabs_->addTab(wrapScroll(buildProfilesTab()), tr("Profiles"));
+        addLazyTab(tr("Profiles"), [this]() { return buildProfilesTab(); });
     }
-    tabs_->addTab(wrapScroll(buildBackupRestoreTab()), tr("Backup & Restore"));
+    addLazyTab(tr("Backup & Restore"), [this]() { return buildBackupRestoreTab(); });
     if (wx_) {
-        tabs_->addTab(wrapScroll(buildWeatherTab()), tr("Weather"));
+        addLazyTab(tr("Weather"), [this]() { return buildWeatherTab(); });
     }
+
+    connect(tabs_, &QTabWidget::currentChanged, this, [this](int i) {
+        if (tabsMayRealize_)
+            realizeTab(i);
+    });
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
@@ -442,6 +420,66 @@ SettingsDialog::SettingsDialog(Prefs *prefs, lyra::ipc::HL2Stream *stream,
     auto *root = new QVBoxLayout(this);
     root->addWidget(tabs_);
     root->addWidget(buttons);
+}
+
+void SettingsDialog::addLazyTab(const QString &title,
+                                std::function<QWidget *()> builder)
+{
+    auto *sa = new QScrollArea(this);
+    sa->setWidgetResizable(true);
+    sa->setFrameShape(QFrame::NoFrame);
+    sa->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    sa->setStyleSheet(QStringLiteral(
+        "QScrollBar:vertical{background:rgb(17,22,32);width:13px;margin:0;}"
+        "QScrollBar::handle:vertical{background:rgba(0,229,255,150);"
+        "min-height:36px;border-radius:5px;margin:2px;}"
+        "QScrollBar::handle:vertical:hover{background:rgb(0,229,255);}"
+        "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+        "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{"
+        "background:transparent;}"));
+    auto *ph = new QWidget;
+    auto *lay = new QVBoxLayout(ph);
+    auto *hint = new QLabel(tr("Loading…"), ph);
+    hint->setAlignment(Qt::AlignCenter);
+    hint->setStyleSheet(QStringLiteral("color:#8fa6ba;"));
+    lay->addStretch(1);
+    lay->addWidget(hint);
+    lay->addStretch(1);
+    sa->setWidget(ph);
+    tabs_->addTab(sa, title);
+    lazyTabs_.push_back({std::move(builder), false});
+}
+
+void SettingsDialog::realizeTab(int index)
+{
+    if (index < 0 || index >= lazyTabs_.size() || lazyTabs_[index].realized)
+        return;
+    auto *sa = qobject_cast<QScrollArea *>(tabs_->widget(index));
+    if (!sa)
+        return;
+    lazyTabs_[index].realized = true;
+    QWidget *page = lazyTabs_[index].builder
+                        ? lazyTabs_[index].builder()
+                        : nullptr;
+    if (page)
+        sa->setWidget(page);
+}
+
+void SettingsDialog::showEvent(QShowEvent *event)
+{
+    QDialog::showEvent(event);
+    // Paint the shell first, then fill the current tab on a 0-timer so
+    // File → Settings is not blocked by Hardware/Audio widget trees.
+    const bool firstShow = !tabsMayRealize_;
+    tabsMayRealize_ = true;
+    if (firstShow) {
+        QTimer::singleShot(0, this, [this]() {
+            if (tabs_)
+                realizeTab(tabs_->currentIndex());
+        });
+    } else {
+        realizeTab(tabs_->currentIndex());
+    }
 }
 
 QWidget *SettingsDialog::buildAudioTab() {
@@ -453,8 +491,15 @@ QWidget *SettingsDialog::buildAudioTab() {
     // keeps mute + volume).  Index 0 = HL2 onboard codec (AK4951);
     // 1..N = the operator's PC sound devices.
     auto *outCombo = new QComboBox(page);
-    outCombo->addItems(engine_->audioOutputDevices());
-    outCombo->setCurrentIndex(engine_->audioDeviceIndex());
+    outCombo->addItem(tr("Loading devices…"));
+    QTimer::singleShot(0, page, [this, outCombo]() {
+        if (!engine_)
+            return;
+        QSignalBlocker b(outCombo);
+        outCombo->clear();
+        outCombo->addItems(engine_->audioOutputDevices());
+        outCombo->setCurrentIndex(engine_->audioDeviceIndex());
+    });
     connect(outCombo, &QComboBox::activated, engine_,
             [this](int idx) { engine_->setAudioOutputDevice(idx); });
     // Reflect an external change back into the combo.
@@ -707,29 +752,16 @@ QWidget *SettingsDialog::buildAudioTab() {
         // Selecting a driver repopulates the Output/Input device combos with
         // that host API's devices (PA index stored as item userData).
         auto *vacDriver = new QComboBox(grp);
-        {
-            const QStringList apis = engine_->vac1HostApiNames();
-            const QList<int>  idxs = engine_->vac1HostApiPaIndices();
-            for (int i = 0; i < apis.size(); ++i)
-                vacDriver->addItem(apis[i], i < idxs.size() ? idxs[i] : -1);
-            const int sel = vacDriver->findText(engine_->vac1HostApiName());
-            vacDriver->setCurrentIndex(sel >= 0 ? sel : 0);
-        }
+        vacDriver->addItem(tr("Loading…"));
+        vacDriver->setEnabled(false);
         vacDriver->setToolTip(tr(
             "Audio backend (PortAudio host API) the VAC devices live under — "
             "WASAPI for virtual cables (VB-Audio / VAC).  Changing it "
             "repopulates the Output and Input device lists below."));
         vf->addRow(tr("Driver"), vacDriver);
 
-        const int curApi0 = vacDriver->currentData().toInt();
-
         auto *vacDev = new QComboBox(grp);
         vacDev->addItem(tr("(none)"));
-        vacDev->addItems(engine_->vac1OutputDevicesFor(curApi0));
-        {
-            const int i = vacDev->findText(engine_->vac1OutputDeviceName());
-            vacDev->setCurrentIndex(i >= 0 ? i : 0);
-        }
         vacDev->setToolTip(tr(
             "PC output device the RX audio is sent to (the cable's playback "
             "endpoint, for a digital-mode app to decode).\n\n"
@@ -755,11 +787,6 @@ QWidget *SettingsDialog::buildAudioTab() {
         // reaches TX only when the mic source is "PC Soundcard (VAC1)".
         auto *vacInDev = new QComboBox(grp);
         vacInDev->addItem(tr("(none)"));
-        vacInDev->addItems(engine_->vac1InputDevicesFor(curApi0));
-        {
-            const int i = vacInDev->findText(engine_->vac1InputDeviceName());
-            vacInDev->setCurrentIndex(i >= 0 ? i : 0);
-        }
         vacInDev->setToolTip(tr("PC input device used as the TX mic when the "
             "mic source is “PC Soundcard (VAC1)” — the virtual "
             "cable's recording endpoint for a digital app, or a USB mic for "
@@ -939,6 +966,35 @@ QWidget *SettingsDialog::buildAudioTab() {
         connect(vacMuteVac, &QCheckBox::toggled, engine_,
                 [this](bool on) { engine_->setMuteWillMuteVac(on); });
 
+        QTimer::singleShot(0, grp, [this, vacDriver, vacDev, vacInDev]() {
+            if (!engine_)
+                return;
+            QSignalBlocker b1(vacDriver), b2(vacDev), b3(vacInDev);
+            vacDriver->clear();
+            const QStringList apis = engine_->vac1HostApiNames();
+            const QList<int> idxs = engine_->vac1HostApiPaIndices();
+            for (int i = 0; i < apis.size(); ++i)
+                vacDriver->addItem(apis[i], i < idxs.size() ? idxs[i] : -1);
+            const int sel = vacDriver->findText(engine_->vac1HostApiName());
+            vacDriver->setCurrentIndex(sel >= 0 ? sel : 0);
+            vacDriver->setEnabled(true);
+            const int api = vacDriver->currentData().toInt();
+            vacDev->clear();
+            vacDev->addItem(tr("(none)"));
+            vacDev->addItems(engine_->vac1OutputDevicesFor(api));
+            {
+                const int i = vacDev->findText(engine_->vac1OutputDeviceName());
+                vacDev->setCurrentIndex(i >= 0 ? i : 0);
+            }
+            vacInDev->clear();
+            vacInDev->addItem(tr("(none)"));
+            vacInDev->addItems(engine_->vac1InputDevicesFor(api));
+            {
+                const int i = vacInDev->findText(engine_->vac1InputDeviceName());
+                vacInDev->setCurrentIndex(i >= 0 ? i : 0);
+            }
+        });
+
         // ← engine (reflect programmatic/external changes)
         connect(engine_, &lyra::dsp::WdspEngine::vac1Changed, grp,
                 [this, vacEnable, vacAuto, vacGain, vacTxGain, vacCombine,
@@ -1029,27 +1085,14 @@ QWidget *SettingsDialog::buildAudioTab() {
         vf->addRow(vacAsTx);
 
         auto *vacDriver = new QComboBox(grp);
-        {
-            const QStringList apis = engine_->vac2HostApiNames();
-            const QList<int>  idxs = engine_->vac2HostApiPaIndices();
-            for (int i = 0; i < apis.size(); ++i)
-                vacDriver->addItem(apis[i], i < idxs.size() ? idxs[i] : -1);
-            const int sel = vacDriver->findText(engine_->vac2HostApiName());
-            vacDriver->setCurrentIndex(sel >= 0 ? sel : 0);
-        }
+        vacDriver->addItem(tr("Loading…"));
+        vacDriver->setEnabled(false);
         vacDriver->setToolTip(tr(
             "Audio backend for VAC2 devices (typically WASAPI for VB-Audio / VAC)."));
         vf->addRow(tr("Driver"), vacDriver);
 
-        const int curApi2 = vacDriver->currentData().toInt();
-
         auto *vacDev = new QComboBox(grp);
         vacDev->addItem(tr("(none)"));
-        vacDev->addItems(engine_->vac2OutputDevicesFor(curApi2));
-        {
-            const int i = vacDev->findText(engine_->vac2OutputDeviceName());
-            vacDev->setCurrentIndex(i >= 0 ? i : 0);
-        }
         vacDev->setToolTip(tr(
             "PC output for RX2 audio.  Use a second virtual cable, not the "
             "same cable as VAC1, and not your speakers."));
@@ -1065,11 +1108,6 @@ QWidget *SettingsDialog::buildAudioTab() {
 
         auto *vacInDev = new QComboBox(grp);
         vacInDev->addItem(tr("(none)"));
-        vacInDev->addItems(engine_->vac2InputDevicesFor(curApi2));
-        {
-            const int i = vacInDev->findText(engine_->vac2InputDeviceName());
-            vacInDev->setCurrentIndex(i >= 0 ? i : 0);
-        }
         vacInDev->setToolTip(tr(
             "PC input used as TX mic when Mic source is VAC2."));
         vf->addRow(tr("Input device"), vacInDev);
@@ -1221,6 +1259,35 @@ QWidget *SettingsDialog::buildAudioTab() {
                 [this](bool on) { engine_->setVac2CombineInput(on); });
         connect(vacMuteVac, &QCheckBox::toggled, engine_,
                 [this](bool on) { engine_->setVac2MuteWillMuteVac(on); });
+
+        QTimer::singleShot(0, grp, [this, vacDriver, vacDev, vacInDev]() {
+            if (!engine_)
+                return;
+            QSignalBlocker b1(vacDriver), b2(vacDev), b3(vacInDev);
+            vacDriver->clear();
+            const QStringList apis = engine_->vac2HostApiNames();
+            const QList<int> idxs = engine_->vac2HostApiPaIndices();
+            for (int i = 0; i < apis.size(); ++i)
+                vacDriver->addItem(apis[i], i < idxs.size() ? idxs[i] : -1);
+            const int sel = vacDriver->findText(engine_->vac2HostApiName());
+            vacDriver->setCurrentIndex(sel >= 0 ? sel : 0);
+            vacDriver->setEnabled(true);
+            const int api = vacDriver->currentData().toInt();
+            vacDev->clear();
+            vacDev->addItem(tr("(none)"));
+            vacDev->addItems(engine_->vac2OutputDevicesFor(api));
+            {
+                const int i = vacDev->findText(engine_->vac2OutputDeviceName());
+                vacDev->setCurrentIndex(i >= 0 ? i : 0);
+            }
+            vacInDev->clear();
+            vacInDev->addItem(tr("(none)"));
+            vacInDev->addItems(engine_->vac2InputDevicesFor(api));
+            {
+                const int i = vacInDev->findText(engine_->vac2InputDeviceName());
+                vacInDev->setCurrentIndex(i >= 0 ? i : 0);
+            }
+        });
 
         connect(engine_, &lyra::dsp::WdspEngine::vac2Changed, grp,
                 [this, vacEnable, vacAuto, vacGain, vacTxGain, vacCombine,
@@ -1737,7 +1804,8 @@ QWidget *SettingsDialog::buildCatSerialTab() {
         const int idx = portCombo->findData(cur);
         portCombo->setCurrentIndex(idx < 0 ? 0 : idx);
     };
-    repopulate();
+    portCombo->addItem(tr("(none)"), QString());
+    QTimer::singleShot(0, portCombo, repopulate);
     form->addRow(tr("COM port:"), portCombo);
     auto applyPttPort = [this, portCombo, resolvePort]() {
         serialPtt_->setPortName(resolvePort(portCombo));
@@ -1846,7 +1914,8 @@ QWidget *SettingsDialog::buildCatSerialTab() {
             const int idx = cport->findData(cur);
             cport->setCurrentIndex(idx < 0 ? 0 : idx);
         };
-        crepop();
+        cport->addItem(tr("(none)"), QString());
+        QTimer::singleShot(0, cport, crepop);
         cf->addRow(tr("COM port:"), capW(cport, 380));
         auto applyCatPort = [cat, cport, resolvePort]() {
             cat->setPortName(resolvePort(cport));
@@ -2850,15 +2919,16 @@ QWidget *SettingsDialog::buildRemoteTab() {
             "when you key. The transmit panel's Mic source is the "
             "radio's own input, so a High Definition device on this "
             "PC is chosen here."));
-        {
+        micPick->addItem(tr("Windows default"), QString());
+        QTimer::singleShot(0, lyra, [micPick]() {
             const QString saved = QSettings().value(
                 QStringLiteral("deskRemote/micDevice")).toString();
             const QString vac = QSettings().value(
                 QStringLiteral("vac1/inputDevice")).toString();
             const QString cur = !saved.isEmpty() ? saved : vac;
-            micPick->addItem(tr("Windows default"), QString());
             int pick = 0;
             const auto inputs = QMediaDevices::audioInputs();
+            QSignalBlocker b(micPick);
             for (const QAudioDevice &d : inputs) {
                 micPick->addItem(d.description(), d.description());
                 if (!cur.isEmpty()
@@ -2866,7 +2936,7 @@ QWidget *SettingsDialog::buildRemoteTab() {
                     pick = micPick->count() - 1;
             }
             micPick->setCurrentIndex(pick);
-        }
+        });
         connect(micPick, &QComboBox::activated, lyra, [micPick](int) {
             QSettings().setValue(QStringLiteral("deskRemote/micDevice"),
                                  micPick->currentData().toString());
@@ -3788,7 +3858,8 @@ QWidget *SettingsDialog::buildHardwareTab() {
             combo->setCurrentIndex(sel);
             combo->blockSignals(false);
         };
-        fillCombo();
+        combo->addItem(tr("Select your tuning knob…"), QString());
+        QTimer::singleShot(0, grp, fillCombo);
         connect(combo, &QComboBox::currentIndexChanged, grp,
                 [this, combo](int) {
             prefs_->setHidVfoDeviceId(
@@ -7644,7 +7715,8 @@ QWidget *SettingsDialog::buildCwTab() {
             const int idx = portCombo->findData(cur);
             portCombo->setCurrentIndex(idx < 0 ? 0 : idx);
         };
-        repopulate();
+        portCombo->addItem(tr("(none)"), QString());
+        QTimer::singleShot(0, portCombo, repopulate);
         form->addRow(tr("COM port:"), portCombo);
 
         // Resolve the chosen port from the editable combo: prefer the item's

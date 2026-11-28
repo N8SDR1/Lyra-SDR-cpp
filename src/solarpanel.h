@@ -2,7 +2,7 @@
 //
 // A compact horizontal readout (ported from old Lyra's
 // propagation_panel.py): SFI / A-index / K-index value boxes (colour-
-// coded) plus a 10-band Good/Fair/Poor heat-map keyed to the operator's
+// coded) plus an 8-band Good/Fair/Poor heat-map (HamQSL 80–10 m) keyed to the operator's
 // current day or night.  Driven by SolarService; pure QtWidgets.
 
 #pragma once

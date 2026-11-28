@@ -30,11 +30,26 @@ not programmers — if you can click a menu, you can use this.
 
 ## Current build
 
-**v0.25.47 Jugum** — TCI audio no longer follows the AF slider, VAC
-works with only one device, and this guide has a search box, plus
-everything in v0.25.46. Star name **Jugum** (δ Lyrae). Full installer
-over 0.25.46: **Lyra-cpp** settings stay. **v0.25.46** is the previous
-public build. See [What's new in 0.25.47](#whats-new-in-02547).
+**v0.25.48 Double Double** — HamQSL solar refresh is hourly, the PROP
+strip shows 80–10 m only (no 160 / 6), and Settings builds each tab on
+first visit so opening it does not stall the radio, plus everything in
+v0.25.47. Star name **Double Double** (ε Lyrae). Full installer over
+0.25.47: **Lyra-cpp** settings stay. **v0.25.47** is the previous public
+build. See [What's new in 0.25.48](#whats-new-in-02548).
+
+## What's new in 0.25.48
+
+- **HamQSL hourly.** The Solar / Propagation strip fetches N0NBH's
+  HamQSL feed when Lyra starts and about every **60 minutes** after that
+  (matching how often HamQSL itself updates). The day/night split still
+  follows your grid square.
+- **PROP 80–10 m.** The heat-map chips are **80 through 10** m. HamQSL
+  has no rating for **160 m** or **6 m**, so those bands stay on the Band
+  panel and are not shown on PROP.
+- **Settings opens without stalling the radio.** The first time you open
+  Settings, Lyra used to build every tab at once (~2.5 s hitch). Tabs
+  are now built on first visit, so the radio keeps running while you
+  open the dialog.
 
 ## What's new in 0.25.47
 
@@ -965,6 +980,8 @@ Dummy load first.
 
 ## Contents
 
+- [What's new in 0.25.48](#whats-new-in-02548)
+- [What's new in 0.25.47](#whats-new-in-02547)
 - [What's new in 0.25.46](#whats-new-in-02546)
 - [What's new in 0.25.45](#whats-new-in-02545)
 - [What's new in 0.25.44](#whats-new-in-02544)
@@ -1616,7 +1633,9 @@ travels: no settings, no radio address, and no window size, so a shared
 layout drops cleanly onto any screen. (Importing applies it live; use
 **Save current layout to** a slot afterward if you want to keep it.)
 
-**Opening Settings:** **File → Settings…**, or press **Ctrl+,**.
+**Opening Settings:** **File → Settings…**, or press **Ctrl+,**. The
+dialog shell opens at once; each tab is built the first time you visit
+it, so the first open no longer stalls the radio for a couple of seconds.
 
 ---
 
@@ -4320,24 +4339,26 @@ A compact strip showing current **HF propagation** conditions from
   **A**, or **K** box for the full picture — sunspot number, X-ray level,
   solar wind, and when HamQSL last updated. That tip pops **just under
   the box**, not in the parked Help balloon.
-- **A 10-band heat-map** — `160` through `6` m, each tinted **green
-  (Good)**, **amber (Fair)**, **red (Poor)**, or **gray (no prediction)**.
+- **An 8-band heat-map** — `80` through `10` m, each tinted **green
+  (Good)**, **amber (Fair)**, or **red (Poor)**.
   Hover a band and the rating pops **just under that chip** (Good / Fair /
   Poor, day or night). **Click a chip** to tune **VFO A** to
   that band's current stored frequency (the slot the Band panel would
-  land on). It does not step the 1 / 2 / 3 stack.
+  land on). It does not step the 1 / 2 / 3 stack. **160 m** and **6 m**
+  stay on the Band panel; HamQSL has no prediction for them, so they
+  are not shown here.
 
 The ratings are shown for **your current day or night** — Lyra works out
 whether it's daylight at your location and picks HamQSL's day or night
 figures accordingly. For that to be right, set your **grid square** (or
 manual lat/lon) in
 [Settings → Hardware → Operator / Station](#operator--station); without a
-location it assumes daytime. HamQSL doesn't predict **160 m** or **6 m**,
-so those two always show gray.
+location it assumes daytime.
 
-The data is fetched when Lyra starts and refreshed about every 15 minutes
-(the day/night split updates on its own as the sun rises and sets). It's
-read-only and needs no account or key — just an internet connection. If
+The data is fetched when Lyra starts and refreshed about every 60 minutes
+(hourly, matching HamQSL). The day/night split updates on its own as the
+sun rises and sets. It's read-only and needs no account or key — just an
+internet connection. If
 the feed can't be reached, the last-known figures stay on screen and the
 SFI tooltip notes the error.
 
